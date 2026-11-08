@@ -65,6 +65,13 @@ function patchInboxConversation(qc: QueryClient, conv: Conversation) {
 }
 
 function patchDock(qc: QueryClient, dock: Dock) {
+  if (dock.status === "linking") {
+    // Events never carry the pairing QR (they are stored): keep the one we
+    // have and fetch the new one.
+    const old = qc.getQueryData<Dock>(keys.dock(dock.id))
+    dock = { ...dock, qr_code: old?.qr_code }
+    void qc.invalidateQueries({ queryKey: keys.dock(dock.id), exact: true })
+  }
   qc.setQueryData(keys.dock(dock.id), dock)
   qc.setQueryData<Paginated<Dock>>(keys.docks, (old) => {
     if (!old) return old

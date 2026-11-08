@@ -20,6 +20,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/event/eventpg"
 	"github.com/Abraxas-365/seaport/internal/event/eventsse"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -39,6 +40,7 @@ var Version = "dev"
 type App struct {
 	Handler http.Handler
 	db      *sqlx.DB
+	bus     *event.Bus
 	docks   *dockmodule.Module
 	ships   *shipmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
@@ -112,17 +114,24 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		lease = config.ClaimLease
 	}
 
-	bus := event.NewBus()
+	// Started here, so a port that can't read its event log doesn't start.
+	bus := event.NewBus(eventpg.New(db))
+	if err := bus.Start(ctx); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	convs := conversationmodule.New(db, bus)
 	var secretKey string
 	if !opts.DisableWhatsApp {
 		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
+			bus.Close()
 			_ = db.Close()
 			return nil, err
 		}
 	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
 	if err != nil {
+		bus.Close()
 		_ = db.Close()
 		return nil, err
 	}
@@ -142,6 +151,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		if cfg.Auth == config.AuthIAM {
 			if signIn, err = authmodule.New(db, cfg, crew.Resolver); err != nil {
 				docks.Close()
+				bus.Close()
 				_ = db.Close()
 				return nil, err
 			}
@@ -192,7 +202,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
+	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, bus: bus, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -243,6 +253,9 @@ func (a *App) Start(ctx context.Context) {
 				if _, err := a.ships.Service.ReleaseExpired(ctx, time.Now()); err != nil {
 					slog.Error("sweep expired claims", "err", err)
 				}
+				if _, err := a.bus.Sweep(ctx, time.Now().Add(-config.EventRetention)); err != nil {
+					slog.Error("sweep old events", "err", err)
+				}
 			}
 		}
 	}()
@@ -252,6 +265,7 @@ func (a *App) Start(ctx context.Context) {
 func (a *App) Close() {
 	a.stopOnce()
 	a.docks.Close()
+	a.bus.Close()
 	_ = a.db.Close()
 }
 

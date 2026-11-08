@@ -59,8 +59,9 @@ cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx seal   foundation (import no domain)
   permission          permission catalog generated from iam/permissions.json (foundation)
-  event (+eventsse)   in-memory event bus + SSE stream (foundation; payloads
-                      are domain types, published by services via event.Publisher)
+  event (+eventsse,   event bus over a Log (eventpg: Postgres table + LISTEN/
+   eventpg)           NOTIFY) + SSE stream (foundation; payloads are domain
+                      types, published by services via event.Publisher)
   bootstrap           composition root (+ architecture and e2e tests; events.go
                       maps each event type to the permission that reads it)
   auth/               iam mode: browser sessions, bearer checks; authsvc, authmodule,
@@ -102,7 +103,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
-  and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit)
+  and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
+  pgx itself → `bootstrap`, `pgerr`, `event/eventpg` (LISTEN connection)
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -170,15 +172,26 @@ test together with the reason. Add a rule when you add a pattern.
 - API rate limit (`httpx.RateLimit`, `SEAPORT_API_RATE`/`_BURST`): a token
   bucket per principal (organization + role + subject + credential; agents
   sharing one crew token share its bucket) after the
-  Authenticator on `/api/`, `/crew/ws`, `/mcp`; in memory (single process,
-  like the event bus). Public routes are not limited. The web app retries
+  Authenticator on `/api/`, `/crew/ws`, `/mcp`; in memory, per process
+  (with N replicas a caller may get up to N× the rate: accepted). Public routes are not limited. The web app retries
   reads on 429 after `Retry-After`.
 - Live events (`/api/v1/events`): services publish after their write
   succeeds (dock/conversation/customs/ship/delivery), the hub publishes
-  `crew.changed`. The bus is in memory with a 512-event replay window keyed
-  by `<boot>-<seq>`; an unknown `Last-Event-ID` gets `reset` (client
-  refetches). Slow subscribers are dropped, never block publishers. Single
-  process per database until the bus moves to Postgres LISTEN/NOTIFY.
+  `crew.changed`. `Publish` appends to the `events` table (`eventpg`:
+  insert + `pg_notify` under advisory lock `7_401_005`, so ids commit in id
+  order and "id > last seen" never skips one); every process LISTENs on its
+  own connection (plus a 2 s poll) and fans out to its subscribers, so any
+  replica streams every replica's events. The SSE id is the row id: a client
+  resumes on any replica; an id older than `config.EventRetention` (swept)
+  or never issued gets `reset` (client refetches). Subscribe replays
+  `(last, head]` from the table and its channel carries what comes after
+  head, up to 1000 events, else `reset` (no gap, no duplicate). Slow
+  subscribers are dropped, never block publishers; a failed append is
+  logged (events notify, the change is already stored). The bus starts in
+  `Build` (a port that can't read its log doesn't start). Payloads are
+  stored in clear for an hour: never publish secrets — `dock.updated` goes
+  through `docksvc.announce`, which drops the pairing QR (the web refetches
+  a linking dock; `TestEventsNeverCarryTheQR`).
 - Modes (`SEAPORT_AUTH`, plan `~/.rness/plans/puerto/modes-and-tenancy.md`):
   auth is the `httpx.Authenticator` port, picked once in `bootstrap`
   (`Open` for `none`, `Tokens` for `token`, `authhttp` for `iam`); it puts an

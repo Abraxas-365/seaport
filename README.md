@@ -309,14 +309,16 @@ session cookie). Each event's `data` is JSON:
 | event | data |
 |---|---|
 | `ready` | `{"boot"}`, first on every stream |
-| `reset` | the `Last-Event-ID` is unknown (restart or too old): refetch state |
-| `dock.updated` / `dock.deleted` | the dock (status, new QR) / `{"id"}` |
+| `reset` | the `Last-Event-ID` is unknown, older than an hour or too far behind: refetch state |
+| `dock.updated` / `dock.deleted` | the dock (status; a new QR without the code: fetch the dock) / `{"id"}` |
 | `conversation.updated` | the conversation (new, title, handles, customs status) |
 | `customs.updated` | `{"customs"}` of a dock |
 | `ship.created` / `ship.updated` | the ship (inbound, outbound pending → sent/failed) |
 | `delivery.changed` | `{"state":"claimed\|joined\|acked\|released\|expired", "delivery_id", "conversation_id", "ship_ids", "count", "owner"}` |
 | `crew.changed` | the whole crew status (as `GET /api/v1/crew`) |
 
-Event ids are `<boot>-<seq>`; the browser resends the last one on
-reconnect and gets what it missed (last 512 events of this process).
-Events are in memory: one process per database for now.
+Events are stored in Postgres for an hour and announced with
+LISTEN/NOTIFY, so every Seaport process streams every process's events.
+The browser resends the last event id on reconnect (to any process) and
+gets what it missed; after an hour, or with an unknown id, it gets `reset`
+and refetches.

@@ -20,6 +20,9 @@ const (
 	ClaimLease = 10 * time.Minute
 	// SweepInterval is how often expired claims are released.
 	SweepInterval = 30 * time.Second
+	// EventRetention is how long the event log keeps events: a live client
+	// reconnecting within it resumes, later ones refetch (reset).
+	EventRetention = time.Hour
 	// SessionTTL is how long a browser session (admin cookie) lasts.
 	SessionTTL = 7 * 24 * time.Hour
 )

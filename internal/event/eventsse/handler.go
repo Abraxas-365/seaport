@@ -22,7 +22,8 @@ var errUnauthenticated = errx.Unauthorized("missing or invalid token")
 
 // Handler streams events. A client reconnecting with Last-Event-ID gets
 // what it missed, or a "reset" event when that is no longer known (it must
-// refetch its state). Every stream starts with "ready" {boot}. A stream
+// refetch its state). Ids are the log's (every process's), so a client
+// may reconnect to any replica. Every stream starts with "ready" {boot}. A stream
 // only carries the events of the caller's organization (httpx principal),
 // and of those only the types whose read permission (perms: event type →
 // permission) the caller holds; a type missing from perms is never sent.
@@ -44,7 +45,11 @@ func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) http
 			httpx.WriteError(w, r, errUnauthenticated)
 			return
 		}
-		sub, replay, reset := bus.Subscribe(p.Organization, last)
+		sub, replay, reset, err := bus.Subscribe(r.Context(), p.Organization, last)
+		if err != nil {
+			httpx.WriteError(w, r, err)
+			return
+		}
 		defer sub.Close()
 		w.WriteHeader(http.StatusOK)
 

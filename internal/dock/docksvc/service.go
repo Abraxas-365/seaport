@@ -89,7 +89,7 @@ func (s *Service) link(ctx context.Context, d dock.Dock) (dock.Dock, error) {
 	}
 	out, err := s.Find(ctx, d.Organization, d.ID)
 	if err == nil {
-		s.events.Publish(out.Organization, dock.EventUpdated, out)
+		s.announce(out)
 	}
 	return out, err
 }
@@ -104,9 +104,8 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "update dock", errx.TypeInternal)
 	}
-	d = s.withQR(d)
-	s.events.Publish(org, dock.EventUpdated, d)
-	return d, nil
+	s.announce(d)
+	return s.withQR(d), nil
 }
 
 func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
@@ -153,7 +152,15 @@ func (s *Service) PairingChanged(ctx context.Context, id identity.DockID) {
 	s.publish(ctx, id)
 }
 
-// publish announces a dock's current state (with its QR while linking).
+// announce publishes a dock's state, never with its QR: events are stored
+// in clear; clients fetch the dock (GET returns the QR) when an event says
+// it is linking. Every dock.updated goes through here.
+func (s *Service) announce(d dock.Dock) {
+	d.QRCode = ""
+	s.events.Publish(d.Organization, dock.EventUpdated, d)
+}
+
+// publish announces a dock's current state.
 func (s *Service) publish(ctx context.Context, id identity.DockID) {
 	d, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -162,7 +169,7 @@ func (s *Service) publish(ctx context.Context, id identity.DockID) {
 		}
 		return
 	}
-	s.events.Publish(d.Organization, dock.EventUpdated, s.withQR(d))
+	s.announce(d)
 }
 
 func (s *Service) SetLinked(ctx context.Context, id identity.DockID, address string) error {

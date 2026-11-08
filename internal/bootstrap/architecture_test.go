@@ -55,6 +55,9 @@ var vendorSDKs = map[string][]string{
 	"github.com/Abraxas-365/seaport/web": {"bootstrap"},
 	// the per-caller API rate limit (httpx.RateLimit)
 	"golang.org/x/time": {"httpx"},
+	// pgx itself (not via database/sql): opening the pool, error codes, and
+	// the event log's LISTEN connection
+	"github.com/jackc/pgx": {"bootstrap", "pgerr", "event/eventpg"},
 }
 
 // forbiddenEverywhere: packages no production code may import, with why.
