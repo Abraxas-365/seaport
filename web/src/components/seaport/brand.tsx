@@ -4,8 +4,8 @@ import { MessageCircle, Webhook } from "lucide-react"
 import type { Channel } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-/** Puerto's mark: an anchor ring, drawn so it reads at 16px. */
-export function PuertoMark({ className, ...props }: React.ComponentProps<"svg">) {
+/** Seaport's mark: an anchor ring, drawn so it reads at 16px. */
+export function SeaportMark({ className, ...props }: React.ComponentProps<"svg">) {
   return (
     <svg viewBox="0 0 32 32" fill="none" aria-hidden className={cn("size-6", className)} {...props}>
       <rect width="32" height="32" rx="9" className="fill-primary" />
@@ -24,11 +24,11 @@ export function PuertoMark({ className, ...props }: React.ComponentProps<"svg">)
   )
 }
 
-export function PuertoLogo({ className }: { className?: string }) {
+export function SeaportLogo({ className }: { className?: string }) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
-      <PuertoMark />
-      <span className="font-heading text-[0.95rem] font-semibold tracking-tight">Puerto</span>
+      <SeaportMark />
+      <span className="font-heading text-[0.95rem] font-semibold tracking-tight">Seaport</span>
     </span>
   )
 }

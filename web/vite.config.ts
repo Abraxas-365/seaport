@@ -4,14 +4,14 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
-// `pnpm dev` proxies the API to a running `puerto serve` (PUERTO_URL,
+// `pnpm dev` proxies the API to a running `seaport serve` (SEAPORT_URL,
 // default http://127.0.0.1:8740), so the session cookie stays same-origin.
-const backend = process.env.PUERTO_URL ?? "http://127.0.0.1:8740"
+const backend = process.env.SEAPORT_URL ?? "http://127.0.0.1:8740"
 
 // dist/ is embedded in the Go binary (web/embed.go); its tracked .gitkeep
 // keeps `go build` working before the first frontend build.
 const keepDist: Plugin = {
-  name: "puerto-keep-dist",
+  name: "seaport-keep-dist",
   apply: "build",
   closeBundle() {
     writeFileSync(resolve(import.meta.dirname, "dist/.gitkeep"), "")

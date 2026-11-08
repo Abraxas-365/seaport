@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/query"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // MaxJSONBody is the request body limit for JSON endpoints.

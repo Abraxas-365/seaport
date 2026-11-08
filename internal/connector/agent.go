@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	acp "github.com/coder/acp-go-sdk"
 )
 
@@ -60,7 +60,7 @@ func StartAgent(ctx context.Context, cfg Config) (*Agent, error) {
 
 	init, err := a.conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
-		ClientInfo:      &acp.Implementation{Name: "puerto", Version: "0.1"},
+		ClientInfo:      &acp.Implementation{Name: "seaport", Version: "0.1"},
 	})
 	if err != nil {
 		a.Close()
@@ -168,7 +168,7 @@ func (a *Agent) mcpServers() []acp.McpServer {
 		headers = append(headers, acp.HttpHeader{Name: "Authorization", Value: "Bearer " + a.cfg.Token})
 	}
 	return []acp.McpServer{{Http: &acp.McpServerHttpInline{
-		Name: "puerto", Type: "http", Url: a.mcpURL, Headers: headers,
+		Name: "seaport", Type: "http", Url: a.mcpURL, Headers: headers,
 	}}}
 }
 

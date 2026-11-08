@@ -3,7 +3,7 @@ package crew
 import (
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 // EventChanged: an agent connected or disconnected, or its deliveries
@@ -15,7 +15,7 @@ type Status struct {
 	Agents []Agent `json:"agents"`
 }
 
-// Agent is one connected connector (`puerto connect`).
+// Agent is one connected connector (`seaport connect`).
 type Agent struct {
 	// Session identifies this connection (a reconnect gets a new one).
 	Session     string    `json:"session"`

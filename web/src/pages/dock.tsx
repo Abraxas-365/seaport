@@ -47,7 +47,7 @@ import {
   channelLabel,
   dockLabel,
   dockTone,
-} from "@/components/puerto"
+} from "@/components/seaport"
 
 export function DockPage() {
   const { dockId = "" } = useParams()
@@ -161,7 +161,7 @@ function DockDetail({ dock }: { dock: Dock }) {
               </CardTitle>
               <CardDescription>
                 {dock.status === "linking"
-                  ? "Puerto se conectará como un dispositivo vinculado de tu WhatsApp."
+                  ? "Seaport se conectará como un dispositivo vinculado de tu WhatsApp."
                   : dock.status === "failed"
                     ? "La vinculación falló o el código expiró."
                     : "La sesión se cerró. Genera un QR nuevo para volver a recibir mensajes."}
@@ -296,7 +296,7 @@ function ApiDockCard({ dock }: { dock: Dock }) {
   const [busy, setBusy] = React.useState(false)
   const url = `${window.location.origin}/api/v1/docks/${dock.id}/ships`
   const curl = `curl -X POST ${url} \\
-  -H "Authorization: Bearer $PUERTO_ADMIN_TOKEN" \\
+  -H "Authorization: Bearer $SEAPORT_ADMIN_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"chat_id":"cliente-42","message_id":"m-1","sender_name":"Ana","text":"Hola"}'`
 

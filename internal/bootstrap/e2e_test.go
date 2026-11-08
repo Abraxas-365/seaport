@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/bootstrap"
-	"github.com/Abraxas-365/puerto/internal/config"
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/crew"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/bootstrap"
+	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/coder/websocket"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -29,12 +29,12 @@ const (
 )
 
 // testDatabaseURL is the throwaway database of the integration tests
-// (docker compose up -d; createdb puerto_test). Tests skip without it.
+// (docker compose up -d; createdb seaport_test). Tests skip without it.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("PUERTO_TEST_DATABASE_URL")
+	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("PUERTO_TEST_DATABASE_URL not set")
+		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
 	}
 	return url
 }
@@ -526,9 +526,9 @@ func TestCustomsRules(t *testing.T) {
 	g1 := p.injectWith(d, map[string]any{"chat_id": "999@g.us", "chat_kind": "group", "chat_title": "Familia",
 		"message_id": "g1", "sender_id": "+34600000000", "text": "qué tal todos"})
 	g2 := p.injectWith(d, map[string]any{"chat_id": "999@g.us", "chat_kind": "group",
-		"message_id": "g2", "sender_id": "+34600000000", "text": "@puerto ayuda", "addressed": true})
+		"message_id": "g2", "sender_id": "+34600000000", "text": "@seaport ayuda", "addressed": true})
 	g3 := p.injectWith(d, map[string]any{"chat_id": "999@g.us", "chat_kind": "group",
-		"message_id": "g3", "sender_id": "+51999888777", "text": "@puerto compra ya", "addressed": true})
+		"message_id": "g3", "sender_id": "+51999888777", "text": "@seaport compra ya", "addressed": true})
 	if g1.Status != ship.StatusHeld || g2.Status != ship.StatusQueued || g3.Status != ship.StatusHeld {
 		t.Fatalf("group: unmentioned=%s mentioned=%s denied member=%s", g1.Status, g2.Status, g3.Status)
 	}

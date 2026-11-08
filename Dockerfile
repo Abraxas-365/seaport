@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
-# Puerto: web app (pnpm) → Go binary with the app embedded → distroless.
-#   docker build -t puerto --build-arg VERSION=$(git describe --always --dirty) .
+# Seaport: web app (pnpm) → Go binary with the app embedded → distroless.
+#   docker build -t seaport --build-arg VERSION=$(git describe --always --dirty) .
 
 FROM node:22-alpine AS web
 WORKDIR /src/web
@@ -20,17 +20,17 @@ COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath \
-      -ldflags "-s -w -X github.com/Abraxas-365/puerto/internal/bootstrap.Version=${VERSION}" \
-      -o /out/puerto ./cmd/puerto
+      -ldflags "-s -w -X github.com/Abraxas-365/seaport/internal/bootstrap.Version=${VERSION}" \
+      -o /out/seaport ./cmd/seaport
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/puerto /usr/local/bin/puerto
+COPY --from=build /out/seaport /usr/local/bin/seaport
 # Inside a container the port must listen on all interfaces; publish it only
 # to the reverse proxy (deploy/compose.yaml), never straight to the internet.
-ENV PUERTO_ADDR=0.0.0.0:8740
+ENV SEAPORT_ADDR=0.0.0.0:8740
 EXPOSE 8740
 USER nonroot:nonroot
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["/usr/local/bin/puerto", "healthcheck"]
-ENTRYPOINT ["/usr/local/bin/puerto"]
+    CMD ["/usr/local/bin/seaport", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/seaport"]
 CMD ["serve"]

@@ -23,7 +23,7 @@ import (
 )
 
 // modulePath is the Go module path + "/internal/".
-const modulePath = "github.com/Abraxas-365/puerto/internal/"
+const modulePath = "github.com/Abraxas-365/seaport/internal/"
 
 // foundation packages (first path segment under internal/) import no domain.
 var foundation = map[string]bool{
@@ -35,7 +35,7 @@ var foundation = map[string]bool{
 // wiring packages (composition root) may import everything.
 var wiring = map[string]bool{"bootstrap": true, "server": true}
 
-// clients run on the agent's machine (puerto connect): they talk to the
+// clients run on the agent's machine (seaport connect): they talk to the
 // port only over the wire, so they import foundation and domain roots (wire
 // types) but no service, adapter, assembler or wiring.
 var clients = map[string]bool{"connector": true}
@@ -49,7 +49,7 @@ var vendorSDKs = map[string][]string{
 	"github.com/coder/websocket":             {"crew/adapters/crewws", "connector"},
 	"github.com/pressly/goose":               {"bootstrap"},
 	// the embedded admin UI is mounted by the composition root only
-	"github.com/Abraxas-365/puerto/web": {"bootstrap"},
+	"github.com/Abraxas-365/seaport/web": {"bootstrap"},
 }
 
 // forbiddenInCore: a domain root package and its *svc never touch transport

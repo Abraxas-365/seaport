@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Abraxas-365/puerto/internal/bootstrap"
-	"github.com/Abraxas-365/puerto/internal/config"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/bootstrap"
+	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 // Outbound limits hold under concurrent replies and answer 429 with

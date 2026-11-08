@@ -1,4 +1,4 @@
-module github.com/Abraxas-365/puerto
+module github.com/Abraxas-365/seaport
 
 go 1.26.1
 

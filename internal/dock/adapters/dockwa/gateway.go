@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx" for the whatsmeow store
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"

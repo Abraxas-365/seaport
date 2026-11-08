@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/crew"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/httpx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/coder/websocket"
 )
 

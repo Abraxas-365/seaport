@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 var (

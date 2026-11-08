@@ -1,4 +1,4 @@
-// Command puerto is the port (serve), its admin CLI and the agent connector.
+// Command seaport is the port (serve), its admin CLI and the agent connector.
 package main
 
 import (
@@ -17,40 +17,40 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/bootstrap"
-	"github.com/Abraxas-365/puerto/internal/config"
-	"github.com/Abraxas-365/puerto/internal/connector"
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/bootstrap"
+	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/connector"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
-const usage = `puerto - a port where messages arrive and agents work them
+const usage = `seaport - a port where messages arrive and agents work them
 
 Server:
-  puerto serve                         run the port (env: DATABASE_URL, PUERTO_ADMIN_TOKEN, PUERTO_CREW_TOKEN, ...)
-  puerto healthcheck                   exit 0 if the local port answers /healthz (containers)
+  seaport serve                         run the port (env: DATABASE_URL, SEAPORT_ADMIN_TOKEN, SEAPORT_CREW_TOKEN, ...)
+  seaport healthcheck                   exit 0 if the local port answers /healthz (containers)
 
-Admin (env: PUERTO_URL, PUERTO_ADMIN_TOKEN):
-  puerto dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
-  puerto dock add api [-name N]        a dock fed through the HTTP API
-  puerto dock list
-  puerto dock relink <dock-id>
-  puerto dock rename <dock-id> <name>
-  puerto dock unlink <dock-id>         log the number out (keeps history; relink to pair again)
-  puerto dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
-  puerto crew                          connected agents and what they are working on
-  puerto conversations [-allowed|-pending|-denied]
-  puerto allow <conversation-id>       always let the agent receive and answer this chat
-  puerto deny <conversation-id>        never (both override the dock's rules)
-  puerto auto <conversation-id>        follow the dock's rules again
-  puerto mode <conversation-id> mentions|all|default   group: wake on mentions only, or on everything
-  puerto customs [-dock ID]            show the dock's customs; subcommands:
+Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN):
+  seaport dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
+  seaport dock add api [-name N]        a dock fed through the HTTP API
+  seaport dock list
+  seaport dock relink <dock-id>
+  seaport dock rename <dock-id> <name>
+  seaport dock unlink <dock-id>         log the number out (keeps history; relink to pair again)
+  seaport dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
+  seaport crew                          connected agents and what they are working on
+  seaport conversations [-allowed|-pending|-denied]
+  seaport allow <conversation-id>       always let the agent receive and answer this chat
+  seaport deny <conversation-id>        never (both override the dock's rules)
+  seaport auto <conversation-id>        follow the dock's rules again
+  seaport mode <conversation-id> mentions|all|default   group: wake on mentions only, or on everything
+  seaport customs [-dock ID]            show the dock's customs; subcommands:
          default ask|allow|deny | groups mentions|all | allow <pattern> | deny <pattern> | rm <rule-id>
-  puerto history <conversation-id> [-limit N]
-  puerto send <conversation-id> <text>
+  seaport history <conversation-id> [-limit N]
+  seaport send <conversation-id> <text>
 
-Agent (env: PUERTO_URL, PUERTO_CREW_TOKEN):
-  puerto connect [flags] -- <agent command>   e.g. puerto connect -- rness --acp
+Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN):
+  seaport connect [flags] -- <agent command>   e.g. seaport connect -- rness --acp
 `
 
 func main() {
@@ -59,9 +59,9 @@ func main() {
 	if err := run(ctx, os.Args[1:]); err != nil {
 		var e *errx.Error
 		if errors.As(err, &e) {
-			fmt.Fprintln(os.Stderr, "puerto:", e.Message)
+			fmt.Fprintln(os.Stderr, "seaport:", e.Message)
 		} else {
-			fmt.Fprintln(os.Stderr, "puerto:", err)
+			fmt.Fprintln(os.Stderr, "seaport:", err)
 		}
 		os.Exit(1)
 	}
@@ -85,7 +85,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	case "dock":
 		if len(rest) == 0 {
-			return errx.Validation("usage: puerto dock add|list|relink|rename|unlink|delete")
+			return errx.Validation("usage: seaport dock add|list|relink|rename|unlink|delete")
 		}
 		switch rest[0] {
 		case "add":
@@ -121,7 +121,7 @@ func run(ctx context.Context, args []string) error {
 	case "send":
 		return send(ctx, rest)
 	}
-	return errx.Validation("unknown command " + cmd + " (puerto help)")
+	return errx.Validation("unknown command " + cmd + " (seaport help)")
 }
 
 func setupLogging(level string) {
@@ -139,8 +139,8 @@ func serve(ctx context.Context) error {
 	}
 	setupLogging(cfg.LogLevel)
 	if u, err := url.Parse(cfg.PublicURL); err == nil && u.Scheme == "http" && !config.Loopback(net.JoinHostPort(u.Hostname(), "0")) {
-		slog.Warn("PUERTO_PUBLIC_URL is plain http on a non-local host: tokens and the session cookie "+
-			"travel unencrypted; put Puerto behind TLS (see deploy/)", "public_url", cfg.PublicURL)
+		slog.Warn("SEAPORT_PUBLIC_URL is plain http on a non-local host: tokens and the session cookie "+
+			"travel unencrypted; put Seaport behind TLS (see deploy/)", "public_url", cfg.PublicURL)
 	}
 	app, err := bootstrap.Build(ctx, cfg, bootstrap.Options{})
 	if err != nil {
@@ -151,10 +151,10 @@ func serve(ctx context.Context) error {
 	return app.Serve(ctx)
 }
 
-// healthcheck asks the port on PUERTO_ADDR for /healthz; distroless images
+// healthcheck asks the port on SEAPORT_ADDR for /healthz; distroless images
 // have no curl, so the binary checks itself.
 func healthcheck(ctx context.Context) error {
-	addr := envOr("PUERTO_ADDR", "127.0.0.1:8740")
+	addr := envOr("SEAPORT_ADDR", "127.0.0.1:8740")
 	if host, port, err := net.SplitHostPort(addr); err == nil && (host == "" || host == "0.0.0.0" || host == "::") {
 		addr = net.JoinHostPort("127.0.0.1", port)
 	}
@@ -177,8 +177,8 @@ func healthcheck(ctx context.Context) error {
 
 func connect(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-	server := fs.String("server", envOr("PUERTO_URL", "http://127.0.0.1:8740"), "port URL")
-	token := fs.String("token", os.Getenv("PUERTO_CREW_TOKEN"), "crew token (default $PUERTO_CREW_TOKEN; none for a PUERTO_AUTH=none port)")
+	server := fs.String("server", envOr("SEAPORT_URL", "http://127.0.0.1:8740"), "port URL")
+	token := fs.String("token", os.Getenv("SEAPORT_CREW_TOKEN"), "crew token (default $SEAPORT_CREW_TOKEN; none for a SEAPORT_AUTH=none port)")
 	name := fs.String("name", "", "agent name shown by the port (default: command name)")
 	concurrency := fs.Int("concurrency", 2, "conversations worked at once")
 	autoReply := fs.Bool("auto-reply", false, "send the agent's final text as the reply (for agents without MCP)")
@@ -187,7 +187,7 @@ func connect(ctx context.Context, args []string) error {
 	cwd := fs.String("cwd", "", "agent working directory (default: current)")
 	verbose := fs.Bool("v", false, "debug logs")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: puerto connect [flags] -- <agent command>")
+		fmt.Fprintln(os.Stderr, "usage: seaport connect [flags] -- <agent command>")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -196,7 +196,7 @@ func connect(ctx context.Context, args []string) error {
 	command := fs.Args()
 	if len(command) == 0 {
 		fs.Usage()
-		return errx.Validation("an agent command is required, e.g. puerto connect -- rness --acp")
+		return errx.Validation("an agent command is required, e.g. seaport connect -- rness --acp")
 	}
 	if *deliver != connector.DeliverSteer && *deliver != connector.DeliverQueue {
 		return errx.InvalidField("deliver", "-deliver must be steer or queue")
@@ -224,7 +224,7 @@ func connect(ctx context.Context, args []string) error {
 	return connector.Run(ctx, connector.Config{
 		Server: strings.TrimRight(*server, "/"), Token: *token, AgentName: *name, Concurrency: *concurrency,
 		AutoReply: *autoReply, Approve: *approve, Deliver: *deliver, Cwd: dir, Command: command,
-		SessionsFile: filepath.Join(cfgDir, "puerto", "sessions.json"),
+		SessionsFile: filepath.Join(cfgDir, "seaport", "sessions.json"),
 	})
 }
 

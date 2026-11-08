@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
 // SessionCookie carries a browser session of the admin.
-const SessionCookie = "puerto_session"
+const SessionCookie = "seaport_session"
 
 // Sessions lets a browser trade the admin token for an HttpOnly cookie
 // (EventSource and plain links can't send headers, and the token must not
@@ -30,7 +30,7 @@ type Sessions struct {
 
 func (s Sessions) sign(expiry int64) string {
 	m := hmac.New(sha256.New, []byte(s.Token))
-	m.Write([]byte("puerto-session:" + strconv.FormatInt(expiry, 10)))
+	m.Write([]byte("seaport-session:" + strconv.FormatInt(expiry, 10)))
 	return hex.EncodeToString(m.Sum(nil))
 }
 

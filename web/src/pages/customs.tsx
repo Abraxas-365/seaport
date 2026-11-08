@@ -46,7 +46,7 @@ import {
   SegmentedChoice,
   StatusBadge,
   type ChoiceOption,
-} from "@/components/puerto"
+} from "@/components/seaport"
 
 const defaultOptions: ChoiceOption<DefaultAccess>[] = [
   {

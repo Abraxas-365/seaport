@@ -7,7 +7,7 @@ import { useLiveEvents } from "@/lib/live"
 import { keys, queryClient } from "@/lib/query"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { LoadingState, PuertoMark } from "@/components/puerto"
+import { LoadingState, SeaportMark } from "@/components/seaport"
 import { AppShell } from "@/app-shell"
 import { LoginPage } from "@/pages/login"
 import { InboxIndex, InboxPage } from "@/pages/inbox"
@@ -45,7 +45,7 @@ function Gate() {
   if (session.isPending)
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-4">
-        <PuertoMark className="size-10" />
+        <SeaportMark className="size-10" />
         <LoadingState label="Abriendo el puerto…" className="p-0" />
       </div>
     )

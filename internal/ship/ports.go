@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // Every tenant method takes the organization right after ctx: a crew

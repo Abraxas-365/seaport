@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ConversationRow, EmptyState, ErrorState, LiveIndicator } from "@/components/puerto"
+import { ConversationRow, EmptyState, ErrorState, LiveIndicator } from "@/components/seaport"
 
 type StatusTab = "all" | CustomsStatus
 

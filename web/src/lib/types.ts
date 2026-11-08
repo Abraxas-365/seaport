@@ -1,4 +1,4 @@
-// Wire types of the Puerto admin API (mirror internal/*/ Go JSON tags).
+// Wire types of the Seaport admin API (mirror internal/*/ Go JSON tags).
 
 export type ID = string
 
@@ -123,7 +123,7 @@ export interface Paginated<T> {
   page: Page
 }
 
-/** GET /api/v1/config: how this port authenticates (PUERTO_AUTH). */
+/** GET /api/v1/config: how this port authenticates (SEAPORT_AUTH). */
 export interface PortConfig {
   auth: "none" | "token"
   version: string

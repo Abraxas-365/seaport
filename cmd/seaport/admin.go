@@ -14,12 +14,12 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/crew"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/mdp/qrterminal/v3"
 )
 
@@ -31,9 +31,9 @@ type admin struct {
 }
 
 func newAdmin() (*admin, error) {
-	// No token talks to a PUERTO_AUTH=none port; a token port answers 401.
-	token := os.Getenv("PUERTO_ADMIN_TOKEN")
-	return &admin{base: strings.TrimRight(envOr("PUERTO_URL", "http://127.0.0.1:8740"), "/"),
+	// No token talks to a SEAPORT_AUTH=none port; a token port answers 401.
+	token := os.Getenv("SEAPORT_ADMIN_TOKEN")
+	return &admin{base: strings.TrimRight(envOr("SEAPORT_URL", "http://127.0.0.1:8740"), "/"),
 		token: token, http: &http.Client{Timeout: 30 * time.Second}}, nil
 }
 
@@ -60,7 +60,7 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode == http.StatusUnauthorized && a.token == "" {
-		return errx.Unauthorized("the port requires PUERTO_ADMIN_TOKEN")
+		return errx.Unauthorized("the port requires SEAPORT_ADMIN_TOKEN")
 	}
 	if resp.StatusCode >= 300 {
 		var e struct {
@@ -83,7 +83,7 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 
 func dockAdd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errx.Validation("usage: puerto dock add whatsapp|api [-name N]")
+		return errx.Validation("usage: seaport dock add whatsapp|api [-name N]")
 	}
 	channel := args[0]
 	fs := flag.NewFlagSet("dock add", flag.ContinueOnError)
@@ -108,7 +108,7 @@ func dockAdd(ctx context.Context, args []string) error {
 
 func dockRelink(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errx.Validation("usage: puerto dock relink <dock-id>")
+		return errx.Validation("usage: seaport dock relink <dock-id>")
 	}
 	a, err := newAdmin()
 	if err != nil {
@@ -123,7 +123,7 @@ func dockRelink(ctx context.Context, args []string) error {
 
 func dockRename(ctx context.Context, args []string) error {
 	if len(args) < 2 {
-		return errx.Validation("usage: puerto dock rename <dock-id> <name>")
+		return errx.Validation("usage: seaport dock rename <dock-id> <name>")
 	}
 	a, err := newAdmin()
 	if err != nil {
@@ -140,7 +140,7 @@ func dockRename(ctx context.Context, args []string) error {
 
 func dockUnlink(ctx context.Context, args []string) error {
 	if len(args) != 1 {
-		return errx.Validation("usage: puerto dock unlink <dock-id>")
+		return errx.Validation("usage: seaport dock unlink <dock-id>")
 	}
 	a, err := newAdmin()
 	if err != nil {
@@ -150,13 +150,13 @@ func dockUnlink(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodPost, "/api/v1/docks/"+url.PathEscape(args[0])+"/unlink", nil, &d); err != nil {
 		return err
 	}
-	fmt.Printf("dock %s unlinked (%s); pair again with: puerto dock relink %s\n", d.ID, d.Status, d.ID)
+	fmt.Printf("dock %s unlinked (%s); pair again with: seaport dock relink %s\n", d.ID, d.Status, d.ID)
 	return nil
 }
 
 func dockDelete(ctx context.Context, args []string) error {
 	if len(args) != 2 || args[1] != "-yes" {
-		return errx.Validation("usage: puerto dock delete <dock-id> -yes (deletes its conversations and ships too)")
+		return errx.Validation("usage: seaport dock delete <dock-id> -yes (deletes its conversations and ships too)")
 	}
 	a, err := newAdmin()
 	if err != nil {
@@ -179,7 +179,7 @@ func crewStatus(ctx context.Context) error {
 		return err
 	}
 	if len(s.Agents) == 0 {
-		fmt.Println("no agents connected (start one with: puerto connect -- <agent>)")
+		fmt.Println("no agents connected (start one with: seaport connect -- <agent>)")
 		return nil
 	}
 	for _, ag := range s.Agents {
@@ -204,10 +204,10 @@ func waitLinked(ctx context.Context, a *admin, d dock.Dock) error {
 	for time.Now().Before(deadline) {
 		switch d.Status {
 		case dock.StatusLinked:
-			fmt.Printf("\nlinked as %s ✓\nMessages to this number now arrive at the port. Allow chats with: puerto conversations / puerto allow <id>\n", d.Address)
+			fmt.Printf("\nlinked as %s ✓\nMessages to this number now arrive at the port. Allow chats with: seaport conversations / seaport allow <id>\n", d.Address)
 			return nil
 		case dock.StatusFailed, dock.StatusLoggedOut:
-			return errx.Business("linking failed (" + string(d.Status) + "); retry with: puerto dock relink " + d.ID.String())
+			return errx.Business("linking failed (" + string(d.Status) + "); retry with: seaport dock relink " + d.ID.String())
 		}
 		if d.QRCode != "" && d.QRCode != shown {
 			shown = d.QRCode
@@ -225,7 +225,7 @@ func waitLinked(ctx context.Context, a *admin, d dock.Dock) error {
 			return err
 		}
 	}
-	return errx.Business("timed out waiting for the QR scan; retry with: puerto dock relink " + d.ID.String())
+	return errx.Business("timed out waiting for the QR scan; retry with: seaport dock relink " + d.ID.String())
 }
 
 func dockList(ctx context.Context) error {
@@ -285,7 +285,7 @@ func conversations(ctx context.Context, args []string) error {
 // setAccess sets the owner's override of a conversation (allow|deny|auto).
 func setAccess(ctx context.Context, args []string, access conversation.Access) error {
 	if len(args) != 1 {
-		return errx.Validation("usage: puerto allow|deny|auto <conversation-id>")
+		return errx.Validation("usage: seaport allow|deny|auto <conversation-id>")
 	}
 	return patchConversation(ctx, args[0], map[string]any{"access": access})
 }
@@ -293,7 +293,7 @@ func setAccess(ctx context.Context, args []string, access conversation.Access) e
 // setGroupMode overrides a group's mode (mentions|all|default).
 func setGroupMode(ctx context.Context, args []string) error {
 	if len(args) != 2 {
-		return errx.Validation("usage: puerto mode <conversation-id> mentions|all|default")
+		return errx.Validation("usage: seaport mode <conversation-id> mentions|all|default")
 	}
 	mode := args[1]
 	if mode == "default" {
@@ -323,7 +323,7 @@ func patchConversation(ctx context.Context, id string, body map[string]any) erro
 	return nil
 }
 
-const customsUsage = `usage: puerto customs [-dock ID] [command]
+const customsUsage = `usage: seaport customs [-dock ID] [command]
   (no command)               show the dock's policy and rules
   default ask|allow|deny     what to do with chats no rule covers (ask = hold until you allow)
   groups mentions|all        which messages of allowed groups wake the agent
@@ -406,16 +406,16 @@ func pickDock(ctx context.Context, a *admin, id string) (dock.Dock, error) {
 	}
 	switch len(page.Items) {
 	case 0:
-		return d, errx.Validation("no docks yet: puerto dock add whatsapp")
+		return d, errx.Validation("no docks yet: seaport dock add whatsapp")
 	case 1:
 		return page.Items[0], nil
 	}
-	return d, errx.Validation("several docks: pick one with -dock ID (puerto dock list)")
+	return d, errx.Validation("several docks: pick one with -dock ID (seaport dock list)")
 }
 
 func history(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errx.Validation("usage: puerto history <conversation-id> [-limit N]")
+		return errx.Validation("usage: seaport history <conversation-id> [-limit N]")
 	}
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
 	limit := fs.Int("limit", 20, "messages")
@@ -445,7 +445,7 @@ func history(ctx context.Context, args []string) error {
 
 func send(ctx context.Context, args []string) error {
 	if len(args) < 2 {
-		return errx.Validation("usage: puerto send <conversation-id> <text>")
+		return errx.Validation("usage: seaport send <conversation-id> <text>")
 	}
 	a, err := newAdmin()
 	if err != nil {

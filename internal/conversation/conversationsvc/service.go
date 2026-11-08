@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/text"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 type Service struct {

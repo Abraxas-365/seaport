@@ -23,8 +23,8 @@ import {
   DockCard,
   EmptyState,
   PairingPanel,
-  PuertoLogo,
-  PuertoMark,
+  SeaportLogo,
+  SeaportMark,
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
@@ -36,10 +36,10 @@ import {
   shipLabel,
   shipTone,
   type Tone,
-} from "@/components/puerto"
+} from "@/components/seaport"
 
 /**
- * The living catalog of Puerto's design system: tokens, primitives and
+ * The living catalog of Seaport's design system: tokens, primitives and
  * domain components with fixture data. Reachable at /design.
  */
 export function DesignSystemPage() {
@@ -49,7 +49,7 @@ export function DesignSystemPage() {
     <>
       <div className="min-h-svh bg-canvas">
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/85 px-6 backdrop-blur">
-          <PuertoLogo />
+          <SeaportLogo />
           <span className="text-sm text-muted-foreground">Design system</span>
           <div className="ml-auto flex items-center gap-2 text-sm">
             <Sun className="size-4" />
@@ -97,9 +97,9 @@ function Specimen({ label, children, className }: { label: string; children: Rea
 function Intro() {
   return (
     <div className="flex flex-col gap-6 rounded-3xl border bg-card p-8 shadow-xs md:flex-row md:items-center">
-      <PuertoMark className="size-16" />
+      <SeaportMark className="size-16" />
       <div className="space-y-2">
-        <h1 className="font-heading text-3xl font-semibold tracking-tight">Puerto</h1>
+        <h1 className="font-heading text-3xl font-semibold tracking-tight">Seaport</h1>
         <p className="max-w-2xl text-muted-foreground">
           Calmo, legible, operativo. Azul puerto para la marca; las señales (verde, ámbar, rojo, cian) solo significan
           estado. Construido sobre shadcn/ui (radix, estilo nova) y Tailwind v4, con Geist.
@@ -225,7 +225,7 @@ function Primitives() {
   const [access, setAccess] = React.useState<"auto" | "allow" | "deny">("auto")
   const [def, setDef] = React.useState<"ask" | "allow" | "deny">("ask")
   return (
-    <Block title="Primitivas" description="shadcn/ui tal cual, con los tokens de Puerto.">
+    <Block title="Primitivas" description="shadcn/ui tal cual, con los tokens de Seaport.">
       <div className="grid gap-8 md:grid-cols-2">
         <Specimen label="Botones" className="flex flex-wrap gap-2">
           <Button>Permitir</Button>
@@ -256,8 +256,8 @@ function Primitives() {
           <ChannelIcon channel="whatsapp" size="lg" />
           <ChannelIcon channel="api" size="lg" />
           <Separator orientation="vertical" className="h-8" />
-          <PuertoMark />
-          <PuertoMark className="size-10" />
+          <SeaportMark />
+          <SeaportMark className="size-10" />
         </Specimen>
         <Specimen label="ChoiceCards" className="md:col-span-2">
           <ChoiceCards
@@ -388,7 +388,7 @@ const sampleAgent: Agent = {
 function Domain() {
   const [active, setActive] = React.useState("c-ana")
   return (
-    <Block title="Componentes de dominio" description="src/components/puerto: lo que se arma en las pantallas.">
+    <Block title="Componentes de dominio" description="src/components/seaport: lo que se arma en las pantallas.">
       <div className="grid gap-8 lg:grid-cols-2">
         <Specimen label="ChatAvatar (tinte estable por id, luz de aduana)" className="flex items-center gap-4">
           <ChatAvatar name="Ana Torres" seed="c-ana" status="success" />
@@ -416,7 +416,7 @@ function Domain() {
         <Specimen label="PairingPanel" className="lg:col-span-2">
           <Card className="py-0">
             <CardContent className="p-6">
-              <PairingPanel qr="2@puerto-design-system-sample,qr,code" />
+              <PairingPanel qr="2@seaport-design-system-sample,qr,code" />
             </CardContent>
           </Card>
         </Specimen>

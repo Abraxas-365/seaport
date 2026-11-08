@@ -1,9 +1,9 @@
-# Caddy in front of Puerto: HTTPS (Let's Encrypt, or a local CA for
+# Caddy in front of Seaport: HTTPS (Let's Encrypt, or a local CA for
 # localhost), HTTP→HTTPS redirect, WebSocket (/crew/ws) and SSE
 # (/api/v1/events, /mcp) proxied as-is.
-{$PUERTO_DOMAIN} {
+{$SEAPORT_DOMAIN} {
 	# No `encode`: compressing would buffer the SSE streams.
-	reverse_proxy puerto:8740 {
+	reverse_proxy seaport:8740 {
 		# SSE and MCP streams flush every write.
 		flush_interval -1
 	}

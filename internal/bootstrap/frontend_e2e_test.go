@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/crew"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 // sseEvent is one parsed Server-Sent Event.
@@ -210,7 +210,7 @@ func TestBrowserSession(t *testing.T) {
 	}
 	var cookie *http.Cookie
 	for _, c := range r.Cookies() {
-		if c.Name == "puerto_session" {
+		if c.Name == "seaport_session" {
 			cookie = c
 		}
 	}
@@ -227,7 +227,7 @@ func TestBrowserSession(t *testing.T) {
 		t.Fatalf("cross-site write: %d", r.StatusCode)
 	}
 	// A forged cookie is not a session.
-	forged := &http.Cookie{Name: "puerto_session", Value: "99999999999.deadbeef"}
+	forged := &http.Cookie{Name: "seaport_session", Value: "99999999999.deadbeef"}
 	req, _ := http.NewRequest(http.MethodGet, p.srv.URL+"/api/v1/docks", nil)
 	req.AddCookie(forged)
 	if resp, _ := http.DefaultClient.Do(req); resp.StatusCode != http.StatusUnauthorized {

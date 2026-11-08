@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
-import { PuertoMark } from "@/components/puerto"
+import { SeaportMark } from "@/components/seaport"
 
 export function LoginPage() {
   const qc = useQueryClient()
@@ -29,9 +29,9 @@ export function LoginPage() {
       <Harbor />
       <div className="relative w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <PuertoMark className="size-12" />
+          <SeaportMark className="size-12" />
           <div>
-            <h1 className="font-heading text-2xl font-semibold tracking-tight">Puerto</h1>
+            <h1 className="font-heading text-2xl font-semibold tracking-tight">Seaport</h1>
             <p className="mt-1 text-sm text-muted-foreground">Donde llegan los mensajes y trabajan tus agentes.</p>
           </div>
         </div>
@@ -54,7 +54,7 @@ export function LoginPage() {
                   type="password"
                   autoFocus
                   autoComplete="current-password"
-                  placeholder="PUERTO_ADMIN_TOKEN"
+                  placeholder="SEAPORT_ADMIN_TOKEN"
                   value={token}
                   aria-invalid={!!error || undefined}
                   onChange={(e) => setToken(e.target.value)}
@@ -64,7 +64,7 @@ export function LoginPage() {
                 <FieldError>{error}</FieldError>
               ) : (
                 <FieldDescription>
-                  El valor de <code>PUERTO_ADMIN_TOKEN</code> del servidor. Se cambia por una cookie segura; no queda
+                  El valor de <code>SEAPORT_ADMIN_TOKEN</code> del servidor. Se cambia por una cookie segura; no queda
                   guardado en el navegador.
                 </FieldDescription>
               )}

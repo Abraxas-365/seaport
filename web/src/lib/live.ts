@@ -137,7 +137,7 @@ class LiveStream {
           const data = JSON.parse((e as MessageEvent).data)
           ;(handlers[type] as (qc: QueryClient, d: unknown) => void)(qc, data)
         } catch (err) {
-          console.warn("puerto event", type, err)
+          console.warn("seaport event", type, err)
         }
       })
     }

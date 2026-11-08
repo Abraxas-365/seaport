@@ -1,6 +1,6 @@
-# AGENTS.md — Puerto
+# AGENTS.md — Seaport
 
-Go 1.26, hexagonal (ports & adapters). Read `README.md` for what Puerto is.
+Go 1.26, hexagonal (ports & adapters). Read `README.md` for what Seaport is.
 Design notes: `~/.rness/plans/puerto/puerto-design.md` (outside the repo).
 
 ## Commands
@@ -9,10 +9,10 @@ Design notes: `~/.rness/plans/puerto/puerto-design.md` (outside the repo).
 go build ./... && go vet ./...
 go test ./...                                   # architecture tests always run
 docker compose up -d                            # dev Postgres 127.0.0.1:5449
-docker build -t puerto .                        # image (web + binary, distroless)
-# deploy/: production compose (Postgres, Puerto, Caddy TLS, backups); README "Deploy"
-PGPASSWORD=puerto createdb -h 127.0.0.1 -p 5449 -U puerto puerto_test   # once
-PUERTO_TEST_DATABASE_URL="postgres://puerto:puerto@127.0.0.1:5449/puerto_test?sslmode=disable" \
+docker build -t seaport .                        # image (web + binary, distroless)
+# deploy/: production compose (Postgres, Seaport, Caddy TLS, backups); README "Deploy"
+PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once
+SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
 ```
 
@@ -21,13 +21,13 @@ hub, the MCP tools or the HTTP API.
 
 Web (`web/`, pnpm): `pnpm lint && pnpm build` (tsc + vite → `web/dist`,
 embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
-`pnpm dev` for hot reload against a running `puerto serve`.
+`pnpm dev` for hot reload against a running `seaport serve`.
 
 ## Web conventions
 
 - React 19 + Vite, no framework; shadcn/ui primitives in `src/components/ui`
-  (generated, edit sparingly), Puerto design system in
-  `src/components/puerto` — pages compose these, catalogued at `/design`
+  (generated, edit sparingly), Seaport design system in
+  `src/components/seaport` — pages compose these, catalogued at `/design`
   (`src/pages/design-system.tsx`); add new components there too.
 - Status colours come only from `tone.ts` (static class strings — Tailwind
   can't see dynamic class names); theme tokens live in `src/index.css`.
@@ -39,7 +39,7 @@ embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
 ## Layout
 
 ```
-cmd/puerto            serve | admin CLI | connect
+cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx   foundation (import no domain)
   event (+eventsse)   in-memory event bus + SSE stream (foundation; payloads
@@ -51,7 +51,7 @@ internal/
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
   crew/               wire protocol; adapters/{crewws (hub), crewmcp (tools)}, crewmodule
-  connector           agent side (`puerto connect`): WS client + ACP client
+  connector           agent side (`seaport connect`): WS client + ACP client
 migrations/           goose SQL, embedded, applied at start
 web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at /
 ```
@@ -77,7 +77,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   imports it (`TestLayerDependencies`, "client" role).
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
-  `bootstrap`, the embedded web app (`puerto/web`) → `bootstrap`
+  `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`
   (`vendorSDKs` in `TestLayerDependencies`).
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
@@ -120,7 +120,7 @@ test together with the reason. Add a rule when you add a pattern.
 - Outbound ships are stored with the channel message id *before* sending, so
   WhatsApp's echo of our own message is dropped as a duplicate.
 - Replies are only allowed to allowed conversations (`Forbidden` otherwise).
-- Outbound limits (`ship.Limits.Check`, the rule; config `PUERTO_SEND_*`):
+- Outbound limits (`ship.Limits.Check`, the rule; config `SEAPORT_SEND_*`):
   `shippg.CreateOutbound` counts the dock's/conversation's outbound ships
   of the last minute/hour and inserts under a per-dock advisory lock
   (`outboundLock`), so concurrent replies can't overshoot; refusal is
@@ -131,7 +131,7 @@ test together with the reason. Add a rule when you add a pattern.
   by `<boot>-<seq>`; an unknown `Last-Event-ID` gets `reset` (client
   refetches). Slow subscribers are dropped, never block publishers. Single
   process per database until the bus moves to Postgres LISTEN/NOTIFY.
-- Modes (`PUERTO_AUTH`, plan `~/.rness/plans/puerto/modes-and-tenancy.md`):
+- Modes (`SEAPORT_AUTH`, plan `~/.rness/plans/puerto/modes-and-tenancy.md`):
   auth is the `httpx.Authenticator` port, picked once in `bootstrap`
   (`Open` for `none`, `Tokens` for `token`); it puts an `httpx.Principal`
   (organization, role) in the request context. Handlers take the
@@ -148,7 +148,7 @@ test together with the reason. Add a rule when you add a pattern.
   `Forbidden`. Events carry their organization and `/api/v1/events` streams
   only the caller's; a crew connection and each MCP call act for the token's
   organization; deliveries go only to that organization's agents.
-- Admin auth (token mode): bearer token, or the `puerto_session` cookie
+- Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
   `POST /api/v1/session`; cookie writes go through
   `http.CrossOriginProtection` (also in `none` mode, for every write).

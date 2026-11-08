@@ -5,10 +5,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/pgerr"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/pgerr"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
 )
 

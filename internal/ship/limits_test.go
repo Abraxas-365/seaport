@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 func TestLimitsCheck(t *testing.T) {

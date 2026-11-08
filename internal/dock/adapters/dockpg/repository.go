@@ -4,10 +4,10 @@ package dockpg
 import (
 	"context"
 
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/pgerr"
-	"github.com/Abraxas-365/puerto/internal/query"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/pgerr"
+	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/jmoiron/sqlx"
 )
 

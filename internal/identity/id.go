@@ -4,7 +4,7 @@ package identity
 import (
 	"database/sql/driver"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/google/uuid"
 )
 
@@ -127,7 +127,7 @@ func tagName[T any]() string {
 }
 
 // OrganizationID identifies a tenant: an IAMKit organization in iam mode,
-// config.DefaultOrganization in the single-organization modes. Puerto
+// config.DefaultOrganization in the single-organization modes. Seaport
 // stores only the id (IAMKit owns organizations).
 type OrganizationID = ID[organizationTag]
 

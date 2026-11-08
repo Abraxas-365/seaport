@@ -3,7 +3,7 @@
 **/*.env
 !deploy/.env.example
 bin/
-/puerto
+/seaport
 *.test
 web/node_modules
 web/dist

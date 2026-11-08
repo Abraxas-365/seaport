@@ -14,7 +14,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Button } from "@/components/ui/button"
 import { ApiError } from "@/lib/api"
 
-/** Empty state with Puerto's voice. */
+/** Empty state with Seaport's voice. */
 export function EmptyState({
   icon: Icon = Inbox,
   title,

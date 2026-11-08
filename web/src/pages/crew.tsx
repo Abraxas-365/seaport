@@ -7,7 +7,7 @@ import { conversationName } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AgentCard, EmptyState, ErrorState, PageHeader } from "@/components/puerto"
+import { AgentCard, EmptyState, ErrorState, PageHeader } from "@/components/seaport"
 
 export function CrewPage() {
   const crew = useCrew()
@@ -69,7 +69,7 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 }
 
 function ConnectCard() {
-  const cmd = `PUERTO_CREW_TOKEN=… puerto connect -server ${window.location.origin} -- rness --acp`
+  const cmd = `SEAPORT_CREW_TOKEN=… seaport connect -server ${window.location.origin} -- rness --acp`
   return (
     <Card>
       <CardHeader>

@@ -3,8 +3,8 @@ package dock
 import (
 	"context"
 
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // Every tenant method takes the organization right after ctx; a dock of

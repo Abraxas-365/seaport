@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/httpx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -26,15 +26,15 @@ type Deps struct {
 
 // Handler returns the MCP endpoint.
 func Handler(d Deps) http.Handler {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "puerto", Title: "Puerto", Version: d.Version}, &mcp.ServerOptions{
-		Instructions: "Puerto is the port where your messages (WhatsApp and other channels) arrive. " +
-			"Each prompt from puerto names a conversation_id. Answer people with the reply tool; " +
+	srv := mcp.NewServer(&mcp.Implementation{Name: "seaport", Title: "Seaport", Version: d.Version}, &mcp.ServerOptions{
+		Instructions: "Seaport is the port where your messages (WhatsApp and other channels) arrive. " +
+			"Each prompt from seaport names a conversation_id. Answer people with the reply tool; " +
 			"use history to read earlier messages of a conversation.",
 	})
 	t := tools{d: d}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "reply",
-		Description: "Send a text message to a puerto conversation (WhatsApp chat...). Only allowed conversations accept replies.",
+		Description: "Send a text message to a seaport conversation (WhatsApp chat...). Only allowed conversations accept replies.",
 	}, t.reply)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "history",
@@ -62,7 +62,7 @@ func organization(ctx context.Context) (identity.OrganizationID, error) {
 }
 
 type ReplyIn struct {
-	ConversationID string `json:"conversation_id" jsonschema:"the conversation_id given in the puerto prompt"`
+	ConversationID string `json:"conversation_id" jsonschema:"the conversation_id given in the seaport prompt"`
 	Text           string `json:"text" jsonschema:"the message to send"`
 }
 

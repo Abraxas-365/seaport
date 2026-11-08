@@ -1,6 +1,6 @@
 package dock
 
-import "github.com/Abraxas-365/puerto/internal/identity"
+import "github.com/Abraxas-365/seaport/internal/identity"
 
 // Events the dock domain publishes (see internal/event).
 const (

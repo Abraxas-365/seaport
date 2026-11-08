@@ -1,6 +1,6 @@
 package ship
 
-import "github.com/Abraxas-365/puerto/internal/identity"
+import "github.com/Abraxas-365/seaport/internal/identity"
 
 // Events the ship domain publishes (see internal/event). Data is the
 // payload type named in each comment.

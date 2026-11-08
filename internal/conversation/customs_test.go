@@ -3,7 +3,7 @@ package conversation_test
 import (
 	"testing"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/conversation"
 )
 
 func TestNormalizePattern(t *testing.T) {

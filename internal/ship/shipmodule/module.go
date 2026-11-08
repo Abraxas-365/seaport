@@ -4,13 +4,13 @@ package shipmodule
 import (
 	"net/http"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/ship"
-	"github.com/Abraxas-365/puerto/internal/ship/adapters/shiphttp"
-	"github.com/Abraxas-365/puerto/internal/ship/adapters/shippg"
-	"github.com/Abraxas-365/puerto/internal/ship/shipsvc"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/ship/adapters/shiphttp"
+	"github.com/Abraxas-365/seaport/internal/ship/adapters/shippg"
+	"github.com/Abraxas-365/seaport/internal/ship/shipsvc"
 	"github.com/jmoiron/sqlx"
 )
 

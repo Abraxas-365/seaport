@@ -1,11 +1,11 @@
-# Puerto
+# Seaport
 
 A port for agents. Messages (ships) arrive at the port from channels
 (WhatsApp first); your agent (the crew) connects from wherever it runs and is
 **woken** by each message, then answers with the port's tools.
 
 ```
-WhatsApp ──(linked device)──▶ puerto serve ──WebSocket──▶ puerto connect ──ACP──▶ rness --acp
+WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ seaport connect ──ACP──▶ rness --acp
                                    ▲                                                 │
                                    └──────────── MCP: reply / history ◀──────────────┘
 ```
@@ -18,12 +18,12 @@ WhatsApp ──(linked device)──▶ puerto serve ──WebSocket──▶ pu
 - **Deliveries** — the allowed messages of one conversation, handed to one
   connector at a time (leased, renewed while the agent works, released if it
   disconnects, so nothing is lost).
-- **Connector** — `puerto connect -- <agent>` dials out to the port (no public
+- **Connector** — `seaport connect -- <agent>` dials out to the port (no public
   address needed, like ngrok) and runs any [ACP](https://agentclientprotocol.com)
   agent, one agent session per conversation, resumed across restarts.
 
 One binary, several ways to run it — only the start-up config differs
-(`PUERTO_AUTH`):
+(`SEAPORT_AUTH`):
 
 | Mode | For | Auth |
 |---|---|---|
@@ -31,7 +31,7 @@ One binary, several ways to run it — only the start-up config differs
 | `token` (default) | one owner on a server | static admin + crew tokens |
 | `iam` (planned) | many organizations | IAMKit accounts, per-organization crew tokens |
 
-Inside, Puerto is always multi-tenant: every dock, conversation, ship and
+Inside, Seaport is always multi-tenant: every dock, conversation, ship and
 rule belongs to an organization (single-owner modes use one fixed
 organization), so moving from one mode to another needs no data migration.
 
@@ -39,13 +39,13 @@ organization), so moving from one mode to another needs no data migration.
 
 ```bash
 docker compose up -d                                    # Postgres on 127.0.0.1:5449
-export DATABASE_URL="postgres://puerto:puerto@127.0.0.1:5449/puerto?sslmode=disable"
-export PUERTO_ADMIN_TOKEN=$(openssl rand -hex 24) PUERTO_CREW_TOKEN=$(openssl rand -hex 24)
-go run ./cmd/puerto serve
+export DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport?sslmode=disable"
+export SEAPORT_ADMIN_TOKEN=$(openssl rand -hex 24) SEAPORT_CREW_TOKEN=$(openssl rand -hex 24)
+go run ./cmd/seaport serve
 ```
 
-On your own computer you can skip the tokens: `PUERTO_AUTH=none go run
-./cmd/puerto serve` (the web app opens without login; the CLI and `puerto
+On your own computer you can skip the tokens: `SEAPORT_AUTH=none go run
+./cmd/seaport serve` (the web app opens without login; the CLI and `seaport
 connect` work without `-token`; browsers on other sites still can't write).
 To reach it from anywhere else — a reverse proxy, a tunnel (cloudflared,
 ngrok, `tailscale serve`) — use `token` mode: an open port answers 403 to
@@ -56,20 +56,20 @@ docks (WhatsApp pairing QR, api docks), crew — all live over SSE. The web app
 lives in `web/` (React + Vite + shadcn/ui + Tailwind v4) and is embedded into
 the binary, so build it before `go build` (`cd web && pnpm install && pnpm
 build`); `pnpm dev` serves it with hot reload on :5173, proxying `/api` to
-`$PUERTO_URL` (default :8740). The design system is at `/design`.
+`$SEAPORT_URL` (default :8740). The design system is at `/design`.
 
 Or from the CLI — link WhatsApp and allow chats (admin token):
 
 ```bash
-puerto dock add whatsapp          # scan the QR: WhatsApp → Linked devices → Link a device
-puerto conversations              # chats that wrote to the number
-puerto allow <conversation-id>
+seaport dock add whatsapp          # scan the QR: WhatsApp → Linked devices → Link a device
+seaport conversations              # chats that wrote to the number
+seaport allow <conversation-id>
 ```
 
 ### Customs
 
 Each dock has a **default** for chats no rule covers — `ask` (hold until you
-`puerto allow` them; the default), `allow` or `deny` — and a **group mode**:
+`seaport allow` them; the default), `allow` or `deny` — and a **group mode**:
 `mentions` (only messages that @mention the number or reply to it; the
 default) or `all`. **Rules** allow or deny chats and senders by pattern:
 phone numbers (`51999123436`, `+51*`), WhatsApp ids (`…@lid`, `…@g.us`); `*`
@@ -77,16 +77,16 @@ matches anything. Other channels will match their own handles (usernames,
 emails).
 
 ```bash
-puerto customs                        # policy and rules (-dock ID with several docks)
-puerto customs allow "+51*"           # Peruvian numbers may wake the agent
-puerto customs deny 51999888777       # never this one (also muted inside groups)
-puerto customs allow 120363…@g.us     # this group, mentions only
-puerto customs default ask|allow|deny
-puerto customs groups mentions|all
-puerto customs rm <rule-id>
-puerto mode <conversation-id> all     # this group: every message (or mentions|default)
-puerto allow|deny <conversation-id>   # owner override, beats rules
-puerto auto <conversation-id>         # follow the rules again
+seaport customs                        # policy and rules (-dock ID with several docks)
+seaport customs allow "+51*"           # Peruvian numbers may wake the agent
+seaport customs deny 51999888777       # never this one (also muted inside groups)
+seaport customs allow 120363…@g.us     # this group, mentions only
+seaport customs default ask|allow|deny
+seaport customs groups mentions|all
+seaport customs rm <rule-id>
+seaport mode <conversation-id> all     # this group: every message (or mentions|default)
+seaport allow|deny <conversation-id>   # owner override, beats rules
+seaport auto <conversation-id>         # follow the rules again
 ```
 
 Order: your override → self chat → deny rules → allow rules → default. A deny
@@ -98,7 +98,7 @@ read it with `history`).
 Connect your agent (crew token), from the directory it should work in:
 
 ```bash
-puerto connect -- rness --acp -m anthropic/claude-sonnet-4-5
+seaport connect -- rness --acp -m anthropic/claude-sonnet-4-5
 ```
 
 Flags: `-concurrency N`, `-auto-reply` (send the agent's final text, for
@@ -115,16 +115,16 @@ new prompt, never lost.
 
 | Env | Default | |
 |---|---|---|
-| `DATABASE_URL` | — | Postgres (puerto + whatsmeow tables) |
-| `PUERTO_AUTH` | `token` | `none` (loopback only, no tokens) or `token` |
-| `PUERTO_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars) |
-| `PUERTO_CREW_TOKEN` | — | token mode: agents, `/crew/ws`, `/mcp` (≥16 chars) |
-| `PUERTO_ADDR` | `127.0.0.1:8740` | listen address |
-| `PUERTO_PUBLIC_URL` | `http://$PUERTO_ADDR` | how agents reach `/mcp` (use https off-loopback) |
-| `PUERTO_SEND_PER_MINUTE` | `20` | outbound messages per dock per minute (0 = off) |
-| `PUERTO_SEND_PER_HOUR` | `300` | outbound messages per dock per hour (0 = off) |
-| `PUERTO_SEND_PER_CHAT_MINUTE` | `8` | outbound messages per conversation per minute (0 = off) |
-| `PUERTO_URL` | `http://127.0.0.1:8740` | CLI/connector: where the port is |
+| `DATABASE_URL` | — | Postgres (seaport + whatsmeow tables) |
+| `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens) or `token` |
+| `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars) |
+| `SEAPORT_CREW_TOKEN` | — | token mode: agents, `/crew/ws`, `/mcp` (≥16 chars) |
+| `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
+| `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
+| `SEAPORT_SEND_PER_MINUTE` | `20` | outbound messages per dock per minute (0 = off) |
+| `SEAPORT_SEND_PER_HOUR` | `300` | outbound messages per dock per hour (0 = off) |
+| `SEAPORT_SEND_PER_CHAT_MINUTE` | `8` | outbound messages per conversation per minute (0 = off) |
+| `SEAPORT_URL` | `http://127.0.0.1:8740` | CLI/connector: where the port is |
 
 **Outbound limits.** WhatsApp bans numbers that send in bursts, so a reply
 over a limit is refused with `429` (`RATE_LIMITED`, `Retry-After`; the MCP
@@ -136,46 +136,46 @@ Each WhatsApp send is also spaced ≥1.2 s from the previous one of that dock.
 
 ## Deploy (one server, HTTPS)
 
-`deploy/` runs Postgres, Puerto, [Caddy](https://caddyserver.com) (automatic
+`deploy/` runs Postgres, Seaport, [Caddy](https://caddyserver.com) (automatic
 Let's Encrypt certificates, HTTP→HTTPS) and daily backups with Docker
 Compose. Point a DNS name at the server, open ports 80 and 443, then:
 
 ```bash
 cd deploy
-cp .env.example .env      # PUERTO_DOMAIN, and three secrets from `openssl rand -hex 32`
+cp .env.example .env      # SEAPORT_DOMAIN, and three secrets from `openssl rand -hex 32`
 docker compose up -d --build
-docker compose logs -f puerto
+docker compose logs -f seaport
 ```
 
-Open `https://$PUERTO_DOMAIN`, sign in with `PUERTO_ADMIN_TOKEN`, link
+Open `https://$SEAPORT_DOMAIN`, sign in with `SEAPORT_ADMIN_TOKEN`, link
 WhatsApp. On your computer:
 
 ```bash
-PUERTO_URL=https://$PUERTO_DOMAIN PUERTO_CREW_TOKEN=… puerto connect -- rness --acp -m …
+SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=… seaport connect -- rness --acp -m …
 ```
 
-- Only Caddy publishes ports; Puerto and Postgres stay on the compose network.
+- Only Caddy publishes ports; Seaport and Postgres stay on the compose network.
   The proxy runs `token` mode (`none` refuses proxied requests).
 - Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
   (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
   (root by default). They contain the WhatsApp device keys — copy them off
   the server (the same disk is not a backup) and guard them like the
-  tokens. Restore: `docker compose stop puerto backup`, then
-  `docker compose exec -T postgres pg_restore -U puerto -d puerto --clean --if-exists < backups/<file>.dump`,
-  then `docker compose start puerto backup`.
+  tokens. Restore: `docker compose stop seaport backup`, then
+  `docker compose exec -T postgres pg_restore -U seaport -d seaport --clean --if-exists < backups/<file>.dump`,
+  then `docker compose start seaport backup`.
 - Upgrade: `git pull && docker compose up -d --build` (migrations run at start).
-- The image alone: `docker build -t puerto .` (distroless, non-root, ~24 MB,
-  `puerto healthcheck` as the container health check).
-- Try it locally: `PUERTO_DOMAIN=localhost` makes Caddy use its own CA
+- The image alone: `docker build -t seaport .` (distroless, non-root, ~24 MB,
+  `seaport healthcheck` as the container health check).
+- Try it locally: `SEAPORT_DOMAIN=localhost` makes Caddy use its own CA
   (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`
   and trust it, or `curl --cacert root.crt`). Set `HTTP_PORT`/`HTTPS_PORT`
-  and `PUERTO_PUBLIC_URL=https://localhost:<port>` if 80/443 are taken.
-- Puerto warns at start when `PUERTO_PUBLIC_URL` is plain `http` on a
+  and `SEAPORT_PUBLIC_URL=https://localhost:<port>` if 80/443 are taken.
+- Seaport warns at start when `SEAPORT_PUBLIC_URL` is plain `http` on a
   non-local host.
 
 ## API
 
-Admin routes accept `Authorization: Bearer $PUERTO_ADMIN_TOKEN` or a
+Admin routes accept `Authorization: Bearer $SEAPORT_ADMIN_TOKEN` or a
 browser session cookie.
 
 | | |

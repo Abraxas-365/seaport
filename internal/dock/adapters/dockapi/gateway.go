@@ -5,8 +5,8 @@ package dockapi
 import (
 	"context"
 
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/google/uuid"
 )
 

@@ -4,9 +4,9 @@ package dockhttp
 import (
 	"net/http"
 
-	"github.com/Abraxas-365/puerto/internal/dock"
-	"github.com/Abraxas-365/puerto/internal/httpx"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 type Handler struct {

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/text"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 // Customs decides which chats and messages may wake the crew. Each dock

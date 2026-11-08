@@ -8,7 +8,7 @@ import (
 )
 
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
-// Puerto is multi-tenant inside whatever the run mode, so every method of a
+// Seaport is multi-tenant inside whatever the run mode, so every method of a
 // tenant domain's Commands, Queries, CustomsCommands, CustomsQueries,
 // Messenger, Repository and CustomsRepository port takes
 // `organization identity.OrganizationID` right after ctx. A method that is

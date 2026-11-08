@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 // Role is what a principal may do: administer the port (web, CLI) or work
@@ -71,7 +71,7 @@ type SessionRoutes struct {
 	Login, Current, Logout http.Handler
 }
 
-// Open is PUERTO_AUTH=none: every caller is the admin (and crew) of one
+// Open is SEAPORT_AUTH=none: every caller is the admin (and crew) of one
 // organization. The process only listens on loopback (config.Validate).
 type Open struct {
 	Organization identity.OrganizationID
@@ -98,7 +98,7 @@ func (o Open) with(role Role, next http.Handler) http.Handler {
 			return
 		}
 		if h := forwardedBy(r); h != "" {
-			WriteError(w, r, errx.Forbidden("an open port refuses proxied requests ("+h+"); use PUERTO_AUTH=token behind a proxy"))
+			WriteError(w, r, errx.Forbidden("an open port refuses proxied requests ("+h+"); use SEAPORT_AUTH=token behind a proxy"))
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
@@ -153,7 +153,7 @@ func (o Open) Session() SessionRoutes {
 	return SessionRoutes{Login: o.with(RoleAdmin, always), Current: o.with(RoleAdmin, always), Logout: none}
 }
 
-// Tokens is PUERTO_AUTH=token: a static admin token (bearer, or traded
+// Tokens is SEAPORT_AUTH=token: a static admin token (bearer, or traded
 // for a session cookie) and a static crew token, one organization.
 type Tokens struct {
 	Organization identity.OrganizationID

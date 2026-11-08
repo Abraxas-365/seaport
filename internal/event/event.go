@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 // Event is one published change of one organization. ID is

@@ -1,48 +1,48 @@
-# Puerto on one server: Postgres + Puerto + Caddy (automatic HTTPS) + daily
+# Seaport on one server: Postgres + Seaport + Caddy (automatic HTTPS) + daily
 # backups. From this directory:
 #   cp .env.example .env   # fill it in
 #   docker compose up -d --build
-# Only Caddy publishes ports; Puerto and Postgres stay on the internal network.
-name: puerto-prod
+# Only Caddy publishes ports; Seaport and Postgres stay on the internal network.
+name: seaport-prod
 
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: puerto
+      POSTGRES_USER: seaport
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
-      POSTGRES_DB: puerto
+      POSTGRES_DB: seaport
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U puerto -d puerto"]
+      test: ["CMD-SHELL", "pg_isready -U seaport -d seaport"]
       interval: 5s
       timeout: 3s
       retries: 30
 
-  puerto:
+  seaport:
     build:
       context: ..
       args:
-        VERSION: ${PUERTO_VERSION:-dev}
-    image: puerto:${PUERTO_VERSION:-dev}
+        VERSION: ${SEAPORT_VERSION:-dev}
+    image: seaport:${SEAPORT_VERSION:-dev}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://puerto:${POSTGRES_PASSWORD}@postgres:5432/puerto?sslmode=disable
+      DATABASE_URL: postgres://seaport:${POSTGRES_PASSWORD}@postgres:5432/seaport?sslmode=disable
       # Behind a proxy only token mode works (none refuses proxied requests).
-      PUERTO_AUTH: token
-      PUERTO_ADDR: 0.0.0.0:8740
-      PUERTO_PUBLIC_URL: ${PUERTO_PUBLIC_URL:-https://${PUERTO_DOMAIN}}
-      PUERTO_ADMIN_TOKEN: ${PUERTO_ADMIN_TOKEN:?set PUERTO_ADMIN_TOKEN in deploy/.env}
-      PUERTO_CREW_TOKEN: ${PUERTO_CREW_TOKEN:?set PUERTO_CREW_TOKEN in deploy/.env}
-      PUERTO_LOG_LEVEL: ${PUERTO_LOG_LEVEL:-info}
-      PUERTO_SEND_PER_MINUTE: ${PUERTO_SEND_PER_MINUTE:-20}
-      PUERTO_SEND_PER_HOUR: ${PUERTO_SEND_PER_HOUR:-300}
-      PUERTO_SEND_PER_CHAT_MINUTE: ${PUERTO_SEND_PER_CHAT_MINUTE:-8}
+      SEAPORT_AUTH: token
+      SEAPORT_ADDR: 0.0.0.0:8740
+      SEAPORT_PUBLIC_URL: ${SEAPORT_PUBLIC_URL:-https://${SEAPORT_DOMAIN}}
+      SEAPORT_ADMIN_TOKEN: ${SEAPORT_ADMIN_TOKEN:?set SEAPORT_ADMIN_TOKEN in deploy/.env}
+      SEAPORT_CREW_TOKEN: ${SEAPORT_CREW_TOKEN:?set SEAPORT_CREW_TOKEN in deploy/.env}
+      SEAPORT_LOG_LEVEL: ${SEAPORT_LOG_LEVEL:-info}
+      SEAPORT_SEND_PER_MINUTE: ${SEAPORT_SEND_PER_MINUTE:-20}
+      SEAPORT_SEND_PER_HOUR: ${SEAPORT_SEND_PER_HOUR:-300}
+      SEAPORT_SEND_PER_CHAT_MINUTE: ${SEAPORT_SEND_PER_CHAT_MINUTE:-8}
     expose:
       - "8740"
 
@@ -50,10 +50,10 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      puerto:
+      seaport:
         condition: service_healthy
     environment:
-      PUERTO_DOMAIN: ${PUERTO_DOMAIN:?set PUERTO_DOMAIN in deploy/.env}
+      SEAPORT_DOMAIN: ${SEAPORT_DOMAIN:?set SEAPORT_DOMAIN in deploy/.env}
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
@@ -76,9 +76,9 @@ services:
         condition: service_healthy
     environment:
       PGHOST: postgres
-      PGUSER: puerto
+      PGUSER: seaport
       PGPASSWORD: ${POSTGRES_PASSWORD}
-      PGDATABASE: puerto
+      PGDATABASE: seaport
       BACKUP_EVERY_SECONDS: ${BACKUP_EVERY_SECONDS:-86400}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
     volumes:
@@ -88,9 +88,9 @@ services:
       - |
         umask 077
         while :; do
-          f=/backups/puerto-$$(date -u +%Y%m%dT%H%M%SZ).dump
+          f=/backups/seaport-$$(date -u +%Y%m%dT%H%M%SZ).dump
           if pg_dump -Fc -f "$$f.tmp"; then mv "$$f.tmp" "$$f"; echo "backup $$f"; else rm -f "$$f.tmp"; echo "backup FAILED" >&2; fi
-          find /backups -name 'puerto-*.dump' -mmin +$$((BACKUP_KEEP_DAYS * 1440)) -delete
+          find /backups -name 'seaport-*.dump' -mmin +$$((BACKUP_KEEP_DAYS * 1440)) -delete
           sleep "$$BACKUP_EVERY_SECONDS"
         done
 

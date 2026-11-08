@@ -1,7 +1,7 @@
-// Package connector is the agent side of puerto (`puerto connect`): it dials
+// Package connector is the agent side of seaport (`seaport connect`): it dials
 // the port's /crew/ws, spawns an ACP agent (rness --acp, ...) and turns each
 // delivery into a prompt on that conversation's agent session. The agent
-// answers through the puerto MCP tools, or, with AutoReply, the connector
+// answers through the seaport MCP tools, or, with AutoReply, the connector
 // sends the agent's final text.
 package connector
 
@@ -15,17 +15,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/crew"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/coder/websocket"
 )
 
 // Config of a connector.
 type Config struct {
 	Server      string // http(s)://host:port of the port
-	Token       string // crew token ("" for a port in PUERTO_AUTH=none)
+	Token       string // crew token ("" for a port in SEAPORT_AUTH=none)
 	AgentName   string
 	Concurrency int
 	AutoReply   bool
@@ -45,7 +45,7 @@ type Config struct {
 // reconnecting with backoff.
 func Run(ctx context.Context, cfg Config) error {
 	if len(cfg.Command) == 0 {
-		return errx.Validation("an agent command is required: puerto connect -- rness --acp")
+		return errx.Validation("an agent command is required: seaport connect -- rness --acp")
 	}
 	agent, err := StartAgent(ctx, cfg)
 	if err != nil {
@@ -97,7 +97,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 			if cfg.Token == "" {
-				return errx.Unauthorized("the port requires a crew token (-token or PUERTO_CREW_TOKEN)")
+				return errx.Unauthorized("the port requires a crew token (-token or SEAPORT_CREW_TOKEN)")
 			}
 			return errx.Unauthorized("the port rejected the crew token")
 		}
@@ -308,7 +308,7 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 // SteerPrompt renders ships that arrived while the agent was working.
 func SteerPrompt(d ship.Delivery) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[puerto] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
+	fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
 	writeShips(&b, d.Ships)
 	b.WriteString("\nTake them into account; reply to the conversation as before.")
 	return b.String()
@@ -328,7 +328,7 @@ func writeShips(b *strings.Builder, ships []ship.Ship) {
 func Prompt(d ship.Delivery, autoReply bool) string {
 	c := d.Conversation
 	var b strings.Builder
-	fmt.Fprintf(&b, "[puerto] New %s message(s)\n", c.Channel)
+	fmt.Fprintf(&b, "[seaport] New %s message(s)\n", c.Channel)
 	fmt.Fprintf(&b, "conversation_id: %s\n", c.ID)
 	title := c.Title
 	if title == "" {
@@ -341,7 +341,7 @@ func Prompt(d ship.Delivery, autoReply bool) string {
 		b.WriteString("Your final answer will be sent to this conversation as a message. " +
 			"Keep it short and conversational.")
 	} else {
-		b.WriteString("Reply with the puerto `reply` tool (conversation_id above) when a reply is needed; " +
+		b.WriteString("Reply with the seaport `reply` tool (conversation_id above) when a reply is needed; " +
 			"use `history` for earlier context. Your final text is not sent to anyone.")
 	}
 	return b.String()

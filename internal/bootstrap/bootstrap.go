@@ -12,18 +12,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/config"
-	"github.com/Abraxas-365/puerto/internal/conversation/conversationmodule"
-	"github.com/Abraxas-365/puerto/internal/crew/crewmodule"
-	"github.com/Abraxas-365/puerto/internal/dock/dockmodule"
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/event/eventsse"
-	"github.com/Abraxas-365/puerto/internal/httpx"
-	"github.com/Abraxas-365/puerto/internal/ship"
-	"github.com/Abraxas-365/puerto/internal/ship/shipmodule"
-	"github.com/Abraxas-365/puerto/migrations"
-	"github.com/Abraxas-365/puerto/web"
+	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
+	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
+	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/event/eventsse"
+	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
+	"github.com/Abraxas-365/seaport/migrations"
+	"github.com/Abraxas-365/seaport/web"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
@@ -234,7 +234,7 @@ func (a *App) Serve(ctx context.Context) error {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("puerto listening", "addr", a.cfg.Addr, "public_url", a.cfg.PublicURL, "version", Version)
+	slog.Info("seaport listening", "addr", a.cfg.Addr, "public_url", a.cfg.PublicURL, "version", Version)
 	select {
 	case err := <-errc:
 		if errors.Is(err, http.ErrServerClosed) {

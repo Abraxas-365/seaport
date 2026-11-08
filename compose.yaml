@@ -1,18 +1,18 @@
-name: puerto
+name: seaport
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: puerto
-      POSTGRES_PASSWORD: puerto
-      POSTGRES_DB: puerto
+      POSTGRES_USER: seaport
+      POSTGRES_PASSWORD: seaport
+      POSTGRES_DB: seaport
     ports:
       - "127.0.0.1:5449:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U puerto"]
+      test: ["CMD-SHELL", "pg_isready -U seaport"]
       interval: 2s
       timeout: 3s
       retries: 30

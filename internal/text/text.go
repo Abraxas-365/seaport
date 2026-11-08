@@ -9,7 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
 const (

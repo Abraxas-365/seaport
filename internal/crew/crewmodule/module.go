@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/conversation"
-	"github.com/Abraxas-365/puerto/internal/crew/adapters/crewmcp"
-	"github.com/Abraxas-365/puerto/internal/crew/adapters/crewws"
-	"github.com/Abraxas-365/puerto/internal/event"
-	"github.com/Abraxas-365/puerto/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewmcp"
+	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewws"
+	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 type Module struct {

@@ -34,11 +34,11 @@ import {
 import {
   ChannelIcon,
   LiveIndicator,
-  PuertoLogo,
-  PuertoMark,
+  SeaportLogo,
+  SeaportMark,
   StatusDot,
   dockTone,
-} from "@/components/puerto"
+} from "@/components/seaport"
 
 export function AppShell() {
   return (
@@ -47,7 +47,7 @@ export function AppShell() {
       <SidebarInset className="h-svh min-h-0 overflow-hidden">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3 md:hidden">
           <SidebarTrigger />
-          <PuertoLogo />
+          <SeaportLogo />
           <LiveIndicator compact className="ml-auto" />
         </header>
         <Outlet />
@@ -79,9 +79,9 @@ function AppSidebar() {
       <SidebarHeader className="h-14 justify-center border-b border-sidebar-border px-3 group-data-[collapsible=icon]:px-2">
         <div className="flex items-center justify-between">
           <span className="group-data-[collapsible=icon]:hidden">
-            <PuertoLogo />
+            <SeaportLogo />
           </span>
-          <PuertoMark className="hidden group-data-[collapsible=icon]:block" />
+          <SeaportMark className="hidden group-data-[collapsible=icon]:block" />
           <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>
@@ -142,7 +142,7 @@ function AccountMenu() {
   const qc = useQueryClient()
   const { theme, setTheme } = useTheme()
   const health = useQuery({ queryKey: keys.health, queryFn: api.health })
-  // PUERTO_AUTH=none has no session to close.
+  // SEAPORT_AUTH=none has no session to close.
   const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
   const open = config.data?.auth === "none"
   const logout = useMutation({

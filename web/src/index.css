@@ -7,7 +7,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Puerto design tokens.
+ * Seaport design tokens.
  *
  * Harbor blue is the brand (primary); signal colors carry meaning and are
  * the same across the app:
@@ -16,7 +16,7 @@
  *   danger   denied · failed · logged out      (red: closed)
  *   info     in flight · agent working         (cyan: at work)
  * Components never use raw palette colors for status; they use a tone
- * (see src/components/puerto/tone.ts).
+ * (see src/components/seaport/tone.ts).
  */
 
 @theme inline {

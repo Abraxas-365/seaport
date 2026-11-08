@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
 // spaCSP: the UI loads only its own scripts; inline style attributes are

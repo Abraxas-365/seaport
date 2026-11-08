@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 // (none, token). Data created in them moves to iam mode by re-keying this id.
 var DefaultOrganization = identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001")
 
-// AuthMode is how `puerto serve` authenticates admins and agents.
+// AuthMode is how `seaport serve` authenticates admins and agents.
 type AuthMode string
 
 const (
@@ -38,29 +38,29 @@ const (
 
 func (m AuthMode) Valid() bool { return m == AuthNone || m == AuthToken }
 
-// Server is the configuration of `puerto serve`.
+// Server is the configuration of `seaport serve`.
 type Server struct {
-	Addr        string   // PUERTO_ADDR, default 127.0.0.1:8740
+	Addr        string   // SEAPORT_ADDR, default 127.0.0.1:8740
 	DatabaseURL string   // DATABASE_URL (required)
-	PublicURL   string   // PUERTO_PUBLIC_URL, default http://<Addr>; agents reach /mcp here
-	Auth        AuthMode // PUERTO_AUTH: none | token (default)
-	AdminToken  string   // PUERTO_ADMIN_TOKEN (token mode): CLI and /api/v1
-	CrewToken   string   // PUERTO_CREW_TOKEN (token mode): agents, /crew/ws and /mcp
-	LogLevel    string   // PUERTO_LOG_LEVEL, default info
-	// Outbound limits per dock (0 disables one): PUERTO_SEND_PER_MINUTE
-	// (20), PUERTO_SEND_PER_HOUR (300), PUERTO_SEND_PER_CHAT_MINUTE (8).
+	PublicURL   string   // SEAPORT_PUBLIC_URL, default http://<Addr>; agents reach /mcp here
+	Auth        AuthMode // SEAPORT_AUTH: none | token (default)
+	AdminToken  string   // SEAPORT_ADMIN_TOKEN (token mode): CLI and /api/v1
+	CrewToken   string   // SEAPORT_CREW_TOKEN (token mode): agents, /crew/ws and /mcp
+	LogLevel    string   // SEAPORT_LOG_LEVEL, default info
+	// Outbound limits per dock (0 disables one): SEAPORT_SEND_PER_MINUTE
+	// (20), SEAPORT_SEND_PER_HOUR (300), SEAPORT_SEND_PER_CHAT_MINUTE (8).
 	SendPerMinute, SendPerHour, SendPerChatMinute int
 }
 
 func LoadServer() (Server, error) {
 	c := Server{
-		Addr:        env("PUERTO_ADDR", "127.0.0.1:8740"),
+		Addr:        env("SEAPORT_ADDR", "127.0.0.1:8740"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
-		PublicURL:   strings.TrimRight(os.Getenv("PUERTO_PUBLIC_URL"), "/"),
-		Auth:        AuthMode(env("PUERTO_AUTH", string(AuthToken))),
-		AdminToken:  os.Getenv("PUERTO_ADMIN_TOKEN"),
-		CrewToken:   os.Getenv("PUERTO_CREW_TOKEN"),
-		LogLevel:    env("PUERTO_LOG_LEVEL", "info"),
+		PublicURL:   strings.TrimRight(os.Getenv("SEAPORT_PUBLIC_URL"), "/"),
+		Auth:        AuthMode(env("SEAPORT_AUTH", string(AuthToken))),
+		AdminToken:  os.Getenv("SEAPORT_ADMIN_TOKEN"),
+		CrewToken:   os.Getenv("SEAPORT_CREW_TOKEN"),
+		LogLevel:    env("SEAPORT_LOG_LEVEL", "info"),
 	}
 	var err error
 	for _, l := range []struct {
@@ -68,9 +68,9 @@ func LoadServer() (Server, error) {
 		def int
 		dst *int
 	}{
-		{"PUERTO_SEND_PER_MINUTE", 20, &c.SendPerMinute},
-		{"PUERTO_SEND_PER_HOUR", 300, &c.SendPerHour},
-		{"PUERTO_SEND_PER_CHAT_MINUTE", 8, &c.SendPerChatMinute},
+		{"SEAPORT_SEND_PER_MINUTE", 20, &c.SendPerMinute},
+		{"SEAPORT_SEND_PER_HOUR", 300, &c.SendPerHour},
+		{"SEAPORT_SEND_PER_CHAT_MINUTE", 8, &c.SendPerChatMinute},
 	} {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err
@@ -90,20 +90,20 @@ func (c Server) Validate() error {
 	switch c.Auth {
 	case AuthNone:
 		if !Loopback(c.Addr) {
-			return errx.Validation("PUERTO_AUTH=none only listens on loopback (127.0.0.1, ::1, localhost); " +
-				"PUERTO_ADDR " + c.Addr + " would expose an unauthenticated port")
+			return errx.Validation("SEAPORT_AUTH=none only listens on loopback (127.0.0.1, ::1, localhost); " +
+				"SEAPORT_ADDR " + c.Addr + " would expose an unauthenticated port")
 		}
 	case AuthToken:
 		switch {
 		case len(c.AdminToken) < 16:
-			return errx.Validation("PUERTO_ADMIN_TOKEN is required (at least 16 characters)")
+			return errx.Validation("SEAPORT_ADMIN_TOKEN is required (at least 16 characters)")
 		case len(c.CrewToken) < 16:
-			return errx.Validation("PUERTO_CREW_TOKEN is required (at least 16 characters)")
+			return errx.Validation("SEAPORT_CREW_TOKEN is required (at least 16 characters)")
 		case c.AdminToken == c.CrewToken:
-			return errx.Validation("PUERTO_ADMIN_TOKEN and PUERTO_CREW_TOKEN must differ")
+			return errx.Validation("SEAPORT_ADMIN_TOKEN and SEAPORT_CREW_TOKEN must differ")
 		}
 	default:
-		return errx.Validation("PUERTO_AUTH must be none or token")
+		return errx.Validation("SEAPORT_AUTH must be none or token")
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-// Puerto design system: domain components built on shadcn/ui primitives.
+// Seaport design system: domain components built on shadcn/ui primitives.
 export * from "./tone"
 export * from "./status"
 export * from "./brand"

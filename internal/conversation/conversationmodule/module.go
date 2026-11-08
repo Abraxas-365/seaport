@@ -4,10 +4,10 @@ package conversationmodule
 import (
 	"net/http"
 
-	"github.com/Abraxas-365/puerto/internal/conversation/adapters/conversationhttp"
-	"github.com/Abraxas-365/puerto/internal/conversation/adapters/conversationpg"
-	"github.com/Abraxas-365/puerto/internal/conversation/conversationsvc"
-	"github.com/Abraxas-365/puerto/internal/event"
+	"github.com/Abraxas-365/seaport/internal/conversation/adapters/conversationhttp"
+	"github.com/Abraxas-365/seaport/internal/conversation/adapters/conversationpg"
+	"github.com/Abraxas-365/seaport/internal/conversation/conversationsvc"
+	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/jmoiron/sqlx"
 )
 

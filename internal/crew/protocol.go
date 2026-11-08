@@ -17,10 +17,10 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/Abraxas-365/puerto/internal/errx"
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/ship"
-	"github.com/Abraxas-365/puerto/internal/text"
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 // FrameType names a frame.

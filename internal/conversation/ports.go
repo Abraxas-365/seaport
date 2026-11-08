@@ -3,8 +3,8 @@ package conversation
 import (
 	"context"
 
-	"github.com/Abraxas-365/puerto/internal/identity"
-	"github.com/Abraxas-365/puerto/internal/query"
+	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // Every method takes the organization right after ctx; a conversation,

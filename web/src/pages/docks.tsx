@@ -25,7 +25,7 @@ import {
   ErrorState,
   PageHeader,
   type ChoiceOption,
-} from "@/components/puerto"
+} from "@/components/seaport"
 import { MessageCircle, Webhook } from "lucide-react"
 
 const channelOptions: ChoiceOption<Channel>[] = [

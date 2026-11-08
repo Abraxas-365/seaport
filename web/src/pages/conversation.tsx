@@ -49,7 +49,7 @@ import {
   customsLabel,
   customsTone,
   type ChoiceOption,
-} from "@/components/puerto"
+} from "@/components/seaport"
 
 const accessOptions: ChoiceOption<Access>[] = [
   { value: "auto", label: "Reglas", icon: Sparkles, description: "Decide la aduana del muelle", tone: "brand" },
