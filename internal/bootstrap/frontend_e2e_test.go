@@ -27,9 +27,15 @@ type sseEvent struct {
 // openEvents subscribes to /api/v1/events with the admin bearer token.
 func (p *port) openEvents(lastID string) <-chan sseEvent {
 	p.t.Helper()
+	return p.openEventsAs(adminToken, lastID)
+}
+
+// openEventsAs subscribes to /api/v1/events with token.
+func (p *port) openEventsAs(token, lastID string) <-chan sseEvent {
+	p.t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, p.srv.URL+"/api/v1/events", nil)
-	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 	if lastID != "" {
 		req.Header.Set("Last-Event-ID", lastID)
 	}

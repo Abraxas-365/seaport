@@ -24,4 +24,5 @@ export const keys = {
   ships: (id: string) => ["ships", id] as const,
   customs: (dock: string) => ["customs", dock] as const,
   crew: ["crew"] as const,
+  crewTokens: ["crew-tokens"] as const,
 }

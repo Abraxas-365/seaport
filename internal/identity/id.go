@@ -104,6 +104,7 @@ type (
 	shipTag         struct{}
 	deliveryTag     struct{}
 	ruleTag         struct{}
+	crewTokenTag    struct{}
 )
 
 func tagName[T any]() string {
@@ -121,6 +122,8 @@ func tagName[T any]() string {
 		return "delivery_id"
 	case ruleTag:
 		return "rule_id"
+	case crewTokenTag:
+		return "crew_token_id"
 	default:
 		return "id"
 	}
@@ -171,3 +174,10 @@ type RuleID = ID[ruleTag]
 
 func NewRuleID() RuleID                      { return NewID[ruleTag]() }
 func ParseRuleID(raw string) (RuleID, error) { return ParseID[ruleTag](raw) }
+
+// CrewTokenID identifies a crew token (an agent credential of an
+// organization).
+type CrewTokenID = ID[crewTokenTag]
+
+func NewCrewTokenID() CrewTokenID                      { return NewID[crewTokenTag]() }
+func ParseCrewTokenID(raw string) (CrewTokenID, error) { return ParseID[crewTokenTag](raw) }

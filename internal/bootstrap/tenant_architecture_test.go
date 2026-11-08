@@ -10,31 +10,35 @@ import (
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
 // tenant domain's Commands, Queries, CustomsCommands, CustomsQueries,
-// Messenger, Repository and CustomsRepository port takes
+// Messenger, Repository, CustomsRepository and Token* port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
 // tenantDomains own tenant rows (organization_id).
-var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true}
+var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true}
 
 // tenantPorts are the port interfaces the rule covers.
 var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
+	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.
 var systemWide = map[string]string{
-	"dock.Commands.PairingChanged":   "gateway callback about a dock the gateway runs (keyed by dock id)",
-	"dock.Commands.SetLinked":        "gateway callback about a dock the gateway runs (keyed by dock id)",
-	"dock.Commands.SetStatus":        "gateway callback about a dock the gateway runs (keyed by dock id)",
-	"dock.Commands.RestoreAll":       "process start reconnects every organization's docks",
-	"dock.Repository.Get":            "gateway callbacks resolve a dock (and its organization) by id",
-	"dock.Repository.ListByStatus":   "process start reconnects every organization's docks",
-	"dock.Repository.SetStatus":      "gateway callback (dock id from the gateway's own session)",
-	"dock.Repository.SetLinked":      "gateway callback (dock id from the gateway's own session)",
-	"ship.Commands.ReleaseExpired":   "lease sweeper and process start requeue every organization",
-	"ship.Repository.ReleaseExpired": "lease sweeper and process start requeue every organization",
+	"dock.Commands.PairingChanged":    "gateway callback about a dock the gateway runs (keyed by dock id)",
+	"dock.Commands.SetLinked":         "gateway callback about a dock the gateway runs (keyed by dock id)",
+	"dock.Commands.SetStatus":         "gateway callback about a dock the gateway runs (keyed by dock id)",
+	"dock.Commands.RestoreAll":        "process start reconnects every organization's docks",
+	"dock.Repository.Get":             "gateway callbacks resolve a dock (and its organization) by id",
+	"dock.Repository.ListByStatus":    "process start reconnects every organization's docks",
+	"dock.Repository.SetStatus":       "gateway callback (dock id from the gateway's own session)",
+	"dock.Repository.SetLinked":       "gateway callback (dock id from the gateway's own session)",
+	"crew.TokenCommands.Authenticate": "a crew token value names its organization (agent sign-in)",
+	"crew.TokenRepository.FindByHash": "a crew token value names its organization (agent sign-in)",
+	"crew.TokenRepository.Touch":      "records a use of the token just authenticated (keyed by its id)",
+	"ship.Commands.ReleaseExpired":    "lease sweeper and process start requeue every organization",
+	"ship.Repository.ReleaseExpired":  "lease sweeper and process start requeue every organization",
 }
 
 func tenantViolations(files []goFile) []string {
@@ -120,11 +124,15 @@ type Queries interface {
 	Find(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (Dock, error)
 }
 type Gateway interface { Link(ctx context.Context, d Dock) error }`,
-		"crew/ports.go": `package crew
+		"connector/ports.go": `package connector
 type Commands interface { Hello(ctx context.Context) error }`,
+		"crew/ports.go": `package crew
+type TokenQueries interface { List(ctx context.Context) error }
+type Disconnector interface { Disconnect(organization identity.OrganizationID) }`,
 	})
 	expectViolations(t, tenantViolations(files),
 		"dock/ports.go: dock.Commands.Rename must take",
 		"dock/ports.go: dock.Queries.Find must take", // named org, not organization
+		"crew/ports.go: crew.TokenQueries.List must take",
 	)
 }

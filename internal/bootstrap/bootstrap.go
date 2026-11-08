@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
+	"github.com/Abraxas-365/seaport/internal/auth/authmodule"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
@@ -39,7 +41,9 @@ type App struct {
 	db      *sqlx.DB
 	docks   *dockmodule.Module
 	ships   *shipmodule.Module
-	cfg     config.Server
+	// signIn is iam mode's sign-in (nil in the other modes).
+	signIn *authmodule.Module
+	cfg    config.Server
 	// done ends long-lived streams (SSE) on shutdown.
 	done     chan struct{}
 	stopOnce func()
@@ -115,7 +119,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	crew := crewmodule.New(lease, cfg.PublicURL+"/mcp", Version, bus)
+	crew := crewmodule.New(db, lease, cfg.PublicURL+"/mcp", Version, bus)
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: crew.Hub, Events: bus,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute}})
@@ -125,8 +129,18 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	done := make(chan struct{})
 	var once sync.Once
 	auth := opts.Authenticator
+	var signIn *authmodule.Module
 	if auth == nil {
-		auth = authenticator(cfg)
+		if cfg.Auth == config.AuthIAM {
+			if signIn, err = authmodule.New(db, cfg, crew.Resolver); err != nil {
+				docks.Close()
+				_ = db.Close()
+				return nil, err
+			}
+			auth = signIn.Authenticator
+		} else {
+			auth = authenticator(cfg, crew.Resolver)
+		}
 	}
 	session := auth.Session()
 
@@ -135,7 +149,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	convs.Register(admin)
 	ships.Register(admin)
 	crew.Register(admin)
-	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done))
+	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
 	admin.Handle("DELETE /api/v1/session", session.Logout)
 	admin.HandleFunc("/", httpx.NotFound)
 
@@ -150,6 +164,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("GET /api/v1/config", publicConfig(cfg))
 	root.Handle("POST /api/v1/session", session.Login)
 	root.Handle("GET /api/v1/session", session.Current)
+	if session.SignIn != nil {
+		root.Handle("GET /api/v1/session/login", session.SignIn)
+		root.Handle("GET "+authhttp.CallbackPath, session.Callback)
+	}
 	root.Handle("/api/", auth.Admin(admin))
 	root.Handle("/crew/ws", auth.Crew(crew.WS()))
 	root.Handle("/mcp", auth.Crew(crew.MCP()))
@@ -164,18 +182,18 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, docks: docks, ships: ships, cfg: cfg,
+	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
 // authenticator picks the auth adapter of the run mode; nothing else in
 // the port knows the mode.
-func authenticator(cfg config.Server) httpx.Authenticator {
+func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authenticator {
 	switch cfg.Auth {
 	case config.AuthNone:
 		return httpx.Open{Organization: config.DefaultOrganization}
 	default:
-		return httpx.Tokens{Organization: config.DefaultOrganization, CrewToken: cfg.CrewToken,
+		return httpx.Tokens{Organization: config.DefaultOrganization, CrewToken: cfg.CrewToken, CrewTokens: crewTokens,
 			Sessions: httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,
 				Secure: strings.HasPrefix(cfg.PublicURL, "https://")}}
 	}
@@ -200,6 +218,9 @@ func (a *App) Start(ctx context.Context) {
 	}
 	if err := a.docks.Service.RestoreAll(ctx); err != nil {
 		slog.Error("restore docks", "err", err)
+	}
+	if a.signIn != nil {
+		go a.signIn.Sweep(ctx)
 	}
 	go func() {
 		t := time.NewTicker(config.SweepInterval)

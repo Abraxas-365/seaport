@@ -2,12 +2,15 @@ package httpx
 
 import (
 	"context"
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 )
 
 // Role is what a principal may do: administer the port (web, CLI) or work
@@ -28,7 +31,43 @@ type Principal struct {
 	// Subject names the caller for logs ("admin", a crew token name, an
 	// IAMKit user id).
 	Subject string
+	// Name is who the caller is for people reading records (crew token
+	// "created by"); empty: use Subject.
+	Name string
+	// Permissions are what an admin may do (permission.*): every one in
+	// the single-owner modes, the IAMKit grants in iam mode. Crew
+	// principals hold none; their endpoints check the role.
+	Permissions []string
+	// Expires, when set, is when the credential stops being valid
+	// (long-lived streams end there so the client re-authenticates).
+	Expires time.Time
+	// Credential identifies a revocable credential (a crew token id) so
+	// its live connections can be closed when it is revoked.
+	Credential string
 }
+
+// Can reports whether the principal holds the permission.
+func (p Principal) Can(perm string) bool { return permission.Has(p.Permissions, perm) }
+
+// Require serves next only to a principal holding perm: 401 without a
+// principal, 403 without the permission. Every admin route is wrapped in
+// it (architecture test TestAdminRoutesRequirePermission).
+func Require(perm string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFrom(r.Context())
+		switch {
+		case !ok:
+			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
+		case p.Role != RoleAdmin || !p.Can(perm):
+			WriteError(w, r, errx.Forbidden("missing permission "+perm))
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+// RequireFunc is Require for an httpx.HandlerFunc.
+func RequireFunc(perm string, h HandlerFunc) http.Handler { return Require(perm, Handle(h)) }
 
 type principalKey struct{}
 
@@ -47,11 +86,55 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 // an Authenticator, so a missing principal is a wiring bug: it answers 401
 // rather than guessing a tenant.
 func Organization(r *http.Request) (identity.OrganizationID, error) {
+	p, err := Caller(r)
+	return p.Organization, err
+}
+
+// Caller is the request's principal (401 when missing, like Organization).
+func Caller(r *http.Request) (Principal, error) {
 	p, ok := PrincipalFrom(r.Context())
 	if !ok {
-		return identity.OrganizationID{}, errx.Unauthorized("missing or invalid token")
+		return Principal{}, errx.Unauthorized("missing or invalid token")
 	}
-	return p.Organization, nil
+	return p, nil
+}
+
+// CrewResolver turns a bearer value into a crew principal (crew tokens
+// stored per organization); unknown values are Unauthorized.
+type CrewResolver interface {
+	ResolveCrew(ctx context.Context, value string) (Principal, error)
+}
+
+// Bearer returns the request's bearer token, or "".
+func Bearer(r *http.Request) string {
+	got, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return strings.TrimSpace(got)
+}
+
+// CrewAuth serves next with the crew principal of the request's bearer
+// token: static (when set, constant-time) or resolved by tokens.
+func CrewAuth(static string, staticPrincipal Principal, tokens CrewResolver, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := Bearer(r)
+		var p Principal
+		switch {
+		case got == "":
+			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
+			return
+		case static != "" && subtle.ConstantTimeCompare([]byte(got), []byte(static)) == 1:
+			p = staticPrincipal
+		case tokens != nil:
+			var err error
+			if p, err = tokens.ResolveCrew(r.Context(), got); err != nil {
+				WriteError(w, r, err)
+				return
+			}
+		default:
+			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
+	})
 }
 
 // Authenticator establishes the principal of a request for one role. It is
@@ -66,9 +149,13 @@ type Authenticator interface {
 	Session() SessionRoutes
 }
 
-// SessionRoutes are the browser session endpoints of a mode.
+// SessionRoutes are the browser session endpoints of a mode. Login is
+// POST /api/v1/session (token mode); SignIn (GET /api/v1/session/login) and
+// Callback (GET /auth/callback) are the redirect sign-in of iam mode, nil
+// in the others.
 type SessionRoutes struct {
 	Login, Current, Logout http.Handler
+	SignIn, Callback       http.Handler
 }
 
 // Open is SEAPORT_AUTH=none: every caller is the admin (and crew) of one
@@ -92,6 +179,9 @@ var _ Authenticator = Open{}
 //     adds none, so `pnpm dev` keeps working.
 func (o Open) with(role Role, next http.Handler) http.Handler {
 	p := Principal{Organization: o.Organization, Role: role, Subject: "local"}
+	if role == RoleAdmin {
+		p.Permissions = permission.All
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !loopbackHost(r.Host) {
 			WriteError(w, r, errx.Forbidden("an open port only answers to localhost"))
@@ -134,16 +224,16 @@ func loopbackHost(host string) bool {
 
 func (o Open) Admin(next http.Handler) http.Handler {
 	// Browsers on other sites must not drive an open port either.
-	return crossOrigin(o.with(RoleAdmin, next))
+	return CrossOrigin(o.with(RoleAdmin, next))
 }
 
 // Crew: connectors send no Origin, browsers on other sites do (the
 // WebSocket handshake also checks it).
-func (o Open) Crew(next http.Handler) http.Handler { return crossOrigin(o.with(RoleCrew, next)) }
+func (o Open) Crew(next http.Handler) http.Handler { return CrossOrigin(o.with(RoleCrew, next)) }
 
 func (o Open) Session() SessionRoutes {
 	always := Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return JSON(w, http.StatusOK, sessionResponse{Authenticated: true})
+		return JSON(w, http.StatusOK, SessionState{Authenticated: true, Subject: "local", Permissions: permission.All})
 	})
 	none := Handle(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusNoContent)
@@ -154,17 +244,19 @@ func (o Open) Session() SessionRoutes {
 }
 
 // Tokens is SEAPORT_AUTH=token: a static admin token (bearer, or traded
-// for a session cookie) and a static crew token, one organization.
+// for a session cookie), one organization. Agents use crew tokens created
+// in the admin (CrewTokens) or the optional static SEAPORT_CREW_TOKEN.
 type Tokens struct {
 	Organization identity.OrganizationID
 	Sessions     Sessions // admin token + cookie settings
-	CrewToken    string
+	CrewToken    string   // optional static crew token
+	CrewTokens   CrewResolver
 }
 
 var _ Authenticator = Tokens{}
 
 func (t Tokens) Admin(next http.Handler) http.Handler {
-	p := Principal{Organization: t.Organization, Role: RoleAdmin, Subject: "admin"}
+	p := Principal{Organization: t.Organization, Role: RoleAdmin, Subject: "admin", Permissions: permission.All}
 	return t.Sessions.RequireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
 	}))
@@ -172,17 +264,15 @@ func (t Tokens) Admin(next http.Handler) http.Handler {
 
 func (t Tokens) Crew(next http.Handler) http.Handler {
 	p := Principal{Organization: t.Organization, Role: RoleCrew, Subject: "crew"}
-	return RequireBearer(t.CrewToken, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
-	}))
+	return CrewAuth(t.CrewToken, p, t.CrewTokens, next)
 }
 
 func (t Tokens) Session() SessionRoutes {
 	return SessionRoutes{Login: t.Sessions.Login(), Current: t.Sessions.Current(), Logout: t.Sessions.Logout()}
 }
 
-// crossOrigin rejects unsafe requests a browser sends from another origin.
-func crossOrigin(next http.Handler) http.Handler {
+// CrossOrigin rejects unsafe requests a browser sends from another origin.
+func CrossOrigin(next http.Handler) http.Handler {
 	csrf := http.NewCrossOriginProtection()
 	csrf.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, r, errx.Forbidden("cross-origin request rejected"))

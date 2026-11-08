@@ -60,7 +60,7 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode == http.StatusUnauthorized && a.token == "" {
-		return errx.Unauthorized("the port requires SEAPORT_ADMIN_TOKEN")
+		return errx.Unauthorized("the port requires SEAPORT_ADMIN_TOKEN (token mode: the admin token; iam mode: an IAMKit API key ik_key_… of your organization)")
 	}
 	if resp.StatusCode >= 300 {
 		var e struct {

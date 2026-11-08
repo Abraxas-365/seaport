@@ -7,26 +7,42 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewhttp"
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewmcp"
+	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewpg"
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewws"
+	"github.com/Abraxas-365/seaport/internal/crew/crewsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/jmoiron/sqlx"
 )
 
 type Module struct {
 	// Hub is the ship domain's Notifier.
-	Hub     *crewws.Hub
-	mcp     http.Handler
-	version string
+	Hub *crewws.Hub
+	// Tokens are the organizations' crew tokens.
+	Tokens *crewsvc.Service
+	// Resolver authenticates agents with crew tokens.
+	Resolver httpx.CrewResolver
+	tokens   *crewhttp.Handler
+	mcp      http.Handler
+	version  string
 }
 
-func New(lease time.Duration, mcpURL, version string, events event.Publisher) *Module {
-	return &Module{Hub: crewws.New(lease, mcpURL, events), version: version}
+func New(db *sqlx.DB, lease time.Duration, mcpURL, version string, events event.Publisher) *Module {
+	hub := crewws.New(lease, mcpURL, events)
+	svc := crewsvc.New(crewpg.New(db), hub)
+	return &Module{Hub: hub, Tokens: svc, Resolver: crewhttp.Resolver{Tokens: svc},
+		tokens: crewhttp.New(svc, svc), version: version}
 }
 
-// Register mounts the admin routes (GET /api/v1/crew: connected agents).
+// Register mounts the admin routes (GET /api/v1/crew: connected agents;
+// /api/v1/crew/tokens).
 func (m *Module) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/crew", m.Hub.StatusHandler())
+	mux.Handle("GET /api/v1/crew", httpx.Require(permission.CrewRead, m.Hub.StatusHandler()))
+	m.tokens.Register(mux)
 }
 
 // Bind connects the crew to the ship and conversation domains (built after

@@ -2,7 +2,8 @@ import * as React from "react"
 import { useNavigate } from "react-router"
 import { Anchor, Plus } from "lucide-react"
 
-import { useCreateDock, useDocks, useNow } from "@/lib/hooks"
+import { useCan, useCreateDock, useDocks, useNow } from "@/lib/hooks"
+import { Perm } from "@/lib/permissions.gen"
 import type { Channel } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,12 +49,14 @@ const channelOptions: ChoiceOption<Channel>[] = [
 export function DocksPage() {
   const docks = useDocks()
   const now = useNow()
+  const can = useCan()
+  const write = can(Perm.DocksWrite)
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       <PageHeader
         title="Muelles"
         description="Por donde llegan los barcos: cada muelle es un canal conectado."
-        actions={<NewDockDialog />}
+        actions={write && <NewDockDialog />}
       />
       <div className="mx-auto max-w-4xl p-6">
         {docks.isPending ? (
@@ -67,8 +70,8 @@ export function DocksPage() {
           <EmptyState
             icon={Anchor}
             title="El puerto no tiene muelles"
-            description="Crea uno para empezar a recibir mensajes de WhatsApp."
-            action={<NewDockDialog />}
+            description={write ? "Crea uno para empezar a recibir mensajes de WhatsApp." : "Aún no hay muelles en tu organización."}
+            action={write && <NewDockDialog />}
           />
         ) : (
           <div className="grid gap-3">

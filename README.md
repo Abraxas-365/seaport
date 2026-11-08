@@ -28,8 +28,8 @@ One binary, several ways to run it — only the start-up config differs
 | Mode | For | Auth |
 |---|---|---|
 | `none` | your own computer | no login, no tokens; loopback only — refuses other listen addresses, foreign `Host` names and anything relayed by a proxy or tunnel |
-| `token` (default) | one owner on a server | static admin + crew tokens |
-| `iam` (planned) | many organizations | IAMKit accounts, per-organization crew tokens |
+| `token` (default) | one owner on a server | static admin token; agents use crew tokens (or a static one) |
+| `iam` | many organizations | [IAMKit](https://github.com/Abraxas-365/iamkit) accounts, organizations and permissions; per-organization crew tokens |
 
 Inside, Seaport is always multi-tenant: every dock, conversation, ship and
 rule belongs to an organization (single-owner modes use one fixed
@@ -95,11 +95,17 @@ rule matching a group member holds that member's messages in allowed groups
 existing chats; held history is never delivered retroactively (the agent can
 read it with `history`).
 
-Connect your agent (crew token), from the directory it should work in:
+Connect your agent (a crew token), from the directory it should work in:
 
 ```bash
-seaport connect -- rness --acp -m anthropic/claude-sonnet-4-5
+seaport crew tokens create laptop      # or in the web app: Tokens de agentes; shown once
+SEAPORT_CREW_TOKEN=sp_crew_… seaport connect -- rness --acp -m anthropic/claude-sonnet-4-5
 ```
+
+Crew tokens belong to an organization, can expire (`-expires 720h`) and are
+revoked one by one (`seaport crew tokens revoke <id>` closes that agent's
+connections). In `token` mode a static `SEAPORT_CREW_TOKEN` on the server
+still works too.
 
 The connector is the same `seaport` binary. On the agent's machine, take it
 from [Releases](https://github.com/Abraxas-365/seaport/releases) (linux,
@@ -128,9 +134,11 @@ new prompt, never lost.
 | Env | Default | |
 |---|---|---|
 | `DATABASE_URL` | — | Postgres (seaport + whatsmeow tables) |
-| `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens) or `token` |
-| `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars) |
-| `SEAPORT_CREW_TOKEN` | — | token mode: agents, `/crew/ws`, `/mcp` (≥16 chars) |
+| `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens), `token` or `iam` |
+| `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
+| `SEAPORT_CREW_TOKEN` | — | token mode, optional: a static agent token (≥16 chars). `seaport connect`: the crew token to use |
+| `SEAPORT_SECRET_KEY` | — | iam mode: seals browser sessions' IAMKit tokens at rest (≥32 chars) |
+| `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
 | `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
 | `SEAPORT_SEND_PER_MINUTE` | `20` | outbound messages per dock per minute (0 = off) |
@@ -146,6 +154,66 @@ of a dock (agents, the web app, the API); failed sends count too, so an
 agent retrying against a broken dock is slowed down as well.
 Each WhatsApp send is also spaced ≥1.2 s from the previous one of that dock.
 
+## IAM mode
+
+`SEAPORT_AUTH=iam` hosts many organizations on one port, with people,
+organizations, roles and API keys managed by an
+[IAMKit](https://github.com/Abraxas-365/iamkit) server (self-hosted).
+
+- **People** sign in to the web app through IAMKit's hosted login (OAuth
+  code + PKCE, done by the server: the browser only holds an HttpOnly
+  session cookie; IAMKit's tokens are sealed in Postgres and refreshed
+  there). Someone in several organizations picks one at sign-in and can
+  switch from the account menu. Signing out ends the IAMKit session too.
+- **Permissions** come from `iam/permissions.json` (the single source:
+  Go and TypeScript constants are generated from it, tests fail on drift).
+  Every admin route requires one (`seaport:docks:read`, …); the web app
+  hides what your role can't do, and the live stream only carries event
+  types you may read. Roles in the manifest: `Admin` (everything),
+  `Operator` (works the inbox — allows chats, replies — and sees docks,
+  customs and agents, without changing them or tokens), `Viewer`
+  (read-only).
+- **The CLI** uses an IAMKit organization API key as
+  `SEAPORT_ADMIN_TOKEN` (`ik_key_…`, created in IAMKit's admin, holding the
+  permissions you choose). An IAMKit access token works too.
+- **Agents** use crew tokens of their organization, created by people with
+  `seaport:crew-tokens:write`; deliveries, MCP tools and the stream never
+  cross organizations (another organization's object is a 404).
+
+Provision IAMKit once (idempotent; re-run after editing
+`iam/permissions.json`; needs `curl` and `jq` and an IAMKit management key):
+
+```bash
+IAMKIT_URL=https://iam.example.com IAMKIT_KEY=ik_mgmt_… \
+APP_URL=https://seaport.example.com \
+OWNER_EMAIL=you@example.com OWNER_PASSWORD='a long password' \
+  scripts/iamkit-provision.sh          # --dry-run shows the changes first
+```
+
+It creates the project, environment, a first organization, the
+application, the Seaport resource (permission catalog) and its roles, the
+browser OAuth client (redirect `APP_URL/auth/callback`), enables
+organization API keys, makes `OWNER_EMAIL` an `Admin`, and writes
+`.iamkit.env` (`SEAPORT_AUTH`, `SEAPORT_PUBLIC_URL`, `IAMKIT_*`). Then:
+
+```bash
+set -a; . ./.iamkit.env; set +a
+export SEAPORT_SECRET_KEY=$(openssl rand -base64 32)   # keep it: it opens the stored sessions
+seaport serve
+```
+
+`IAMKIT_URL` is how Seaport reaches IAMKit; set `IAMKIT_PUBLIC_URL` when
+browsers reach it at another address (e.g. IAMKit on the same Docker
+network), and `IAMKIT_ISSUER` if its tokens' issuer differs from that.
+These URLs and `SEAPORT_PUBLIC_URL` must be https, except on localhost
+(and `IAMKIT_URL` on a private network: `http://iamkit:8080`, `10.x`).
+Only `.iamkit.env`'s `SEAPORT_AUTH`, `SEAPORT_PUBLIC_URL` and `IAMKIT_*`
+settings are read by Seaport (the role and organization ids are for you).
+`IAMKIT_AUDIENCE` is fixed when the resource is created. Removing a
+permission from the manifest keeps it in IAMKit until `--prune` (IAMKit
+would strip it from every role and key at once): add the new one, deploy,
+then prune.
+
 ## Deploy (one server, HTTPS)
 
 `deploy/` runs Postgres, Seaport, [Caddy](https://caddyserver.com) (automatic
@@ -154,25 +222,29 @@ Compose. Point a DNS name at the server, open ports 80 and 443, then:
 
 ```bash
 cd deploy
-cp .env.example .env      # SEAPORT_DOMAIN, and three secrets from `openssl rand -hex 32`
+cp .env.example .env      # SEAPORT_DOMAIN, POSTGRES_PASSWORD and SEAPORT_ADMIN_TOKEN (`openssl rand -hex 32`)
 docker compose up -d --build
 docker compose logs -f seaport
 ```
 
 Open `https://$SEAPORT_DOMAIN`, sign in with `SEAPORT_ADMIN_TOKEN`, link
-WhatsApp. On your computer:
+WhatsApp, create a crew token (Tokens de agentes). On your computer:
 
 ```bash
-SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=… seaport connect -- rness --acp -m …
+SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport connect -- rness --acp -m …
 ```
 
+- For many organizations set `SEAPORT_AUTH=iam` and the IAMKit settings in
+  `.env` instead of the admin token (see `.env.example` and
+  [IAM mode](#iam-mode); provision with `APP_URL=https://$SEAPORT_DOMAIN`).
 - Only Caddy publishes ports; Seaport and Postgres stay on the compose network.
-  The proxy runs `token` mode (`none` refuses proxied requests).
+  The proxy runs `token` or `iam` mode (`none` refuses proxied requests).
 - Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
   (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
   (root by default). They contain the WhatsApp device keys — copy them off
   the server (the same disk is not a backup) and guard them like the
-  tokens. Restore: `docker compose stop seaport backup`, then
+  tokens (in iam mode they also hold the sealed IAMKit tokens of browser
+  sessions; `SEAPORT_SECRET_KEY` opens them, so keep it elsewhere). Restore: `docker compose stop seaport backup`, then
   `docker compose exec -T postgres pg_restore -U seaport -d seaport --clean --if-exists < backups/<file>.dump`,
   then `docker compose start seaport backup`.
 - Upgrade: `git pull && docker compose up -d --build` (migrations run at start).
@@ -187,16 +259,20 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=… seaport connect -- rn
 
 ## API
 
-Admin routes accept `Authorization: Bearer $SEAPORT_ADMIN_TOKEN` or a
-browser session cookie.
+Admin routes accept `Authorization: Bearer <token>` (the admin token; in
+iam mode an IAMKit API key or access token) or a browser session cookie.
+In iam mode each route needs its permission (`iam/permissions.json`):
+403 without it.
 
 | | |
 |---|---|
 | `GET /api/v1/config` | public: `{"auth", "version"}` — how the web app must sign in |
-| `POST /api/v1/session` `{"token"}`, `GET /api/v1/session`, `DELETE /api/v1/session` | browser login: trades the admin token for an HttpOnly, SameSite=Strict cookie (7 days, stateless HMAC; rotating the token ends all sessions). Cookie writes from another origin get 403 |
+| `POST /api/v1/session` `{"token"}`, `GET /api/v1/session`, `DELETE /api/v1/session` | token mode browser login: trades the admin token for an HttpOnly, SameSite=Strict cookie (7 days, stateless HMAC; rotating the token ends all sessions). Cookie writes from another origin get 403. `GET` answers `{"authenticated", "permissions", …}` in every mode (iam: name, email, organization) |
+| `GET /api/v1/session/login[?next=&organization=&switch=1]`, `GET /auth/callback` | iam mode: sign in through IAMKit (top-level navigation); `DELETE /api/v1/session` answers `{"logout_url"}` (IAMKit's end session) |
+| `GET/POST /api/v1/crew/tokens`, `DELETE /api/v1/crew/tokens/{id}` | crew tokens of your organization; POST `{"name","expires_at"?}` answers the value once |
 | `GET /api/v1/events[?last_event_id=]` | live events (SSE, below) |
 | `GET /api/v1/crew` | connected agents and their deliveries in flight |
-| `GET /api/v1/inbox[?status=&dock_id=]` | conversations by last activity, each with `last_ship`, `held`, `queued`, `in_flight` |
+| `GET /api/v1/inbox[?status=&dock_id=]` | conversations by last activity, each with `last_ship` (null without `ships:read`), `held`, `queued`, `in_flight` |
 | `GET/POST /api/v1/docks`, `GET/PATCH/DELETE /api/v1/docks/{id}`, `POST …/relink`, `POST …/unlink` | docks (QR in `qr_code` while linking); PATCH `{"name"}`; unlink logs the number out and keeps history; DELETE unlinks and deletes its conversations, ships and customs |
 | `POST /api/v1/docks/{id}/ships` | inject an inbound message into an `api` dock |
 | `GET /api/v1/conversations[?status=allowed\|pending\|denied&dock_id=]`, `GET/PATCH /api/v1/conversations/{id}` | chats; PATCH `{"access":"auto\|allow\|deny","group_mode":"mentions\|all\|","title":…}` |

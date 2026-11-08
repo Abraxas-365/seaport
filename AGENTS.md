@@ -14,17 +14,23 @@ docker build -t seaport .                        # image (web + binary, distrole
 PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
+SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
+                                                # + iam mode e2e against a real IAMKit container (Docker)
+go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
+scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (README "IAM mode")
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
 ```
 
 CI (`.github/workflows/ci.yml`): gofmt, vet, `go test -race` against a
-Postgres service (with `CI` set, a missing test database fails instead of
-skipping), web lint + build, docker build. Releases: push a `v*` tag →
+Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
+IAMKit + its Postgres; with `CI` set, a missing test database or IAMKit
+fails instead of skipping), web lint + build, docker build. Releases: push a `v*` tag →
 `release.yml` runs goreleaser (`.goreleaser.yaml`) and publishes the
 binaries to GitHub Releases.
 
 Run the integration tests before finishing any change to a repository, the
-hub, the MCP tools or the HTTP API.
+hub, the MCP tools or the HTTP API; the IAMKit e2e too for anything touching
+auth, permissions, sessions or tenancy.
 
 Web (`web/`, pnpm): `pnpm lint && pnpm build` (tsc + vite → `web/dist`,
 embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
@@ -42,6 +48,9 @@ embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
   `src/lib/live.ts` patches the cache from `/api/v1/events`. Invalidate the
   `keys.docks` list with `exact: true` (detail keys share the prefix).
 - CSP is `script-src 'self'`: no inline scripts (`public/theme.js`).
+- Permissions: `useCan(Perm.X)` from `src/lib/permissions.gen.ts`
+  (generated; never write `"seaport:…"` literals — `TestWebUsesGeneratedPermissions`).
+  Hide what the caller can't do; pages they can't read show `NoAccess`.
 
 ## Layout
 
@@ -49,16 +58,24 @@ embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
 cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx   foundation (import no domain)
+  permission          permission catalog generated from iam/permissions.json (foundation)
   event (+eventsse)   in-memory event bus + SSE stream (foundation; payloads
                       are domain types, published by services via event.Publisher)
-  bootstrap           composition root (+ architecture and e2e tests)
+  bootstrap           composition root (+ architecture and e2e tests; events.go
+                      maps each event type to the permission that reads it)
+  auth/               iam mode: browser sessions, bearer checks; authsvc, authmodule,
+                      adapters/{authiam (IAMKit SDK), authpg (web_sessions), authhttp
+                      (httpx.Authenticator + OAuth routes)}
   dock/               channels: domain, ports.go, docksvc, dockmodule,
                       adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
-  crew/               wire protocol; adapters/{crewws (hub), crewmcp (tools)}, crewmodule
+  crew/               wire protocol + crew tokens (token.go): crewsvc, crewmodule,
+                      adapters/{crewws (hub), crewmcp (tools), crewpg, crewhttp}
   connector           agent side (`seaport connect`): WS client + ACP client
+iam/permissions.json  permissions + roles (prefix seaport), source of truth
+scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
 migrations/           goose SQL, embedded, applied at start
 web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at /
 ```
@@ -73,9 +90,9 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship` `Commands`,
-  `Queries`, `Messenger`, `Repository` and `Customs*` ports takes
+  `Queries`, `Messenger`, `Repository`, `Customs*` and `crew` `Token*` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
-  ones (gateway callbacks, restore, lease sweep) are listed with their
+  ones (gateway callbacks, restore, lease sweep, crew token sign-in) are listed with their
   reason in `systemWide` (`TestTenantFirstPorts`).
 - Exported service methods call `Validate()` on their inputs
   (`TestServicesValidateInputs`).
@@ -84,8 +101,16 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   imports it (`TestLayerDependencies`, "client" role).
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
-  `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`
-  (`vendorSDKs` in `TestLayerDependencies`).
+  `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
+  and golang-jwt → `authiam` (`vendorSDKs` in `TestLayerDependencies`).
+- Permissions (`permission_architecture_test.go`): every admin route is
+  wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
+  permissions are named only through `permission.*` constants, never string
+  literals (`TestNoPermissionLiterals`); every catalog permission is checked
+  somewhere (`TestEveryPermissionIsChecked`); every event type maps to a
+  permission in `bootstrap.EventPermissions` (`TestEveryEventTypeHasAPermission`);
+  the generated Go/TS files match `iam/permissions.json` (drift tests in
+  `internal/permission/gen`).
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.
@@ -140,10 +165,11 @@ test together with the reason. Add a rule when you add a pattern.
   process per database until the bus moves to Postgres LISTEN/NOTIFY.
 - Modes (`SEAPORT_AUTH`, plan `~/.rness/plans/puerto/modes-and-tenancy.md`):
   auth is the `httpx.Authenticator` port, picked once in `bootstrap`
-  (`Open` for `none`, `Tokens` for `token`); it puts an `httpx.Principal`
-  (organization, role) in the request context. Handlers take the
-  organization from it (`httpx.Organization(r)`); services never see the
-  mode. `none` is loopback-only: `config.Validate` refuses other listen
+  (`Open` for `none`, `Tokens` for `token`, `authhttp` for `iam`); it puts an
+  `httpx.Principal` (organization, role, subject, permissions) in the request
+  context. Handlers take the organization from it (`httpx.Organization(r)`)
+  and routes check permissions with `httpx.Require`; single-owner modes
+  grant every permission. Services never see the mode. `none` is loopback-only: `config.Validate` refuses other listen
   addresses, and `httpx.Open` refuses foreign `Host` names (DNS rebinding)
   and requests with forwarding headers (a local proxy/tunnel would make
   remote callers look local). Public routes (`/healthz`, `/api/v1/config`)
@@ -153,12 +179,27 @@ test together with the reason. Add a rule when you add a pattern.
   `(organization_id, id)` composite FKs, so a row can't point into another
   organization. Another organization's row is `NotFound`, never
   `Forbidden`. Events carry their organization and `/api/v1/events` streams
-  only the caller's; a crew connection and each MCP call act for the token's
+  only the caller's (and only event types its permissions may read,
+  `bootstrap.EventPermissions`); a crew connection and each MCP call act for the token's
   organization; deliveries go only to that organization's agents.
+- Crew tokens (`crew.Token`, `sp_crew_…`): only the SHA-256 is stored; the
+  value is shown once. Revoking one closes its live connections (the hub
+  tracks `Principal.Credential`). Token mode also accepts the optional
+  static `SEAPORT_CREW_TOKEN`.
 - Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
   `POST /api/v1/session`; cookie writes go through
   `http.CrossOriginProtection` (also in `none` mode, for every write).
+- Admin auth (iam mode): `Authorization: Bearer` (IAMKit API key `ik_key_…`
+  or access token, introspected per request) wins over the cookie. Browser
+  sign-in is a server-side OAuth code + PKCE flow (`/api/v1/session/login` →
+  IAMKit → `/auth/callback`, state in a sealed short-lived cookie); the
+  `seaport_session` cookie is a random id whose hash keys `web_sessions`,
+  where IAMKit's tokens are sealed with `SEAPORT_SECRET_KEY`. Refresh happens
+  ahead of expiry under the row lock (`FOR UPDATE`): IAMKit rotates refresh
+  tokens, so concurrent requests must not both use one. Sign-out deletes the
+  row, revokes at IAMKit and returns its end-session URL. Tokens without an
+  organization (service accounts) are refused.
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - whatsmeow keeps its signal store in the same database (`whatsmeow_*`

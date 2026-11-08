@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 )
 
 type Handler struct {
@@ -22,13 +23,13 @@ func New(c conversation.Commands, q conversation.Queries, cc conversation.Custom
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/conversations", httpx.Handle(h.list))
-	mux.Handle("GET /api/v1/conversations/{id}", httpx.Handle(h.find))
-	mux.Handle("PATCH /api/v1/conversations/{id}", httpx.Handle(h.update))
-	mux.Handle("GET /api/v1/docks/{id}/customs", httpx.Handle(h.getCustoms))
-	mux.Handle("PATCH /api/v1/docks/{id}/customs/policy", httpx.Handle(h.setPolicy))
-	mux.Handle("POST /api/v1/docks/{id}/customs/rules", httpx.Handle(h.addRule))
-	mux.Handle("DELETE /api/v1/customs/rules/{id}", httpx.Handle(h.removeRule))
+	mux.Handle("GET /api/v1/conversations", httpx.RequireFunc(permission.ConversationsRead, h.list))
+	mux.Handle("GET /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsRead, h.find))
+	mux.Handle("PATCH /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsWrite, h.update))
+	mux.Handle("GET /api/v1/docks/{id}/customs", httpx.RequireFunc(permission.CustomsRead, h.getCustoms))
+	mux.Handle("PATCH /api/v1/docks/{id}/customs/policy", httpx.RequireFunc(permission.CustomsWrite, h.setPolicy))
+	mux.Handle("POST /api/v1/docks/{id}/customs/rules", httpx.RequireFunc(permission.CustomsWrite, h.addRule))
+	mux.Handle("DELETE /api/v1/customs/rules/{id}", httpx.RequireFunc(permission.CustomsWrite, h.removeRule))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {

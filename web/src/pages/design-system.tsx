@@ -22,6 +22,7 @@ import {
   DayDivider,
   DockCard,
   EmptyState,
+  NoAccess,
   PairingPanel,
   SeaportLogo,
   SeaportMark,
@@ -453,6 +454,9 @@ function Feedback() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="py-0">
           <EmptyState title="La aduana está vacía" description="Los chats nuevos esperan aquí hasta que decidas." />
+        </Card>
+        <Card className="py-0">
+          <NoAccess what="los tokens de agentes" />
         </Card>
         <Card className="py-0">
           <CardContent className="flex h-full flex-col items-start justify-center gap-3 p-6">

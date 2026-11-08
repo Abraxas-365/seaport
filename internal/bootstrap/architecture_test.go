@@ -48,6 +48,9 @@ var vendorSDKs = map[string][]string{
 	"github.com/coder/acp-go-sdk":            {"connector"},
 	"github.com/coder/websocket":             {"crew/adapters/crewws", "connector"},
 	"github.com/pressly/goose":               {"bootstrap"},
+	// IAMKit (iam mode) and the JWT library that verifies its id_tokens
+	"github.com/Abraxas-365/iamkit": {"auth/adapters/authiam"},
+	"github.com/golang-jwt/jwt":     {"auth/adapters/authiam"},
 	// the embedded admin UI is mounted by the composition root only
 	"github.com/Abraxas-365/seaport/web": {"bootstrap"},
 }
@@ -359,16 +362,17 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"dock/adapters/dockwa/g.go": `package dockwa; import _ "go.mau.fi/whatsmeow"`,
 
 		// violations
-		"identity/id.go":                `package identity; import _ "` + m + `widget"`,                          // foundation → domain
-		"order/ordersvc/s.go":           `package ordersvc; import _ "` + m + `widget/widgetsvc"; const Max = 3`, // svc → svc, exported const
-		"order/orderdb.go":              `package order; import _ "github.com/jmoiron/sqlx"`,                     // SQL in domain
-		"order/adapters/orderhttp/h.go": `package orderhttp; import _ "` + m + `widget/adapters/widgetpg"`,       // adapter → adapter
-		"order/ordermodule/m.go":        `package ordermodule; import _ "` + m + `widget/widgetmodule"`,          // module → other module
-		"order/ports.go":                `package order; type Status string; func Helper() {}`,                   // ports with non-interfaces
-		"widget/widget_boot.go":         `package widget; import _ "` + m + `bootstrap"`,                         // domain → wiring
-		"connector/bad.go":              `package connector; import _ "` + m + `widget/widgetsvc"`,               // client → server svc
-		"order/adapters/orderwa/w.go":   `package orderwa; import _ "go.mau.fi/whatsmeow/types"`,                 // vendor SDK outside its owner
-		"widget/uses_connector.go":      `package widget; import _ "` + m + `connector"`,                         // domain → client
+		"identity/id.go":                `package identity; import _ "` + m + `widget"`,                             // foundation → domain
+		"order/ordersvc/s.go":           `package ordersvc; import _ "` + m + `widget/widgetsvc"; const Max = 3`,    // svc → svc, exported const
+		"order/orderdb.go":              `package order; import _ "github.com/jmoiron/sqlx"`,                        // SQL in domain
+		"order/adapters/orderhttp/h.go": `package orderhttp; import _ "` + m + `widget/adapters/widgetpg"`,          // adapter → adapter
+		"order/ordermodule/m.go":        `package ordermodule; import _ "` + m + `widget/widgetmodule"`,             // module → other module
+		"order/ports.go":                `package order; type Status string; func Helper() {}`,                      // ports with non-interfaces
+		"widget/widget_boot.go":         `package widget; import _ "` + m + `bootstrap"`,                            // domain → wiring
+		"connector/bad.go":              `package connector; import _ "` + m + `widget/widgetsvc"`,                  // client → server svc
+		"order/adapters/orderwa/w.go":   `package orderwa; import _ "go.mau.fi/whatsmeow/types"`,                    // vendor SDK outside its owner
+		"auth/authsvc/s.go":             `package authsvc; import _ "github.com/Abraxas-365/iamkit/sdk/authclient"`, // IAMKit outside authiam
+		"widget/uses_connector.go":      `package widget; import _ "` + m + `connector"`,                            // domain → client
 	})
 	expectViolations(t, importViolations(files),
 		"identity/id.go: foundation packages import no domain code",
@@ -379,6 +383,7 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"widget/widget_boot.go: only the composition root (and cmd) may import bootstrap",
 		"connector/bad.go: the connector talks to the port over the wire",
 		"order/adapters/orderwa/w.go: go.mau.fi/whatsmeow is confined to",
+		"auth/authsvc/s.go: github.com/Abraxas-365/iamkit is confined to",
 		"widget/uses_connector.go: only cmd may import the connector",
 	)
 	expectViolations(t, portsViolations(files),

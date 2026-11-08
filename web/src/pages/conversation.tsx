@@ -13,6 +13,7 @@ import {
 
 import {
   flatten,
+  useCan,
   useConversation,
   useCrew,
   useDocks,
@@ -22,6 +23,7 @@ import {
   useShips,
 } from "@/lib/hooks"
 import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
+import { Perm } from "@/lib/permissions.gen"
 import type { Access, Conversation, GroupMode, Ship } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -43,6 +45,7 @@ import {
   EmptyState,
   ErrorState,
   Mono,
+  NoAccess,
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
@@ -69,6 +72,7 @@ export function ConversationPage() {
   const ships = useShips(conversationId)
   const crew = useCrew()
   const send = useSend(conversationId)
+  const can = useCan()
 
   const working = crew.data?.agents.some((a) => a.deliveries.some((d) => d.conversation_id === conversationId))
 
@@ -80,26 +84,32 @@ export function ConversationPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ConversationHeader conversation={c} working={!!working} />
-      {c.status === "pending" && <PendingBanner conversation={c} />}
-      <ShipList
-        conversation={c}
-        ships={flatten(ships.data)}
-        loading={ships.isPending}
-        hasMore={!!ships.hasNextPage}
-        loadingMore={ships.isFetchingNextPage}
-        onLoadMore={() => ships.fetchNextPage()}
-        working={!!working}
-      />
-      <Composer
-        key={c.id}
-        disabled={!allowed}
-        disabledReason={
-          c.status === "pending"
-            ? "Permite este chat para poder responder."
-            : "Este chat está bloqueado; no se le puede escribir."
-        }
-        onSend={(t) => send.mutateAsync(t)}
-      />
+      {c.status === "pending" && can(Perm.ConversationsWrite) && <PendingBanner conversation={c} />}
+      {can(Perm.ShipsRead) ? (
+        <ShipList
+          conversation={c}
+          ships={flatten(ships.data)}
+          loading={ships.isPending}
+          hasMore={!!ships.hasNextPage}
+          loadingMore={ships.isFetchingNextPage}
+          onLoadMore={() => ships.fetchNextPage()}
+          working={!!working}
+        />
+      ) : (
+        <NoAccess what="leer los mensajes" className="flex-1" />
+      )}
+      {can(Perm.ShipsWrite) && (
+        <Composer
+          key={c.id}
+          disabled={!allowed}
+          disabledReason={
+            c.status === "pending"
+              ? "Permite este chat para poder responder."
+              : "Este chat está bloqueado; no se le puede escribir."
+          }
+          onSend={(t) => send.mutateAsync(t)}
+        />
+      )}
     </div>
   )
 }
@@ -278,6 +288,8 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
   const docks = useDocks()
   const setAccess = useSetAccess()
   const setGroupMode = useSetGroupMode()
+  const can = useCan()
+  const readOnly = !can(Perm.ConversationsWrite)
   const dock = docks.data?.items.find((d) => d.id === c.dock_id)
   return (
     <Sheet>
@@ -309,7 +321,7 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
               aria-label="Acceso"
               value={c.access}
               options={accessOptions}
-              disabled={setAccess.isPending}
+              disabled={readOnly || setAccess.isPending}
               onChange={(access) => setAccess.mutate({ id: c.id, access })}
               className="w-full sm:w-full"
             />
@@ -330,7 +342,7 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
                 size="sm"
                 value={c.group_mode ?? ""}
                 options={groupOptions}
-                disabled={setGroupMode.isPending}
+                disabled={readOnly || setGroupMode.isPending}
                 onChange={(mode) => setGroupMode.mutate({ id: c.id, mode })}
                 className="w-full sm:w-full"
               />

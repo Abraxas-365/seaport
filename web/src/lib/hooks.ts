@@ -1,6 +1,6 @@
 // Data hooks: one place for query keys, fetchers and mutations.
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   useInfiniteQuery,
   useMutation,
@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner"
 
 import { api } from "./api"
+import { Perm, type Permission } from "./permissions.gen"
 import { keys } from "./query"
 import type {
   Access,
@@ -49,7 +50,9 @@ export function flatten<T>(data: InfiniteData<Paginated<T>> | undefined): T[] {
 }
 
 export function useInbox(f: InboxFilter) {
+  const can = useCan()
   return useInfiniteQuery({
+    enabled: can(Perm.ConversationsRead),
     queryKey: keys.inbox(f),
     queryFn: ({ pageParam }) => api.inbox({ ...f, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
@@ -58,7 +61,9 @@ export function useInbox(f: InboxFilter) {
 }
 
 export function useShips(conversation: string) {
+  const can = useCan()
   return useInfiniteQuery({
+    enabled: can(Perm.ShipsRead),
     queryKey: keys.ships(conversation),
     queryFn: ({ pageParam }) => api.ships(conversation, PAGE, pageParam),
     initialPageParam: 0,
@@ -66,28 +71,40 @@ export function useShips(conversation: string) {
   })
 }
 
+// Read queries run only with their permission (the server would answer
+// 403); pages show NoAccess instead.
+
 export function useConversation(id: string) {
-  return useQuery({ queryKey: keys.conversation(id), queryFn: () => api.conversation(id) })
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.conversation(id),
+    queryFn: () => api.conversation(id),
+    enabled: can(Perm.ConversationsRead),
+  })
 }
 
 export function useDocks() {
-  return useQuery({ queryKey: keys.docks, queryFn: api.docks })
+  const can = useCan()
+  return useQuery({ queryKey: keys.docks, queryFn: api.docks, enabled: can(Perm.DocksRead) })
 }
 
 export function useDock(id: string) {
-  return useQuery({ queryKey: keys.dock(id), queryFn: () => api.dock(id) })
+  const can = useCan()
+  return useQuery({ queryKey: keys.dock(id), queryFn: () => api.dock(id), enabled: can(Perm.DocksRead) })
 }
 
 export function useCustoms(dock: string | undefined) {
+  const can = useCan()
   return useQuery({
     queryKey: keys.customs(dock ?? ""),
     queryFn: () => api.customs(dock!),
-    enabled: !!dock,
+    enabled: !!dock && can(Perm.CustomsRead),
   })
 }
 
 export function useCrew() {
-  return useQuery({ queryKey: keys.crew, queryFn: api.crew })
+  const can = useCan()
+  return useQuery({ queryKey: keys.crew, queryFn: api.crew, enabled: can(Perm.CrewRead) })
 }
 
 function fail(what: string) {
@@ -202,6 +219,48 @@ export function useDockAction() {
       onError: fail("No se pudo eliminar"),
     }),
   }
+}
+
+/** The signed-in session (loaded by the gate before the app renders). */
+export function useSession() {
+  return useQuery({ queryKey: keys.session, queryFn: api.session, staleTime: Infinity })
+}
+
+/**
+ * can(p) says whether the user holds p. The server enforces it on every
+ * route; the UI only hides what would fail. none/token mode sessions hold
+ * the whole catalog.
+ */
+export function useCan() {
+  const session = useSession()
+  const held = session.data?.permissions
+  return useCallback((p: Permission) => !!held?.includes(p), [held])
+}
+
+export function useCrewTokens() {
+  const can = useCan()
+  return useQuery({ queryKey: keys.crewTokens, queryFn: api.crewTokens, enabled: can(Perm.CrewTokensRead) })
+}
+
+export function useCreateCrewToken() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, expires_at }: { name: string; expires_at?: string }) => api.createCrewToken(name, expires_at),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.crewTokens }),
+    onError: fail("No se pudo crear el token"),
+  })
+}
+
+export function useRevokeCrewToken() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeCrewToken(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.crewTokens })
+      toast.success("Token revocado", { description: "Sus agentes conectados se desconectaron." })
+    },
+    onError: fail("No se pudo revocar el token"),
+  })
 }
 
 /** Ticks every `ms` so relative times and durations stay current. */

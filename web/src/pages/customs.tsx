@@ -14,6 +14,7 @@ import {
 import {
   flatten,
   useAddRule,
+  useCan,
   useCustoms,
   useDocks,
   useInbox,
@@ -22,6 +23,7 @@ import {
   useSetPolicy,
 } from "@/lib/hooks"
 import { conversationName, formatRelative, formatStamp, shipPreview } from "@/lib/format"
+import { Perm } from "@/lib/permissions.gen"
 import type { DefaultAccess, Dock, Effect, GroupMode } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -41,6 +43,7 @@ import {
   CountBadge,
   EmptyState,
   ErrorState,
+  NoAccess,
   PageHeader,
   Section,
   SegmentedChoice,
@@ -79,6 +82,7 @@ const groupModeOptions: ChoiceOption<Exclude<GroupMode, "">>[] = [
 
 export function CustomsPage() {
   const docks = useDocks()
+  const can = useCan()
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       <PageHeader
@@ -86,8 +90,10 @@ export function CustomsPage() {
         description="Decide qué barcos entran al puerto y despiertan a tu agente."
       />
       <div className="mx-auto max-w-5xl space-y-10 p-6">
-        <PendingQueue />
-        {docks.isPending ? (
+        {can(Perm.ConversationsRead) && <PendingQueue />}
+        {!can(Perm.DocksRead) ? (
+          <NoAccess what="ver los muelles" />
+        ) : docks.isPending ? (
           <Skeleton className="h-64 rounded-xl" />
         ) : docks.isError ? (
           <ErrorState error={docks.error} onRetry={() => docks.refetch()} />
@@ -103,6 +109,7 @@ function PendingQueue() {
   const navigate = useNavigate()
   const pending = useInbox({ status: "pending" })
   const setAccess = useSetAccess()
+  const can = useCan()
   const items = flatten(pending.data)
   return (
     <Section
@@ -140,23 +147,25 @@ function PendingQueue() {
                     </span>
                   </span>
                 </button>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={setAccess.isPending}
-                    onClick={() => setAccess.mutate({ id: c.id, access: "deny" })}
-                  >
-                    <Ban /> Bloquear
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={setAccess.isPending}
-                    onClick={() => setAccess.mutate({ id: c.id, access: "allow" })}
-                  >
-                    <Check /> Permitir
-                  </Button>
-                </div>
+                {can(Perm.ConversationsWrite) && (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={setAccess.isPending}
+                      onClick={() => setAccess.mutate({ id: c.id, access: "deny" })}
+                    >
+                      <Ban /> Bloquear
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={setAccess.isPending}
+                      onClick={() => setAccess.mutate({ id: c.id, access: "allow" })}
+                    >
+                      <Check /> Permitir
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -174,6 +183,8 @@ function PendingQueue() {
 function DockCustoms({ dock }: { dock: Dock }) {
   const customs = useCustoms(dock.id)
   const setPolicy = useSetPolicy(dock.id)
+  const can = useCan()
+  const readOnly = !can(Perm.CustomsWrite)
   return (
     <Section
       title={
@@ -195,7 +206,7 @@ function DockCustoms({ dock }: { dock: Dock }) {
               <ChoiceCards
                 value={customs.data.policy.default}
                 options={defaultOptions}
-                disabled={setPolicy.isPending}
+                disabled={readOnly || setPolicy.isPending}
                 onChange={(v) => setPolicy.mutate({ default: v })}
               />
             </div>
@@ -211,11 +222,11 @@ function DockCustoms({ dock }: { dock: Dock }) {
                 size="sm"
                 value={customs.data.policy.group_mode}
                 options={groupModeOptions}
-                disabled={setPolicy.isPending}
+                disabled={readOnly || setPolicy.isPending}
                 onChange={(v) => setPolicy.mutate({ group_mode: v })}
               />
             </div>
-            <RulesEditor dockId={dock.id} rules={customs.data.rules} />
+            <RulesEditor dockId={dock.id} rules={customs.data.rules} readOnly={readOnly} />
           </CardContent>
         </Card>
       )}
@@ -223,7 +234,15 @@ function DockCustoms({ dock }: { dock: Dock }) {
   )
 }
 
-function RulesEditor({ dockId, rules }: { dockId: string; rules: { id: string; effect: Effect; pattern: string; created_at: string }[] }) {
+function RulesEditor({
+  dockId,
+  rules,
+  readOnly,
+}: {
+  dockId: string
+  rules: { id: string; effect: Effect; pattern: string; created_at: string }[]
+  readOnly: boolean
+}) {
   const add = useAddRule(dockId)
   const remove = useRemoveRule(dockId)
   const [effect, setEffect] = React.useState<Effect>("allow")
@@ -248,46 +267,50 @@ function RulesEditor({ dockId, rules }: { dockId: string; rules: { id: string; e
               </StatusBadge>
               <code className="min-w-0 flex-1 truncate font-mono text-[0.8rem]">{r.pattern}</code>
               <span className="hidden text-xs text-muted-foreground sm:inline">{formatRelative(r.created_at)}</span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Quitar regla"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate(r.id)}
-              >
-                <Trash2 />
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Quitar regla"
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(r.id)}
+                >
+                  <Trash2 />
+                </Button>
+              )}
             </li>
           ))}
         </ul>
       )}
-      <form
-        className="flex flex-col gap-2 sm:flex-row"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!pattern.trim()) return
-          add.mutate({ effect, pattern: pattern.trim() }, { onSuccess: () => setPattern("") })
-        }}
-      >
-        <Select value={effect} onValueChange={(v) => setEffect(v as Effect)}>
-          <SelectTrigger className="sm:w-32" aria-label="Efecto">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="allow">Permitir</SelectItem>
-            <SelectItem value="deny">Bloquear</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input
-          placeholder="+51999123436, 1203…@g.us, +51*"
-          value={pattern}
-          onChange={(e) => setPattern(e.target.value)}
-          className="font-mono text-sm"
-        />
-        <Button type="submit" variant="secondary" disabled={!pattern.trim() || add.isPending}>
-          <Plus /> Agregar
-        </Button>
-      </form>
+      {!readOnly && (
+        <form
+          className="flex flex-col gap-2 sm:flex-row"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!pattern.trim()) return
+            add.mutate({ effect, pattern: pattern.trim() }, { onSuccess: () => setPattern("") })
+          }}
+        >
+          <Select value={effect} onValueChange={(v) => setEffect(v as Effect)}>
+            <SelectTrigger className="sm:w-32" aria-label="Efecto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="allow">Permitir</SelectItem>
+              <SelectItem value="deny">Bloquear</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="+51999123436, 1203…@g.us, +51*"
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <Button type="submit" variant="secondary" disabled={!pattern.trim() || add.isPending}>
+            <Plus /> Agregar
+          </Button>
+        </form>
+      )}
     </div>
   )
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -41,8 +42,8 @@ type twoOrgs struct{}
 func (twoOrgs) principal(r *http.Request, admin bool) (httpx.Principal, bool) {
 	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	byToken := map[string]httpx.Principal{
-		adminA: {Organization: orgA, Role: httpx.RoleAdmin, Subject: "a"},
-		adminB: {Organization: orgB, Role: httpx.RoleAdmin, Subject: "b"},
+		adminA: {Organization: orgA, Role: httpx.RoleAdmin, Subject: "a", Permissions: permission.All},
+		adminB: {Organization: orgB, Role: httpx.RoleAdmin, Subject: "b", Permissions: permission.All},
 		crewA:  {Organization: orgA, Role: httpx.RoleCrew, Subject: "a"},
 		crewB:  {Organization: orgB, Role: httpx.RoleCrew, Subject: "b"},
 	}

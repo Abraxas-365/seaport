@@ -36,21 +36,35 @@ type Hub struct {
 	mu    sync.Mutex
 	ships ship.Commands
 	conns map[*conn]struct{}
+	// opening are connections still in their hello handshake (not yet in
+	// conns): a revoke must close them too.
+	opening map[*pending]struct{}
+}
+
+// pending is a connection before its hello: enough for Disconnect.
+type pending struct {
+	organization identity.OrganizationID
+	credential   string
+	cancel       context.CancelFunc
 }
 
 type conn struct {
 	// organization owns the connection (its crew token): it only claims,
 	// acks and replies within it.
 	organization identity.OrganizationID
-	ws           *websocket.Conn
-	session      string
-	remote       string
-	connectedAt  time.Time
-	agent        string
-	concurrency  int
-	steer        bool
-	wake         chan struct{}
-	send         chan crew.Frame
+	// credential is the crew token it connected with ("" for the static
+	// token and open mode); revoking the token closes the connection.
+	credential  string
+	cancel      context.CancelFunc
+	ws          *websocket.Conn
+	session     string
+	remote      string
+	connectedAt time.Time
+	agent       string
+	concurrency int
+	steer       bool
+	wake        chan struct{}
+	send        chan crew.Frame
 
 	mu sync.Mutex
 	// inFlight maps each open delivery to what was pushed for it.
@@ -70,7 +84,7 @@ func New(lease time.Duration, mcpURL string, events event.Publisher) *Hub {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Hub{lease: lease, mcpURL: mcpURL, events: events, conns: map[*conn]struct{}{}}
+	return &Hub{lease: lease, mcpURL: mcpURL, events: events, conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{}}
 }
 
 // Status lists an organization's connected agents and their deliveries in
@@ -118,6 +132,25 @@ func (h *Hub) StatusHandler() http.Handler {
 		}
 		return httpx.JSON(w, http.StatusOK, h.Status(org))
 	})
+}
+
+var _ crew.Disconnector = (*Hub)(nil)
+
+// Disconnect closes the organization's connections opened with the token.
+func (h *Hub) Disconnect(org identity.OrganizationID, token identity.CrewTokenID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns {
+		if c.organization == org && c.credential != "" && c.credential == token.String() {
+			slog.Info("crew token revoked: closing connection", "organization", org, "agent", c.agent)
+			c.cancel()
+		}
+	}
+	for o := range h.opening {
+		if o.organization == org && o.credential != "" && o.credential == token.String() {
+			o.cancel()
+		}
+	}
 }
 
 // changed announces an organization's new crew state.
@@ -171,32 +204,60 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, errx.Internal("hub not ready"))
 		return
 	}
-	org, err := httpx.Organization(r)
+	p, err := httpx.Caller(r)
 	if err != nil {
 		httpx.WriteError(w, r, err)
 		return
 	}
+	org := p.Organization
+	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
+	defer cancel()
+	// Tracked from here, so a revoke during the handshake closes it too.
+	open := &pending{organization: org, credential: p.Credential, cancel: cancel}
+	h.mu.Lock()
+	h.opening[open] = struct{}{}
+	h.mu.Unlock()
+	opened := false
+	defer func() {
+		if !opened {
+			h.mu.Lock()
+			delete(h.opening, open)
+			h.mu.Unlock()
+		}
+	}()
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return // Accept already answered
 	}
 	ws.SetReadLimit(crew.MaxFrame)
-	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
-	defer cancel()
+	if !p.Expires.IsZero() {
+		// An expiring token's connection ends with it; the connector
+		// reconnects and is refused.
+		stop := time.AfterFunc(time.Until(p.Expires), cancel)
+		defer stop.Stop()
+	}
 
 	hello, err := readHello(ctx, ws)
 	if err != nil {
 		_ = ws.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	c := &conn{organization: org, ws: ws, session: newSession(), remote: r.RemoteAddr, connectedAt: time.Now().UTC(),
+	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: newSession(), remote: r.RemoteAddr, connectedAt: time.Now().UTC(),
 		agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
-	slog.Info("crew connected", "organization", org, "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
 
+	// From opening to conns under one lock: a revoke sees it in one of them.
 	h.mu.Lock()
+	delete(h.opening, open)
+	opened = true
+	if ctx.Err() != nil { // revoked or expired during the handshake
+		h.mu.Unlock()
+		_ = ws.Close(websocket.StatusPolicyViolation, "the crew token is no longer valid")
+		return
+	}
 	h.conns[c] = struct{}{}
 	h.mu.Unlock()
+	slog.Info("crew connected", "organization", org, "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
 	h.changed(org)
 	defer h.drop(c)
 

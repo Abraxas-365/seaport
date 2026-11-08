@@ -28,6 +28,9 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 30
     env:
       SEAPORT_TEST_DATABASE_URL: postgres://seaport:seaport@localhost:5432/seaport_test?sslmode=disable
+      # iam mode e2e: a pinned IAMKit + its Postgres via testcontainers
+      # (the runner's Docker).
+      SEAPORT_TEST_IAMKIT: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -37,7 +40,7 @@ jobs:
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
       - run: go vet ./...
       # Architecture tests always run; the integration tests use the service
-      # database (they wipe it, hence -p 1).
+      # database (they wipe it, hence -p 1) and IAMKit containers.
       - run: go test -race -count=1 -p 1 ./...
 
   web:

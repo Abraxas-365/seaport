@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Inbox, type LucideIcon } from "lucide-react"
+import { Inbox, Lock, type LucideIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -61,6 +61,7 @@ export function ErrorState({
 }) {
   const msg = error instanceof Error ? error.message : "Algo salió mal"
   const status = error instanceof ApiError ? error.status : undefined
+  if (status === 403) return <NoAccess className={className} />
   return (
     <EmptyState
       className={className}
@@ -73,6 +74,18 @@ export function ErrorState({
           </Button>
         )
       }
+    />
+  )
+}
+
+/** A page or panel the user's role doesn't include (iam mode). */
+export function NoAccess({ what, className }: { what?: string; className?: string }) {
+  return (
+    <EmptyState
+      icon={Lock}
+      className={className}
+      title="Sin permiso"
+      description={`Tu rol no incluye ${what ?? "esta sección"}. Pide acceso a un administrador de tu organización.`}
     />
   )
 }

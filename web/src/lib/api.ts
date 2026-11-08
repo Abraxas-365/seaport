@@ -6,6 +6,7 @@ import type {
   Channel,
   Conversation,
   CrewStatus,
+  CrewToken,
   Customs,
   CustomsStatus,
   DefaultAccess,
@@ -14,6 +15,7 @@ import type {
   GroupMode,
   Health,
   InboxItem,
+  IssuedCrewToken,
   Paginated,
   Rule,
   PortConfig,
@@ -74,7 +76,11 @@ export const api = {
   config: () => request<PortConfig>("GET", `${v1}/config`),
   session: () => request<Session>("GET", `${v1}/session`),
   login: (token: string) => request<Session>("POST", `${v1}/session`, { token }),
-  logout: () => request<void>("DELETE", `${v1}/session`),
+  /** iam mode answers with IAMKit's end-session URL to finish there too. */
+  logout: () => request<{ logout_url?: string } | undefined>("DELETE", `${v1}/session`),
+  /** iam mode: a top-level navigation to IAMKit's sign-in (not fetch). */
+  signInURL: (f: { next?: string; organization?: string; switchAccount?: boolean } = {}) =>
+    `${v1}/session/login${qs({ next: f.next, organization: f.organization, switch: f.switchAccount ? 1 : undefined })}`,
 
   docks: () => request<Paginated<Dock>>("GET", `${v1}/docks${qs({ limit: 100 })}`),
   dock: (id: string) => request<Dock>("GET", `${v1}/docks/${id}`),
@@ -113,4 +119,9 @@ export const api = {
   removeRule: (id: string) => request<void>("DELETE", `${v1}/customs/rules/${id}`),
 
   crew: () => request<CrewStatus>("GET", `${v1}/crew`),
+
+  crewTokens: () => request<Paginated<CrewToken>>("GET", `${v1}/crew/tokens${qs({ limit: 100 })}`),
+  createCrewToken: (name: string, expires_at?: string) =>
+    request<IssuedCrewToken>("POST", `${v1}/crew/tokens`, { name, expires_at }),
+  revokeCrewToken: (id: string) => request<void>("DELETE", `${v1}/crew/tokens/${id}`),
 }

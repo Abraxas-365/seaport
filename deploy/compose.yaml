@@ -33,12 +33,24 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgres://seaport:${POSTGRES_PASSWORD}@postgres:5432/seaport?sslmode=disable
-      # Behind a proxy only token mode works (none refuses proxied requests).
-      SEAPORT_AUTH: token
+      # token (default) or iam; none refuses proxied requests. Seaport says
+      # at start which settings the mode is missing.
+      SEAPORT_AUTH: ${SEAPORT_AUTH:-token}
       SEAPORT_ADDR: 0.0.0.0:8740
       SEAPORT_PUBLIC_URL: ${SEAPORT_PUBLIC_URL:-https://${SEAPORT_DOMAIN}}
-      SEAPORT_ADMIN_TOKEN: ${SEAPORT_ADMIN_TOKEN:?set SEAPORT_ADMIN_TOKEN in deploy/.env}
-      SEAPORT_CREW_TOKEN: ${SEAPORT_CREW_TOKEN:?set SEAPORT_CREW_TOKEN in deploy/.env}
+      # token mode
+      SEAPORT_ADMIN_TOKEN: ${SEAPORT_ADMIN_TOKEN:-}
+      SEAPORT_CREW_TOKEN: ${SEAPORT_CREW_TOKEN:-}
+      # iam mode (scripts/iamkit-provision.sh writes the IAMKIT_* values)
+      SEAPORT_SECRET_KEY: ${SEAPORT_SECRET_KEY:-}
+      IAMKIT_URL: ${IAMKIT_URL:-}
+      IAMKIT_PUBLIC_URL: ${IAMKIT_PUBLIC_URL:-}
+      IAMKIT_ISSUER: ${IAMKIT_ISSUER:-}
+      IAMKIT_ENVIRONMENT_ID: ${IAMKIT_ENVIRONMENT_ID:-}
+      IAMKIT_APPLICATION_ID: ${IAMKIT_APPLICATION_ID:-}
+      IAMKIT_RESOURCE_ID: ${IAMKIT_RESOURCE_ID:-}
+      IAMKIT_AUDIENCE: ${IAMKIT_AUDIENCE:-}
+      IAMKIT_WEB_CLIENT_ID: ${IAMKIT_WEB_CLIENT_ID:-}
       SEAPORT_LOG_LEVEL: ${SEAPORT_LOG_LEVEL:-info}
       SEAPORT_SEND_PER_MINUTE: ${SEAPORT_SEND_PER_MINUTE:-20}
       SEAPORT_SEND_PER_HOUR: ${SEAPORT_SEND_PER_HOUR:-300}

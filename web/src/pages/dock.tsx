@@ -16,7 +16,8 @@ import {
 import { toast } from "sonner"
 
 import { api } from "@/lib/api"
-import { flatten, useDock, useDockAction, useInbox } from "@/lib/hooks"
+import { flatten, useCan, useDock, useDockAction, useInbox } from "@/lib/hooks"
+import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
 import type { Dock } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -66,8 +67,10 @@ export function DockPage() {
 function DockDetail({ dock }: { dock: Dock }) {
   const navigate = useNavigate()
   const actions = useDockAction()
+  const can = useCan()
+  const write = can(Perm.DocksWrite)
   const wa = dock.channel === "whatsapp"
-  const needsPairing = wa && dock.status !== "linked"
+  const needsPairing = wa && dock.status !== "linked" && write
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
@@ -81,7 +84,7 @@ function DockDetail({ dock }: { dock: Dock }) {
         <div className="flex flex-wrap items-center gap-3">
           <ChannelIcon channel={dock.channel} size="lg" />
           <div className="min-w-0 flex-1">
-            <RenameTitle dock={dock} />
+            <RenameTitle dock={dock} editable={write} />
             <div className="mt-0.5 text-sm text-muted-foreground">
               {channelLabel[dock.channel]}
               {dock.address && <> · {prettyHandle(dock.address)}</>}
@@ -90,64 +93,68 @@ function DockDetail({ dock }: { dock: Dock }) {
           <StatusBadge tone={dockTone[dock.status]} pulse={dock.status === "linking"}>
             {dockLabel[dock.status]}
           </StatusBadge>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/customs">
-              <ShieldCheck /> Aduana
-            </Link>
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Más acciones">
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              {wa && (
-                <DropdownMenuItem onSelect={() => actions.relink.mutate(dock.id)}>
-                  <RefreshCw /> {dock.status === "linked" ? "Volver a vincular" : "Generar nuevo QR"}
-                </DropdownMenuItem>
-              )}
-              {wa && dock.status === "linked" && (
+          {can(Perm.CustomsRead) && (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/customs">
+                <ShieldCheck /> Aduana
+              </Link>
+            </Button>
+          )}
+          {write && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Más acciones">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {wa && (
+                  <DropdownMenuItem onSelect={() => actions.relink.mutate(dock.id)}>
+                    <RefreshCw /> {dock.status === "linked" ? "Volver a vincular" : "Generar nuevo QR"}
+                  </DropdownMenuItem>
+                )}
+                {wa && dock.status === "linked" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Desvincular
+                      </DropdownMenuItem>
+                    }
+                    title="¿Desvincular este WhatsApp?"
+                    description={
+                      <>
+                        <p>Se cierra la sesión del dispositivo en el teléfono y dejan de llegar mensajes.</p>
+                        <p>Las conversaciones y el historial se conservan; puedes volver a vincularlo con un QR.</p>
+                      </>
+                    }
+                    actionLabel="Desvincular"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
+                <DropdownMenuSeparator />
                 <ConfirmAction
                   trigger={
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                      <Link2Off /> Desvincular
+                    <DropdownMenuItem variant="destructive" onSelect={(e) => e.preventDefault()}>
+                      <Trash2 /> Eliminar muelle
                     </DropdownMenuItem>
                   }
-                  title="¿Desvincular este WhatsApp?"
+                  title={`¿Eliminar ${dock.name}?`}
                   description={
-                    <>
-                      <p>Se cierra la sesión del dispositivo en el teléfono y dejan de llegar mensajes.</p>
-                      <p>Las conversaciones y el historial se conservan; puedes volver a vincularlo con un QR.</p>
-                    </>
+                    <p>
+                      Se borran para siempre el muelle, <b>todas sus conversaciones, mensajes y reglas de aduana</b>.
+                      Esto no se puede deshacer.
+                    </p>
                   }
-                  actionLabel="Desvincular"
-                  onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  destructive
+                  confirmText={dock.name}
+                  actionLabel="Eliminar"
+                  onConfirm={() =>
+                    actions.remove.mutateAsync(dock.id).then(() => navigate("/docks", { replace: true }))
+                  }
                 />
-              )}
-              <DropdownMenuSeparator />
-              <ConfirmAction
-                trigger={
-                  <DropdownMenuItem variant="destructive" onSelect={(e) => e.preventDefault()}>
-                    <Trash2 /> Eliminar muelle
-                  </DropdownMenuItem>
-                }
-                title={`¿Eliminar ${dock.name}?`}
-                description={
-                  <p>
-                    Se borran para siempre el muelle, <b>todas sus conversaciones, mensajes y reglas de aduana</b>. Esto
-                    no se puede deshacer.
-                  </p>
-                }
-                destructive
-                confirmText={dock.name}
-                actionLabel="Eliminar"
-                onConfirm={() =>
-                  actions.remove.mutateAsync(dock.id).then(() => navigate("/docks", { replace: true }))
-                }
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 
@@ -181,9 +188,9 @@ function DockDetail({ dock }: { dock: Dock }) {
           </Card>
         )}
 
-        {dock.channel === "api" && <ApiDockCard dock={dock} />}
+        {dock.channel === "api" && can(Perm.ShipsWrite) && <ApiDockCard dock={dock} />}
 
-        <DockConversations dock={dock} />
+        {can(Perm.ConversationsRead) && <DockConversations dock={dock} />}
 
         <Card>
           <CardHeader>
@@ -210,10 +217,11 @@ function DockDetail({ dock }: { dock: Dock }) {
   )
 }
 
-function RenameTitle({ dock }: { dock: Dock }) {
+function RenameTitle({ dock, editable }: { dock: Dock; editable: boolean }) {
   const { rename } = useDockAction()
   const [editing, setEditing] = React.useState(false)
   const [name, setName] = React.useState(dock.name)
+  if (!editable) return <h1 className="truncate font-heading text-xl font-semibold tracking-tight">{dock.name}</h1>
   if (!editing)
     return (
       <div className="group/title flex items-center gap-1">

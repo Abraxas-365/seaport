@@ -14,14 +14,22 @@ import (
 // heartbeat keeps proxies from closing an idle stream.
 const heartbeat = 25 * time.Second
 
+// maxStream is the longest a stream runs before the client must
+// reconnect (and authenticate again).
+const maxStream = 10 * time.Minute
+
 var errUnauthenticated = errx.Unauthorized("missing or invalid token")
 
 // Handler streams events. A client reconnecting with Last-Event-ID gets
 // what it missed, or a "reset" event when that is no longer known (it must
 // refetch its state). Every stream starts with "ready" {boot}. A stream
-// only carries the events of the caller's organization (httpx principal).
+// only carries the events of the caller's organization (httpx principal),
+// and of those only the types whose read permission (perms: event type →
+// permission) the caller holds; a type missing from perms is never sent.
+// A stream ends when the principal's credential expires, and after
+// maxStream at most (the client reconnects, which authenticates again).
 // done closes every stream (server shutdown).
-func Handler(bus *event.Bus, done <-chan struct{}) http.Handler {
+func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rc := http.NewResponseController(w)
 		h := w.Header()
@@ -41,6 +49,9 @@ func Handler(bus *event.Bus, done <-chan struct{}) http.Handler {
 		w.WriteHeader(http.StatusOK)
 
 		write := func(e event.Event) bool {
+			if perm, ok := perms[e.Type]; !ok || !p.Can(perm) {
+				return true
+			}
 			if _, err := fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data); err != nil {
 				return false
 			}
@@ -60,9 +71,21 @@ func Handler(bus *event.Bus, done <-chan struct{}) http.Handler {
 		}
 		tick := time.NewTicker(heartbeat)
 		defer tick.Stop()
+		// End at the credential's expiry, and at most after maxStream, so
+		// revoked keys and changed permissions apply on the reconnect
+		// (which resumes from Last-Event-ID: nothing is lost).
+		life := maxStream
+		if !p.Expires.IsZero() && time.Until(p.Expires) < life {
+			life = time.Until(p.Expires)
+		}
+		expiry := time.NewTimer(life)
+		defer expiry.Stop()
+		expired := expiry.C
 		for {
 			select {
 			case <-r.Context().Done():
+				return
+			case <-expired:
 				return
 			case <-done:
 				return

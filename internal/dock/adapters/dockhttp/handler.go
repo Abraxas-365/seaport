@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 )
 
 type Handler struct {
@@ -18,13 +19,13 @@ func New(c dock.Commands, q dock.Queries) *Handler { return &Handler{commands: c
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks", httpx.Handle(h.list))
-	mux.Handle("POST /api/v1/docks", httpx.Handle(h.create))
-	mux.Handle("GET /api/v1/docks/{id}", httpx.Handle(h.find))
-	mux.Handle("POST /api/v1/docks/{id}/relink", httpx.Handle(h.relink))
-	mux.Handle("PATCH /api/v1/docks/{id}", httpx.Handle(h.update))
-	mux.Handle("POST /api/v1/docks/{id}/unlink", httpx.Handle(h.unlink))
-	mux.Handle("DELETE /api/v1/docks/{id}", httpx.Handle(h.delete))
+	mux.Handle("GET /api/v1/docks", httpx.RequireFunc(permission.DocksRead, h.list))
+	mux.Handle("POST /api/v1/docks", httpx.RequireFunc(permission.DocksWrite, h.create))
+	mux.Handle("GET /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksRead, h.find))
+	mux.Handle("POST /api/v1/docks/{id}/relink", httpx.RequireFunc(permission.DocksWrite, h.relink))
+	mux.Handle("PATCH /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksWrite, h.update))
+	mux.Handle("POST /api/v1/docks/{id}/unlink", httpx.RequireFunc(permission.DocksWrite, h.unlink))
+	mux.Handle("DELETE /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksWrite, h.delete))
 }
 
 type updateRequest struct {

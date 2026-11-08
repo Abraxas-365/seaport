@@ -1,8 +1,10 @@
 import { NavLink, Outlet, useLocation } from "react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Anchor, Bot, Inbox, LogOut, Monitor, Moon, ShieldCheck, Sun } from "lucide-react"
+import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, ShieldCheck, Sun } from "lucide-react"
 
 import { api } from "@/lib/api"
+import { useCan, useCrew, useDocks, useSession } from "@/lib/hooks"
+import { Perm } from "@/lib/permissions.gen"
 import { keys } from "@/lib/query"
 import { useTheme } from "@/components/theme-provider"
 import {
@@ -58,21 +60,25 @@ export function AppShell() {
 
 function AppSidebar() {
   const { pathname } = useLocation()
-  const docks = useQuery({ queryKey: keys.docks, queryFn: api.docks })
-  const crew = useQuery({ queryKey: keys.crew, queryFn: api.crew })
+  const can = useCan()
+  const docks = useDocks()
+  const crew = useCrew()
   const pending = useQuery({
     queryKey: keys.inbox({ status: "pending", limit: 1 }),
     queryFn: () => api.inbox({ status: "pending", limit: 1 }),
+    enabled: can(Perm.ConversationsRead),
   })
   const agents = crew.data?.agents ?? []
   const working = agents.reduce((n, a) => n + a.deliveries.length, 0)
 
+  // Only what the user's role can open (the server enforces it anyway).
   const nav = [
-    { to: "/inbox", label: "Bandeja", icon: Inbox, badge: undefined as number | undefined },
-    { to: "/customs", label: "Aduana", icon: ShieldCheck, badge: pending.data?.page.total || undefined },
-    { to: "/docks", label: "Muelles", icon: Anchor, badge: undefined },
-    { to: "/crew", label: "Tripulación", icon: Bot, badge: agents.length || undefined },
-  ]
+    { to: "/inbox", label: "Bandeja", icon: Inbox, badge: undefined as number | undefined, perm: Perm.ConversationsRead },
+    { to: "/customs", label: "Aduana", icon: ShieldCheck, badge: pending.data?.page.total || undefined, perm: Perm.CustomsRead },
+    { to: "/docks", label: "Muelles", icon: Anchor, badge: undefined, perm: Perm.DocksRead },
+    { to: "/crew", label: "Tripulación", icon: Bot, badge: agents.length || undefined, perm: Perm.CrewRead },
+    { to: "/tokens", label: "Tokens de agentes", icon: KeyRound, badge: undefined, perm: Perm.CrewTokensRead },
+  ].filter((item) => can(item.perm))
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
@@ -142,12 +148,21 @@ function AccountMenu() {
   const qc = useQueryClient()
   const { theme, setTheme } = useTheme()
   const health = useQuery({ queryKey: keys.health, queryFn: api.health })
+  const session = useSession()
   // SEAPORT_AUTH=none has no session to close.
   const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
   const open = config.data?.auth === "none"
+  const iam = config.data?.auth === "iam"
+  const s = session.data
+  const who = iam ? s?.name || s?.email || "Cuenta" : open ? "Local" : "Administrador"
   const logout = useMutation({
     mutationFn: api.logout,
-    onSettled: () => {
+    onSuccess: (r) => {
+      // iam mode: finish at IAMKit too, or its session would sign us back in.
+      if (r?.logout_url) window.location.assign(r.logout_url)
+    },
+    onSettled: (r) => {
+      if (r?.logout_url) return
       qc.clear()
       qc.setQueryData(keys.session, { authenticated: false })
     },
@@ -157,15 +172,35 @@ function AccountMenu() {
       <SidebarMenuItem>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton tooltip="Cuenta y tema">
-              <span className="inline-flex size-5 items-center justify-center rounded-md bg-sidebar-accent text-[0.65rem] font-semibold">
-                {open ? "L" : "A"}
+            <SidebarMenuButton tooltip="Cuenta y tema" size={iam ? "lg" : "default"}>
+              <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md bg-sidebar-accent text-[0.65rem] font-semibold uppercase">
+                {who.slice(0, 1)}
               </span>
-              <span className="truncate">{open ? "Local" : "Administrador"}</span>
-              <span className="ml-auto text-[0.65rem] text-muted-foreground">{health.data?.version}</span>
+              <span className="grid min-w-0 flex-1 leading-tight">
+                <span className="truncate">{who}</span>
+                {iam && s?.organization_name && (
+                  <span className="truncate text-[0.7rem] text-muted-foreground">{s.organization_name}</span>
+                )}
+              </span>
+              <span className="ml-auto max-w-24 shrink-0 truncate text-[0.65rem] text-muted-foreground">{health.data?.version}</span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-56">
+          <DropdownMenuContent side="top" align="start" className="w-60">
+            {iam && (
+              <>
+                <DropdownMenuLabel className="grid font-normal">
+                  <span className="truncate font-medium">{s?.name || s?.email}</span>
+                  {s?.name && s?.email && <span className="truncate text-xs text-muted-foreground">{s.email}</span>}
+                  <span className="truncate text-xs text-muted-foreground">{s?.organization_name}</span>
+                </DropdownMenuLabel>
+                <DropdownMenuItem asChild>
+                  <a href={api.signInURL({ switchAccount: true })}>
+                    <Building2 /> Cambiar de organización
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuLabel>Tema</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(v as typeof theme)}>
               <DropdownMenuRadioItem value="light">

@@ -1,0 +1,56 @@
+{
+  "resource": { "name": "Seaport API", "prefix": "seaport" },
+  "permissions": [
+    { "name": "seaport:docks:read", "label": "View docks (channels) and their link status" },
+    { "name": "seaport:docks:write", "label": "Create, rename, relink, unlink and delete docks" },
+    { "name": "seaport:conversations:read", "label": "View conversations and the inbox" },
+    { "name": "seaport:conversations:write", "label": "Allow, deny and configure conversations" },
+    { "name": "seaport:ships:read", "label": "Read message history" },
+    { "name": "seaport:ships:write", "label": "Send messages and inject test messages" },
+    { "name": "seaport:customs:read", "label": "View customs policies and rules" },
+    { "name": "seaport:customs:write", "label": "Change customs policies and rules" },
+    { "name": "seaport:crew:read", "label": "View connected agents" },
+    { "name": "seaport:crew-tokens:read", "label": "View crew tokens" },
+    { "name": "seaport:crew-tokens:write", "label": "Create and revoke crew tokens" }
+  ],
+  "roles": [
+    {
+      "name": "Admin",
+      "permissions": [
+        "seaport:docks:read",
+        "seaport:docks:write",
+        "seaport:conversations:read",
+        "seaport:conversations:write",
+        "seaport:ships:read",
+        "seaport:ships:write",
+        "seaport:customs:read",
+        "seaport:customs:write",
+        "seaport:crew:read",
+        "seaport:crew-tokens:read",
+        "seaport:crew-tokens:write"
+      ]
+    },
+    {
+      "name": "Operator",
+      "permissions": [
+        "seaport:docks:read",
+        "seaport:conversations:read",
+        "seaport:conversations:write",
+        "seaport:ships:read",
+        "seaport:ships:write",
+        "seaport:customs:read",
+        "seaport:crew:read"
+      ]
+    },
+    {
+      "name": "Viewer",
+      "permissions": [
+        "seaport:docks:read",
+        "seaport:conversations:read",
+        "seaport:ships:read",
+        "seaport:customs:read",
+        "seaport:crew:read"
+      ]
+    }
+  ]
+}

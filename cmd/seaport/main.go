@@ -28,10 +28,10 @@ import (
 const usage = `seaport - a port where messages arrive and agents work them
 
 Server:
-  seaport serve                         run the port (env: DATABASE_URL, SEAPORT_ADMIN_TOKEN, SEAPORT_CREW_TOKEN, ...)
+  seaport serve                         run the port (env: DATABASE_URL, SEAPORT_AUTH=none|token|iam, SEAPORT_ADMIN_TOKEN, ...)
   seaport healthcheck                   exit 0 if the local port answers /healthz (containers)
 
-Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN):
+Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API key in iam mode):
   seaport dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
   seaport dock add api [-name N]        a dock fed through the HTTP API
   seaport dock list
@@ -40,6 +40,9 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN):
   seaport dock unlink <dock-id>         log the number out (keeps history; relink to pair again)
   seaport dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
   seaport crew                          connected agents and what they are working on
+  seaport crew tokens [list]            agent credentials of your organization
+  seaport crew tokens create <name> [-expires 720h]   prints the token once
+  seaport crew tokens revoke <token-id> revoke and disconnect its agents
   seaport conversations [-allowed|-pending|-denied]
   seaport allow <conversation-id>       always let the agent receive and answer this chat
   seaport deny <conversation-id>        never (both override the dock's rules)
@@ -111,6 +114,9 @@ func run(ctx context.Context, args []string) error {
 		}
 		return errx.Validation("unknown dock command " + rest[0])
 	case "crew":
+		if len(rest) > 0 && rest[0] == "tokens" {
+			return crewTokens(ctx, rest[1:])
+		}
 		return crewStatus(ctx)
 	case "conversations", "convs":
 		return conversations(ctx, rest)

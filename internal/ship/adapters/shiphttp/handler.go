@@ -11,6 +11,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
@@ -26,10 +27,10 @@ func New(c ship.Commands, q ship.Queries, docks dock.Queries) *Handler {
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/inbox", httpx.Handle(h.inbox))
-	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.Handle(h.history))
-	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.Handle(h.send))
-	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.Handle(h.receive))
+	mux.Handle("GET /api/v1/inbox", httpx.RequireFunc(permission.ConversationsRead, h.inbox))
+	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
+	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
+	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
 }
 
 func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
@@ -78,6 +79,12 @@ func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
 	out, err := h.queries.Inbox(r.Context(), org, f, page)
 	if err != nil {
 		return err
+	}
+	// The preview is message content: only for callers who may read ships.
+	if p, err := httpx.Caller(r); err != nil || !p.Can(permission.ShipsRead) {
+		for i := range out.Items {
+			out.Items[i].Last = nil
+		}
 	}
 	return httpx.JSON(w, http.StatusOK, out)
 }

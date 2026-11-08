@@ -1,5 +1,7 @@
 // Wire types of the Seaport admin API (mirror internal/*/ Go JSON tags).
 
+import type { Permission } from "./permissions.gen"
+
 export type ID = string
 
 export type Channel = "whatsapp" | "api"
@@ -125,13 +127,37 @@ export interface Paginated<T> {
 
 /** GET /api/v1/config: how this port authenticates (SEAPORT_AUTH). */
 export interface PortConfig {
-  auth: "none" | "token"
+  auth: "none" | "token" | "iam"
   version: string
 }
 
+/** GET /api/v1/session: who this browser is, in every mode. */
 export interface Session {
   authenticated: boolean
   expires_at?: string
+  subject?: string
+  name?: string
+  email?: string
+  organization_id?: string
+  organization_name?: string
+  /** What the user may do (the whole catalog in none/token mode). */
+  permissions?: Permission[]
+}
+
+/** A crew token (an agent credential); the value is shown only at creation. */
+export interface CrewToken {
+  id: ID
+  name: string
+  /** Start of the value ("sp_crew_AbCd"), to tell tokens apart. */
+  hint: string
+  created_by: string
+  created_at: string
+  expires_at: string | null
+  last_used_at: string | null
+}
+
+export interface IssuedCrewToken extends CrewToken {
+  value: string
 }
 
 export interface Health {
