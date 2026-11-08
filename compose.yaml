@@ -1,0 +1,21 @@
+name: puerto
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: puerto
+      POSTGRES_PASSWORD: puerto
+      POSTGRES_DB: puerto
+    ports:
+      - "127.0.0.1:5449:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U puerto"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

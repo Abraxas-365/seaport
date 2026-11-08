@@ -1,0 +1,4 @@
+/puerto
+/bin/
+*.test
+.env

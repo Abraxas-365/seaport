@@ -1,0 +1,125 @@
+// Package dockhttp is the admin API of docks.
+package dockhttp
+
+import (
+	"net/http"
+
+	"github.com/Abraxas-365/puerto/internal/dock"
+	"github.com/Abraxas-365/puerto/internal/httpx"
+	"github.com/Abraxas-365/puerto/internal/identity"
+)
+
+type Handler struct {
+	commands dock.Commands
+	queries  dock.Queries
+}
+
+func New(c dock.Commands, q dock.Queries) *Handler { return &Handler{commands: c, queries: q} }
+
+// Register mounts the routes on mux (already behind admin auth).
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.Handle("GET /api/v1/docks", httpx.Handle(h.list))
+	mux.Handle("POST /api/v1/docks", httpx.Handle(h.create))
+	mux.Handle("GET /api/v1/docks/{id}", httpx.Handle(h.find))
+	mux.Handle("POST /api/v1/docks/{id}/relink", httpx.Handle(h.relink))
+	mux.Handle("PATCH /api/v1/docks/{id}", httpx.Handle(h.update))
+	mux.Handle("POST /api/v1/docks/{id}/unlink", httpx.Handle(h.unlink))
+	mux.Handle("DELETE /api/v1/docks/{id}", httpx.Handle(h.delete))
+}
+
+type updateRequest struct {
+	Name *string `json:"name"`
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
+	id, err := identity.ParseDockID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	var req updateRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	d, err := h.commands.Update(r.Context(), id, dock.Update{Name: req.Name})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, d)
+}
+
+func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) error {
+	id, err := identity.ParseDockID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	d, err := h.commands.Unlink(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, d)
+}
+
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
+	id, err := identity.ParseDockID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	if err := h.commands.Delete(r.Context(), id); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+type createRequest struct {
+	Channel dock.Channel `json:"channel"`
+	Name    string       `json:"name"`
+}
+
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
+	var req createRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	d, err := h.commands.Create(r.Context(), dock.Create{Channel: req.Channel, Name: req.Name})
+	if err != nil {
+		return err
+	}
+	return httpx.Created(w, r, d.ID.String(), d)
+}
+
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
+	page, err := httpx.Pagination(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.List(r.Context(), page)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
+	id, err := identity.ParseDockID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	d, err := h.queries.Find(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, d)
+}
+
+func (h *Handler) relink(w http.ResponseWriter, r *http.Request) error {
+	id, err := identity.ParseDockID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	d, err := h.commands.Relink(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, d)
+}
