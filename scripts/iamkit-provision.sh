@@ -88,6 +88,9 @@ OUT=${OUT:-.iamkit.env}
 KEY=${IAMKIT_KEY:-}
 if [[ -z "$KEY" && -n "${IAMKIT_KEY_FILE:-}" ]]; then KEY=$(jq -er .management_key "$IAMKIT_KEY_FILE"); fi
 [[ -n "$KEY" ]] || { echo "Set IAMKIT_KEY (or IAMKIT_KEY_FILE)" >&2; exit 1; }
+# Keys are ik_mgmt_ + url-safe characters; anything else (spaces, quotes,
+# backslashes, newlines) is a paste error and would break the curl config.
+[[ "$KEY" =~ ^[A-Za-z0-9._~+/=-]+$ ]] || { echo "IAMKIT_KEY has unexpected characters (paste error?)" >&2; exit 1; }
 [[ -f "$SPEC" ]] || { echo "Spec $SPEC not found (set SPEC=path)" >&2; exit 1; }
 jq -e . "$SPEC" >/dev/null || { echo "Spec $SPEC is not valid JSON" >&2; exit 1; }
 [[ "$ORG_KEY_LIMIT" =~ ^[1-9][0-9]*$ ]] || { echo "ORG_KEY_LIMIT must be a positive integer" >&2; exit 1; }
@@ -109,10 +112,16 @@ step() { echo "$*" >&2; }
 q() { jq -Rn --arg v "$1" '$v'; } # JSON string literal for jq filters
 (( DRY_RUN )) && echo "Dry run: nothing is written." >&2
 
+# The management key reaches curl through a private config file (mktemp:
+# mode 0600), never its command line (visible to every user in ps).
+CURL_AUTH=$(mktemp "${TMPDIR:-/tmp}/iamkit-provision.XXXXXX")
+trap 'rm -f "$CURL_AUTH"' EXIT
+printf 'header = "X-API-Key: %s"\n' "$KEY" >"$CURL_AUTH"
+
 # api METHOD PATH < body -> response body; fails on non-2xx with IAMKit's error.
 api() {
   curl --fail-with-body --silent --show-error --request "$1" "$IAMKIT_URL/management/v1$2" \
-    -H "X-API-Key: $KEY" -H 'Content-Type: application/json' --data-binary @-
+    --config "$CURL_AUTH" -H 'Content-Type: application/json' --data-binary @-
 }
 # write is api for changes: a dry run sends nothing and answers placeholder ids.
 write() {

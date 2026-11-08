@@ -7,7 +7,16 @@ export const queryClient = new QueryClient({
     queries: {
       // Live events keep data fresh; refetch on focus covers sleeps.
       staleTime: 30_000,
-      retry: (count, err) => !(err instanceof ApiError && err.status < 500) && count < 2,
+      // Retry server errors twice and rate limits (429) a few times after
+      // Retry-After; other 4xx are final.
+      retry: (count, err) => {
+        if (err instanceof ApiError && err.status === 429) return count < 4
+        return !(err instanceof ApiError && err.status < 500) && count < 2
+      },
+      retryDelay: (count, err) =>
+        err instanceof ApiError && err.retryAfter
+          ? err.retryAfter * 1000
+          : Math.min(1000 * 2 ** count, 30_000),
     },
   },
 })

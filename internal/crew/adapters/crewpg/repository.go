@@ -3,9 +3,11 @@ package crewpg
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -22,11 +24,33 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 var _ crew.TokenRepository = (*Repository)(nil)
 
-func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.CrewTokenID, in crew.CreateToken, hash, hint string) (crew.Token, error) {
+// tokenLock serializes one organization's crew token creations while the
+// active ones are counted (second key: hashtext(organization)).
+const tokenLock = 7_401_003
+
+func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.CrewTokenID, in crew.CreateToken, hash, hint string, limit int) (crew.Token, error) {
 	var t crew.Token
-	err := r.db.GetContext(ctx, &t, `INSERT INTO crew_tokens (id, organization_id, name, token_hash, hint, created_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+columns, id, org, in.Name, hash, hint, in.CreatedBy, in.ExpiresAt)
-	return t, pgerr.MapWith(err, "create crew token", messages)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return t, pgerr.Map(err, "begin create crew token")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, tokenLock, org); err != nil {
+		return t, pgerr.Map(err, "lock crew tokens")
+	}
+	var n int
+	if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM crew_tokens WHERE organization_id = $1
+		AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`, org); err != nil {
+		return t, pgerr.Map(err, "count active crew tokens")
+	}
+	if n >= limit {
+		return t, errx.QuotaExceeded("crew_tokens", limit, "an organization can have at most "+strconv.Itoa(limit)+" crew tokens; revoke one first")
+	}
+	if err := tx.GetContext(ctx, &t, `INSERT INTO crew_tokens (id, organization_id, name, token_hash, hint, created_by, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+columns, id, org, in.Name, hash, hint, in.CreatedBy, in.ExpiresAt); err != nil {
+		return t, pgerr.MapWith(err, "create crew token", messages)
+	}
+	return t, pgerr.Map(tx.Commit(), "commit crew token")
 }
 
 func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[crew.Token], error) {
@@ -38,13 +62,6 @@ func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page
 	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM crew_tokens
 		WHERE organization_id = $1 AND revoked_at IS NULL ORDER BY created_at, id LIMIT $2 OFFSET $3`, org, page.Limit, page.Offset)
 	return out, pgerr.Map(err, "list crew tokens")
-}
-
-func (r *Repository) CountActive(ctx context.Context, org identity.OrganizationID) (int, error) {
-	var n int
-	err := r.db.GetContext(ctx, &n, `SELECT count(*) FROM crew_tokens WHERE organization_id = $1
-		AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`, org)
-	return n, pgerr.Map(err, "count active crew tokens")
 }
 
 func (r *Repository) Revoke(ctx context.Context, org identity.OrganizationID, id identity.CrewTokenID) error {

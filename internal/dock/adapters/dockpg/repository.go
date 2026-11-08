@@ -3,8 +3,10 @@ package dockpg
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -21,11 +23,34 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 var _ dock.Repository = (*Repository)(nil)
 
-func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Create, status dock.Status) (dock.Dock, error) {
+// createLock serializes one organization's dock creations while its docks
+// are counted (second key: hashtext(organization)).
+const createLock = 7_401_004
+
+func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Create, status dock.Status, limit int) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `INSERT INTO docks (id, organization_id, channel, name, status)
-		VALUES ($1, $2, $3, $4, $5) RETURNING `+columns, id, org, in.Channel, in.Name, status)
-	return d, pgerr.MapWith(err, "create dock", messages)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return d, pgerr.Map(err, "begin create dock")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if limit > 0 {
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, createLock, org); err != nil {
+			return d, pgerr.Map(err, "lock docks")
+		}
+		var n int
+		if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM docks WHERE organization_id = $1`, org); err != nil {
+			return d, pgerr.Map(err, "count docks")
+		}
+		if n >= limit {
+			return d, errx.QuotaExceeded("docks", limit, "an organization can have at most "+strconv.Itoa(limit)+" docks; delete one first")
+		}
+	}
+	if err := tx.GetContext(ctx, &d, `INSERT INTO docks (id, organization_id, channel, name, status)
+		VALUES ($1, $2, $3, $4, $5) RETURNING `+columns, id, org, in.Channel, in.Name, status); err != nil {
+		return d, pgerr.MapWith(err, "create dock", messages)
+	}
+	return d, pgerr.Map(tx.Commit(), "commit dock")
 }
 
 func (r *Repository) Find(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {

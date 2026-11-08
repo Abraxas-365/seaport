@@ -2,8 +2,11 @@ package bootstrap_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,5 +124,43 @@ func TestCrewTokensAreIsolated(t *testing.T) {
 	}
 	if code := p.call(http.MethodGet, "/api/v1/crew/tokens", adminA, nil, &list); code != http.StatusOK || len(list.Items) != 1 {
 		t.Fatalf("A lists: %d %+v", code, list)
+	}
+}
+
+// The per-organization cap holds under concurrent creations (count and
+// insert are atomic), and revoked tokens free their slot.
+func TestCrewTokenCap(t *testing.T) {
+	p := startPortWith(t, func(c *config.Server) { c.CrewToken = "" }, bootstrap.Options{})
+	var last crew.Issued
+	for i := range crew.MaxTokens - 2 {
+		if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("t", i)}, &last); code != http.StatusCreated {
+			t.Fatalf("create %d: %d", i, code)
+		}
+	}
+	var created, full atomic.Int32
+	var wg sync.WaitGroup
+	for i := range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			switch code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("race", i)}, nil); code {
+			case http.StatusCreated:
+				created.Add(1)
+			case http.StatusUnprocessableEntity:
+				full.Add(1)
+			default:
+				t.Errorf("concurrent create: %d", code)
+			}
+		}()
+	}
+	wg.Wait()
+	if created.Load() != 2 || full.Load() != 8 {
+		t.Fatalf("concurrent creations: %d created, %d refused; want 2 and 8", created.Load(), full.Load())
+	}
+	if code := p.admin(http.MethodDelete, "/api/v1/crew/tokens/"+last.ID.String(), nil, nil); code != http.StatusNoContent {
+		t.Fatalf("revoke: %d", code)
+	}
+	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "after revoke"}, nil); code != http.StatusCreated {
+		t.Fatalf("create after revoke: %d", code)
 	}
 }

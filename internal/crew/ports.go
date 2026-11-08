@@ -28,10 +28,11 @@ type TokenQueries interface {
 }
 
 type TokenRepository interface {
-	Create(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID, input CreateToken, hash, hint string) (Token, error)
+	// Create stores a token unless the organization already has limit active
+	// (unrevoked, unexpired) ones: count and insert are atomic, so
+	// concurrent creations can't overshoot (errx.QuotaExceeded when full).
+	Create(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID, input CreateToken, hash, hint string, limit int) (Token, error)
 	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Token], error)
-	// CountActive counts unrevoked, unexpired tokens.
-	CountActive(ctx context.Context, organization identity.OrganizationID) (int, error)
 	// Revoke marks the token revoked (NotFound if it is not active).
 	Revoke(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID) error
 	// FindByHash finds an unrevoked token in any organization (system:

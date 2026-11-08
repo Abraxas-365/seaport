@@ -46,6 +46,9 @@ type Tokens struct {
 	Refresh   string
 	IDToken   string
 	ExpiresAt time.Time
+	// IDSubject is the verified id_token's subject (sign-in only): it must
+	// name the same person as the access token.
+	IDSubject string
 }
 
 // Profile is the signed-in person, for display.

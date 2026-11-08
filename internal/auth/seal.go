@@ -3,28 +3,33 @@ package auth
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 
+	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
-// MinSecretKey is the shortest SEAPORT_SECRET_KEY accepted.
-const MinSecretKey = 32
+// sealInfo names the derived key (HKDF info): a new version re-keys.
+const sealInfo = "seaport seal v1"
 
 // Sealer encrypts and authenticates small secrets (AES-256-GCM): session
 // tokens at rest, the pending sign-in cookie. purpose is bound as
 // associated data, so a value sealed for one use opens for no other.
 type Sealer struct{ aead cipher.AEAD }
 
-// NewSealer derives the key from secret (SEAPORT_SECRET_KEY).
+// NewSealer derives the key from secret (SEAPORT_SECRET_KEY) with HKDF-SHA256.
 func NewSealer(secret string) (Sealer, error) {
-	if len(secret) < MinSecretKey {
-		return Sealer{}, errx.Validation("SEAPORT_SECRET_KEY must be at least 32 characters")
+	if err := config.CheckSecretKey(secret); err != nil {
+		return Sealer{}, err
 	}
-	key := sha256.Sum256([]byte("seaport-seal:" + secret))
-	block, err := aes.NewCipher(key[:])
+	key, err := hkdf.Key(sha256.New, []byte(secret), nil, sealInfo, 32)
+	if err != nil {
+		return Sealer{}, errx.Wrap(err, "hkdf", errx.TypeInternal)
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return Sealer{}, errx.Wrap(err, "aes", errx.TypeInternal)
 	}

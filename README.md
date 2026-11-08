@@ -137,13 +137,17 @@ new prompt, never lost.
 | `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens), `token` or `iam` |
 | `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
 | `SEAPORT_CREW_TOKEN` | — | token mode, optional: a static agent token (≥16 chars). `seaport connect`: the crew token to use |
-| `SEAPORT_SECRET_KEY` | — | iam mode: seals browser sessions' IAMKit tokens at rest (≥32 chars) |
+| `SEAPORT_SECRET_KEY` | — | iam mode: seals browser sessions' IAMKit tokens at rest (random, ≥32 chars: `openssl rand -base64 32`; changing it signs everyone out) |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
 | `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
 | `SEAPORT_SEND_PER_MINUTE` | `20` | outbound messages per dock per minute (0 = off) |
 | `SEAPORT_SEND_PER_HOUR` | `300` | outbound messages per dock per hour (0 = off) |
 | `SEAPORT_SEND_PER_CHAT_MINUTE` | `8` | outbound messages per conversation per minute (0 = off) |
+| `SEAPORT_SEND_ORG_PER_HOUR` | `1000` | outbound messages per organization per hour, across its docks (0 = off) |
+| `SEAPORT_MAX_DOCKS` | `10` | docks per organization (0 = off) |
+| `SEAPORT_MAX_CREW_CONNECTIONS` | `20` | agents connected at once per organization (0 = off) |
+| `SEAPORT_API_RATE` / `SEAPORT_API_BURST` | `20` / `60` | requests per second (and burst) per caller on `/api`, `/crew/ws`, `/mcp` (0 = off) |
 | `SEAPORT_URL` | `http://127.0.0.1:8740` | CLI/connector: where the port is |
 
 **Outbound limits.** WhatsApp bans numbers that send in bursts, so a reply
@@ -153,6 +157,15 @@ stored. Windows slide over the last minute/hour. They apply to every reply
 of a dock (agents, the web app, the API); failed sends count too, so an
 agent retrying against a broken dock is slowed down as well.
 Each WhatsApp send is also spaced ≥1.2 s from the previous one of that dock.
+
+**Quotas.** Each organization (one in `none`/`token` mode, many in `iam`
+mode) gets the same limits: docks, connected agents and outbound messages
+per hour. Going over a count is refused with `422` (`QUOTA_EXCEEDED`,
+details `quota` and `limit`): delete a dock or disconnect an agent to make
+room. A connector over the agent limit keeps retrying with backoff. The API
+rate limit is a token bucket per caller (organization + user, API key or
+crew token; agents sharing a crew token share it), answering `429` with
+`Retry-After`.
 
 ## IAM mode
 

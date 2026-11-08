@@ -53,6 +53,8 @@ var vendorSDKs = map[string][]string{
 	"github.com/golang-jwt/jwt":     {"auth/adapters/authiam"},
 	// the embedded admin UI is mounted by the composition root only
 	"github.com/Abraxas-365/seaport/web": {"bootstrap"},
+	// the per-caller API rate limit (httpx.RateLimit)
+	"golang.org/x/time": {"httpx"},
 }
 
 // forbiddenInCore: a domain root package and its *svc never touch transport

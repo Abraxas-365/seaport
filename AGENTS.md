@@ -102,7 +102,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
-  and golang-jwt → `authiam` (`vendorSDKs` in `TestLayerDependencies`).
+  and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit)
+  (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
   permissions are named only through `permission.*` constants, never string
@@ -153,10 +154,25 @@ test together with the reason. Add a rule when you add a pattern.
   WhatsApp's echo of our own message is dropped as a duplicate.
 - Replies are only allowed to allowed conversations (`Forbidden` otherwise).
 - Outbound limits (`ship.Limits.Check`, the rule; config `SEAPORT_SEND_*`):
-  `shippg.CreateOutbound` counts the dock's/conversation's outbound ships
-  of the last minute/hour and inserts under a per-dock advisory lock
-  (`outboundLock`), so concurrent replies can't overshoot; refusal is
+  `shippg.CreateOutbound` counts the dock's/conversation's/organization's
+  outbound ships of the last minute/hour and inserts under a
+  per-organization advisory lock (`outboundLock`; the send happens after
+  the commit), so concurrent replies can't overshoot; refusal is
   `errx.TooManyRequests` (429 + `Retry-After`), nothing stored or sent.
+- Quotas per organization (config `SEAPORT_MAX_*`, 0 = off; same for every
+  organization until plans exist): refusal is `errx.QuotaExceeded` (422
+  `QUOTA_EXCEEDED`, details `quota`/`limit`). Counted resources follow the
+  crew-token pattern: count + insert in one transaction under a
+  per-organization advisory lock (`dockpg.createLock`, `crewpg.tokenLock`).
+  Live agent connections are counted by the hub (open + opening, under its
+  mutex) before the WebSocket upgrade. Advisory lock keys are
+  `7_401_00N`; pick the next one for a new lock.
+- API rate limit (`httpx.RateLimit`, `SEAPORT_API_RATE`/`_BURST`): a token
+  bucket per principal (organization + role + subject + credential; agents
+  sharing one crew token share its bucket) after the
+  Authenticator on `/api/`, `/crew/ws`, `/mcp`; in memory (single process,
+  like the event bus). Public routes are not limited. The web app retries
+  reads on 429 after `Retry-After`.
 - Live events (`/api/v1/events`): services publish after their write
   succeeds (dock/conversation/customs/ship/delivery), the hub publishes
   `crew.changed`. The bus is in memory with a 512-event replay window keyed
@@ -184,7 +200,9 @@ test together with the reason. Add a rule when you add a pattern.
   organization; deliveries go only to that organization's agents.
 - Crew tokens (`crew.Token`, `sp_crew_…`): only the SHA-256 is stored; the
   value is shown once. Revoking one closes its live connections (the hub
-  tracks `Principal.Credential`). Token mode also accepts the optional
+  tracks `Principal.Credential`). At most `crew.MaxTokens` active per
+  organization: `crewpg.Create` counts and inserts under a per-organization
+  advisory lock (`tokenLock`). Token mode also accepts the optional
   static `SEAPORT_CREW_TOKEN`.
 - Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
@@ -194,8 +212,12 @@ test together with the reason. Add a rule when you add a pattern.
   or access token, introspected per request) wins over the cookie. Browser
   sign-in is a server-side OAuth code + PKCE flow (`/api/v1/session/login` →
   IAMKit → `/auth/callback`, state in a sealed short-lived cookie); the
+  id_token must carry the sign-in's nonce, name the access token's subject
+  and match its `at_hash` when present. The
   `seaport_session` cookie is a random id whose hash keys `web_sessions`,
-  where IAMKit's tokens are sealed with `SEAPORT_SECRET_KEY`. Refresh happens
+  where IAMKit's tokens are sealed (AES-GCM, key = HKDF of
+  `SEAPORT_SECRET_KEY`; placeholder-looking keys are refused); rows sealed
+  with another key read as signed out. Refresh happens
   ahead of expiry under the row lock (`FOR UPDATE`): IAMKit rotates refresh
   tokens, so concurrent requests must not both use one. Sign-out deletes the
   row, revokes at IAMKit and returns its end-session URL. Tokens without an

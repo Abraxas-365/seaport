@@ -15,6 +15,7 @@ require (
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	go.mau.fi/whatsmeow v0.0.0-20261107160454-79dc2a8c33df
+	golang.org/x/time v0.15.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -93,6 +94,5 @@ require (
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )

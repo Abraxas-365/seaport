@@ -17,11 +17,19 @@ func TestLocalPath(t *testing.T) {
 	}
 }
 
+// Test keys: random-looking (placeholder keys are refused).
+const (
+	testKey  = "kq7Vt2xLm9Pz4Rw8Ys1Bn6Hc3Jd5Fg0A"
+	otherKey = "Zx8Qw2Er4Ty6Ui8Op0As2Df4Gh6Jk8Lm"
+)
+
 func TestSealer(t *testing.T) {
-	if _, err := NewSealer("short"); err == nil {
-		t.Fatal("short key accepted")
+	for _, bad := range []string{"short", strings.Repeat("k", 32), strings.Repeat("changeme", 4)} {
+		if _, err := NewSealer(bad); err == nil {
+			t.Fatalf("weak key %q accepted", bad)
+		}
 	}
-	s, err := NewSealer(strings.Repeat("k", 32))
+	s, err := NewSealer(testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +43,7 @@ func TestSealer(t *testing.T) {
 	if _, err := s.Open("b", sealed); err == nil {
 		t.Fatal("opened under another purpose")
 	}
-	other, _ := NewSealer(strings.Repeat("x", 32))
+	other, _ := NewSealer(otherKey)
 	if _, err := other.Open("a", sealed); err == nil {
 		t.Fatal("opened with another key")
 	}

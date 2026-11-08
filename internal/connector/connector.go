@@ -101,6 +101,9 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			}
 			return errx.Unauthorized("the port rejected the crew token")
 		}
+		if resp != nil && resp.StatusCode == http.StatusUnprocessableEntity {
+			return errx.Business("the port refused the connection: this organization already has as many agents connected as it allows")
+		}
 		return errx.Wrap(err, "dial port", errx.TypeExternal)
 	}
 	defer ws.CloseNow()

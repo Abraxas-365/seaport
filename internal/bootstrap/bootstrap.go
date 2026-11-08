@@ -114,15 +114,16 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	bus := event.NewBus()
 	convs := conversationmodule.New(db, bus)
-	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, DatabaseURL: cfg.DatabaseURL, WhatsApp: !opts.DisableWhatsApp, Events: bus})
+	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, DatabaseURL: cfg.DatabaseURL, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
 	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	crew := crewmodule.New(db, lease, cfg.PublicURL+"/mcp", Version, bus)
+	crew := crewmodule.New(db, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: crew.Hub, Events: bus,
-		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute}})
+		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
+			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
 	crew.Bind(ships.Service, convs.Service)
 
@@ -168,9 +169,11 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		root.Handle("GET /api/v1/session/login", session.SignIn)
 		root.Handle("GET "+authhttp.CallbackPath, session.Callback)
 	}
-	root.Handle("/api/", auth.Admin(admin))
-	root.Handle("/crew/ws", auth.Crew(crew.WS()))
-	root.Handle("/mcp", auth.Crew(crew.MCP()))
+	// Per-caller rate limit after authentication (it keys on the principal).
+	limit := httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst)
+	root.Handle("/api/", auth.Admin(limit.Wrap(admin)))
+	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
+	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
 	ui := httpx.SPA(web.Dist())

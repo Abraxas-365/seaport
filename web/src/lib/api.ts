@@ -27,13 +27,16 @@ export class ApiError extends Error {
   status: number
   code?: string
   requestId?: string
+  /** Seconds to wait before retrying (429 Retry-After). */
+  retryAfter?: number
 
-  constructor(status: number, message: string, code?: string, requestId?: string) {
+  constructor(status: number, message: string, code?: string, requestId?: string, retryAfter?: number) {
     super(message)
     this.name = "ApiError"
     this.status = status
     this.code = code
     this.requestId = requestId
+    this.retryAfter = retryAfter
   }
 }
 
@@ -56,7 +59,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     const e = data?.error
     if (res.status === 401 && !path.endsWith("/session")) onUnauthorized()
-    throw new ApiError(res.status, e?.message ?? res.statusText, e?.code, e?.request_id)
+    const retryAfter = Number(res.headers.get("Retry-After")) || undefined
+    throw new ApiError(res.status, e?.message ?? res.statusText, e?.code, e?.request_id, retryAfter)
   }
   return data as T
 }

@@ -3,7 +3,6 @@ package crewsvc
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/crew"
@@ -36,16 +35,8 @@ func (s *Service) Create(ctx context.Context, org identity.OrganizationID, input
 		return crew.Issued{}, err
 	}
 	input.Name, input.CreatedBy = text.Clean(input.Name), text.Clean(input.CreatedBy)
-	n, err := s.repo.CountActive(ctx, org)
-	if err != nil {
-		return crew.Issued{}, errx.Wrap(err, "count crew tokens", errx.TypeInternal)
-	}
-	if n >= crew.MaxTokens {
-		return crew.Issued{}, errx.Business("an organization can have at most " + strconv.Itoa(crew.MaxTokens) +
-			" crew tokens; revoke one first")
-	}
 	value, hash, hint := crew.NewTokenValue()
-	t, err := s.repo.Create(ctx, org, identity.NewCrewTokenID(), input, hash, hint)
+	t, err := s.repo.Create(ctx, org, identity.NewCrewTokenID(), input, hash, hint, crew.MaxTokens)
 	if err != nil {
 		return crew.Issued{}, errx.Wrap(err, "create crew token", errx.TypeInternal)
 	}

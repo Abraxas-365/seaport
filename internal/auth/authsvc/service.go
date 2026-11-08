@@ -63,6 +63,9 @@ func (s *Service) Complete(ctx context.Context, p auth.Pending, cb auth.Callback
 	if err != nil {
 		return "", auth.Session{}, err
 	}
+	if tokens.IDSubject != who.Subject {
+		return "", auth.Session{}, errx.Unauthorized("the sign-in tokens name different people; start again")
+	}
 	profile, err := s.provider.Profile(ctx, tokens.Access, who.Organization.String())
 	if err != nil {
 		// Display only: sign-in works without it.

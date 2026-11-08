@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ type Hub struct {
 	lease  time.Duration
 	mcpURL string
 	events event.Publisher
+	// maxConns bounds each organization's live connections (≤ 0: unlimited).
+	maxConns int
 
 	mu    sync.Mutex
 	ships ship.Commands
@@ -80,11 +83,12 @@ type tracked struct {
 	since        time.Time
 }
 
-func New(lease time.Duration, mcpURL string, events event.Publisher) *Hub {
+func New(lease time.Duration, mcpURL string, events event.Publisher, maxConns int) *Hub {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Hub{lease: lease, mcpURL: mcpURL, events: events, conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{}}
+	return &Hub{lease: lease, mcpURL: mcpURL, events: events, maxConns: maxConns,
+		conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{}}
 }
 
 // Status lists an organization's connected agents and their deliveries in
@@ -197,6 +201,22 @@ func (h *Hub) commands() ship.Commands {
 	return h.ships
 }
 
+// countLocked counts an organization's open and opening connections.
+func (h *Hub) countLocked(org identity.OrganizationID) int {
+	n := 0
+	for c := range h.conns {
+		if c.organization == org {
+			n++
+		}
+	}
+	for o := range h.opening {
+		if o.organization == org {
+			n++
+		}
+	}
+	return n
+}
+
 // ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
 // principal): the connection belongs to the principal's organization.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -212,9 +232,16 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	org := p.Organization
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
-	// Tracked from here, so a revoke during the handshake closes it too.
+	// Tracked from here, so a revoke during the handshake closes it too;
+	// the quota counts open and opening connections under the same lock.
 	open := &pending{organization: org, credential: p.Credential, cancel: cancel}
 	h.mu.Lock()
+	if h.maxConns > 0 && h.countLocked(org) >= h.maxConns {
+		h.mu.Unlock()
+		httpx.WriteError(w, r, errx.QuotaExceeded("crew_connections", h.maxConns, "this organization already has "+
+			strconv.Itoa(h.maxConns)+" agents connected; disconnect one first"))
+		return
+	}
 	h.opening[open] = struct{}{}
 	h.mu.Unlock()
 	opened := false

@@ -48,7 +48,10 @@ type Messenger interface {
 }
 
 type Repository interface {
-	Create(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, input Create, status Status) (Dock, error)
+	// Create stores a dock unless the organization already has limit docks
+	// (limit ≤ 0: unlimited); count and insert are atomic
+	// (errx.QuotaExceeded when full).
+	Create(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, input Create, status Status, limit int) (Dock, error)
 	Find(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (Dock, error)
 	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Dock], error)
 	Update(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, input Update) (Dock, error)

@@ -102,11 +102,14 @@ func TestExchangeVerifiesTheIDToken(t *testing.T) {
 		token string
 		ok    bool
 	}{
-		"valid":        {f.sign(t, good), true},
-		"other nonce":  {f.sign(t, with("nonce", "n2")), false},
-		"other client": {f.sign(t, with("aud", "someone-else")), false},
-		"other issuer": {f.sign(t, with("iss", "https://evil.test")), false},
-		"expired":      {f.sign(t, with("exp", time.Now().Add(-time.Hour).Unix())), false},
+		"valid":         {f.sign(t, good), true},
+		"valid at_hash": {f.sign(t, with("at_hash", atHash("at"))), true},
+		"other at_hash": {f.sign(t, with("at_hash", atHash("another access token"))), false},
+		"no subject":    {f.sign(t, with("sub", "")), false},
+		"other nonce":   {f.sign(t, with("nonce", "n2")), false},
+		"other client":  {f.sign(t, with("aud", "someone-else")), false},
+		"other issuer":  {f.sign(t, with("iss", "https://evil.test")), false},
+		"expired":       {f.sign(t, with("exp", time.Now().Add(-time.Hour).Unix())), false},
 		"unsigned": {func() string {
 			s, _ := jwt.NewWithClaims(jwt.SigningMethodNone, good).SignedString(jwt.UnsafeAllowNoneSignatureType)
 			return s
@@ -119,7 +122,7 @@ func TestExchangeVerifiesTheIDToken(t *testing.T) {
 			t.Errorf("%s: err = %v", name, err)
 			continue
 		}
-		if tc.ok && (tokens.Access != "at" || tokens.Refresh != "rt" || time.Until(tokens.ExpiresAt) < 14*time.Minute) {
+		if tc.ok && (tokens.Access != "at" || tokens.Refresh != "rt" || tokens.IDSubject != "u1" || time.Until(tokens.ExpiresAt) < 14*time.Minute) {
 			t.Errorf("%s: tokens = %+v", name, tokens)
 		}
 		if !tc.ok && !errx.IsType(err, errx.TypeAuthorization) {

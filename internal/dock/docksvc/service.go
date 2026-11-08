@@ -17,13 +17,15 @@ type Service struct {
 	repo     dock.Repository
 	events   event.Publisher
 	gateways map[dock.Channel]dock.Gateway
+	// maxDocks bounds each organization's docks (≤ 0: unlimited).
+	maxDocks int
 }
 
-func New(repo dock.Repository, events event.Publisher, gateways ...dock.Gateway) *Service {
+func New(repo dock.Repository, events event.Publisher, maxDocks int, gateways ...dock.Gateway) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	s := &Service{repo: repo, events: events, gateways: map[dock.Channel]dock.Gateway{}}
+	s := &Service{repo: repo, events: events, gateways: map[dock.Channel]dock.Gateway{}, maxDocks: maxDocks}
 	for _, g := range gateways {
 		s.gateways[g.Channel()] = g
 	}
@@ -52,7 +54,7 @@ func (s *Service) Create(ctx context.Context, org identity.OrganizationID, input
 	if _, err := s.gateway(input.Channel); err != nil {
 		return dock.Dock{}, err
 	}
-	d, err := s.repo.Create(ctx, org, identity.NewDockID(), input, dock.StatusLinking)
+	d, err := s.repo.Create(ctx, org, identity.NewDockID(), input, dock.StatusLinking, s.maxDocks)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "create dock", errx.TypeInternal)
 	}

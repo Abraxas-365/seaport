@@ -10,7 +10,7 @@ import (
 
 func TestLimitsCheck(t *testing.T) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
-	l := ship.Limits{PerMinute: 3, PerHour: 10, ConversationPerMinute: 2}
+	l := ship.Limits{PerMinute: 3, PerHour: 10, ConversationPerMinute: 2, OrganizationPerHour: 25}
 	cases := []struct {
 		name  string
 		c     ship.OutboundCounts
@@ -28,6 +28,8 @@ func TestLimitsCheck(t *testing.T) {
 		{"longest wait wins", ship.OutboundCounts{ConversationLastMinute: 2, OldestConversationMinute: now.Add(-50 * time.Second),
 			DockLastHour: 10, OldestDockHour: now.Add(-30 * time.Minute)}, 1801},
 		{"limit lowered below the count", ship.OutboundCounts{DockLastMinute: 7, OldestDockMinute: now.Add(-10 * time.Second)}, 51},
+		{"organization hour full", ship.OutboundCounts{DockLastHour: 1, OrganizationLastHour: 25,
+			OldestOrganizationHour: now.Add(-40 * time.Minute)}, 1201},
 	}
 	for _, c := range cases {
 		c.c.At = now
@@ -44,7 +46,7 @@ func TestLimitsCheck(t *testing.T) {
 		}
 	}
 	// Zero disables a limit.
-	if err := (ship.Limits{}).Check(ship.OutboundCounts{DockLastMinute: 1000, DockLastHour: 1000, ConversationLastMinute: 1000, At: now}); err != nil {
+	if err := (ship.Limits{}).Check(ship.OutboundCounts{DockLastMinute: 1000, DockLastHour: 1000, ConversationLastMinute: 1000, OrganizationLastHour: 1000, At: now}); err != nil {
 		t.Errorf("zero limits: %v", err)
 	}
 }

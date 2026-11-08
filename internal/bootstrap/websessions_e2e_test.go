@@ -27,7 +27,10 @@ func TestWebSessionStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	sealer, _ := auth.NewSealer(strings.Repeat("s", 32))
+	sealer, err := auth.NewSealer("Sk3Vt9xLm2Pz7Rw4Ys8Bn1Hc6Jd0Fg5Aq")
+	if err != nil {
+		t.Fatal(err)
+	}
 	repo := authpg.New(db, sealer)
 	org := identity.MustParseOrganizationID("11111111-1111-4111-8111-111111111111")
 	now := time.Now().UTC().Truncate(time.Second)
@@ -86,7 +89,10 @@ func TestWebSessionStore(t *testing.T) {
 		t.Fatal("a failed update changed the row")
 	}
 
-	otherKey, _ := auth.NewSealer(strings.Repeat("o", 32))
+	otherKey, err := auth.NewSealer("Ok8Qw3Er5Ty7Ui9Op1As3Df5Gh7Jk9Lm2")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := authpg.New(db, otherKey).Find(ctx, s.IDHash); !errx.IsType(err, errx.TypeNotFound) {
 		t.Fatalf("other key: %v, want not found", err)
 	}

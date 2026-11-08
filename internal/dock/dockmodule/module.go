@@ -24,6 +24,8 @@ type Deps struct {
 	// WhatsApp enables the WhatsApp gateway (off in tests).
 	WhatsApp bool
 	Events   event.Publisher
+	// MaxDocks bounds each organization's docks (≤ 0: unlimited).
+	MaxDocks int
 }
 
 type Module struct {
@@ -42,7 +44,7 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, wa)
 	}
-	svc := docksvc.New(dockpg.New(d.DB), d.Events, gateways...)
+	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}

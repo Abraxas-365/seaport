@@ -45,10 +45,15 @@ func (f *fakeProvider) AuthorizeURL(state, nonce, challenge, org string, sel boo
 
 func (f *fakeProvider) Exchange(ctx context.Context, code, verifier, nonce string) (auth.Tokens, error) {
 	f.gotVerifier, f.gotNonce = verifier, nonce
-	if code != "good" {
+	if code != "good" && code != "mixed" {
 		return auth.Tokens{}, errx.Unauthorized("bad code")
 	}
-	return f.mint(auth.Identity{Organization: orgA, Subject: "user-1", Permissions: []string{"p"}}, time.Hour), nil
+	t := f.mint(auth.Identity{Organization: orgA, Subject: "user-1", Permissions: []string{"p"}}, time.Hour)
+	t.IDSubject = "user-1"
+	if code == "mixed" { // id_token of someone else
+		t.IDSubject = "user-2"
+	}
+	return t, nil
 }
 
 func (f *fakeProvider) Refresh(ctx context.Context, refresh string) (auth.Tokens, error) {
@@ -194,6 +199,7 @@ func TestCompleteRefusesForeignOrExpiredState(t *testing.T) {
 		"no code":      {az.Pending, auth.Callback{State: az.Pending.State}},
 		"refused code": {az.Pending, auth.Callback{Code: "bad", State: az.Pending.State}},
 		"no pending":   {auth.Pending{}, auth.Callback{Code: "good", State: az.Pending.State}},
+		"mixed people": {az.Pending, auth.Callback{Code: "mixed", State: az.Pending.State}},
 	} {
 		if _, _, err := s.Complete(context.Background(), tc.p, tc.cb); err == nil {
 			t.Errorf("%s: sign-in accepted", name)

@@ -71,6 +71,15 @@ type Server struct {
 	// Outbound limits per dock (0 disables one): SEAPORT_SEND_PER_MINUTE
 	// (20), SEAPORT_SEND_PER_HOUR (300), SEAPORT_SEND_PER_CHAT_MINUTE (8).
 	SendPerMinute, SendPerHour, SendPerChatMinute int
+	// Per-organization quotas (0 disables one; same for every organization
+	// until plans exist): SEAPORT_MAX_DOCKS (10),
+	// SEAPORT_MAX_CREW_CONNECTIONS (20 live agents),
+	// SEAPORT_SEND_ORG_PER_HOUR (1000 outbound messages across its docks).
+	MaxDocks, MaxCrewConnections, SendOrgPerHour int
+	// SEAPORT_API_RATE (20) and SEAPORT_API_BURST (60): requests per second
+	// per caller (organization + subject + credential) on /api, /crew/ws
+	// and /mcp; 0 disables.
+	APIRate, APIBurst int
 }
 
 func LoadServer() (Server, error) {
@@ -109,6 +118,11 @@ func LoadServer() (Server, error) {
 		{"SEAPORT_SEND_PER_MINUTE", 20, &c.SendPerMinute},
 		{"SEAPORT_SEND_PER_HOUR", 300, &c.SendPerHour},
 		{"SEAPORT_SEND_PER_CHAT_MINUTE", 8, &c.SendPerChatMinute},
+		{"SEAPORT_MAX_DOCKS", 10, &c.MaxDocks},
+		{"SEAPORT_MAX_CREW_CONNECTIONS", 20, &c.MaxCrewConnections},
+		{"SEAPORT_SEND_ORG_PER_HOUR", 1000, &c.SendOrgPerHour},
+		{"SEAPORT_API_RATE", 20, &c.APIRate},
+		{"SEAPORT_API_BURST", 60, &c.APIBurst},
 	} {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err
@@ -170,10 +184,36 @@ func (c Server) validateIAM() error {
 		}
 	}
 	switch {
-	case len(c.SecretKey) < 32:
-		return errx.Validation("SEAPORT_SECRET_KEY is required with SEAPORT_AUTH=iam (at least 32 characters; e.g. openssl rand -base64 32)")
+	case c.SecretKey == "":
+		return errx.Validation("SEAPORT_SECRET_KEY is required with SEAPORT_AUTH=iam (e.g. openssl rand -base64 32)")
+	case CheckSecretKey(c.SecretKey) != nil:
+		return CheckSecretKey(c.SecretKey)
 	case c.AdminToken != "" || c.CrewToken != "":
 		return errx.Validation("SEAPORT_ADMIN_TOKEN and SEAPORT_CREW_TOKEN are token mode settings; in iam mode people sign in with IAMKit and agents use crew tokens")
+	}
+	return nil
+}
+
+const (
+	// MinSecretKey is the shortest SEAPORT_SECRET_KEY accepted.
+	MinSecretKey = 32
+	// minDistinct rejects placeholder keys ("xxxx…", "changemechangeme…"):
+	// a random key (openssl rand -base64 32 / -hex 32) has far more.
+	minDistinct = 12
+)
+
+// CheckSecretKey refuses short or placeholder SEAPORT_SECRET_KEYs (a
+// heuristic against obvious placeholders, not an entropy measure).
+func CheckSecretKey(secret string) error {
+	if len(secret) < MinSecretKey {
+		return errx.Validation("SEAPORT_SECRET_KEY must be at least 32 characters (openssl rand -base64 32)")
+	}
+	seen := map[byte]bool{}
+	for i := 0; i < len(secret); i++ {
+		seen[secret[i]] = true
+	}
+	if len(seen) < minDistinct {
+		return errx.Validation("SEAPORT_SECRET_KEY looks like a placeholder; use a random key (openssl rand -base64 32)")
 	}
 	return nil
 }

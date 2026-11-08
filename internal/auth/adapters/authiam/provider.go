@@ -4,6 +4,8 @@ package authiam
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -79,19 +81,25 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier, nonce string) (
 	if err != nil {
 		return auth.Tokens{}, failure(err, "exchange code")
 	}
-	if err := p.verifyIDToken(ctx, t.IDToken, nonce); err != nil {
+	sub, err := p.verifyIDToken(ctx, t.IDToken, t.AccessToken, nonce)
+	if err != nil {
 		return auth.Tokens{}, err
 	}
-	return tokens(t), nil
+	out := tokens(t)
+	out.IDSubject = sub
+	return out, nil
 }
 
-// verifyIDToken: signed by IAMKit, for this client, of this sign-in.
-func (p *Provider) verifyIDToken(ctx context.Context, raw, nonce string) error {
+// verifyIDToken: signed by IAMKit, for this client, of this sign-in, and
+// (at_hash, when present) issued with this access token. It returns the
+// id_token's subject.
+func (p *Provider) verifyIDToken(ctx context.Context, raw, access, nonce string) (string, error) {
 	if raw == "" {
-		return errx.Unauthorized("IAMKit returned no id_token")
+		return "", errx.Unauthorized("IAMKit returned no id_token")
 	}
 	var claims struct {
-		Nonce string `json:"nonce"`
+		Nonce  string `json:"nonce"`
+		AtHash string `json:"at_hash"`
 		jwt.RegisteredClaims
 	}
 	_, err := jwt.ParseWithClaims(raw, &claims, func(t *jwt.Token) (any, error) {
@@ -102,14 +110,27 @@ func (p *Provider) verifyIDToken(ctx context.Context, raw, nonce string) error {
 	if err != nil {
 		var api *apierror.Error
 		if errors.As(err, &api) && api.HTTPStatus >= 500 {
-			return errx.Wrap(err, "IAMKit signing keys unavailable", errx.TypeExternal)
+			return "", errx.Wrap(err, "IAMKit signing keys unavailable", errx.TypeExternal)
 		}
-		return errx.Unauthorized("invalid id_token")
+		return "", errx.Unauthorized("invalid id_token")
 	}
 	if claims.Nonce == "" || claims.Nonce != nonce {
-		return errx.Unauthorized("id_token does not belong to this sign-in")
+		return "", errx.Unauthorized("id_token does not belong to this sign-in")
 	}
-	return nil
+	if claims.Subject == "" {
+		return "", errx.Unauthorized("id_token has no subject")
+	}
+	if claims.AtHash != "" && claims.AtHash != atHash(access) {
+		return "", errx.Unauthorized("id_token was not issued with this access token")
+	}
+	return claims.Subject, nil
+}
+
+// atHash is OIDC's at_hash for RS256: base64url of the left half of the
+// access token's SHA-256.
+func atHash(access string) string {
+	sum := sha256.Sum256([]byte(access))
+	return base64.RawURLEncoding.EncodeToString(sum[:len(sum)/2])
 }
 
 func (p *Provider) Refresh(ctx context.Context, refresh string) (auth.Tokens, error) {

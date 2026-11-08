@@ -221,30 +221,36 @@ func (a Ack) Validate() error {
 	return nil
 }
 
-// Limits cap a dock's outbound messages (WhatsApp bans numbers that send
-// in bursts or to many fresh chats). Zero disables a limit.
+// Limits cap outbound messages (WhatsApp bans numbers that send in bursts
+// or to many fresh chats; a hosted port also caps each organization).
+// Zero disables a limit.
 type Limits struct {
 	// PerMinute and PerHour count all of a dock's outbound messages.
 	PerMinute int
 	PerHour   int
 	// ConversationPerMinute caps one chat (a looping agent).
 	ConversationPerMinute int
+	// OrganizationPerHour counts the organization's outbound messages
+	// across all its docks.
+	OrganizationPerHour int
 }
 
 // DefaultLimits are conservative for a personal WhatsApp number.
-var DefaultLimits = Limits{PerMinute: 20, PerHour: 300, ConversationPerMinute: 8}
+var DefaultLimits = Limits{PerMinute: 20, PerHour: 300, ConversationPerMinute: 8, OrganizationPerHour: 1000}
 
 // OutboundCounts are the outbound messages already sent (or being sent)
-// in each window, for one dock and one conversation.
+// in each window, for one dock, one conversation and the organization.
 type OutboundCounts struct {
 	DockLastMinute         int
 	DockLastHour           int
 	ConversationLastMinute int
+	OrganizationLastHour   int
 	// Oldest* are when the oldest message inside each window went out:
 	// the window frees a slot at Oldest + window.
 	OldestDockMinute         time.Time
 	OldestDockHour           time.Time
 	OldestConversationMinute time.Time
+	OldestOrganizationHour   time.Time
 	// At is when the counts were taken, on the same clock as Oldest*.
 	At time.Time
 }
@@ -264,6 +270,7 @@ func (l Limits) Check(c OutboundCounts) error {
 		{l.ConversationPerMinute, c.ConversationLastMinute, c.OldestConversationMinute, time.Minute, "this conversation (per minute)"},
 		{l.PerMinute, c.DockLastMinute, c.OldestDockMinute, time.Minute, "this dock (per minute)"},
 		{l.PerHour, c.DockLastHour, c.OldestDockHour, time.Hour, "this dock (per hour)"},
+		{l.OrganizationPerHour, c.OrganizationLastHour, c.OldestOrganizationHour, time.Hour, "this organization (per hour)"},
 	} {
 		if w.limit <= 0 || w.used < w.limit {
 			continue

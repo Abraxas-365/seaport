@@ -32,6 +32,14 @@ func TooManyRequests(message string) *Error {
 	return withStatus(TypeBusiness, "RATE_LIMITED", 429, message)
 }
 
+// QuotaExceeded: an organization reached a count limit (docks, crew
+// tokens, live agents); freeing one (delete, revoke, disconnect) makes
+// room. details carry quota and limit.
+func QuotaExceeded(quota string, limit int, message string) *Error {
+	return withStatus(TypeBusiness, "QUOTA_EXCEEDED", 422, message).
+		WithDetail("quota", quota).WithDetail("limit", limit)
+}
+
 func MethodNotAllowed(message string) *Error {
 	return withStatus(TypeValidation, "METHOD_NOT_ALLOWED", 405, message)
 }
