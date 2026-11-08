@@ -123,6 +123,12 @@ export interface Paginated<T> {
   page: Page
 }
 
+/** GET /api/v1/config: how this port authenticates (PUERTO_AUTH). */
+export interface PortConfig {
+  auth: "none" | "token"
+  version: string
+}
+
 export interface Session {
   authenticated: boolean
   expires_at?: string
@@ -131,7 +137,6 @@ export interface Session {
 export interface Health {
   status: string
   version: string
-  crew: number
 }
 
 export type DeliveryState = "claimed" | "joined" | "acked" | "released" | "expired"

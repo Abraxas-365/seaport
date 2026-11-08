@@ -37,7 +37,7 @@ const (
 
 // Receiver is what the gateway needs from the ship domain.
 type Receiver interface {
-	Receive(ctx context.Context, input ship.Inbound) (ship.Ship, bool, error)
+	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
 }
 
 // LinkSink is what the gateway needs from the dock domain.
@@ -57,8 +57,10 @@ type Gateway struct {
 }
 
 type session struct {
-	dock   identity.DockID
-	client *whatsmeow.Client
+	dock identity.DockID
+	// organization owns the dock; its messages arrive in it.
+	organization identity.OrganizationID
+	client       *whatsmeow.Client
 
 	// unlinked: the owner ended this session; its pairing goroutine and
 	// events must not report a status any more.
@@ -109,7 +111,7 @@ func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
 	g.mu.Unlock()
 
 	device := g.devices.NewDevice()
-	s := g.newSession(d.ID, device)
+	s := g.newSession(d, device)
 	qrCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linkTimeout)
 	qrs, err := s.client.GetQRChannel(qrCtx)
 	if err != nil {
@@ -173,7 +175,7 @@ func (g *Gateway) Restore(ctx context.Context, d dock.Dock) error {
 		g.setStatus(d.ID, dock.StatusLoggedOut)
 		return errx.NotFound("whatsapp device of dock " + d.ID.String() + " is gone; link it again")
 	}
-	s := g.newSession(d.ID, device)
+	s := g.newSession(d, device)
 	if err := s.client.Connect(); err != nil {
 		return errx.Wrap(err, "connect to whatsapp", errx.TypeExternal)
 	}
@@ -266,8 +268,8 @@ func (g *Gateway) session(id identity.DockID) *session {
 	return g.clients[id]
 }
 
-func (g *Gateway) newSession(id identity.DockID, device *store.Device) *session {
-	s := &session{dock: id, client: whatsmeow.NewClient(device, newLogger("client")), titles: map[types.JID]string{}}
+func (g *Gateway) newSession(d dock.Dock, device *store.Device) *session {
+	s := &session{dock: d.ID, organization: d.Organization, client: whatsmeow.NewClient(device, newLogger("client")), titles: map[types.JID]string{}}
 	s.client.AddEventHandler(func(evt any) { g.handle(s, evt) })
 	return s
 }
@@ -350,7 +352,7 @@ func (g *Gateway) handle(s *session, evt any) {
 		if !ok {
 			return
 		}
-		if _, _, err := receiver.Receive(ctx, in); err != nil {
+		if _, _, err := receiver.Receive(ctx, s.organization, in); err != nil {
 			slog.Error("receive whatsapp message", "dock", s.dock, "chat", in.ChatID, "err", err)
 		}
 	}

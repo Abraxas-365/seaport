@@ -50,6 +50,9 @@ type Options struct {
 	DisableWhatsApp bool
 	// Lease overrides config.ClaimLease.
 	Lease time.Duration
+	// Authenticator overrides the one of cfg.Auth (tests with several
+	// organizations).
+	Authenticator httpx.Authenticator
 }
 
 // OpenDB opens Postgres with session timeouts and UTC.
@@ -119,8 +122,11 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	done := make(chan struct{})
 	var once sync.Once
-	sessions := httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,
-		Secure: strings.HasPrefix(cfg.PublicURL, "https://")}
+	auth := opts.Authenticator
+	if auth == nil {
+		auth = authenticator(cfg)
+	}
+	session := auth.Session()
 
 	admin := http.NewServeMux()
 	docks.Register(admin)
@@ -128,19 +134,23 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	ships.Register(admin)
 	crew.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done))
-	admin.Handle("DELETE /api/v1/session", sessions.Logout())
+	admin.Handle("DELETE /api/v1/session", session.Logout)
 	admin.HandleFunc("/", httpx.NotFound)
 
 	root := http.NewServeMux()
+	// Public liveness: nothing about any organization (crew counts are per
+	// organization at /api/v1/crew).
 	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version, "crew": crew.Hub.Connected()})
+		_ = httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version})
 	})
-	// Session login/state are public (they check the token themselves).
-	root.Handle("POST /api/v1/session", sessions.Login())
-	root.Handle("GET /api/v1/session", sessions.Current())
-	root.Handle("/api/", sessions.RequireAdmin(admin))
-	root.Handle("/crew/ws", httpx.RequireBearer(cfg.CrewToken, crew.WS()))
-	root.Handle("/mcp", httpx.RequireBearer(cfg.CrewToken, crew.MCP()))
+	// Public: how the UI must sign in, and session login/state (they check
+	// credentials themselves).
+	root.Handle("GET /api/v1/config", publicConfig(cfg))
+	root.Handle("POST /api/v1/session", session.Login)
+	root.Handle("GET /api/v1/session", session.Current)
+	root.Handle("/api/", auth.Admin(admin))
+	root.Handle("/crew/ws", auth.Crew(crew.WS()))
+	root.Handle("/mcp", auth.Crew(crew.MCP()))
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
 	ui := httpx.SPA(web.Dist())
@@ -154,6 +164,28 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, docks: docks, ships: ships, cfg: cfg,
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
+}
+
+// authenticator picks the auth adapter of the run mode; nothing else in
+// the port knows the mode.
+func authenticator(cfg config.Server) httpx.Authenticator {
+	switch cfg.Auth {
+	case config.AuthNone:
+		return httpx.Open{Organization: config.DefaultOrganization}
+	default:
+		return httpx.Tokens{Organization: config.DefaultOrganization, CrewToken: cfg.CrewToken,
+			Sessions: httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,
+				Secure: strings.HasPrefix(cfg.PublicURL, "https://")}}
+	}
+}
+
+// publicConfig is GET /api/v1/config: what the web app needs before
+// signing in (the auth mode decides between no login and the token form).
+func publicConfig(cfg config.Server) http.Handler {
+	body := map[string]any{"auth": cfg.Auth, "version": Version}
+	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		return httpx.JSON(w, http.StatusOK, body)
+	})
 }
 
 // Start reconnects linked docks, requeues claims left by a previous process

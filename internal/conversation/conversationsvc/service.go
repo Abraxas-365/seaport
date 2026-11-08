@@ -53,7 +53,7 @@ func (s *Service) lock(dock identity.DockID) func() {
 	return l.Unlock
 }
 
-func (s *Service) Arrive(ctx context.Context, input conversation.Arrive) (conversation.Arrival, error) {
+func (s *Service) Arrive(ctx context.Context, org identity.OrganizationID, input conversation.Arrive) (conversation.Arrival, error) {
 	if err := input.Validate(); err != nil {
 		return conversation.Arrival{}, err
 	}
@@ -64,22 +64,22 @@ func (s *Service) Arrive(ctx context.Context, input conversation.Arrive) (conver
 	senders := conversation.CleanHandles(input.Senders)
 
 	defer s.lock(chat.Dock)()
-	customs, err := s.load(ctx, chat.Dock)
+	customs, err := s.load(ctx, org, chat.Dock)
 	if err != nil {
 		return conversation.Arrival{}, err
 	}
 	initial := customs.Decide(chat.Kind, conversation.AccessAuto, chat.Handles)
-	conv, changed, err := s.repo.Upsert(ctx, identity.NewConversationID(), chat, initial)
+	conv, changed, err := s.repo.Upsert(ctx, org, identity.NewConversationID(), chat, initial)
 	if err != nil {
 		return conversation.Arrival{}, errx.Wrap(err, "ensure conversation", errx.TypeInternal)
 	}
 	// An existing chat may have learned handles or be under newer rules.
 	before := conv.Status
-	if conv, err = s.redecide(ctx, customs, conv); err != nil {
+	if conv, err = s.redecide(ctx, org, customs, conv); err != nil {
 		return conversation.Arrival{}, err
 	}
 	if changed && conv.Status == before {
-		s.events.Publish(conversation.EventUpdated, conv) // redecide published otherwise
+		s.events.Publish(org, conversation.EventUpdated, conv) // redecide published otherwise
 	}
 	out := conversation.Arrival{Conversation: conv}
 	if !conv.Allowed() {
@@ -90,7 +90,7 @@ func (s *Service) Arrive(ctx context.Context, input conversation.Arrive) (conver
 	return out, nil
 }
 
-func (s *Service) Update(ctx context.Context, id identity.ConversationID, input conversation.Update) (conversation.Conversation, error) {
+func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id identity.ConversationID, input conversation.Update) (conversation.Conversation, error) {
 	if err := input.Validate(); err != nil {
 		return conversation.Conversation{}, err
 	}
@@ -98,7 +98,7 @@ func (s *Service) Update(ctx context.Context, id identity.ConversationID, input 
 		t := text.Clean(*input.Title)
 		input.Title = &t
 	}
-	current, err := s.repo.Find(ctx, id)
+	current, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return conversation.Conversation{}, errx.Wrap(err, "find conversation", errx.TypeInternal)
 	}
@@ -106,44 +106,44 @@ func (s *Service) Update(ctx context.Context, id identity.ConversationID, input 
 		return conversation.Conversation{}, errx.InvalidField("group_mode", "group_mode only applies to groups")
 	}
 	defer s.lock(current.Dock)()
-	c, err := s.repo.Update(ctx, id, input)
+	c, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {
 		return conversation.Conversation{}, errx.Wrap(err, "update conversation", errx.TypeInternal)
 	}
-	customs, err := s.load(ctx, c.Dock)
+	customs, err := s.load(ctx, org, c.Dock)
 	if err != nil {
 		return conversation.Conversation{}, err
 	}
 	before := c.Status
-	if c, err = s.redecide(ctx, customs, c); err != nil {
+	if c, err = s.redecide(ctx, org, customs, c); err != nil {
 		return conversation.Conversation{}, err
 	}
 	if c.Status == before {
-		s.events.Publish(conversation.EventUpdated, c)
+		s.events.Publish(org, conversation.EventUpdated, c)
 	}
 	return c, nil
 }
 
-func (s *Service) Touch(ctx context.Context, id identity.ConversationID) error {
+func (s *Service) Touch(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) error {
 	if id.IsZero() {
 		return errx.InvalidField("conversation_id", "conversation_id is required")
 	}
-	return errx.Wrap(s.repo.Touch(ctx, id), "touch conversation", errx.TypeInternal)
+	return errx.Wrap(s.repo.Touch(ctx, org, id), "touch conversation", errx.TypeInternal)
 }
 
-func (s *Service) Find(ctx context.Context, id identity.ConversationID) (conversation.Conversation, error) {
-	c, err := s.repo.Find(ctx, id)
+func (s *Service) Find(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
+	c, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return conversation.Conversation{}, errx.Wrap(err, "find conversation", errx.TypeInternal)
 	}
 	return c, nil
 }
 
-func (s *Service) List(ctx context.Context, filter conversation.Filter, page query.Pagination) (query.Paginated[conversation.Conversation], error) {
+func (s *Service) List(ctx context.Context, org identity.OrganizationID, filter conversation.Filter, page query.Pagination) (query.Paginated[conversation.Conversation], error) {
 	if filter.Status != nil && !filter.Status.Valid() {
 		return query.Paginated[conversation.Conversation]{}, errx.InvalidField("status", "status must be allowed, pending or denied")
 	}
-	out, err := s.repo.List(ctx, filter, page.Normalize())
+	out, err := s.repo.List(ctx, org, filter, page.Normalize())
 	if err != nil {
 		return out, errx.Wrap(err, "list conversations", errx.TypeInternal)
 	}
@@ -152,14 +152,14 @@ func (s *Service) List(ctx context.Context, filter conversation.Filter, page que
 
 // ---- customs ----
 
-func (s *Service) Customs(ctx context.Context, dock identity.DockID) (conversation.Customs, error) {
+func (s *Service) Customs(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (conversation.Customs, error) {
 	if dock.IsZero() {
 		return conversation.Customs{}, errx.InvalidField("dock_id", "dock_id is required")
 	}
-	return s.load(ctx, dock)
+	return s.load(ctx, org, dock)
 }
 
-func (s *Service) SetPolicy(ctx context.Context, dock identity.DockID, input conversation.SetPolicy) (conversation.Customs, error) {
+func (s *Service) SetPolicy(ctx context.Context, org identity.OrganizationID, dock identity.DockID, input conversation.SetPolicy) (conversation.Customs, error) {
 	if err := input.Validate(); err != nil {
 		return conversation.Customs{}, err
 	}
@@ -167,7 +167,7 @@ func (s *Service) SetPolicy(ctx context.Context, dock identity.DockID, input con
 		return conversation.Customs{}, errx.InvalidField("dock_id", "dock_id is required")
 	}
 	defer s.lock(dock)()
-	customs, err := s.load(ctx, dock)
+	customs, err := s.load(ctx, org, dock)
 	if err != nil {
 		return conversation.Customs{}, err
 	}
@@ -177,54 +177,57 @@ func (s *Service) SetPolicy(ctx context.Context, dock identity.DockID, input con
 	if input.GroupMode != nil {
 		customs.Policy.GroupMode = *input.GroupMode
 	}
-	if err := s.customs.SavePolicy(ctx, customs.Policy); err != nil {
+	if err := s.customs.SavePolicy(ctx, org, customs.Policy); err != nil {
 		return conversation.Customs{}, errx.Wrap(err, "save customs policy", errx.TypeInternal)
 	}
-	return customs, s.customsChanged(ctx, customs)
+	return customs, s.customsChanged(ctx, org, customs)
 }
 
-func (s *Service) AddRule(ctx context.Context, input conversation.AddRule) (conversation.Rule, error) {
+func (s *Service) AddRule(ctx context.Context, org identity.OrganizationID, input conversation.AddRule) (conversation.Rule, error) {
 	if err := input.Validate(); err != nil {
 		return conversation.Rule{}, err
 	}
 	defer s.lock(input.Dock)()
-	n, err := s.customs.CountRules(ctx, input.Dock)
+	if _, err := s.load(ctx, org, input.Dock); err != nil {
+		return conversation.Rule{}, err
+	}
+	n, err := s.customs.CountRules(ctx, org, input.Dock)
 	if err != nil {
 		return conversation.Rule{}, errx.Wrap(err, "count rules", errx.TypeInternal)
 	}
 	if n >= conversation.MaxRules {
 		return conversation.Rule{}, errx.Business("a dock holds at most 1000 rules")
 	}
-	rule, err := s.customs.AddRule(ctx, conversation.Rule{ID: identity.NewRuleID(), Dock: input.Dock,
+	rule, err := s.customs.AddRule(ctx, org, conversation.Rule{ID: identity.NewRuleID(), Dock: input.Dock,
 		Effect: input.Effect, Pattern: conversation.NormalizePattern(input.Pattern)})
 	if err != nil {
 		return conversation.Rule{}, errx.Wrap(err, "add rule", errx.TypeInternal)
 	}
-	customs, err := s.load(ctx, input.Dock)
+	customs, err := s.load(ctx, org, input.Dock)
 	if err != nil {
 		return conversation.Rule{}, err
 	}
-	return rule, s.customsChanged(ctx, customs)
+	return rule, s.customsChanged(ctx, org, customs)
 }
 
-func (s *Service) RemoveRule(ctx context.Context, id identity.RuleID) error {
+func (s *Service) RemoveRule(ctx context.Context, org identity.OrganizationID, id identity.RuleID) error {
 	if id.IsZero() {
 		return errx.InvalidField("rule_id", "rule_id is required")
 	}
-	rule, err := s.customs.RemoveRule(ctx, id)
+	rule, err := s.customs.RemoveRule(ctx, org, id)
 	if err != nil {
 		return errx.Wrap(err, "remove rule", errx.TypeInternal)
 	}
 	defer s.lock(rule.Dock)()
-	customs, err := s.load(ctx, rule.Dock)
+	customs, err := s.load(ctx, org, rule.Dock)
 	if err != nil {
 		return err
 	}
-	return s.customsChanged(ctx, customs)
+	return s.customsChanged(ctx, org, customs)
 }
 
-func (s *Service) load(ctx context.Context, dock identity.DockID) (conversation.Customs, error) {
-	policy, ok, rules, err := s.customs.Customs(ctx, dock)
+func (s *Service) load(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (conversation.Customs, error) {
+	policy, ok, rules, err := s.customs.Customs(ctx, org, dock)
 	if err != nil {
 		return conversation.Customs{}, errx.Wrap(err, "load customs", errx.TypeInternal)
 	}
@@ -238,34 +241,34 @@ func (s *Service) load(ctx context.Context, dock identity.DockID) (conversation.
 }
 
 // redecide stores a changed customs status. Callers hold the dock lock.
-func (s *Service) redecide(ctx context.Context, customs conversation.Customs, c conversation.Conversation) (conversation.Conversation, error) {
+func (s *Service) redecide(ctx context.Context, org identity.OrganizationID, customs conversation.Customs, c conversation.Conversation) (conversation.Conversation, error) {
 	status := customs.Decide(c.Kind, c.Access, c.Handles)
 	if status == c.Status {
 		return c, nil
 	}
-	updated, err := s.repo.SetStatus(ctx, c.ID, status)
+	updated, err := s.repo.SetStatus(ctx, org, c.ID, status)
 	if err != nil {
 		return conversation.Conversation{}, errx.Wrap(err, "set conversation status", errx.TypeInternal)
 	}
 	slog.Info("customs status changed", "conversation", c.ID, "title", c.Title,
 		"from", c.Status, "to", status, "handles", strings.Join(c.Handles, ","))
-	s.events.Publish(conversation.EventUpdated, updated)
+	s.events.Publish(org, conversation.EventUpdated, updated)
 	return updated, nil
 }
 
 // customsChanged announces a dock's new customs and re-decides its chats.
-func (s *Service) customsChanged(ctx context.Context, customs conversation.Customs) error {
-	s.events.Publish(conversation.EventCustoms, conversation.CustomsEvent{Customs: customs})
-	return s.redecideDock(ctx, customs)
+func (s *Service) customsChanged(ctx context.Context, org identity.OrganizationID, customs conversation.Customs) error {
+	s.events.Publish(org, conversation.EventCustoms, conversation.CustomsEvent{Customs: customs})
+	return s.redecideDock(ctx, org, customs)
 }
 
-func (s *Service) redecideDock(ctx context.Context, customs conversation.Customs) error {
-	convs, err := s.repo.ForDock(ctx, customs.Policy.Dock)
+func (s *Service) redecideDock(ctx context.Context, org identity.OrganizationID, customs conversation.Customs) error {
+	convs, err := s.repo.ForDock(ctx, org, customs.Policy.Dock)
 	if err != nil {
 		return errx.Wrap(err, "list dock conversations", errx.TypeInternal)
 	}
 	for _, c := range convs {
-		if _, err := s.redecide(ctx, customs, c); err != nil {
+		if _, err := s.redecide(ctx, org, customs, c); err != nil {
 			return err
 		}
 	}

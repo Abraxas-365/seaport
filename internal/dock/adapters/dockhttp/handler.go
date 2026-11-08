@@ -32,6 +32,10 @@ type updateRequest struct {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -40,7 +44,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	d, err := h.commands.Update(r.Context(), id, dock.Update{Name: req.Name})
+	d, err := h.commands.Update(r.Context(), org, id, dock.Update{Name: req.Name})
 	if err != nil {
 		return err
 	}
@@ -48,11 +52,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	d, err := h.commands.Unlink(r.Context(), id)
+	d, err := h.commands.Unlink(r.Context(), org, id)
 	if err != nil {
 		return err
 	}
@@ -60,11 +68,15 @@ func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	if err := h.commands.Delete(r.Context(), id); err != nil {
+	if err := h.commands.Delete(r.Context(), org, id); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -77,11 +89,15 @@ type createRequest struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	var req createRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	d, err := h.commands.Create(r.Context(), dock.Create{Channel: req.Channel, Name: req.Name})
+	d, err := h.commands.Create(r.Context(), org, dock.Create{Channel: req.Channel, Name: req.Name})
 	if err != nil {
 		return err
 	}
@@ -89,11 +105,15 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	page, err := httpx.Pagination(r)
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.List(r.Context(), page)
+	out, err := h.queries.List(r.Context(), org, page)
 	if err != nil {
 		return err
 	}
@@ -101,11 +121,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	d, err := h.queries.Find(r.Context(), id)
+	d, err := h.queries.Find(r.Context(), org, id)
 	if err != nil {
 		return err
 	}
@@ -113,11 +137,15 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) relink(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	d, err := h.commands.Relink(r.Context(), id)
+	d, err := h.commands.Relink(r.Context(), org, id)
 	if err != nil {
 		return err
 	}

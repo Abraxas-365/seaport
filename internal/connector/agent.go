@@ -163,9 +163,12 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	if a.mcpURL == "" || !a.caps.McpCapabilities.Http {
 		return []acp.McpServer{}
 	}
+	headers := []acp.HttpHeader{}
+	if a.cfg.Token != "" {
+		headers = append(headers, acp.HttpHeader{Name: "Authorization", Value: "Bearer " + a.cfg.Token})
+	}
 	return []acp.McpServer{{Http: &acp.McpServerHttpInline{
-		Name: "puerto", Type: "http", Url: a.mcpURL,
-		Headers: []acp.HttpHeader{{Name: "Authorization", Value: "Bearer " + a.cfg.Token}},
+		Name: "puerto", Type: "http", Url: a.mcpURL, Headers: headers,
 	}}}
 }
 

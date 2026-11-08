@@ -31,10 +31,8 @@ type admin struct {
 }
 
 func newAdmin() (*admin, error) {
+	// No token talks to a PUERTO_AUTH=none port; a token port answers 401.
 	token := os.Getenv("PUERTO_ADMIN_TOKEN")
-	if token == "" {
-		return nil, errx.Validation("PUERTO_ADMIN_TOKEN is required")
-	}
 	return &admin{base: strings.TrimRight(envOr("PUERTO_URL", "http://127.0.0.1:8740"), "/"),
 		token: token, http: &http.Client{Timeout: 30 * time.Second}}, nil
 }
@@ -49,7 +47,9 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 	if err != nil {
 		return errx.Wrap(err, "build request", errx.TypeInternal)
 	}
-	req.Header.Set("Authorization", "Bearer "+a.token)
+	if a.token != "" {
+		req.Header.Set("Authorization", "Bearer "+a.token)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -59,6 +59,9 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if resp.StatusCode == http.StatusUnauthorized && a.token == "" {
+		return errx.Unauthorized("the port requires PUERTO_ADMIN_TOKEN")
+	}
 	if resp.StatusCode >= 300 {
 		var e struct {
 			Error struct {

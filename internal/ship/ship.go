@@ -53,6 +53,7 @@ const (
 // Ship is one message, inbound or outbound.
 type Ship struct {
 	ID           identity.ShipID         `db:"id" json:"id"`
+	Organization identity.OrganizationID `db:"organization_id" json:"-"`
 	Conversation identity.ConversationID `db:"conversation_id" json:"conversation_id"`
 	Direction    Direction               `db:"direction" json:"direction"`
 	ExternalID   string                  `db:"external_id" json:"external_id"`

@@ -8,13 +8,14 @@ import (
 	"strings"
 
 	"github.com/Abraxas-365/puerto/internal/conversation"
+	"github.com/Abraxas-365/puerto/internal/errx"
 	"github.com/Abraxas-365/puerto/internal/identity"
 	"github.com/Abraxas-365/puerto/internal/pgerr"
 	"github.com/Abraxas-365/puerto/internal/query"
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, dock_id, channel, external_id, kind, title, access, group_mode, status, last_activity_at, created_at, updated_at`
+const columns = `id, organization_id, dock_id, channel, external_id, kind, title, access, group_mode, status, last_activity_at, created_at, updated_at`
 
 var notFound = pgerr.Messages{NotFound: "conversation not found", ForeignKey: "dock not found"}
 
@@ -24,7 +25,7 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 var _ conversation.Repository = (*Repository)(nil)
 
-func (r *Repository) Upsert(ctx context.Context, id identity.ConversationID, in conversation.Ensure, status conversation.Status) (conversation.Conversation, bool, error) {
+func (r *Repository) Upsert(ctx context.Context, org identity.OrganizationID, id identity.ConversationID, in conversation.Ensure, status conversation.Status) (conversation.Conversation, bool, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return conversation.Conversation{}, false, pgerr.Map(err, "begin upsert")
@@ -36,15 +37,16 @@ func (r *Repository) Upsert(ctx context.Context, id identity.ConversationID, in 
 	}
 	// changed: inserted (xmax = 0) or the title changed (updated_at moved).
 	err = tx.GetContext(ctx, &row, `
-		INSERT INTO conversations (id, dock_id, channel, external_id, kind, title, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO conversations (id, organization_id, dock_id, channel, external_id, kind, title, status)
+		VALUES ($1, $8, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (dock_id, external_id) DO UPDATE
 		SET title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE conversations.title END,
 		    updated_at = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title <> conversations.title
 		                      THEN now() ELSE conversations.updated_at END,
 		    last_activity_at = now()
+		WHERE conversations.organization_id = EXCLUDED.organization_id
 		RETURNING `+columns+`, (xmax = 0 OR updated_at = now()) AS changed`,
-		id, in.Dock, in.Channel, in.ExternalID, in.Kind, in.Title, status)
+		id, in.Dock, in.Channel, in.ExternalID, in.Kind, in.Title, status, org)
 	c := row.Conversation
 	if err != nil {
 		return c, false, pgerr.MapWith(err, "upsert conversation", notFound)
@@ -69,8 +71,9 @@ func (r *Repository) Upsert(ctx context.Context, id identity.ConversationID, in 
 	return c, row.Changed, nil
 }
 
-func (r *Repository) Touch(ctx context.Context, id identity.ConversationID) error {
-	res, err := r.db.ExecContext(ctx, `UPDATE conversations SET last_activity_at = now() WHERE id = $1`, id)
+func (r *Repository) Touch(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE conversations SET last_activity_at = now()
+		WHERE organization_id = $1 AND id = $2`, org, id)
 	if err != nil {
 		return pgerr.MapWith(err, "touch conversation", notFound)
 	}
@@ -80,16 +83,17 @@ func (r *Repository) Touch(ctx context.Context, id identity.ConversationID) erro
 	return nil
 }
 
-func (r *Repository) Find(ctx context.Context, id identity.ConversationID) (conversation.Conversation, error) {
+func (r *Repository) Find(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
 	var c conversation.Conversation
-	if err := r.db.GetContext(ctx, &c, `SELECT `+columns+` FROM conversations WHERE id = $1`, id); err != nil {
+	if err := r.db.GetContext(ctx, &c, `SELECT `+columns+` FROM conversations
+		WHERE organization_id = $1 AND id = $2`, org, id); err != nil {
 		return c, pgerr.MapWith(err, "find conversation", notFound)
 	}
 	return c, r.withHandles(ctx, []*conversation.Conversation{&c})
 }
 
-func (r *Repository) List(ctx context.Context, f conversation.Filter, page query.Pagination) (query.Paginated[conversation.Conversation], error) {
-	where, args := []string{"true"}, []any{}
+func (r *Repository) List(ctx context.Context, org identity.OrganizationID, f conversation.Filter, page query.Pagination) (query.Paginated[conversation.Conversation], error) {
+	where, args := []string{"organization_id = $1"}, []any{org}
 	add := func(cond string, v any) {
 		args = append(args, v)
 		where = append(where, strings.ReplaceAll(cond, "?", "$"+strconv.Itoa(len(args))))
@@ -118,33 +122,34 @@ func (r *Repository) List(ctx context.Context, f conversation.Filter, page query
 	return out, r.withHandles(ctx, pointers(out.Items))
 }
 
-func (r *Repository) Update(ctx context.Context, id identity.ConversationID, in conversation.Update) (conversation.Conversation, error) {
+func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id identity.ConversationID, in conversation.Update) (conversation.Conversation, error) {
 	var c conversation.Conversation
 	err := r.db.GetContext(ctx, &c, `
 		UPDATE conversations
 		SET access = COALESCE($2, access), group_mode = COALESCE($3, group_mode),
 		    title = COALESCE($4, title), updated_at = now()
-		WHERE id = $1
-		RETURNING `+columns, id, in.Access, in.GroupMode, in.Title)
+		WHERE id = $1 AND organization_id = $5
+		RETURNING `+columns, id, in.Access, in.GroupMode, in.Title, org)
 	if err != nil {
 		return c, pgerr.MapWith(err, "update conversation", notFound)
 	}
 	return c, r.withHandles(ctx, []*conversation.Conversation{&c})
 }
 
-func (r *Repository) SetStatus(ctx context.Context, id identity.ConversationID, status conversation.Status) (conversation.Conversation, error) {
+func (r *Repository) SetStatus(ctx context.Context, org identity.OrganizationID, id identity.ConversationID, status conversation.Status) (conversation.Conversation, error) {
 	var c conversation.Conversation
-	err := r.db.GetContext(ctx, &c, `UPDATE conversations SET status = $2, updated_at = now()
-		WHERE id = $1 RETURNING `+columns, id, status)
+	err := r.db.GetContext(ctx, &c, `UPDATE conversations SET status = $3, updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, status)
 	if err != nil {
 		return c, pgerr.MapWith(err, "set conversation status", notFound)
 	}
 	return c, r.withHandles(ctx, []*conversation.Conversation{&c})
 }
 
-func (r *Repository) ForDock(ctx context.Context, dock identity.DockID) ([]conversation.Conversation, error) {
+func (r *Repository) ForDock(ctx context.Context, org identity.OrganizationID, dock identity.DockID) ([]conversation.Conversation, error) {
 	out := []conversation.Conversation{}
-	if err := r.db.SelectContext(ctx, &out, `SELECT `+columns+` FROM conversations WHERE dock_id = $1`, dock); err != nil {
+	if err := r.db.SelectContext(ctx, &out, `SELECT `+columns+` FROM conversations
+		WHERE organization_id = $1 AND dock_id = $2`, org, dock); err != nil {
 		return nil, pgerr.Map(err, "dock conversations")
 	}
 	return out, r.withHandles(ctx, pointers(out))
@@ -196,8 +201,16 @@ var _ conversation.CustomsRepository = (*Customs)(nil)
 
 var ruleMessages = pgerr.Messages{NotFound: "rule not found", ForeignKey: "dock not found", Unique: "that rule already exists"}
 
-func (r *Customs) Customs(ctx context.Context, dock identity.DockID) (conversation.Policy, bool, []conversation.Rule, error) {
+func (r *Customs) Customs(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (conversation.Policy, bool, []conversation.Rule, error) {
 	var p conversation.Policy
+	var exists bool
+	if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM docks
+		WHERE organization_id = $1 AND id = $2)`, org, dock); err != nil {
+		return p, false, nil, pgerr.Map(err, "find dock")
+	}
+	if !exists {
+		return p, false, nil, pgerr.MapWith(pgerr.ErrNoRows, "find dock", pgerr.Messages{NotFound: "dock not found"})
+	}
 	err := r.db.GetContext(ctx, &p, `SELECT dock_id, default_access, group_mode FROM customs_policies WHERE dock_id = $1`, dock)
 	ok := err == nil
 	if err != nil && !pgerr.IsNoRows(err) {
@@ -211,31 +224,39 @@ func (r *Customs) Customs(ctx context.Context, dock identity.DockID) (conversati
 	return p, ok, rules, nil
 }
 
-func (r *Customs) SavePolicy(ctx context.Context, p conversation.Policy) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO customs_policies (dock_id, default_access, group_mode) VALUES ($1, $2, $3)
+func (r *Customs) SavePolicy(ctx context.Context, org identity.OrganizationID, p conversation.Policy) error {
+	res, err := r.db.ExecContext(ctx, `
+		INSERT INTO customs_policies (organization_id, dock_id, default_access, group_mode) VALUES ($4, $1, $2, $3)
 		ON CONFLICT (dock_id) DO UPDATE SET default_access = EXCLUDED.default_access,
-		    group_mode = EXCLUDED.group_mode, updated_at = now()`, p.Dock, p.Default, p.GroupMode)
-	return pgerr.MapWith(err, "save customs policy", ruleMessages)
+		    group_mode = EXCLUDED.group_mode, updated_at = now()
+		WHERE customs_policies.organization_id = EXCLUDED.organization_id`, p.Dock, p.Default, p.GroupMode, org)
+	if err != nil {
+		return pgerr.MapWith(err, "save customs policy", ruleMessages)
+	}
+	// No row: the dock's policy belongs to another organization.
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return errx.NotFound("dock not found")
+	}
+	return nil
 }
 
-func (r *Customs) AddRule(ctx context.Context, rule conversation.Rule) (conversation.Rule, error) {
+func (r *Customs) AddRule(ctx context.Context, org identity.OrganizationID, rule conversation.Rule) (conversation.Rule, error) {
 	var out conversation.Rule
-	err := r.db.GetContext(ctx, &out, `INSERT INTO customs_rules (id, dock_id, effect, pattern)
-		VALUES ($1, $2, $3, $4) RETURNING id, dock_id, effect, pattern, created_at`,
-		rule.ID, rule.Dock, rule.Effect, rule.Pattern)
+	err := r.db.GetContext(ctx, &out, `INSERT INTO customs_rules (id, organization_id, dock_id, effect, pattern)
+		VALUES ($1, $5, $2, $3, $4) RETURNING id, dock_id, effect, pattern, created_at`,
+		rule.ID, rule.Dock, rule.Effect, rule.Pattern, org)
 	return out, pgerr.MapWith(err, "add rule", ruleMessages)
 }
 
-func (r *Customs) RemoveRule(ctx context.Context, id identity.RuleID) (conversation.Rule, error) {
+func (r *Customs) RemoveRule(ctx context.Context, org identity.OrganizationID, id identity.RuleID) (conversation.Rule, error) {
 	var out conversation.Rule
-	err := r.db.GetContext(ctx, &out, `DELETE FROM customs_rules WHERE id = $1
-		RETURNING id, dock_id, effect, pattern, created_at`, id)
+	err := r.db.GetContext(ctx, &out, `DELETE FROM customs_rules WHERE organization_id = $1 AND id = $2
+		RETURNING id, dock_id, effect, pattern, created_at`, org, id)
 	return out, pgerr.MapWith(err, "remove rule", ruleMessages)
 }
 
-func (r *Customs) CountRules(ctx context.Context, dock identity.DockID) (int, error) {
+func (r *Customs) CountRules(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (int, error) {
 	var n int
-	err := r.db.GetContext(ctx, &n, `SELECT count(*) FROM customs_rules WHERE dock_id = $1`, dock)
+	err := r.db.GetContext(ctx, &n, `SELECT count(*) FROM customs_rules WHERE organization_id = $1 AND dock_id = $2`, org, dock)
 	return n, pgerr.Map(err, "count rules")
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/puerto/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/puerto/internal/dock/docksvc"
 	"github.com/Abraxas-365/puerto/internal/event"
+	"github.com/Abraxas-365/puerto/internal/identity"
 	"github.com/Abraxas-365/puerto/internal/ship"
 	"github.com/jmoiron/sqlx"
 )
@@ -50,7 +51,7 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 
 // BindReceiver hands inbound messages to the ship domain (built later).
 func (m *Module) BindReceiver(r interface {
-	Receive(ctx context.Context, input ship.Inbound) (ship.Ship, bool, error)
+	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
 }) {
 	if m.wa != nil {
 		m.wa.Bind(m.Service, r)

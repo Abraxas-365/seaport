@@ -22,8 +22,18 @@ WhatsApp ──(linked device)──▶ puerto serve ──WebSocket──▶ pu
   address needed, like ngrok) and runs any [ACP](https://agentclientprotocol.com)
   agent, one agent session per conversation, resumed across restarts.
 
-The MVP has no users or login: two static tokens (admin, crew). Accounts via
-IAMKit come later.
+One binary, several ways to run it — only the start-up config differs
+(`PUERTO_AUTH`):
+
+| Mode | For | Auth |
+|---|---|---|
+| `none` | your own computer | no login, no tokens; loopback only — refuses other listen addresses, foreign `Host` names and anything relayed by a proxy or tunnel |
+| `token` (default) | one owner on a server | static admin + crew tokens |
+| `iam` (planned) | many organizations | IAMKit accounts, per-organization crew tokens |
+
+Inside, Puerto is always multi-tenant: every dock, conversation, ship and
+rule belongs to an organization (single-owner modes use one fixed
+organization), so moving from one mode to another needs no data migration.
 
 ## Run
 
@@ -33,6 +43,13 @@ export DATABASE_URL="postgres://puerto:puerto@127.0.0.1:5449/puerto?sslmode=disa
 export PUERTO_ADMIN_TOKEN=$(openssl rand -hex 24) PUERTO_CREW_TOKEN=$(openssl rand -hex 24)
 go run ./cmd/puerto serve
 ```
+
+On your own computer you can skip the tokens: `PUERTO_AUTH=none go run
+./cmd/puerto serve` (the web app opens without login; the CLI and `puerto
+connect` work without `-token`; browsers on other sites still can't write).
+To reach it from anywhere else — a reverse proxy, a tunnel (cloudflared,
+ngrok, `tailscale serve`) — use `token` mode: an open port answers 403 to
+requests carrying `X-Forwarded-For`/`Forwarded`-style headers.
 
 Open http://127.0.0.1:8740 and sign in with the admin token: inbox, customs,
 docks (WhatsApp pairing QR, api docks), crew — all live over SSE. The web app
@@ -99,8 +116,9 @@ new prompt, never lost.
 | Env | Default | |
 |---|---|---|
 | `DATABASE_URL` | — | Postgres (puerto + whatsmeow tables) |
-| `PUERTO_ADMIN_TOKEN` | — | CLI and `/api/v1` (≥16 chars) |
-| `PUERTO_CREW_TOKEN` | — | agents: `/crew/ws`, `/mcp` (≥16 chars) |
+| `PUERTO_AUTH` | `token` | `none` (loopback only, no tokens) or `token` |
+| `PUERTO_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars) |
+| `PUERTO_CREW_TOKEN` | — | token mode: agents, `/crew/ws`, `/mcp` (≥16 chars) |
 | `PUERTO_ADDR` | `127.0.0.1:8740` | listen address |
 | `PUERTO_PUBLIC_URL` | `http://$PUERTO_ADDR` | how agents reach `/mcp` (use https off-loopback) |
 | `PUERTO_URL` | `http://127.0.0.1:8740` | CLI/connector: where the port is |
@@ -112,6 +130,7 @@ browser session cookie.
 
 | | |
 |---|---|
+| `GET /api/v1/config` | public: `{"auth", "version"}` — how the web app must sign in |
 | `POST /api/v1/session` `{"token"}`, `GET /api/v1/session`, `DELETE /api/v1/session` | browser login: trades the admin token for an HttpOnly, SameSite=Strict cookie (7 days, stateless HMAC; rotating the token ends all sessions). Cookie writes from another origin get 403 |
 | `GET /api/v1/events[?last_event_id=]` | live events (SSE, below) |
 | `GET /api/v1/crew` | connected agents and their deliveries in flight |
@@ -123,7 +142,7 @@ browser session cookie.
 | `GET/POST /api/v1/conversations/{id}/ships` | history; send as the agent |
 | `GET /crew/ws` | crew WebSocket (`internal/crew/protocol.go`) |
 | `POST /mcp` | MCP tools: `reply`, `history`, `conversations` |
-| `GET /healthz` | |
+| `GET /healthz` | public liveness: `{"status","version"}`, nothing about any organization |
 
 ### Events
 

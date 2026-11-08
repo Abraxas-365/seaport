@@ -11,7 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, channel, name, address, status, created_at, updated_at`
+const columns = `id, organization_id, channel, name, address, status, created_at, updated_at`
 
 var messages = pgerr.Messages{NotFound: "dock not found"}
 
@@ -21,26 +21,32 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 var _ dock.Repository = (*Repository)(nil)
 
-func (r *Repository) Create(ctx context.Context, id identity.DockID, in dock.Create, status dock.Status) (dock.Dock, error) {
+func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Create, status dock.Status) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `INSERT INTO docks (id, channel, name, status) VALUES ($1, $2, $3, $4) RETURNING `+columns,
-		id, in.Channel, in.Name, status)
+	err := r.db.GetContext(ctx, &d, `INSERT INTO docks (id, organization_id, channel, name, status)
+		VALUES ($1, $2, $3, $4, $5) RETURNING `+columns, id, org, in.Channel, in.Name, status)
 	return d, pgerr.MapWith(err, "create dock", messages)
 }
 
-func (r *Repository) Find(ctx context.Context, id identity.DockID) (dock.Dock, error) {
+func (r *Repository) Find(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `SELECT `+columns+` FROM docks WHERE id = $1`, id)
+	err := r.db.GetContext(ctx, &d, `SELECT `+columns+` FROM docks WHERE organization_id = $1 AND id = $2`, org, id)
 	return d, pgerr.MapWith(err, "find dock", messages)
 }
 
-func (r *Repository) List(ctx context.Context, page query.Pagination) (query.Paginated[dock.Dock], error) {
+func (r *Repository) Get(ctx context.Context, id identity.DockID) (dock.Dock, error) {
+	var d dock.Dock
+	err := r.db.GetContext(ctx, &d, `SELECT `+columns+` FROM docks WHERE id = $1`, id)
+	return d, pgerr.MapWith(err, "get dock", messages)
+}
+
+func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[dock.Dock], error) {
 	out := query.Paginated[dock.Dock]{Items: []dock.Dock{}, Page: query.Page{Limit: page.Limit, Offset: page.Offset}}
-	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*) FROM docks`); err != nil {
+	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*) FROM docks WHERE organization_id = $1`, org); err != nil {
 		return out, pgerr.Map(err, "count docks")
 	}
-	err := r.db.SelectContext(ctx, &out.Items,
-		`SELECT `+columns+` FROM docks ORDER BY created_at, id LIMIT $1 OFFSET $2`, page.Limit, page.Offset)
+	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM docks WHERE organization_id = $1
+		ORDER BY created_at, id LIMIT $2 OFFSET $3`, org, page.Limit, page.Offset)
 	return out, pgerr.Map(err, "list docks")
 }
 
@@ -59,15 +65,15 @@ func (r *Repository) SetLinked(ctx context.Context, id identity.DockID, address 
 		`UPDATE docks SET status = 'linked', address = $2, updated_at = now() WHERE id = $1`, id, address)
 }
 
-func (r *Repository) Update(ctx context.Context, id identity.DockID, in dock.Update) (dock.Dock, error) {
+func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Update) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($2, name), updated_at = now()
-		WHERE id = $1 RETURNING `+columns, id, in.Name)
+	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($3, name), updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name)
 	return d, pgerr.MapWith(err, "update dock", messages)
 }
 
-func (r *Repository) Delete(ctx context.Context, id identity.DockID) error {
-	return r.exec(ctx, "delete dock", `DELETE FROM docks WHERE id = $1`, id)
+func (r *Repository) Delete(ctx context.Context, org identity.OrganizationID, id identity.DockID) error {
+	return r.exec(ctx, "delete dock", `DELETE FROM docks WHERE organization_id = $1 AND id = $2`, org, id)
 }
 
 func (r *Repository) exec(ctx context.Context, op, q string, args ...any) error {

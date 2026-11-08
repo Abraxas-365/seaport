@@ -6,16 +6,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Abraxas-365/puerto/internal/errx"
 	"github.com/Abraxas-365/puerto/internal/event"
+	"github.com/Abraxas-365/puerto/internal/httpx"
 )
 
 // heartbeat keeps proxies from closing an idle stream.
 const heartbeat = 25 * time.Second
 
+var errUnauthenticated = errx.Unauthorized("missing or invalid token")
+
 // Handler streams events. A client reconnecting with Last-Event-ID gets
 // what it missed, or a "reset" event when that is no longer known (it must
-// refetch its state). Every stream starts with "ready" {boot}. done closes
-// every stream (server shutdown).
+// refetch its state). Every stream starts with "ready" {boot}. A stream
+// only carries the events of the caller's organization (httpx principal).
+// done closes every stream (server shutdown).
 func Handler(bus *event.Bus, done <-chan struct{}) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rc := http.NewResponseController(w)
@@ -26,7 +31,12 @@ func Handler(bus *event.Bus, done <-chan struct{}) http.Handler {
 		if last == "" {
 			last = r.URL.Query().Get("last_event_id")
 		}
-		sub, replay, reset := bus.Subscribe(last)
+		p, ok := httpx.PrincipalFrom(r.Context())
+		if !ok {
+			httpx.WriteError(w, r, errUnauthenticated)
+			return
+		}
+		sub, replay, reset := bus.Subscribe(p.Organization, last)
 		defer sub.Close()
 		w.WriteHeader(http.StatusOK)
 

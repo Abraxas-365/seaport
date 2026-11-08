@@ -10,6 +10,7 @@ import (
 
 	"github.com/Abraxas-365/puerto/internal/conversation"
 	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/puerto/internal/httpx"
 	"github.com/Abraxas-365/puerto/internal/identity"
 	"github.com/Abraxas-365/puerto/internal/query"
 	"github.com/Abraxas-365/puerto/internal/ship"
@@ -49,6 +50,17 @@ func Handler(d Deps) http.Handler {
 
 type tools struct{ d Deps }
 
+// organization is the tenant of the crew token that made the HTTP request
+// (the stateless handler runs each call under the request's context).
+// Tools fail closed without one.
+func organization(ctx context.Context) (identity.OrganizationID, error) {
+	p, ok := httpx.PrincipalFrom(ctx)
+	if !ok {
+		return identity.OrganizationID{}, errx.Unauthorized("missing crew principal")
+	}
+	return p.Organization, nil
+}
+
 type ReplyIn struct {
 	ConversationID string `json:"conversation_id" jsonschema:"the conversation_id given in the puerto prompt"`
 	Text           string `json:"text" jsonschema:"the message to send"`
@@ -60,11 +72,15 @@ type ReplyOut struct {
 }
 
 func (t tools) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (*mcp.CallToolResult, ReplyOut, error) {
+	org, err := organization(ctx)
+	if err != nil {
+		return failure(err), ReplyOut{}, nil
+	}
 	id, err := identity.ParseConversationID(strings.TrimSpace(in.ConversationID))
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
-	s, err := t.d.Ships.Send(ctx, ship.Outbound{Conversation: id, Text: in.Text})
+	s, err := t.d.Ships.Send(ctx, org, ship.Outbound{Conversation: id, Text: in.Text})
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
@@ -90,11 +106,15 @@ type HistoryOut struct {
 }
 
 func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn) (*mcp.CallToolResult, HistoryOut, error) {
+	org, err := organization(ctx)
+	if err != nil {
+		return failure(err), HistoryOut{}, nil
+	}
 	id, err := identity.ParseConversationID(strings.TrimSpace(in.ConversationID))
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
-	page, err := t.d.History.History(ctx, id, query.Pagination{Limit: in.Limit})
+	page, err := t.d.History.History(ctx, org, id, query.Pagination{Limit: in.Limit})
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
@@ -126,8 +146,12 @@ type ConversationsOut struct {
 }
 
 func (t tools) conversations(ctx context.Context, _ *mcp.CallToolRequest, _ ConversationsIn) (*mcp.CallToolResult, ConversationsOut, error) {
+	org, err := organization(ctx)
+	if err != nil {
+		return failure(err), ConversationsOut{}, nil
+	}
 	allowed := conversation.StatusAllowed
-	page, err := t.d.Conversations.List(ctx, conversation.Filter{Status: &allowed}, query.Pagination{Limit: query.MaxLimit})
+	page, err := t.d.Conversations.List(ctx, org, conversation.Filter{Status: &allowed}, query.Pagination{Limit: query.MaxLimit})
 	if err != nil {
 		return failure(err), ConversationsOut{}, nil
 	}

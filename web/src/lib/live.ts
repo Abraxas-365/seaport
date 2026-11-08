@@ -110,9 +110,6 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
   },
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)
-    qc.setQueryData(keys.health, (old: { crew: number } | undefined) =>
-      old ? { ...old, crew: crew.agents.length } : old,
-    )
   },
 }
 

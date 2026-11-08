@@ -2,11 +2,13 @@
 package config
 
 import (
+	"net"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/Abraxas-365/puerto/internal/errx"
+	"github.com/Abraxas-365/puerto/internal/identity"
 )
 
 const (
@@ -19,14 +21,31 @@ const (
 	SessionTTL = 7 * 24 * time.Hour
 )
 
+// DefaultOrganization owns everything in the single-organization modes
+// (none, token). Data created in them moves to iam mode by re-keying this id.
+var DefaultOrganization = identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001")
+
+// AuthMode is how `puerto serve` authenticates admins and agents.
+type AuthMode string
+
+const (
+	// AuthNone: no credentials at all, one organization; only on loopback.
+	AuthNone AuthMode = "none"
+	// AuthToken: static admin and crew tokens, one organization.
+	AuthToken AuthMode = "token"
+)
+
+func (m AuthMode) Valid() bool { return m == AuthNone || m == AuthToken }
+
 // Server is the configuration of `puerto serve`.
 type Server struct {
-	Addr        string // PUERTO_ADDR, default 127.0.0.1:8740
-	DatabaseURL string // DATABASE_URL (required)
-	PublicURL   string // PUERTO_PUBLIC_URL, default http://<Addr>; agents reach /mcp here
-	AdminToken  string // PUERTO_ADMIN_TOKEN (required): CLI and /api/v1
-	CrewToken   string // PUERTO_CREW_TOKEN (required): agents, /crew/ws and /mcp
-	LogLevel    string // PUERTO_LOG_LEVEL, default info
+	Addr        string   // PUERTO_ADDR, default 127.0.0.1:8740
+	DatabaseURL string   // DATABASE_URL (required)
+	PublicURL   string   // PUERTO_PUBLIC_URL, default http://<Addr>; agents reach /mcp here
+	Auth        AuthMode // PUERTO_AUTH: none | token (default)
+	AdminToken  string   // PUERTO_ADMIN_TOKEN (token mode): CLI and /api/v1
+	CrewToken   string   // PUERTO_CREW_TOKEN (token mode): agents, /crew/ws and /mcp
+	LogLevel    string   // PUERTO_LOG_LEVEL, default info
 }
 
 func LoadServer() (Server, error) {
@@ -34,6 +53,7 @@ func LoadServer() (Server, error) {
 		Addr:        env("PUERTO_ADDR", "127.0.0.1:8740"),
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		PublicURL:   strings.TrimRight(os.Getenv("PUERTO_PUBLIC_URL"), "/"),
+		Auth:        AuthMode(env("PUERTO_AUTH", string(AuthToken))),
 		AdminToken:  os.Getenv("PUERTO_ADMIN_TOKEN"),
 		CrewToken:   os.Getenv("PUERTO_CREW_TOKEN"),
 		LogLevel:    env("PUERTO_LOG_LEVEL", "info"),
@@ -41,17 +61,46 @@ func LoadServer() (Server, error) {
 	if c.PublicURL == "" {
 		c.PublicURL = "http://" + c.Addr
 	}
-	switch {
-	case c.DatabaseURL == "":
-		return c, errx.Validation("DATABASE_URL is required")
-	case len(c.AdminToken) < 16:
-		return c, errx.Validation("PUERTO_ADMIN_TOKEN is required (at least 16 characters)")
-	case len(c.CrewToken) < 16:
-		return c, errx.Validation("PUERTO_CREW_TOKEN is required (at least 16 characters)")
-	case c.AdminToken == c.CrewToken:
-		return c, errx.Validation("PUERTO_ADMIN_TOKEN and PUERTO_CREW_TOKEN must differ")
+	return c, c.Validate()
+}
+
+// Validate checks the settings the chosen auth mode needs.
+func (c Server) Validate() error {
+	if c.DatabaseURL == "" {
+		return errx.Validation("DATABASE_URL is required")
 	}
-	return c, nil
+	switch c.Auth {
+	case AuthNone:
+		if !Loopback(c.Addr) {
+			return errx.Validation("PUERTO_AUTH=none only listens on loopback (127.0.0.1, ::1, localhost); " +
+				"PUERTO_ADDR " + c.Addr + " would expose an unauthenticated port")
+		}
+	case AuthToken:
+		switch {
+		case len(c.AdminToken) < 16:
+			return errx.Validation("PUERTO_ADMIN_TOKEN is required (at least 16 characters)")
+		case len(c.CrewToken) < 16:
+			return errx.Validation("PUERTO_CREW_TOKEN is required (at least 16 characters)")
+		case c.AdminToken == c.CrewToken:
+			return errx.Validation("PUERTO_ADMIN_TOKEN and PUERTO_CREW_TOKEN must differ")
+		}
+	default:
+		return errx.Validation("PUERTO_AUTH must be none or token")
+	}
+	return nil
+}
+
+// Loopback reports whether a listen address only accepts local connections.
+func Loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func env(key, def string) string {

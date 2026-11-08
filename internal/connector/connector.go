@@ -25,7 +25,7 @@ import (
 // Config of a connector.
 type Config struct {
 	Server      string // http(s)://host:port of the port
-	Token       string // crew token
+	Token       string // crew token ("" for a port in PUERTO_AUTH=none)
 	AgentName   string
 	Concurrency int
 	AutoReply   bool
@@ -93,11 +93,12 @@ func wsURL(server string) string {
 func session(ctx context.Context, cfg Config, agent *Agent) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	ws, resp, err := websocket.Dial(ctx, wsURL(cfg.Server), &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + cfg.Token}},
-	})
+	ws, resp, err := websocket.Dial(ctx, wsURL(cfg.Server), &websocket.DialOptions{HTTPHeader: authHeader(cfg.Token)})
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+			if cfg.Token == "" {
+				return errx.Unauthorized("the port requires a crew token (-token or PUERTO_CREW_TOKEN)")
+			}
 			return errx.Unauthorized("the port rejected the crew token")
 		}
 		return errx.Wrap(err, "dial port", errx.TypeExternal)
@@ -350,4 +351,12 @@ func Prompt(d ship.Delivery, autoReply bool) string {
 func mustConversation(raw string) (identity.ConversationID, bool) {
 	id, err := identity.ParseConversationID(raw)
 	return id, err == nil
+}
+
+// authHeader carries the crew token; none for an open (local) port.
+func authHeader(token string) http.Header {
+	if token == "" {
+		return http.Header{}
+	}
+	return http.Header{"Authorization": {"Bearer " + token}}
 }

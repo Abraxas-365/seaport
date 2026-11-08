@@ -142,6 +142,9 @@ function AccountMenu() {
   const qc = useQueryClient()
   const { theme, setTheme } = useTheme()
   const health = useQuery({ queryKey: keys.health, queryFn: api.health })
+  // PUERTO_AUTH=none has no session to close.
+  const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
+  const open = config.data?.auth === "none"
   const logout = useMutation({
     mutationFn: api.logout,
     onSettled: () => {
@@ -156,9 +159,9 @@ function AccountMenu() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton tooltip="Cuenta y tema">
               <span className="inline-flex size-5 items-center justify-center rounded-md bg-sidebar-accent text-[0.65rem] font-semibold">
-                A
+                {open ? "L" : "A"}
               </span>
-              <span className="truncate">Administrador</span>
+              <span className="truncate">{open ? "Local" : "Administrador"}</span>
               <span className="ml-auto text-[0.65rem] text-muted-foreground">{health.data?.version}</span>
             </SidebarMenuButton>
           </DropdownMenuTrigger>
@@ -175,10 +178,14 @@ function AccountMenu() {
                 <Monitor /> Sistema
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => logout.mutate()}>
-              <LogOut /> Cerrar sesión
-            </DropdownMenuItem>
+            {!open && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => logout.mutate()}>
+                  <LogOut /> Cerrar sesión
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

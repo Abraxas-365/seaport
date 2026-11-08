@@ -28,12 +28,13 @@ const MaxExternalID = 256
 // Conversation is a chat on a dock. Only allowed conversations (Status)
 // wake the crew and accept replies; see customs.go.
 type Conversation struct {
-	ID         identity.ConversationID `db:"id" json:"id"`
-	Dock       identity.DockID         `db:"dock_id" json:"dock_id"`
-	Channel    dock.Channel            `db:"channel" json:"channel"`
-	ExternalID string                  `db:"external_id" json:"external_id"`
-	Kind       Kind                    `db:"kind" json:"kind"`
-	Title      string                  `db:"title" json:"title"`
+	ID           identity.ConversationID `db:"id" json:"id"`
+	Organization identity.OrganizationID `db:"organization_id" json:"-"`
+	Dock         identity.DockID         `db:"dock_id" json:"dock_id"`
+	Channel      dock.Channel            `db:"channel" json:"channel"`
+	ExternalID   string                  `db:"external_id" json:"external_id"`
+	Kind         Kind                    `db:"kind" json:"kind"`
+	Title        string                  `db:"title" json:"title"`
 	// Access is the owner's override; Status the customs outcome.
 	Access Access `db:"access" json:"access"`
 	// GroupMode overrides the dock's mode for a group (GroupInherit: none).

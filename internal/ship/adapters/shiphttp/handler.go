@@ -33,6 +33,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseConversationID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -41,7 +45,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.History(r.Context(), id, page)
+	out, err := h.queries.History(r.Context(), org, id, page)
 	if err != nil {
 		return err
 	}
@@ -51,6 +55,10 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 // inbox lists conversations with their last ship and counters
 // (?status=allowed|pending|denied&dock_id=).
 func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	page, err := httpx.Pagination(r)
 	if err != nil {
 		return err
@@ -67,7 +75,7 @@ func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
 		}
 		f.Dock = &d
 	}
-	out, err := h.queries.Inbox(r.Context(), f, page)
+	out, err := h.queries.Inbox(r.Context(), org, f, page)
 	if err != nil {
 		return err
 	}
@@ -80,6 +88,10 @@ type sendRequest struct {
 
 // send lets the owner write to a conversation as the agent would.
 func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseConversationID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -88,7 +100,7 @@ func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	s, err := h.commands.Send(r.Context(), ship.Outbound{Conversation: id, Text: req.Text})
+	s, err := h.commands.Send(r.Context(), org, ship.Outbound{Conversation: id, Text: req.Text})
 	if err != nil {
 		return err
 	}
@@ -118,6 +130,10 @@ type receiveResponse struct {
 
 // receive injects an inbound message into an "api" dock.
 func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -126,7 +142,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	d, err := h.docks.Find(r.Context(), id)
+	d, err := h.docks.Find(r.Context(), org, id)
 	if err != nil {
 		return err
 	}
@@ -140,7 +156,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 	if req.SentAt != nil {
 		sentAt = *req.SentAt
 	}
-	s, created, err := h.commands.Receive(r.Context(), ship.Inbound{
+	s, created, err := h.commands.Receive(r.Context(), org, ship.Inbound{
 		Dock: d.ID, Channel: d.Channel, ChatID: req.ChatID, ChatKind: req.ChatKind, ChatTitle: req.ChatTitle,
 		ExternalID: req.MessageID, SenderID: req.SenderID, SenderName: req.SenderName, Text: req.Text, SentAt: sentAt,
 		ChatHandles: req.ChatHandles, SenderHandles: req.SenderHandles, Addressed: req.Addressed,

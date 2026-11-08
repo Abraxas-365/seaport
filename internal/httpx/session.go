@@ -109,11 +109,7 @@ func (s Sessions) Current() http.Handler {
 // token wins over a cookie when both are sent.
 func (s Sessions) RequireAdmin(next http.Handler) http.Handler {
 	bearer := RequireBearer(s.Token, next)
-	csrf := http.NewCrossOriginProtection()
-	csrf.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, r, errx.Forbidden("cross-origin request rejected"))
-	}))
-	cookie := csrf.Handler(next)
+	cookie := crossOrigin(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "" {
 			bearer.ServeHTTP(w, r)

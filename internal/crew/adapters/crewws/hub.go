@@ -39,15 +39,18 @@ type Hub struct {
 }
 
 type conn struct {
-	ws          *websocket.Conn
-	session     string
-	remote      string
-	connectedAt time.Time
-	agent       string
-	concurrency int
-	steer       bool
-	wake        chan struct{}
-	send        chan crew.Frame
+	// organization owns the connection (its crew token): it only claims,
+	// acks and replies within it.
+	organization identity.OrganizationID
+	ws           *websocket.Conn
+	session      string
+	remote       string
+	connectedAt  time.Time
+	agent        string
+	concurrency  int
+	steer        bool
+	wake         chan struct{}
+	send         chan crew.Frame
 
 	mu sync.Mutex
 	// inFlight maps each open delivery to what was pushed for it.
@@ -70,12 +73,15 @@ func New(lease time.Duration, mcpURL string, events event.Publisher) *Hub {
 	return &Hub{lease: lease, mcpURL: mcpURL, events: events, conns: map[*conn]struct{}{}}
 }
 
-// Status lists the connected agents and their deliveries in flight.
-func (h *Hub) Status() crew.Status {
+// Status lists an organization's connected agents and their deliveries in
+// flight.
+func (h *Hub) Status(org identity.OrganizationID) crew.Status {
 	h.mu.Lock()
 	conns := make([]*conn, 0, len(h.conns))
 	for c := range h.conns {
-		conns = append(conns, c)
+		if c.organization == org {
+			conns = append(conns, c)
+		}
 	}
 	h.mu.Unlock()
 	out := crew.Status{Agents: make([]crew.Agent, 0, len(conns))}
@@ -106,12 +112,18 @@ func (c *conn) status() crew.Agent {
 // StatusHandler answers GET /api/v1/crew (admin).
 func (h *Hub) StatusHandler() http.Handler {
 	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return httpx.JSON(w, http.StatusOK, h.Status())
+		org, err := httpx.Organization(r)
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(w, http.StatusOK, h.Status(org))
 	})
 }
 
-// changed announces the crew's new state.
-func (h *Hub) changed() { h.events.Publish(crew.EventChanged, h.Status()) }
+// changed announces an organization's new crew state.
+func (h *Hub) changed(org identity.OrganizationID) {
+	h.events.Publish(org, crew.EventChanged, h.Status(org))
+}
 
 func newSession() string {
 	var b [8]byte
@@ -125,27 +137,25 @@ var _ ship.Notifier = (*Hub)(nil)
 func (h *Hub) Bind(ships ship.Commands) {
 	h.mu.Lock()
 	h.ships = ships
+	for c := range h.conns {
+		c.poke()
+	}
 	h.mu.Unlock()
-	h.Notify()
 }
 
-// Notify wakes every connection so it tries to claim.
-func (h *Hub) Notify() {
+// Notify wakes an organization's connections so they try to claim.
+func (h *Hub) Notify(org identity.OrganizationID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
+		if c.organization != org {
+			continue
+		}
 		select {
 		case c.wake <- struct{}{}:
 		default:
 		}
 	}
-}
-
-// Connected reports how many connectors are attached.
-func (h *Hub) Connected() int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return len(h.conns)
 }
 
 func (h *Hub) commands() ship.Commands {
@@ -154,10 +164,16 @@ func (h *Hub) commands() ship.Commands {
 	return h.ships
 }
 
-// ServeHTTP upgrades /crew/ws. Auth is done by the router (crew token).
+// ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
+// principal): the connection belongs to the principal's organization.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.commands() == nil {
 		httpx.WriteError(w, r, errx.Internal("hub not ready"))
+		return
+	}
+	org, err := httpx.Organization(r)
+	if err != nil {
+		httpx.WriteError(w, r, err)
 		return
 	}
 	ws, err := websocket.Accept(w, r, nil)
@@ -173,15 +189,15 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = ws.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	c := &conn{ws: ws, session: newSession(), remote: r.RemoteAddr, connectedAt: time.Now().UTC(),
+	c := &conn{organization: org, ws: ws, session: newSession(), remote: r.RemoteAddr, connectedAt: time.Now().UTC(),
 		agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
-	slog.Info("crew connected", "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
+	slog.Info("crew connected", "organization", org, "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
 
 	h.mu.Lock()
 	h.conns[c] = struct{}{}
 	h.mu.Unlock()
-	h.changed()
+	h.changed(org)
 	defer h.drop(c)
 
 	go c.writer(ctx, cancel)
@@ -274,19 +290,19 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 				}
 				handled = c.shipsOf(*f.DeliveryID)
 			}
-			err = ships.Ack(opCtx, ship.Ack{Delivery: *f.DeliveryID, Ships: handled})
+			err = ships.Ack(opCtx, c.organization, ship.Ack{Delivery: *f.DeliveryID, Ships: handled})
 		} else {
-			err = ships.Release(opCtx, *f.DeliveryID)
+			err = ships.Release(opCtx, c.organization, *f.DeliveryID)
 		}
 		c.forget(*f.DeliveryID)
-		h.changed()
+		h.changed(c.organization)
 		c.poke()
 		return err
 	case crew.FrameReply:
 		if f.ConversationID == nil {
 			return errx.InvalidField("conversation_id", "conversation_id is required")
 		}
-		_, err := ships.Send(opCtx, ship.Outbound{Conversation: *f.ConversationID, Text: f.Text})
+		_, err := ships.Send(opCtx, c.organization, ship.Outbound{Conversation: *f.ConversationID, Text: f.Text})
 		return err
 	default:
 		return errx.Validation("unexpected frame type " + string(f.Type))
@@ -321,7 +337,7 @@ func (h *Hub) claimer(ctx context.Context, c *conn) {
 				break
 			}
 			c.track(d)
-			h.changed()
+			h.changed(c.organization)
 			if !c.push(ctx, crew.Frame{Type: crew.FrameDelivery, Delivery: &d}) {
 				return
 			}
@@ -334,7 +350,7 @@ func (h *Hub) claimer(ctx context.Context, c *conn) {
 func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 	for _, id := range c.deliveries() {
 		opCtx, cancel := context.WithTimeout(ctx, opTimeout)
-		d, ok, err := h.commands().Join(opCtx, ship.Join{Delivery: id, Lease: h.lease})
+		d, ok, err := h.commands().Join(opCtx, c.organization, ship.Join{Delivery: id, Lease: h.lease})
 		cancel()
 		if err != nil {
 			slog.Error("join delivery", "agent", c.agent, "delivery", id, "err", err)
@@ -350,7 +366,7 @@ func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 			// claimed ships. The steer is just dropped.
 			continue
 		}
-		h.changed()
+		h.changed(c.organization)
 		if !c.push(ctx, crew.Frame{Type: crew.FrameSteer, Delivery: &d}) {
 			return false
 		}
@@ -361,7 +377,7 @@ func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 func (h *Hub) claim(ctx context.Context, c *conn) (ship.Delivery, bool, error) {
 	opCtx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
-	return h.commands().Claim(opCtx, ship.Claim{Owner: c.agent, Lease: h.lease})
+	return h.commands().Claim(opCtx, c.organization, ship.Claim{Owner: c.agent, Lease: h.lease})
 }
 
 // leaseKeeper extends the leases of a live connection's deliveries, so a
@@ -376,7 +392,7 @@ func (h *Hub) leaseKeeper(ctx context.Context, c *conn) {
 		case <-tick.C:
 			for _, id := range c.deliveries() {
 				opCtx, cancel := context.WithTimeout(ctx, opTimeout)
-				if err := h.commands().Extend(opCtx, id, h.lease); err != nil {
+				if err := h.commands().Extend(opCtx, c.organization, id, h.lease); err != nil {
 					slog.Warn("extend delivery", "delivery", id, "err", err)
 				}
 				cancel()
@@ -394,12 +410,12 @@ func (h *Hub) drop(c *conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 	for _, id := range c.deliveries() {
-		if err := h.commands().Release(ctx, id); err != nil && !errx.IsType(err, errx.TypeNotFound) {
+		if err := h.commands().Release(ctx, c.organization, id); err != nil && !errx.IsType(err, errx.TypeNotFound) {
 			slog.Error("release delivery of closed connection", "delivery", id, "err", err)
 		}
 	}
-	slog.Info("crew disconnected", "agent", c.agent)
-	h.changed()
+	slog.Info("crew disconnected", "organization", c.organization, "agent", c.agent)
+	h.changed(c.organization)
 }
 
 func (c *conn) push(ctx context.Context, f crew.Frame) bool {

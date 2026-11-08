@@ -143,7 +143,7 @@ func serve(ctx context.Context) error {
 func connect(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
 	server := fs.String("server", envOr("PUERTO_URL", "http://127.0.0.1:8740"), "port URL")
-	token := fs.String("token", os.Getenv("PUERTO_CREW_TOKEN"), "crew token (default $PUERTO_CREW_TOKEN)")
+	token := fs.String("token", os.Getenv("PUERTO_CREW_TOKEN"), "crew token (default $PUERTO_CREW_TOKEN; none for a PUERTO_AUTH=none port)")
 	name := fs.String("name", "", "agent name shown by the port (default: command name)")
 	concurrency := fs.Int("concurrency", 2, "conversations worked at once")
 	autoReply := fs.Bool("auto-reply", false, "send the agent's final text as the reply (for agents without MCP)")
@@ -162,9 +162,6 @@ func connect(ctx context.Context, args []string) error {
 	if len(command) == 0 {
 		fs.Usage()
 		return errx.Validation("an agent command is required, e.g. puerto connect -- rness --acp")
-	}
-	if *token == "" {
-		return errx.Validation("a crew token is required (-token or PUERTO_CREW_TOKEN)")
 	}
 	if *deliver != connector.DeliverSteer && *deliver != connector.DeliverQueue {
 		return errx.InvalidField("deliver", "-deliver must be steer or queue")

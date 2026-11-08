@@ -46,6 +46,13 @@ type port struct {
 
 func startPort(t *testing.T) *port {
 	t.Helper()
+	return startPortWith(t, func(*config.Server) {}, bootstrap.Options{})
+}
+
+// startPortWith starts a port on a wiped test database; edit adjusts the
+// config and opts the build (WhatsApp is always off).
+func startPortWith(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *port {
+	t.Helper()
 	url := testDatabaseURL(t)
 	ctx := context.Background()
 	db, err := bootstrap.OpenDB(ctx, url)
@@ -60,7 +67,9 @@ func startPort(t *testing.T) *port {
 	srv := httptest.NewUnstartedServer(nil)
 	cfg := config.Server{Addr: srv.Listener.Addr().String(), DatabaseURL: url,
 		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken, CrewToken: crewToken}
-	app, err := bootstrap.Build(ctx, cfg, bootstrap.Options{DisableWhatsApp: true, Lease: 2 * time.Second})
+	edit(&cfg)
+	opts.DisableWhatsApp, opts.Lease = true, 2*time.Second
+	app, err := bootstrap.Build(ctx, cfg, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,10 +140,16 @@ func (p *port) dialCrew(concurrency int) *crewConn {
 
 func (p *port) dialCrewWith(hello crew.Frame) *crewConn {
 	p.t.Helper()
+	return p.dialCrewAs(crewToken, hello)
+}
+
+// dialCrewAs connects a connector with the given crew token.
+func (p *port) dialCrewAs(token string, hello crew.Frame) *crewConn {
+	p.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(p.srv.URL, "http")+"/crew/ws",
-		&websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + crewToken}}})
+		&websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + token}}})
 	if err != nil {
 		p.t.Fatal(err)
 	}

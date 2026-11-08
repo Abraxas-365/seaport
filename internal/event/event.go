@@ -14,26 +14,31 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Abraxas-365/puerto/internal/identity"
 )
 
-// Event is one published change. ID is "<boot>-<seq>": unique per process
-// run, ordered within it.
+// Event is one published change of one organization. ID is
+// "<boot>-<seq>": unique per process run, ordered within it (an
+// organization sees gaps where other organizations' events were).
 type Event struct {
-	ID   string          `json:"id"`
-	Type string          `json:"type"`
-	At   time.Time       `json:"at"`
-	Data json.RawMessage `json:"data"`
+	ID           string                  `json:"id"`
+	Organization identity.OrganizationID `json:"-"`
+	Type         string                  `json:"type"`
+	At           time.Time               `json:"at"`
+	Data         json.RawMessage         `json:"data"`
 }
 
-// Publisher is what services depend on.
+// Publisher is what services depend on. Every event belongs to the
+// organization whose data changed; only its subscribers receive it.
 type Publisher interface {
-	Publish(typ string, data any)
+	Publish(organization identity.OrganizationID, typ string, data any)
 }
 
 // Nop discards events (tests, tools).
 type Nop struct{}
 
-func (Nop) Publish(string, any) {}
+func (Nop) Publish(identity.OrganizationID, string, any) {}
 
 const (
 	// history is how many recent events a reconnecting client can replay.
@@ -61,8 +66,9 @@ func NewBus() *Bus {
 
 var _ Publisher = (*Bus)(nil)
 
-// Publish marshals data once and delivers it to every subscriber.
-func (b *Bus) Publish(typ string, data any) {
+// Publish marshals data once and delivers it to the organization's
+// subscribers.
+func (b *Bus) Publish(organization identity.OrganizationID, typ string, data any) {
 	raw, err := json.Marshal(data)
 	if err != nil {
 		slog.Error("marshal event", "type", typ, "err", err)
@@ -71,13 +77,17 @@ func (b *Bus) Publish(typ string, data any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.seq++
-	e := Event{ID: b.boot + "-" + strconv.FormatUint(b.seq, 10), Type: typ, At: time.Now().UTC(), Data: raw}
+	e := Event{ID: b.boot + "-" + strconv.FormatUint(b.seq, 10), Organization: organization,
+		Type: typ, At: time.Now().UTC(), Data: raw}
 	if len(b.recent) == history {
 		copy(b.recent, b.recent[1:])
 		b.recent = b.recent[:history-1]
 	}
 	b.recent = append(b.recent, e)
 	for s := range b.subs {
+		if s.organization != organization {
+			continue
+		}
 		select {
 		case s.c <- e:
 		default:
@@ -86,12 +96,14 @@ func (b *Bus) Publish(typ string, data any) {
 	}
 }
 
-// Subscription is one live client. C closes when the bus drops it.
+// Subscription is one live client of one organization. C closes when the
+// bus drops it.
 type Subscription struct {
-	c    chan Event
-	C    <-chan Event
-	once sync.Once
-	bus  *Bus
+	organization identity.OrganizationID
+	c            chan Event
+	C            <-chan Event
+	once         sync.Once
+	bus          *Bus
 }
 
 // Close unsubscribes.
@@ -108,13 +120,14 @@ func (b *Bus) dropLocked(s *Subscription) {
 	}
 }
 
-// Subscribe registers a client. lastID is the last event it saw (SSE
-// Last-Event-ID, "" for a fresh client): the events after it are returned
-// for replay, or reset=true when they are no longer known (another process
-// run, or too old) and the client must refetch its state.
-func (b *Bus) Subscribe(lastID string) (s *Subscription, replay []Event, reset bool) {
+// Subscribe registers a client of an organization. lastID is the last
+// event it saw (SSE Last-Event-ID, "" for a fresh client): the
+// organization's events after it are returned for replay, or reset=true
+// when they are no longer known (another process run, or too old) and the
+// client must refetch its state.
+func (b *Bus) Subscribe(organization identity.OrganizationID, lastID string) (s *Subscription, replay []Event, reset bool) {
 	c := make(chan Event, buffer)
-	s = &Subscription{c: c, C: c, bus: b}
+	s = &Subscription{organization: organization, c: c, C: c, bus: b}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.subs[s] = struct{}{}
@@ -133,7 +146,12 @@ func (b *Bus) Subscribe(lastID string) (s *Subscription, replay []Event, reset b
 	if seq+1 < oldest {
 		return s, nil, true
 	}
-	return s, append([]Event(nil), b.recent[seq+1-oldest:]...), false
+	for _, e := range b.recent[seq+1-oldest:] {
+		if e.Organization == organization {
+			replay = append(replay, e)
+		}
+	}
+	return s, replay, false
 }
 
 // Boot identifies this process run (the prefix of every event ID).

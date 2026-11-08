@@ -16,6 +16,7 @@ import type {
   InboxItem,
   Paginated,
   Rule,
+  PortConfig,
   Session,
   Ship,
 } from "./types"
@@ -70,6 +71,7 @@ const v1 = "/api/v1"
 export const api = {
   health: () => request<Health>("GET", "/healthz"),
 
+  config: () => request<PortConfig>("GET", `${v1}/config`),
   session: () => request<Session>("GET", `${v1}/session`),
   login: (token: string) => request<Session>("POST", `${v1}/session`, { token }),
   logout: () => request<void>("DELETE", `${v1}/session`),

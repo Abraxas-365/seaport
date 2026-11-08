@@ -13,6 +13,7 @@ export const queryClient = new QueryClient({
 })
 
 export const keys = {
+  config: ["config"] as const,
   session: ["session"] as const,
   health: ["health"] as const,
   docks: ["docks"] as const,

@@ -46,9 +46,10 @@ const MaxAddress = 256
 
 // Dock is a linked channel account: ships arrive and leave through it.
 type Dock struct {
-	ID      identity.DockID `db:"id" json:"id"`
-	Channel Channel         `db:"channel" json:"channel"`
-	Name    string          `db:"name" json:"name"`
+	ID           identity.DockID         `db:"id" json:"id"`
+	Organization identity.OrganizationID `db:"organization_id" json:"-"`
+	Channel      Channel                 `db:"channel" json:"channel"`
+	Name         string                  `db:"name" json:"name"`
 	// Address is the account on the channel (WhatsApp: the device JID).
 	Address   string    `db:"address" json:"address"`
 	Status    Status    `db:"status" json:"status"`

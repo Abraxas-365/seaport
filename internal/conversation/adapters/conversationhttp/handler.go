@@ -32,6 +32,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	page, err := httpx.Pagination(r)
 	if err != nil {
 		return err
@@ -48,7 +52,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 		}
 		f.Dock = &id
 	}
-	out, err := h.queries.List(r.Context(), f, page)
+	out, err := h.queries.List(r.Context(), org, f, page)
 	if err != nil {
 		return err
 	}
@@ -56,11 +60,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseConversationID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	c, err := h.queries.Find(r.Context(), id)
+	c, err := h.queries.Find(r.Context(), org, id)
 	if err != nil {
 		return err
 	}
@@ -74,6 +82,10 @@ type updateRequest struct {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseConversationID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -82,7 +94,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	c, err := h.commands.Update(r.Context(), id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
+	c, err := h.commands.Update(r.Context(), org, id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
 	if err != nil {
 		return err
 	}
@@ -90,11 +102,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) getCustoms(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	dock, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	c, err := h.customsQueries.Customs(r.Context(), dock)
+	c, err := h.customsQueries.Customs(r.Context(), org, dock)
 	if err != nil {
 		return err
 	}
@@ -107,6 +123,10 @@ type policyRequest struct {
 }
 
 func (h *Handler) setPolicy(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	dock, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -115,7 +135,7 @@ func (h *Handler) setPolicy(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	c, err := h.customs.SetPolicy(r.Context(), dock, conversation.SetPolicy{Default: req.Default, GroupMode: req.GroupMode})
+	c, err := h.customs.SetPolicy(r.Context(), org, dock, conversation.SetPolicy{Default: req.Default, GroupMode: req.GroupMode})
 	if err != nil {
 		return err
 	}
@@ -128,6 +148,10 @@ type ruleRequest struct {
 }
 
 func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	dock, err := identity.ParseDockID(r.PathValue("id"))
 	if err != nil {
 		return err
@@ -136,7 +160,7 @@ func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	rule, err := h.customs.AddRule(r.Context(), conversation.AddRule{Dock: dock, Effect: req.Effect, Pattern: req.Pattern})
+	rule, err := h.customs.AddRule(r.Context(), org, conversation.AddRule{Dock: dock, Effect: req.Effect, Pattern: req.Pattern})
 	if err != nil {
 		return err
 	}
@@ -145,11 +169,15 @@ func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) removeRule(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
 	id, err := identity.ParseRuleID(r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	if err := h.customs.RemoveRule(r.Context(), id); err != nil {
+	if err := h.customs.RemoveRule(r.Context(), org, id); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

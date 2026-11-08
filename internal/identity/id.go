@@ -98,6 +98,7 @@ func (id *ID[T]) Scan(src any) error {
 }
 
 type (
+	organizationTag struct{}
 	dockTag         struct{}
 	conversationTag struct{}
 	shipTag         struct{}
@@ -108,6 +109,8 @@ type (
 func tagName[T any]() string {
 	var zero T
 	switch any(zero).(type) {
+	case organizationTag:
+		return "organization_id"
 	case dockTag:
 		return "dock_id"
 	case conversationTag:
@@ -122,6 +125,16 @@ func tagName[T any]() string {
 		return "id"
 	}
 }
+
+// OrganizationID identifies a tenant: an IAMKit organization in iam mode,
+// config.DefaultOrganization in the single-organization modes. Puerto
+// stores only the id (IAMKit owns organizations).
+type OrganizationID = ID[organizationTag]
+
+func ParseOrganizationID(raw string) (OrganizationID, error) {
+	return ParseID[organizationTag](raw)
+}
+func MustParseOrganizationID(raw string) OrganizationID { return MustParseID[organizationTag](raw) }
 
 // DockID identifies a linked channel account (a WhatsApp number...).
 type DockID = ID[dockTag]

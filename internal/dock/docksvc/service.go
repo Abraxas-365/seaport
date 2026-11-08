@@ -44,7 +44,7 @@ func (s *Service) gateway(c dock.Channel) (dock.Gateway, error) {
 	return g, nil
 }
 
-func (s *Service) Create(ctx context.Context, input dock.Create) (dock.Dock, error) {
+func (s *Service) Create(ctx context.Context, org identity.OrganizationID, input dock.Create) (dock.Dock, error) {
 	if err := input.Validate(); err != nil {
 		return dock.Dock{}, err
 	}
@@ -52,15 +52,15 @@ func (s *Service) Create(ctx context.Context, input dock.Create) (dock.Dock, err
 	if _, err := s.gateway(input.Channel); err != nil {
 		return dock.Dock{}, err
 	}
-	d, err := s.repo.Create(ctx, identity.NewDockID(), input, dock.StatusLinking)
+	d, err := s.repo.Create(ctx, org, identity.NewDockID(), input, dock.StatusLinking)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "create dock", errx.TypeInternal)
 	}
 	return s.link(ctx, d)
 }
 
-func (s *Service) Relink(ctx context.Context, id identity.DockID) (dock.Dock, error) {
-	d, err := s.repo.Find(ctx, id)
+func (s *Service) Relink(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
+	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
@@ -85,30 +85,30 @@ func (s *Service) link(ctx context.Context, d dock.Dock) (dock.Dock, error) {
 			return dock.Dock{}, errx.Wrap(err, "set dock status", errx.TypeInternal)
 		}
 	}
-	out, err := s.Find(ctx, d.ID)
+	out, err := s.Find(ctx, d.Organization, d.ID)
 	if err == nil {
-		s.events.Publish(dock.EventUpdated, out)
+		s.events.Publish(out.Organization, dock.EventUpdated, out)
 	}
 	return out, err
 }
 
-func (s *Service) Update(ctx context.Context, id identity.DockID, input dock.Update) (dock.Dock, error) {
+func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id identity.DockID, input dock.Update) (dock.Dock, error) {
 	if err := input.Validate(); err != nil {
 		return dock.Dock{}, err
 	}
 	name := text.Clean(*input.Name)
 	input.Name = &name
-	d, err := s.repo.Update(ctx, id, input)
+	d, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "update dock", errx.TypeInternal)
 	}
 	d = s.withQR(d)
-	s.events.Publish(dock.EventUpdated, d)
+	s.events.Publish(org, dock.EventUpdated, d)
 	return d, nil
 }
 
-func (s *Service) Unlink(ctx context.Context, id identity.DockID) (dock.Dock, error) {
-	d, err := s.repo.Find(ctx, id)
+func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
+	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
@@ -125,11 +125,11 @@ func (s *Service) Unlink(ctx context.Context, id identity.DockID) (dock.Dock, er
 	if err := s.SetStatus(ctx, id, dock.StatusLoggedOut); err != nil {
 		return dock.Dock{}, err
 	}
-	return s.Find(ctx, id)
+	return s.Find(ctx, org, id)
 }
 
-func (s *Service) Delete(ctx context.Context, id identity.DockID) error {
-	d, err := s.repo.Find(ctx, id)
+func (s *Service) Delete(ctx context.Context, org identity.OrganizationID, id identity.DockID) error {
+	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
@@ -139,11 +139,11 @@ func (s *Service) Delete(ctx context.Context, id identity.DockID) error {
 			slog.Warn("unlink dock being deleted", "dock", id, "err", err)
 		}
 	}
-	if err := s.repo.Delete(ctx, id); err != nil {
+	if err := s.repo.Delete(ctx, org, id); err != nil {
 		return errx.Wrap(err, "delete dock", errx.TypeInternal)
 	}
-	slog.Info("dock deleted", "dock", id, "channel", d.Channel, "name", d.Name)
-	s.events.Publish(dock.EventDeleted, dock.Deleted{ID: id})
+	slog.Info("dock deleted", "dock", id, "organization", org, "channel", d.Channel, "name", d.Name)
+	s.events.Publish(org, dock.EventDeleted, dock.Deleted{ID: id})
 	return nil
 }
 
@@ -153,14 +153,14 @@ func (s *Service) PairingChanged(ctx context.Context, id identity.DockID) {
 
 // publish announces a dock's current state (with its QR while linking).
 func (s *Service) publish(ctx context.Context, id identity.DockID) {
-	d, err := s.Find(ctx, id)
+	d, err := s.repo.Get(ctx, id)
 	if err != nil {
 		if !errx.IsType(err, errx.TypeNotFound) {
 			slog.Warn("publish dock", "dock", id, "err", err)
 		}
 		return
 	}
-	s.events.Publish(dock.EventUpdated, d)
+	s.events.Publish(d.Organization, dock.EventUpdated, s.withQR(d))
 }
 
 func (s *Service) SetLinked(ctx context.Context, id identity.DockID, address string) error {
@@ -204,16 +204,16 @@ func (s *Service) RestoreAll(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) Find(ctx context.Context, id identity.DockID) (dock.Dock, error) {
-	d, err := s.repo.Find(ctx, id)
+func (s *Service) Find(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
+	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
 	return s.withQR(d), nil
 }
 
-func (s *Service) List(ctx context.Context, page query.Pagination) (query.Paginated[dock.Dock], error) {
-	out, err := s.repo.List(ctx, page.Normalize())
+func (s *Service) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[dock.Dock], error) {
+	out, err := s.repo.List(ctx, org, page.Normalize())
 	if err != nil {
 		return out, errx.Wrap(err, "list docks", errx.TypeInternal)
 	}
@@ -232,8 +232,8 @@ func (s *Service) withQR(d dock.Dock) dock.Dock {
 	return d
 }
 
-func (s *Service) NewMessageID(ctx context.Context, id identity.DockID) (string, error) {
-	d, err := s.repo.Find(ctx, id)
+func (s *Service) NewMessageID(ctx context.Context, org identity.OrganizationID, id identity.DockID) (string, error) {
+	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return "", errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
@@ -244,11 +244,11 @@ func (s *Service) NewMessageID(ctx context.Context, id identity.DockID) (string,
 	return g.NewMessageID(id)
 }
 
-func (s *Service) Send(ctx context.Context, msg dock.Outgoing) error {
+func (s *Service) Send(ctx context.Context, org identity.OrganizationID, msg dock.Outgoing) error {
 	if err := msg.Validate(); err != nil {
 		return err
 	}
-	d, err := s.repo.Find(ctx, msg.Dock)
+	d, err := s.repo.Find(ctx, org, msg.Dock)
 	if err != nil {
 		return errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
