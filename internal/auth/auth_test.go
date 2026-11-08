@@ -1,6 +1,10 @@
 package auth
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -49,6 +53,23 @@ func TestSealer(t *testing.T) {
 	}
 	if _, err := s.Open("a", sealed[:len(sealed)-2]+"AA"); err == nil {
 		t.Fatal("tampered value opened")
+	}
+}
+
+// TestSealerOpensOldValues: sessions and cookies sealed before
+// internal/seal existed (key = SHA-256 of "seaport-seal:"+secret) still open.
+func TestSealerOpensOldValues(t *testing.T) {
+	key := sha256.Sum256([]byte("seaport-seal:" + testKey))
+	block, _ := aes.NewCipher(key[:])
+	aead, _ := cipher.NewGCM(block)
+	nonce := make([]byte, aead.NonceSize())
+	old := base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte("refresh token"), []byte("web_session")))
+	s, err := NewSealer(testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Open("web_session", old); err != nil || string(got) != "refresh token" {
+		t.Fatalf("old value: %q %v", got, err)
 	}
 }
 

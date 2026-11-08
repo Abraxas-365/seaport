@@ -1,6 +1,7 @@
 // Package dockwa is the WhatsApp gateway: each dock is a whatsmeow
 // "linked device" (multi-device protocol, no browser). Its signal store
-// lives in the same Postgres (whatsmeow_* tables).
+// is Seaport's own (store.go): the wa_* tables of the same Postgres, with
+// every key sealed by SEAPORT_SECRET_KEY.
 package dockwa
 
 import (
@@ -15,12 +16,12 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/Abraxas-365/seaport/internal/ship"
-	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver "pgx" for the whatsmeow store
+	"github.com/jmoiron/sqlx"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -48,7 +49,7 @@ type LinkSink interface {
 }
 
 type Gateway struct {
-	devices *sqlstore.Container
+	devices *Store
 
 	mu       sync.Mutex
 	clients  map[identity.DockID]*session
@@ -72,13 +73,21 @@ type session struct {
 	titles   map[types.JID]string
 }
 
-// Open connects the whatsmeow store to Postgres and upgrades its tables.
-func Open(ctx context.Context, databaseURL string) (*Gateway, error) {
-	container, err := sqlstore.New(ctx, "pgx", databaseURL, newLogger("store"))
+// Open opens the sealed store (secretKey: SEAPORT_SECRET_KEY) and moves in
+// the devices still in whatsmeow's old sqlstore tables.
+func Open(ctx context.Context, db *sqlx.DB, secretKey string) (*Gateway, error) {
+	sealer, err := seal.New(secretKey, SealInfo)
 	if err != nil {
-		return nil, errx.Wrap(err, "open whatsapp store", errx.TypeInternal)
+		return nil, err
 	}
-	return &Gateway{devices: container, clients: map[identity.DockID]*session{}}, nil
+	devices := NewStore(db, sealer)
+	if err := devices.CheckKey(ctx); err != nil {
+		return nil, err
+	}
+	if _, err := devices.ImportLegacy(ctx); err != nil {
+		return nil, err
+	}
+	return &Gateway{devices: devices, clients: map[identity.DockID]*session{}}, nil
 }
 
 // Bind sets the domain callbacks (they are built after the gateway).
@@ -99,7 +108,6 @@ func (g *Gateway) Close() {
 	for _, s := range g.clients {
 		s.client.Disconnect()
 	}
-	_ = g.devices.Close()
 }
 
 func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
@@ -110,7 +118,7 @@ func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
 	}
 	g.mu.Unlock()
 
-	device := g.devices.NewDevice()
+	device := g.devices.NewDevice(d.Organization, d.ID)
 	s := g.newSession(d, device)
 	qrCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linkTimeout)
 	qrs, err := s.client.GetQRChannel(qrCtx)
@@ -163,13 +171,9 @@ func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
 }
 
 func (g *Gateway) Restore(ctx context.Context, d dock.Dock) error {
-	jid, err := types.ParseJID(d.Address)
+	device, err := g.devices.Device(ctx, d.Organization, d.ID)
 	if err != nil {
-		return errx.Wrap(err, "parse dock address", errx.TypeInternal)
-	}
-	device, err := g.devices.GetDevice(ctx, jid)
-	if err != nil {
-		return errx.Wrap(err, "load whatsapp device", errx.TypeInternal)
+		return err
 	}
 	if device == nil {
 		g.setStatus(d.ID, dock.StatusLoggedOut)
@@ -207,23 +211,7 @@ func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
 		s.client.Disconnect()
 	}
 	// Not connected: forget stored keys so a relink starts clean.
-	if d.Address == "" {
-		return nil
-	}
-	jid, err := types.ParseJID(d.Address)
-	if err != nil {
-		return nil
-	}
-	device, err := g.devices.GetDevice(ctx, jid)
-	if err != nil {
-		return errx.Wrap(err, "load whatsapp device", errx.TypeInternal)
-	}
-	if device != nil {
-		if err := device.Delete(ctx); err != nil {
-			return errx.Wrap(err, "delete whatsapp device", errx.TypeInternal)
-		}
-	}
-	return nil
+	return g.devices.DeleteDock(ctx, d.Organization, d.ID)
 }
 
 func (g *Gateway) QR(id identity.DockID) string {

@@ -41,8 +41,11 @@ services:
       # token mode
       SEAPORT_ADMIN_TOKEN: ${SEAPORT_ADMIN_TOKEN:-}
       SEAPORT_CREW_TOKEN: ${SEAPORT_CREW_TOKEN:-}
-      # iam mode (scripts/iamkit-provision.sh writes the IAMKIT_* values)
+      # Seals the WhatsApp keys (and in iam mode the sessions; required
+      # there). Unset: generated into the seaport_data volume on first start.
+      # Keep a copy apart from the database backups either way.
       SEAPORT_SECRET_KEY: ${SEAPORT_SECRET_KEY:-}
+      # iam mode (scripts/iamkit-provision.sh writes the IAMKIT_* values)
       IAMKIT_URL: ${IAMKIT_URL:-}
       IAMKIT_PUBLIC_URL: ${IAMKIT_PUBLIC_URL:-}
       IAMKIT_ISSUER: ${IAMKIT_ISSUER:-}
@@ -60,6 +63,8 @@ services:
       SEAPORT_MAX_CREW_CONNECTIONS: ${SEAPORT_MAX_CREW_CONNECTIONS:-20}
       SEAPORT_API_RATE: ${SEAPORT_API_RATE:-20}
       SEAPORT_API_BURST: ${SEAPORT_API_BURST:-60}
+    volumes:
+      - seaport_data:/data
     expose:
       - "8740"
 
@@ -81,8 +86,8 @@ services:
       - caddy_config:/config
 
   # Daily pg_dump (custom format) into ./backups, keeping BACKUP_KEEP_DAYS.
-  # Dumps include the WhatsApp device keys: protect and copy them off the
-  # server like any secret. Files are 0600, owned by BACKUP_UID (default
+  # The WhatsApp keys in them are sealed with SEAPORT_SECRET_KEY (not in
+  # the dumps): keep that key elsewhere, a dump is useless without it. Files are 0600, owned by BACKUP_UID (default
   # root; set it to your user's `id -u` to copy them without sudo).
   backup:
     image: postgres:16-alpine
@@ -113,5 +118,6 @@ services:
 
 volumes:
   pgdata:
+  seaport_data:
   caddy_data:
   caddy_config:

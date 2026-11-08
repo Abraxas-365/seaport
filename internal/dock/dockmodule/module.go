@@ -19,8 +19,9 @@ import (
 )
 
 type Deps struct {
-	DB          *sqlx.DB
-	DatabaseURL string
+	DB *sqlx.DB
+	// SecretKey (SEAPORT_SECRET_KEY) seals the WhatsApp store.
+	SecretKey string
 	// WhatsApp enables the WhatsApp gateway (off in tests).
 	WhatsApp bool
 	Events   event.Publisher
@@ -39,7 +40,7 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	var wa *dockwa.Gateway
 	if d.WhatsApp {
 		var err error
-		if wa, err = dockwa.Open(ctx, d.DatabaseURL); err != nil {
+		if wa, err = dockwa.Open(ctx, d.DB, d.SecretKey); err != nil {
 			return nil, err
 		}
 		gateways = append(gateways, wa)

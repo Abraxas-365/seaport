@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -63,11 +64,16 @@ type Server struct {
 	Auth        AuthMode // SEAPORT_AUTH: none | token (default) | iam
 	AdminToken  string   // SEAPORT_ADMIN_TOKEN (token mode): CLI and /api/v1
 	CrewToken   string   // SEAPORT_CREW_TOKEN (token mode, optional): a static agent token besides the crew tokens created in the admin
-	// SecretKey (SEAPORT_SECRET_KEY, iam mode, ≥32 chars) seals IAMKit
-	// tokens at rest and the sign-in cookie.
+	// SecretKey (SEAPORT_SECRET_KEY, ≥32 chars) seals the WhatsApp store
+	// and, in iam mode (where it is required), IAMKit tokens at rest and
+	// the sign-in cookie. Unset outside iam mode: the key is read from
+	// SecretKeyFile, generated there (0600) on first start.
 	SecretKey string
-	IAMKit    IAMKit
-	LogLevel  string // SEAPORT_LOG_LEVEL, default info
+	// SecretKeyFile (SEAPORT_SECRET_KEY_FILE, default
+	// <user config dir>/seaport/secret.key; /data/secret.key in the image).
+	SecretKeyFile string
+	IAMKit        IAMKit
+	LogLevel      string // SEAPORT_LOG_LEVEL, default info
 	// Outbound limits per dock (0 disables one): SEAPORT_SEND_PER_MINUTE
 	// (20), SEAPORT_SEND_PER_HOUR (300), SEAPORT_SEND_PER_CHAT_MINUTE (8).
 	SendPerMinute, SendPerHour, SendPerChatMinute int
@@ -84,13 +90,14 @@ type Server struct {
 
 func LoadServer() (Server, error) {
 	c := Server{
-		Addr:        env("SEAPORT_ADDR", "127.0.0.1:8740"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		PublicURL:   strings.TrimRight(os.Getenv("SEAPORT_PUBLIC_URL"), "/"),
-		Auth:        AuthMode(env("SEAPORT_AUTH", string(AuthToken))),
-		AdminToken:  os.Getenv("SEAPORT_ADMIN_TOKEN"),
-		CrewToken:   os.Getenv("SEAPORT_CREW_TOKEN"),
-		SecretKey:   os.Getenv("SEAPORT_SECRET_KEY"),
+		Addr:          env("SEAPORT_ADDR", "127.0.0.1:8740"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		PublicURL:     strings.TrimRight(os.Getenv("SEAPORT_PUBLIC_URL"), "/"),
+		Auth:          AuthMode(env("SEAPORT_AUTH", string(AuthToken))),
+		AdminToken:    os.Getenv("SEAPORT_ADMIN_TOKEN"),
+		CrewToken:     os.Getenv("SEAPORT_CREW_TOKEN"),
+		SecretKey:     os.Getenv("SEAPORT_SECRET_KEY"),
+		SecretKeyFile: strings.TrimSpace(os.Getenv("SEAPORT_SECRET_KEY_FILE")),
 		IAMKit: IAMKit{
 			URL:         strings.TrimRight(os.Getenv("IAMKIT_URL"), "/"),
 			PublicURL:   strings.TrimRight(os.Getenv("IAMKIT_PUBLIC_URL"), "/"),
@@ -130,6 +137,11 @@ func LoadServer() (Server, error) {
 	}
 	if c.PublicURL == "" {
 		c.PublicURL = "http://" + c.Addr
+	}
+	if c.SecretKeyFile == "" {
+		if dir, err := os.UserConfigDir(); err == nil {
+			c.SecretKeyFile = filepath.Join(dir, "seaport", "secret.key")
+		}
 	}
 	return c, c.Validate()
 }

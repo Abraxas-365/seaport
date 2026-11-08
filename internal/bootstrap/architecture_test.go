@@ -29,7 +29,7 @@ const modulePath = "github.com/Abraxas-365/seaport/internal/"
 var foundation = map[string]bool{
 	"errx": true, "identity": true, "query": true, "config": true,
 	"txn": true, "event": true, "blob": true, "permission": true,
-	"httpx": true, "pgerr": true, "text": true, "optional": true,
+	"httpx": true, "pgerr": true, "text": true, "optional": true, "seal": true,
 }
 
 // wiring packages (composition root) may import everything.
@@ -55,6 +55,13 @@ var vendorSDKs = map[string][]string{
 	"github.com/Abraxas-365/seaport/web": {"bootstrap"},
 	// the per-caller API rate limit (httpx.RateLimit)
 	"golang.org/x/time": {"httpx"},
+}
+
+// forbiddenEverywhere: packages no production code may import, with why.
+var forbiddenEverywhere = map[string]string{
+	// whatsmeow's own store keeps every WhatsApp key in clear; dockwa's
+	// store seals them (its tests use sqlstore as the reference).
+	"go.mau.fi/whatsmeow/store/sqlstore": "WhatsApp keys must go through dockwa's sealed store",
 }
 
 // forbiddenInCore: a domain root package and its *svc never touch transport
@@ -143,6 +150,11 @@ func importViolations(files []goFile) []string {
 					if p == bad || strings.HasPrefix(p, bad+"/") {
 						out = append(out, pos+": "+from.kind+" "+from.dir+" must not import "+p+" (transport/SQL belong in adapters)")
 					}
+				}
+			}
+			for bad, why := range forbiddenEverywhere {
+				if p == bad || strings.HasPrefix(p, bad+"/") {
+					out = append(out, pos+": "+p+" must not be imported: "+why)
 				}
 			}
 			for sdk, owners := range vendorSDKs {
@@ -375,6 +387,7 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"order/adapters/orderwa/w.go":   `package orderwa; import _ "go.mau.fi/whatsmeow/types"`,                    // vendor SDK outside its owner
 		"auth/authsvc/s.go":             `package authsvc; import _ "github.com/Abraxas-365/iamkit/sdk/authclient"`, // IAMKit outside authiam
 		"widget/uses_connector.go":      `package widget; import _ "` + m + `connector"`,                            // domain → client
+		"dock/adapters/dockwa/old.go":   `package dockwa; import _ "go.mau.fi/whatsmeow/store/sqlstore"`,            // unsealed WhatsApp store
 	})
 	expectViolations(t, importViolations(files),
 		"identity/id.go: foundation packages import no domain code",
@@ -387,6 +400,7 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"order/adapters/orderwa/w.go: go.mau.fi/whatsmeow is confined to",
 		"auth/authsvc/s.go: github.com/Abraxas-365/iamkit is confined to",
 		"widget/uses_connector.go: only cmd may import the connector",
+		"dock/adapters/dockwa/old.go: go.mau.fi/whatsmeow/store/sqlstore must not be imported",
 	)
 	expectViolations(t, portsViolations(files),
 		"order/ports.go: ports.go declares only interfaces (Status is not one)",

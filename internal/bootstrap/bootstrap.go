@@ -114,7 +114,14 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	bus := event.NewBus()
 	convs := conversationmodule.New(db, bus)
-	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, DatabaseURL: cfg.DatabaseURL, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
+	var secretKey string
+	if !opts.DisableWhatsApp {
+		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
 	if err != nil {
 		_ = db.Close()
 		return nil, err

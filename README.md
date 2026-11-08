@@ -133,11 +133,12 @@ new prompt, never lost.
 
 | Env | Default | |
 |---|---|---|
-| `DATABASE_URL` | — | Postgres (seaport + whatsmeow tables) |
+| `DATABASE_URL` | — | Postgres (everything, WhatsApp keys included — sealed) |
 | `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens), `token` or `iam` |
 | `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
 | `SEAPORT_CREW_TOKEN` | — | token mode, optional: a static agent token (≥16 chars). `seaport connect`: the crew token to use |
-| `SEAPORT_SECRET_KEY` | — | iam mode: seals browser sessions' IAMKit tokens at rest (random, ≥32 chars: `openssl rand -base64 32`; changing it signs everyone out) |
+| `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again (and signs everyone out) |
+| `SEAPORT_SECRET_KEY_FILE` | `<config dir>/seaport/secret.key` | where the generated key lives (`/data/secret.key` in the image: mount a volume) |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
 | `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
@@ -254,10 +255,15 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
   The proxy runs `token` or `iam` mode (`none` refuses proxied requests).
 - Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
   (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
-  (root by default). They contain the WhatsApp device keys — copy them off
-  the server (the same disk is not a backup) and guard them like the
-  tokens (in iam mode they also hold the sealed IAMKit tokens of browser
-  sessions; `SEAPORT_SECRET_KEY` opens them, so keep it elsewhere). Restore: `docker compose stop seaport backup`, then
+  (root by default). The WhatsApp keys in them (and, in iam mode, the IAMKit
+  tokens of browser sessions) are sealed with `SEAPORT_SECRET_KEY`, which is
+  not in the dumps: keep a copy of the key apart from them (from `.env`, or
+  `docker compose cp seaport:/data/secret.key .` when it was generated) — a
+  dump without it is useless, which is also why a stolen dump is. (Docks
+  linked before the sealed store also keep a clear copy in the old
+  `whatsmeow_*` tables until the release that drops them; unlinking a dock
+  deletes it.) Copy the
+  dumps off the server too (the same disk is not a backup). Restore: `docker compose stop seaport backup`, then
   `docker compose exec -T postgres pg_restore -U seaport -d seaport --clean --if-exists < backups/<file>.dump`,
   then `docker compose start seaport backup`.
 - Upgrade: `git pull && docker compose up -d --build` (migrations run at start).

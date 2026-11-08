@@ -57,7 +57,7 @@ embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
 ```
 cmd/seaport            serve | admin CLI | connect
 internal/
-  errx identity query text pgerr config httpx   foundation (import no domain)
+  errx identity query text pgerr config httpx seal   foundation (import no domain)
   permission          permission catalog generated from iam/permissions.json (foundation)
   event (+eventsse)   in-memory event bus + SSE stream (foundation; payloads
                       are domain types, published by services via event.Publisher)
@@ -215,8 +215,9 @@ test together with the reason. Add a rule when you add a pattern.
   id_token must carry the sign-in's nonce, name the access token's subject
   and match its `at_hash` when present. The
   `seaport_session` cookie is a random id whose hash keys `web_sessions`,
-  where IAMKit's tokens are sealed (AES-GCM, key = HKDF of
-  `SEAPORT_SECRET_KEY`; placeholder-looking keys are refused); rows sealed
+  where IAMKit's tokens are sealed (AES-GCM, key = SHA-256 of
+  `"seaport-seal:"+SEAPORT_SECRET_KEY`, kept as is so existing sessions open
+  — `TestSealerOpensOldValues`; placeholder-looking keys are refused); rows sealed
   with another key read as signed out. Refresh happens
   ahead of expiry under the row lock (`FOR UPDATE`): IAMKit rotates refresh
   tokens, so concurrent requests must not both use one. Sign-out deletes the
@@ -224,5 +225,28 @@ test together with the reason. Add a rule when you add a pattern.
   organization (service accounts) are refused.
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
-- whatsmeow keeps its signal store in the same database (`whatsmeow_*`
-  tables, created by `sqlstore.New`). A dock's `address` is its device JID.
+- WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
+  implementation of whatsmeow's store interfaces in the `wa_*` tables, one
+  device per dock (rows keyed by `dock_id`, cascade from `docks`; the
+  phone↔LID map is per dock too, so organizations share nothing). Every
+  secret (private keys, signal sessions, sender keys, app-state keys,
+  message secrets, privacy tokens, NCT salt, buffered plaintexts) is
+  sealed (`internal/seal`, info `seaport whatsapp v1`) with a purpose naming
+  table, dock and row, so a value copied to another row doesn't open.
+  whatsmeow's `sqlstore` keeps keys in clear and is banned outside tests
+  (`forbiddenEverywhere`); `store_test.go` runs one script against both and
+  requires identical answers. Devices still in the old `whatsmeow_*` tables
+  are copied in at start (`ImportLegacy`; a broken one is logged and
+  skipped, never panics or blocks start); those tables stay one release
+  (still in clear: a rollback reads them, but a rollback after Signal state
+  moved on leaves the copies stale, so it is one-way in practice), then a
+  migration drops them. Logout, unlink and dock deletion also delete the
+  device's `whatsmeow_*` copy. A dock's `address` is its device JID.
+- `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
+  generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
+  link into place) — never while `wa_devices` has rows (a new key can't open
+  them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  so a changed key stops the start instead of failing every dock.
+  `internal/seal` derives the WhatsApp key by HKDF (info
+  `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so
+  the two never share a key.

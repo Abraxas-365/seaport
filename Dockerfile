@@ -23,8 +23,15 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       -ldflags "-s -w -X github.com/Abraxas-365/seaport/internal/bootstrap.Version=${VERSION}" \
       -o /out/seaport ./cmd/seaport
 
+RUN mkdir -p /out/data
+
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/seaport /usr/local/bin/seaport
+# /data keeps the generated SEAPORT_SECRET_KEY (when it is not set): mount a
+# volume there, or the key and every linked WhatsApp dock die with the
+# container.
+COPY --from=build --chown=nonroot:nonroot --chmod=700 /out/data /data
+ENV SEAPORT_SECRET_KEY_FILE=/data/secret.key
 # Inside a container the port must listen on all interfaces; publish it only
 # to the reverse proxy (deploy/compose.yaml), never straight to the internet.
 ENV SEAPORT_ADDR=0.0.0.0:8740
