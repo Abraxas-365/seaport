@@ -24,6 +24,7 @@ type Deps struct {
 	Messenger dock.Messenger
 	Notifier  ship.Notifier
 	Events    event.Publisher
+	Limits    ship.Limits
 }
 
 type Module struct {
@@ -33,7 +34,7 @@ type Module struct {
 
 func New(d Deps) *Module {
 	svc := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
-		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events})
+		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits})
 	return &Module{Service: svc, http: shiphttp.New(svc, svc, d.Docks)}
 }
 

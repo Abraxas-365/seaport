@@ -55,7 +55,10 @@ type Notifier interface {
 
 type Repository interface {
 	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation identity.ConversationID, input Inbound, status Status) (s Ship, created bool, err error)
-	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, externalID string) (Ship, error)
+	// CreateOutbound stores a reply only if admit accepts the dock's and the
+	// conversation's recent outbound counts; counting and inserting are
+	// atomic per dock, so concurrent replies can't overshoot a limit.
+	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, dock identity.DockID, externalID string, admit func(OutboundCounts) error) (Ship, error)
 	SetOutcome(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, status Status, errMsg string) (Ship, error)
 	Claim(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
 	Join(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)

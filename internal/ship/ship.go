@@ -1,6 +1,7 @@
 package ship
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/Abraxas-365/puerto/internal/conversation"
@@ -218,4 +219,63 @@ func (a Ack) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Limits cap a dock's outbound messages (WhatsApp bans numbers that send
+// in bursts or to many fresh chats). Zero disables a limit.
+type Limits struct {
+	// PerMinute and PerHour count all of a dock's outbound messages.
+	PerMinute int
+	PerHour   int
+	// ConversationPerMinute caps one chat (a looping agent).
+	ConversationPerMinute int
+}
+
+// DefaultLimits are conservative for a personal WhatsApp number.
+var DefaultLimits = Limits{PerMinute: 20, PerHour: 300, ConversationPerMinute: 8}
+
+// OutboundCounts are the outbound messages already sent (or being sent)
+// in each window, for one dock and one conversation.
+type OutboundCounts struct {
+	DockLastMinute         int
+	DockLastHour           int
+	ConversationLastMinute int
+	// Oldest* are when the oldest message inside each window went out:
+	// the window frees a slot at Oldest + window.
+	OldestDockMinute         time.Time
+	OldestDockHour           time.Time
+	OldestConversationMinute time.Time
+	// At is when the counts were taken, on the same clock as Oldest*.
+	At time.Time
+}
+
+// Check refuses one more message when a window is full, saying when to
+// retry: the longest wait among the full windows (after a limit is
+// lowered below the current count it may take more than one retry).
+func (l Limits) Check(c OutboundCounts) error {
+	type window struct {
+		limit, used int
+		oldest      time.Time
+		span        time.Duration
+		what        string
+	}
+	worst, what := 0, ""
+	for _, w := range []window{
+		{l.ConversationPerMinute, c.ConversationLastMinute, c.OldestConversationMinute, time.Minute, "this conversation (per minute)"},
+		{l.PerMinute, c.DockLastMinute, c.OldestDockMinute, time.Minute, "this dock (per minute)"},
+		{l.PerHour, c.DockLastHour, c.OldestDockHour, time.Hour, "this dock (per hour)"},
+	} {
+		if w.limit <= 0 || w.used < w.limit {
+			continue
+		}
+		retry := max(int(w.oldest.Add(w.span).Sub(c.At).Seconds())+1, 1)
+		if retry > worst {
+			worst, what = retry, w.what
+		}
+	}
+	if worst == 0 {
+		return nil
+	}
+	return errx.TooManyRequests("outbound limit reached for "+what+"; retry in "+
+		strconv.Itoa(worst)+"s").WithDetail("retry_after_seconds", worst)
 }

@@ -58,6 +58,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	if e.HTTPStatus == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 	}
+	if s, ok := e.Details["retry_after_seconds"].(int); ok && e.HTTPStatus == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", strconv.Itoa(s))
+	}
 	writeJSON(w, e.HTTPStatus, map[string]any{"error": e.ToResponse(id)})
 }
 

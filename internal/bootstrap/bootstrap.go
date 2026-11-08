@@ -20,6 +20,7 @@ import (
 	"github.com/Abraxas-365/puerto/internal/event"
 	"github.com/Abraxas-365/puerto/internal/event/eventsse"
 	"github.com/Abraxas-365/puerto/internal/httpx"
+	"github.com/Abraxas-365/puerto/internal/ship"
 	"github.com/Abraxas-365/puerto/internal/ship/shipmodule"
 	"github.com/Abraxas-365/puerto/migrations"
 	"github.com/Abraxas-365/puerto/web"
@@ -116,7 +117,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	}
 	crew := crewmodule.New(lease, cfg.PublicURL+"/mcp", Version, bus)
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
-		Messenger: docks.Service, Notifier: crew.Hub, Events: bus})
+		Messenger: docks.Service, Notifier: crew.Hub, Events: bus,
+		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute}})
 	docks.BindReceiver(ships.Service)
 	crew.Bind(ships.Service, convs.Service)
 

@@ -7,11 +7,15 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/Abraxas-365/puerto/internal/bootstrap"
 	"github.com/Abraxas-365/puerto/internal/config"
@@ -24,6 +28,7 @@ const usage = `puerto - a port where messages arrive and agents work them
 
 Server:
   puerto serve                         run the port (env: DATABASE_URL, PUERTO_ADMIN_TOKEN, PUERTO_CREW_TOKEN, ...)
+  puerto healthcheck                   exit 0 if the local port answers /healthz (containers)
 
 Admin (env: PUERTO_URL, PUERTO_ADMIN_TOKEN):
   puerto dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
@@ -73,6 +78,8 @@ func run(ctx context.Context, args []string) error {
 		return serve(ctx)
 	case "connect":
 		return connect(ctx, rest)
+	case "healthcheck":
+		return healthcheck(ctx)
 	case "version":
 		fmt.Println(bootstrap.Version)
 		return nil
@@ -131,6 +138,10 @@ func serve(ctx context.Context) error {
 		return err
 	}
 	setupLogging(cfg.LogLevel)
+	if u, err := url.Parse(cfg.PublicURL); err == nil && u.Scheme == "http" && !config.Loopback(net.JoinHostPort(u.Hostname(), "0")) {
+		slog.Warn("PUERTO_PUBLIC_URL is plain http on a non-local host: tokens and the session cookie "+
+			"travel unencrypted; put Puerto behind TLS (see deploy/)", "public_url", cfg.PublicURL)
+	}
 	app, err := bootstrap.Build(ctx, cfg, bootstrap.Options{})
 	if err != nil {
 		return err
@@ -138,6 +149,30 @@ func serve(ctx context.Context) error {
 	defer app.Close()
 	app.Start(ctx)
 	return app.Serve(ctx)
+}
+
+// healthcheck asks the port on PUERTO_ADDR for /healthz; distroless images
+// have no curl, so the binary checks itself.
+func healthcheck(ctx context.Context) error {
+	addr := envOr("PUERTO_ADDR", "127.0.0.1:8740")
+	if host, port, err := net.SplitHostPort(addr); err == nil && (host == "" || host == "0.0.0.0" || host == "::") {
+		addr = net.JoinHostPort("127.0.0.1", port)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthz answered %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func connect(ctx context.Context, args []string) error {

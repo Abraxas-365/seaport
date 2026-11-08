@@ -26,6 +26,12 @@ func Conflict(message string) *Error { return New(message, TypeConflict) }
 func Business(message string) *Error { return New(message, TypeBusiness) }
 func External(message string) *Error { return New(message, TypeExternal) }
 
+// TooManyRequests: a rate limit refused the action; details may carry
+// retry_after_seconds (HTTP adds Retry-After).
+func TooManyRequests(message string) *Error {
+	return withStatus(TypeBusiness, "RATE_LIMITED", 429, message)
+}
+
 func MethodNotAllowed(message string) *Error {
 	return withStatus(TypeValidation, "METHOD_NOT_ALLOWED", 405, message)
 }

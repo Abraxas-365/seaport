@@ -1,0 +1,11 @@
+.git
+**/.env
+**/*.env
+!deploy/.env.example
+bin/
+/puerto
+*.test
+web/node_modules
+web/dist
+deploy/backups
+**/.DS_Store

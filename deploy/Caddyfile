@@ -1,0 +1,19 @@
+# Caddy in front of Puerto: HTTPS (Let's Encrypt, or a local CA for
+# localhost), HTTP→HTTPS redirect, WebSocket (/crew/ws) and SSE
+# (/api/v1/events, /mcp) proxied as-is.
+{$PUERTO_DOMAIN} {
+	# No `encode`: compressing would buffer the SSE streams.
+	reverse_proxy puerto:8740 {
+		# SSE and MCP streams flush every write.
+		flush_interval -1
+	}
+	header {
+		# Add includeSubDomains only if every subdomain serves HTTPS.
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	log {
+		output stdout
+		format console
+	}
+}

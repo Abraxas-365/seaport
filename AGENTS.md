@@ -8,7 +8,9 @@ Design notes: `~/.rness/plans/puerto/puerto-design.md` (outside the repo).
 ```bash
 go build ./... && go vet ./...
 go test ./...                                   # architecture tests always run
-docker compose up -d                            # Postgres 127.0.0.1:5449
+docker compose up -d                            # dev Postgres 127.0.0.1:5449
+docker build -t puerto .                        # image (web + binary, distroless)
+# deploy/: production compose (Postgres, Puerto, Caddy TLS, backups); README "Deploy"
 PGPASSWORD=puerto createdb -h 127.0.0.1 -p 5449 -U puerto puerto_test   # once
 PUERTO_TEST_DATABASE_URL="postgres://puerto:puerto@127.0.0.1:5449/puerto_test?sslmode=disable" \
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
@@ -118,6 +120,11 @@ test together with the reason. Add a rule when you add a pattern.
 - Outbound ships are stored with the channel message id *before* sending, so
   WhatsApp's echo of our own message is dropped as a duplicate.
 - Replies are only allowed to allowed conversations (`Forbidden` otherwise).
+- Outbound limits (`ship.Limits.Check`, the rule; config `PUERTO_SEND_*`):
+  `shippg.CreateOutbound` counts the dock's/conversation's outbound ships
+  of the last minute/hour and inserts under a per-dock advisory lock
+  (`outboundLock`), so concurrent replies can't overshoot; refusal is
+  `errx.TooManyRequests` (429 + `Retry-After`), nothing stored or sent.
 - Live events (`/api/v1/events`): services publish after their write
   succeeds (dock/conversation/customs/ship/delivery), the hub publishes
   `crew.changed`. The bus is in memory with a 512-event replay window keyed

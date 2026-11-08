@@ -30,6 +30,8 @@ type Deps struct {
 	Notifier  ship.Notifier
 	Events    event.Publisher
 	Now       func() time.Time
+	// Limits cap outbound messages (zero value: ship.DefaultLimits).
+	Limits *ship.Limits
 }
 
 type Service struct {
@@ -42,6 +44,7 @@ type Service struct {
 	notifier  ship.Notifier
 	events    event.Publisher
 	now       func() time.Time
+	limits    ship.Limits
 }
 
 func New(d Deps) *Service {
@@ -53,7 +56,12 @@ func New(d Deps) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier, events: events, now: now}
+	limits := ship.DefaultLimits
+	if d.Limits != nil {
+		limits = *d.Limits
+	}
+	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
+		events: events, now: now, limits: limits}
 }
 
 var (
@@ -203,9 +211,13 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, input s
 	if err != nil {
 		return ship.Ship{}, errx.Wrap(err, "new message id", errx.TypeInternal)
 	}
-	// Stored before sending so the channel's echo of it is a duplicate.
-	out, err := s.repo.CreateOutbound(ctx, org, identity.NewShipID(), input, msgID)
+	// Stored before sending so the channel's echo of it is a duplicate;
+	// refused (429) when the dock or the conversation sent too much lately.
+	out, err := s.repo.CreateOutbound(ctx, org, identity.NewShipID(), input, conv.Dock, msgID, s.limits.Check)
 	if err != nil {
+		if errx.IsType(err, errx.TypeBusiness) {
+			slog.Warn("outbound refused", "organization", org, "dock", conv.Dock, "conversation", conv.ID, "err", err)
+		}
 		return ship.Ship{}, errx.Wrap(err, "store outbound ship", errx.TypeInternal)
 	}
 	s.events.Publish(org, ship.EventCreated, out)

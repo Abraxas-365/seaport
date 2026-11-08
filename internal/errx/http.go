@@ -45,6 +45,8 @@ func FromStatus(status int, message string) *Error {
 		return UnsupportedMediaType(message)
 	case 422:
 		return Business(message)
+	case 429:
+		return TooManyRequests(message)
 	}
 	if status >= 500 {
 		return Internal(GenericMessage)

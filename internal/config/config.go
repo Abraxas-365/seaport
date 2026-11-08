@@ -4,6 +4,7 @@ package config
 import (
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ type Server struct {
 	AdminToken  string   // PUERTO_ADMIN_TOKEN (token mode): CLI and /api/v1
 	CrewToken   string   // PUERTO_CREW_TOKEN (token mode): agents, /crew/ws and /mcp
 	LogLevel    string   // PUERTO_LOG_LEVEL, default info
+	// Outbound limits per dock (0 disables one): PUERTO_SEND_PER_MINUTE
+	// (20), PUERTO_SEND_PER_HOUR (300), PUERTO_SEND_PER_CHAT_MINUTE (8).
+	SendPerMinute, SendPerHour, SendPerChatMinute int
 }
 
 func LoadServer() (Server, error) {
@@ -57,6 +61,20 @@ func LoadServer() (Server, error) {
 		AdminToken:  os.Getenv("PUERTO_ADMIN_TOKEN"),
 		CrewToken:   os.Getenv("PUERTO_CREW_TOKEN"),
 		LogLevel:    env("PUERTO_LOG_LEVEL", "info"),
+	}
+	var err error
+	for _, l := range []struct {
+		key string
+		def int
+		dst *int
+	}{
+		{"PUERTO_SEND_PER_MINUTE", 20, &c.SendPerMinute},
+		{"PUERTO_SEND_PER_HOUR", 300, &c.SendPerHour},
+		{"PUERTO_SEND_PER_CHAT_MINUTE", 8, &c.SendPerChatMinute},
+	} {
+		if *l.dst, err = envInt(l.key, l.def); err != nil {
+			return c, err
+		}
 	}
 	if c.PublicURL == "" {
 		c.PublicURL = "http://" + c.Addr
@@ -101,6 +119,18 @@ func Loopback(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func envInt(key string, def int) (int, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, errx.InvalidField(key, key+" must be a whole number ≥ 0 (0 disables the limit)")
+	}
+	return n, nil
 }
 
 func env(key, def string) string {

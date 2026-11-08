@@ -121,7 +121,57 @@ new prompt, never lost.
 | `PUERTO_CREW_TOKEN` | — | token mode: agents, `/crew/ws`, `/mcp` (≥16 chars) |
 | `PUERTO_ADDR` | `127.0.0.1:8740` | listen address |
 | `PUERTO_PUBLIC_URL` | `http://$PUERTO_ADDR` | how agents reach `/mcp` (use https off-loopback) |
+| `PUERTO_SEND_PER_MINUTE` | `20` | outbound messages per dock per minute (0 = off) |
+| `PUERTO_SEND_PER_HOUR` | `300` | outbound messages per dock per hour (0 = off) |
+| `PUERTO_SEND_PER_CHAT_MINUTE` | `8` | outbound messages per conversation per minute (0 = off) |
 | `PUERTO_URL` | `http://127.0.0.1:8740` | CLI/connector: where the port is |
+
+**Outbound limits.** WhatsApp bans numbers that send in bursts, so a reply
+over a limit is refused with `429` (`RATE_LIMITED`, `Retry-After`; the MCP
+`reply` tool returns the same message to the agent) and nothing is sent or
+stored. Windows slide over the last minute/hour. They apply to every reply
+of a dock (agents, the web app, the API); failed sends count too, so an
+agent retrying against a broken dock is slowed down as well.
+Each WhatsApp send is also spaced ≥1.2 s from the previous one of that dock.
+
+## Deploy (one server, HTTPS)
+
+`deploy/` runs Postgres, Puerto, [Caddy](https://caddyserver.com) (automatic
+Let's Encrypt certificates, HTTP→HTTPS) and daily backups with Docker
+Compose. Point a DNS name at the server, open ports 80 and 443, then:
+
+```bash
+cd deploy
+cp .env.example .env      # PUERTO_DOMAIN, and three secrets from `openssl rand -hex 32`
+docker compose up -d --build
+docker compose logs -f puerto
+```
+
+Open `https://$PUERTO_DOMAIN`, sign in with `PUERTO_ADMIN_TOKEN`, link
+WhatsApp. On your computer:
+
+```bash
+PUERTO_URL=https://$PUERTO_DOMAIN PUERTO_CREW_TOKEN=… puerto connect -- rness --acp -m …
+```
+
+- Only Caddy publishes ports; Puerto and Postgres stay on the compose network.
+  The proxy runs `token` mode (`none` refuses proxied requests).
+- Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
+  (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
+  (root by default). They contain the WhatsApp device keys — copy them off
+  the server (the same disk is not a backup) and guard them like the
+  tokens. Restore: `docker compose stop puerto backup`, then
+  `docker compose exec -T postgres pg_restore -U puerto -d puerto --clean --if-exists < backups/<file>.dump`,
+  then `docker compose start puerto backup`.
+- Upgrade: `git pull && docker compose up -d --build` (migrations run at start).
+- The image alone: `docker build -t puerto .` (distroless, non-root, ~24 MB,
+  `puerto healthcheck` as the container health check).
+- Try it locally: `PUERTO_DOMAIN=localhost` makes Caddy use its own CA
+  (`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`
+  and trust it, or `curl --cacert root.crt`). Set `HTTP_PORT`/`HTTPS_PORT`
+  and `PUERTO_PUBLIC_URL=https://localhost:<port>` if 80/443 are taken.
+- Puerto warns at start when `PUERTO_PUBLIC_URL` is plain `http` on a
+  non-local host.
 
 ## API
 

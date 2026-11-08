@@ -20,6 +20,10 @@ const columns = `id, organization_id, conversation_id, direction, external_id, s
 // it). The second key is hashtext(organization).
 const claimLock = 7_401_001
 
+// outboundLock serializes one dock's replies while their rate limits are
+// counted (second key: hashtext(dock)).
+const outboundLock = 7_401_002
+
 var messages = pgerr.Messages{NotFound: "ship not found", ForeignKey: "conversation not found"}
 
 type Repository struct{ db *sqlx.DB }
@@ -44,13 +48,60 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 	return s, err == nil, pgerr.MapWith(err, "create inbound ship", messages)
 }
 
-func (r *Repository) CreateOutbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, in ship.Outbound, externalID string) (ship.Ship, error) {
+func (r *Repository) CreateOutbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, in ship.Outbound,
+	dock identity.DockID, externalID string, admit func(ship.OutboundCounts) error) (ship.Ship, error) {
 	var s ship.Ship
-	err := r.db.GetContext(ctx, &s, `
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return s, pgerr.Map(err, "begin outbound")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, outboundLock, dock); err != nil {
+		return s, pgerr.Map(err, "lock outbound")
+	}
+	// Failed sends count too (conservative: most failures did reach the
+	// channel, and an agent retrying in a loop must still be slowed down).
+	var c struct {
+		At          time.Time  `db:"at"`
+		DockMinute  int        `db:"dock_minute"`
+		DockHour    int        `db:"dock_hour"`
+		ConvMinute  int        `db:"conv_minute"`
+		OldDockMin  *time.Time `db:"old_dock_minute"`
+		OldDockHour *time.Time `db:"old_dock_hour"`
+		OldConvMin  *time.Time `db:"old_conv_minute"`
+	}
+	err = tx.GetContext(ctx, &c, `
+		SELECT now() AS at,
+		       count(*) FILTER (WHERE s.created_at > now() - interval '1 minute') AS dock_minute,
+		       count(*) AS dock_hour,
+		       count(*) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS conv_minute,
+		       min(s.created_at) FILTER (WHERE s.created_at > now() - interval '1 minute') AS old_dock_minute,
+		       min(s.created_at) AS old_dock_hour,
+		       min(s.created_at) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS old_conv_minute
+		FROM ships s JOIN conversations c ON c.organization_id = s.organization_id AND c.id = s.conversation_id
+		WHERE s.organization_id = $1 AND c.dock_id = $2 AND s.direction = 'out'
+		  AND s.created_at > now() - interval '1 hour'`, org, dock, in.Conversation)
+	if err != nil {
+		return s, pgerr.Map(err, "count outbound")
+	}
+	counts := ship.OutboundCounts{At: c.At, DockLastMinute: c.DockMinute, DockLastHour: c.DockHour, ConversationLastMinute: c.ConvMinute}
+	for dst, src := range map[*time.Time]*time.Time{&counts.OldestDockMinute: c.OldDockMin,
+		&counts.OldestDockHour: c.OldDockHour, &counts.OldestConversationMinute: c.OldConvMin} {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	if err := admit(counts); err != nil {
+		return s, err
+	}
+	err = tx.GetContext(ctx, &s, `
 		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, text, status, sent_at)
 		VALUES ($1, $5, $2, 'out', $3, $4, 'pending', now())
 		RETURNING `+columns, id, in.Conversation, externalID, in.Text, org)
-	return s, pgerr.MapWith(err, "create outbound ship", messages)
+	if err != nil {
+		return s, pgerr.MapWith(err, "create outbound ship", messages)
+	}
+	return s, pgerr.Map(tx.Commit(), "commit outbound")
 }
 
 func (r *Repository) SetOutcome(ctx context.Context, org identity.OrganizationID, id identity.ShipID, status ship.Status, errMsg string) (ship.Ship, error) {
