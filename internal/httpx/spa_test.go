@@ -55,10 +55,13 @@ func TestSPA(t *testing.T) {
 		t.Errorf("index CSP = %q", csp)
 	}
 
-	// Not built yet: a clear error instead of an empty page.
-	rec = httptest.NewRecorder()
-	SPA(fstest.MapFS{".gitkeep": {}}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/inbox", nil))
-	if rec.Code != 404 || !strings.Contains(rec.Body.String(), "not built") {
-		t.Errorf("unbuilt UI: %d %s", rec.Code, rec.Body.String())
+	// Not built yet (go install, or before pnpm build): a clear error
+	// instead of an empty page, for the root too.
+	for _, p := range []string{"/inbox", "/", "/index.html"} {
+		rec = httptest.NewRecorder()
+		SPA(fstest.MapFS{".gitkeep": {}}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, p, nil))
+		if rec.Code != 404 || !strings.Contains(rec.Body.String(), "not built") {
+			t.Errorf("unbuilt UI %s: %d %s", p, rec.Code, rec.Body.String())
+		}
 	}
 }

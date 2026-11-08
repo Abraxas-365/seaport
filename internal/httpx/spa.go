@@ -27,7 +27,7 @@ func SPA(fsys fs.FS) http.Handler {
 			name = "index.html"
 		}
 		if st, err := fs.Stat(fsys, name); err != nil || st.IsDir() || strings.HasPrefix(path.Base(name), ".") {
-			if path.Ext(name) != "" {
+			if path.Ext(name) != "" && name != "index.html" {
 				NotFound(w, r)
 				return
 			}
