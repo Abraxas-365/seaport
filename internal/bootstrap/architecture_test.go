@@ -30,6 +30,9 @@ var foundation = map[string]bool{
 	"errx": true, "identity": true, "query": true, "config": true,
 	"txn": true, "event": true, "blob": true, "permission": true,
 	"httpx": true, "pgerr": true, "text": true, "optional": true, "seal": true,
+	// Postgres plumbing shared by adapters: LISTEN connections, session
+	// advisory locks
+	"pglisten": true, "pglock": true,
 }
 
 // wiring packages (composition root) may import everything.
@@ -56,8 +59,8 @@ var vendorSDKs = map[string][]string{
 	// the per-caller API rate limit (httpx.RateLimit)
 	"golang.org/x/time": {"httpx"},
 	// pgx itself (not via database/sql): opening the pool, error codes, and
-	// the event log's LISTEN connection
-	"github.com/jackc/pgx": {"bootstrap", "pgerr", "event/eventpg"},
+	// LISTEN connections (pglisten: event log, crew signals)
+	"github.com/jackc/pgx": {"bootstrap", "pgerr", "pglisten"},
 }
 
 // forbiddenEverywhere: packages no production code may import, with why.

@@ -101,7 +101,7 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 		return ship.Delivery{}, false, err
 	}
 	id := identity.NewDeliveryID()
-	convID, ships, err := s.repo.Claim(ctx, org, id, s.now().Add(input.Lease))
+	convID, ships, err := s.repo.Claim(ctx, org, id, input.Session, s.now().Add(input.Lease))
 	if err != nil {
 		return ship.Delivery{}, false, errx.Wrap(err, "claim delivery", errx.TypeInternal)
 	}
@@ -178,6 +178,22 @@ func (s *Service) Release(ctx context.Context, org identity.OrganizationID, deli
 	s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryReleased, Delivery: &delivery})
 	s.notifier.Notify(org)
 	return nil
+}
+
+func (s *Service) ReleaseSession(ctx context.Context, org identity.OrganizationID, session string) (int, error) {
+	if session == "" {
+		return 0, errx.InvalidField("session", "session is required")
+	}
+	n, err := s.repo.ReleaseSession(ctx, org, session)
+	if err != nil {
+		return 0, errx.Wrap(err, "release session", errx.TypeInternal)
+	}
+	if n > 0 {
+		slog.Info("released deliveries of a closed connection", "organization", org, "session", session, "ships", n)
+		s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryReleased, Count: n})
+		s.notifier.Notify(org)
+	}
+	return n, nil
 }
 
 func (s *Service) ReleaseExpired(ctx context.Context, before time.Time) (int, error) {

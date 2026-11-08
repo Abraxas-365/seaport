@@ -322,3 +322,13 @@ LISTEN/NOTIFY, so every Seaport process streams every process's events.
 The browser resends the last event id on reconnect (to any process) and
 gets what it missed; after an hour, or with an unknown id, it gets `reset`
 and refetches.
+
+Agents may connect to any process too: connections are recorded in
+Postgres, so the crew status and the agent quota count every process, a
+message arriving at one process wakes agents on all of them, and revoking a
+token closes its connections everywhere. A process shutting down hands its
+agents' deliveries back at once; one that dies is noticed within about half
+a minute (it stops renewing its connections) and another process gives its
+deliveries to the remaining agents. Replicas need a direct (or
+session-pooled) Postgres connection: they use LISTEN/NOTIFY and session
+advisory locks, which PgBouncer's transaction mode breaks.

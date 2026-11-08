@@ -4,6 +4,7 @@ package conversationpg
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
+	"github.com/Abraxas-365/seaport/internal/pglock"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/jmoiron/sqlx"
 )
@@ -259,4 +261,21 @@ func (r *Customs) CountRules(ctx context.Context, org identity.OrganizationID, d
 	var n int
 	err := r.db.GetContext(ctx, &n, `SELECT count(*) FROM customs_rules WHERE organization_id = $1 AND dock_id = $2`, org, dock)
 	return n, pgerr.Map(err, "count rules")
+}
+
+// customsLock is the class of the per-dock customs lock (second key:
+// hashtext(dock id)).
+const customsLock = 7_401_007
+
+// DockLocker is conversation.DockLocker over Postgres session advisory
+// locks, so every process shares them.
+type DockLocker struct{ locks *pglock.Locker }
+
+// NewDockLocker takes the locks on lockDB, a pool of its own (see pglock).
+func NewDockLocker(lockDB *sql.DB) *DockLocker { return &DockLocker{locks: pglock.New(lockDB)} }
+
+var _ conversation.DockLocker = (*DockLocker)(nil)
+
+func (l *DockLocker) Lock(ctx context.Context, _ identity.OrganizationID, dock identity.DockID) (func(), error) {
+	return l.locks.Lock(ctx, customsLock, dock.String())
 }

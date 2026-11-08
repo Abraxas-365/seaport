@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,8 @@ func testDatabaseURL(t *testing.T) string {
 type port struct {
 	t   *testing.T
 	srv *httptest.Server
+	// stop shuts the process down (also at cleanup; idempotent).
+	stop func()
 }
 
 func startPort(t *testing.T) *port {
@@ -58,16 +61,23 @@ func startPort(t *testing.T) *port {
 func startPortWith(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *port {
 	t.Helper()
 	url := testDatabaseURL(t)
-	ctx := context.Background()
-	db, err := bootstrap.OpenDB(ctx, url)
+	db, err := bootstrap.OpenDB(context.Background(), url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
+	if _, err := db.ExecContext(context.Background(), `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
+	return joinPort(t, edit, opts)
+}
 
+// joinPort starts another port process on the test database as it is
+// (no wipe): several replicas of one deployment.
+func joinPort(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *port {
+	t.Helper()
+	url := testDatabaseURL(t)
+	ctx := context.Background()
 	srv := httptest.NewUnstartedServer(nil)
 	cfg := config.Server{Addr: srv.Listener.Addr().String(), DatabaseURL: url,
 		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken, CrewToken: crewToken}
@@ -81,13 +91,17 @@ func startPortWith(t *testing.T, edit func(*config.Server), opts bootstrap.Optio
 	app.Start(runCtx)
 	srv.Config.Handler = app.Handler
 	srv.Start()
-	t.Cleanup(func() {
-		cancel()
-		srv.CloseClientConnections()
-		srv.Close()
-		app.Close()
-	})
-	return &port{t: t, srv: srv}
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			app.Close() // first: connections release their deliveries
+			srv.CloseClientConnections()
+			srv.Close()
+		})
+	}
+	t.Cleanup(stop)
+	return &port{t: t, srv: srv, stop: stop}
 }
 
 func (p *port) call(method, path, token string, body, out any) int {

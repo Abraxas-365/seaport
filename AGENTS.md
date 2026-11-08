@@ -58,6 +58,7 @@ embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
 cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx seal   foundation (import no domain)
+  pglisten pglock     Postgres LISTEN connections / session advisory locks (foundation)
   permission          permission catalog generated from iam/permissions.json (foundation)
   event (+eventsse,   event bus over a Log (eventpg: Postgres table + LISTEN/
    eventpg)           NOTIFY) + SSE stream (foundation; payloads are domain
@@ -91,9 +92,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship` `Commands`,
-  `Queries`, `Messenger`, `Repository`, `Customs*` and `crew` `Token*` ports takes
+  `Queries`, `Messenger`, `Repository`, `Customs*`, `DockLocker` and `crew` `Token*`,
+  `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
-  ones (gateway callbacks, restore, lease sweep, crew token sign-in) are listed with their
+  ones (gateway callbacks, restore, lease sweep, crew token sign-in, crew
+  presence touch/reap/signals) are listed with their
   reason in `systemWide` (`TestTenantFirstPorts`).
 - Exported service methods call `Validate()` on their inputs
   (`TestServicesValidateInputs`).
@@ -104,7 +107,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
-  pgx itself → `bootstrap`, `pgerr`, `event/eventpg` (LISTEN connection)
+  pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections)
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -138,7 +141,7 @@ test together with the reason. Add a rule when you add a pattern.
   dock default (ask = pending); `Admit` then holds single messages (sender
   denied, group not mentioning us in mentions mode). Status is stored and
   re-decided on every arrival and on every rule/policy/override change, under
-  a per-dock lock in `conversationsvc`. Adapters report normalized handles
+  a per-dock lock (`conversation.DockLocker`, shared by every process). Adapters report normalized handles
   (`+<digits>`, JIDs) and `Addressed`; the engine knows no channel.
 - Ship status: inbound `held` (customs) | `queued` → `claimed`
   → `handled`; outbound `pending` → `sent|failed`. Allowing a conversation
@@ -150,8 +153,40 @@ test together with the reason. Add a rule when you add a pattern.
   `steer` frames; their ack must name the handled `ship_ids` and every other
   ship still claimed by the delivery is requeued.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
-  connection lives, released on disconnect and by the sweeper; a restart
-  requeues all claims.
+  connection lives. A claim records its connection (`ships.claimed_by` =
+  the `crew_connections` session; joined ships inherit it), so whatever a
+  connection holds — tracked or not, e.g. a claim that committed as it
+  closed — is released by session (`ReleaseSession`) on disconnect, on
+  shutdown (`Hub.Close`, first in `App.Close`) and when a dead process's
+  connection is reaped; the lease sweeper is the last resort. Start never
+  requeues claims: other processes own them (migration 00010 requeued the
+  claims of before it once).
+- Crew across processes (`crew.Presence`, `crewpg`, migration 00010): each
+  connection is a `crew_connections` row from before the WebSocket upgrade
+  to its close, holding its process, credential, hello and deliveries in
+  flight (status only; written under a per-connection mutex so an older
+  snapshot never lands last). `GET /api/v1/crew` and `crew.changed` read
+  it, so they show every process. Wakes (`Notify`) and revokes
+  (`Disconnect`) act locally and queue a `crew.Signal` that one goroutine
+  sends as `NOTIFY seaport_crew` (coalesced; callers never wait on the
+  database); every LISTEN (re)connect wakes all local connections, since
+  signals sent meanwhile are lost. Each process touches its rows every
+  `min(lease/4, 10s)` on its own goroutine (never behind reaping); the
+  touch returns rows it must close (reaped meanwhile, or opened with a
+  token now revoked or expired: the backstop of a lost revoke). Rows
+  untouched for 3 periods (database clock) are reaped by any process,
+  which releases their claims by session (retried next round on failure).
+  A connection whose release failed on close keeps its row for the reaper.
+  After a crash the dead process's rows count against the agent quota
+  until reaped (about 30 s).
+- The per-dock customs lock is a Postgres session advisory lock
+  (`conversationpg.DockLocker`, key `7_401_007`, via `internal/pglock`) held
+  on a pool of its own (`openLockDB`, 10 connections, no
+  `statement_timeout`: the caller's context bounds the wait), so a holder
+  waiting for a work connection can't starve the pool. `pglock` queues a
+  process's waiters of one key in memory first, so a busy dock holds one
+  lock connection, not the pool. Session locks and LISTEN need session
+  pooling: no PgBouncer in transaction mode in front of Seaport.
 - Outbound ships are stored with the channel message id *before* sending, so
   WhatsApp's echo of our own message is dropped as a duplicate.
 - Replies are only allowed to allowed conversations (`Forbidden` otherwise).
@@ -166,8 +201,9 @@ test together with the reason. Add a rule when you add a pattern.
   `QUOTA_EXCEEDED`, details `quota`/`limit`). Counted resources follow the
   crew-token pattern: count + insert in one transaction under a
   per-organization advisory lock (`dockpg.createLock`, `crewpg.tokenLock`).
-  Live agent connections are counted by the hub (open + opening, under its
-  mutex) before the WebSocket upgrade. Advisory lock keys are
+  Live agent connections (every process's `crew_connections` rows, opening
+  ones included) are counted and inserted under `crewpg.connectionLock`
+  (`7_401_006`) before the WebSocket upgrade. Advisory lock keys are
   `7_401_00N`; pick the next one for a new lock.
 - API rate limit (`httpx.RateLimit`, `SEAPORT_API_RATE`/`_BURST`): a token
   bucket per principal (organization + role + subject + credential; agents
@@ -212,8 +248,8 @@ test together with the reason. Add a rule when you add a pattern.
   `bootstrap.EventPermissions`); a crew connection and each MCP call act for the token's
   organization; deliveries go only to that organization's agents.
 - Crew tokens (`crew.Token`, `sp_crew_…`): only the SHA-256 is stored; the
-  value is shown once. Revoking one closes its live connections (the hub
-  tracks `Principal.Credential`). At most `crew.MaxTokens` active per
+  value is shown once. Revoking one closes its live connections in every
+  process (the hub tracks `Principal.Credential`; see crew across processes). At most `crew.MaxTokens` active per
   organization: `crewpg.Create` counts and inserts under a per-organization
   advisory lock (`tokenLock`). Token mode also accepts the optional
   static `SEAPORT_CREW_TOKEN`.

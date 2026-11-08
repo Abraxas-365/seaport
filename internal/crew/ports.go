@@ -46,3 +46,35 @@ type TokenRepository interface {
 type Disconnector interface {
 	Disconnect(organization identity.OrganizationID, token identity.CrewTokenID)
 }
+
+// Presence is the live connections of every process (crewpg): status,
+// quota and the reaping of a dead process's connections, plus the signals
+// processes send each other (wake, revoke).
+type Presence interface {
+	// Open records a connection before its handshake unless the
+	// organization already has limit open ones in any process (limit ≤ 0:
+	// unlimited; errx.QuotaExceeded). Count and insert are atomic.
+	Open(ctx context.Context, organization identity.OrganizationID, conn Connection, limit int) error
+	// Ready records the agent's hello (Status lists only ready ones).
+	Ready(ctx context.Context, organization identity.OrganizationID, session string, agent Agent) error
+	// SetDeliveries records what the connection is working on (status).
+	SetDeliveries(ctx context.Context, organization identity.OrganizationID, session string, deliveries []AgentDelivery) error
+	// Close forgets a connection.
+	Close(ctx context.Context, organization identity.OrganizationID, session string) error
+	// Status lists the organization's ready connections of every process.
+	Status(ctx context.Context, organization identity.OrganizationID) (Status, error)
+	// Touch marks a process's connections alive (system: keyed by the
+	// process) and returns those it must close: reaped meanwhile, or
+	// opened with a token since revoked.
+	Touch(ctx context.Context, process string, sessions []string) (close []string, err error)
+	// Reap deletes connections not touched for stale (by the database's
+	// clock, the one Touch writes), in every organization (system: a dead
+	// process's connections), and returns them.
+	Reap(ctx context.Context, stale time.Duration) ([]Reaped, error)
+	// Signal tells every process (system: the signal names its organization).
+	Signal(ctx context.Context, signal Signal) error
+	// Listen calls fn for every signal of any process until ctx ends, and
+	// connected after each (re)connect: signals sent meanwhile are lost
+	// (system: signals of every organization).
+	Listen(ctx context.Context, connected func(), fn func(Signal))
+}

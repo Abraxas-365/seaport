@@ -34,7 +34,7 @@ type Module struct {
 // New builds the crew module; maxConns bounds each organization's live
 // agent connections (≤ 0: unlimited).
 func New(db *sqlx.DB, lease time.Duration, mcpURL, version string, events event.Publisher, maxConns int) *Module {
-	hub := crewws.New(lease, mcpURL, events, maxConns)
+	hub := crewws.New(lease, mcpURL, events, maxConns, crewpg.NewPresence(db))
 	svc := crewsvc.New(crewpg.New(db), hub)
 	return &Module{Hub: hub, Tokens: svc, Resolver: crewhttp.Resolver{Tokens: svc},
 		tokens: crewhttp.New(svc, svc), version: version}

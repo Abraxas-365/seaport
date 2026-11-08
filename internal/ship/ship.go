@@ -167,12 +167,18 @@ type Delivery struct {
 type Claim struct {
 	// Owner names the claimer (logs, debugging).
 	Owner string
-	Lease time.Duration
+	// Session is the claiming connection; ReleaseSession puts back what it
+	// holds once it is gone.
+	Session string
+	Lease   time.Duration
 }
 
 func (c Claim) Validate() error {
 	if c.Lease < time.Second {
 		return errx.InvalidField("lease", "lease must be at least one second")
+	}
+	if err := text.Required("session", c.Session, text.MaxName); err != nil {
+		return err
 	}
 	return text.Optional("owner", c.Owner, text.MaxName)
 }

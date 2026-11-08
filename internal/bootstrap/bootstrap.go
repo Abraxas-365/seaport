@@ -40,7 +40,9 @@ var Version = "dev"
 type App struct {
 	Handler http.Handler
 	db      *sqlx.DB
+	lockDB  *sqlx.DB
 	bus     *event.Bus
+	crew    *crewmodule.Module
 	docks   *dockmodule.Module
 	ships   *shipmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
@@ -64,6 +66,24 @@ type Options struct {
 
 // OpenDB opens Postgres with session timeouts and UTC.
 func OpenDB(ctx context.Context, url string) (*sqlx.DB, error) {
+	return openDB(ctx, url, nil)
+}
+
+// openLockDB opens the small pool of session advisory locks (pglock):
+// no statement_timeout, since waiting for a lock is a statement (callers
+// bound it with their context).
+func openLockDB(ctx context.Context, url string) (*sqlx.DB, error) {
+	db, err := openDB(ctx, url, map[string]string{"statement_timeout": "0"})
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(10)
+	return db, nil
+}
+
+// openDB applies the default session parameters (the URL may set its
+// own) and then force (always).
+func openDB(ctx context.Context, url string, force map[string]string) (*sqlx.DB, error) {
 	cfg, err := pgx.ParseConfig(url)
 	if err != nil {
 		return nil, errx.Wrap(err, "parse DATABASE_URL", errx.TypeValidation)
@@ -73,6 +93,9 @@ func OpenDB(ctx context.Context, url string) (*sqlx.DB, error) {
 		if _, ok := cfg.RuntimeParams[k]; !ok {
 			cfg.RuntimeParams[k] = v
 		}
+	}
+	for k, v := range force {
+		cfg.RuntimeParams[k] = v
 	}
 	db := sqlx.NewDb(stdlib.OpenDB(*cfg), "pgx")
 	db.SetMaxOpenConns(20)
@@ -114,25 +137,33 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		lease = config.ClaimLease
 	}
 
-	// Started here, so a port that can't read its event log doesn't start.
-	bus := event.NewBus(eventpg.New(db))
-	if err := bus.Start(ctx); err != nil {
+	// Session advisory locks (per-dock customs) hold a connection while the
+	// work runs on db: a pool of their own can't starve it.
+	lockDB, err := openLockDB(ctx, cfg.DatabaseURL)
+	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	convs := conversationmodule.New(db, bus)
+	closeDBs := func() { _ = lockDB.Close(); _ = db.Close() }
+	// Started here, so a port that can't read its event log doesn't start.
+	bus := event.NewBus(eventpg.New(db))
+	if err := bus.Start(ctx); err != nil {
+		closeDBs()
+		return nil, err
+	}
+	convs := conversationmodule.New(db, lockDB.DB, bus)
 	var secretKey string
 	if !opts.DisableWhatsApp {
 		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
 			bus.Close()
-			_ = db.Close()
+			closeDBs()
 			return nil, err
 		}
 	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
 	if err != nil {
 		bus.Close()
-		_ = db.Close()
+		closeDBs()
 		return nil, err
 	}
 	crew := crewmodule.New(db, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
@@ -152,7 +183,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			if signIn, err = authmodule.New(db, cfg, crew.Resolver); err != nil {
 				docks.Close()
 				bus.Close()
-				_ = db.Close()
+				closeDBs()
 				return nil, err
 			}
 			auth = signIn.Authenticator
@@ -202,7 +233,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, bus: bus, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
+	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -228,14 +259,13 @@ func publicConfig(cfg config.Server) http.Handler {
 	})
 }
 
-// Start reconnects linked docks, requeues claims left by a previous process
-// and starts the lease sweeper. It returns when ctx ends.
+// Start reconnects linked docks and starts the crew hub (signals, presence,
+// reaping a stopped process's connections) and the sweepers. It returns at
+// once; they run until ctx ends or Close. Claims of other processes are
+// left alone: a stopped process's are released by the reaper (or their
+// lease).
 func (a *App) Start(ctx context.Context) {
-	if n, err := a.ships.Service.ReleaseExpired(ctx, time.Now().Add(100*365*24*time.Hour)); err != nil {
-		slog.Error("requeue claims at start", "err", err)
-	} else if n > 0 {
-		slog.Info("requeued claims left by a previous run", "ships", n)
-	}
+	a.crew.Hub.Start(ctx)
 	if err := a.docks.Service.RestoreAll(ctx); err != nil {
 		slog.Error("restore docks", "err", err)
 	}
@@ -264,8 +294,12 @@ func (a *App) Start(ctx context.Context) {
 // Close releases the database and gateways.
 func (a *App) Close() {
 	a.stopOnce()
+	// First: connections release their deliveries (other processes take
+	// them at once), which needs the database and the bus.
+	a.crew.Hub.Close()
 	a.docks.Close()
 	a.bus.Close()
+	_ = a.lockDB.Close()
 	_ = a.db.Close()
 }
 

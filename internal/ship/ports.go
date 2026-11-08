@@ -32,8 +32,10 @@ type Commands interface {
 	Ack(ctx context.Context, organization identity.OrganizationID, input Ack) error
 	// Release puts a delivery's ships back in the queue.
 	Release(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID) error
-	// ReleaseExpired requeues every delivery whose lease ended (all of them
-	// when before is far in the future, e.g. on start), in every
+	// ReleaseSession puts back every ship claimed by a connection
+	// (Claim.Session) that is gone, and says how many.
+	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
+	// ReleaseExpired requeues every delivery whose lease ended, in every
 	// organization (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (int, error)
 	// Send delivers a reply to an allowed conversation.
@@ -60,12 +62,15 @@ type Repository interface {
 	// atomic per dock, so concurrent replies can't overshoot a limit.
 	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, dock identity.DockID, externalID string, admit func(OutboundCounts) error) (Ship, error)
 	SetOutcome(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, status Status, errMsg string) (Ship, error)
-	Claim(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
+	// Claim records session as the ships' holder; Join gives joined ships
+	// the delivery's holder.
+	Claim(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, session string, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
 	Join(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
 	Extend(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) error
 	// Ack returns how many unnamed claimed ships went back to the queue.
 	Ack(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, handled []identity.ShipID) (requeued int, err error)
 	Release(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID) error
+	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
 	// ReleaseExpired spans every organization and reports the requeued
 	// ships of each (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)

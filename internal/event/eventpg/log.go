@@ -1,24 +1,20 @@
 // Package eventpg is the Postgres event log: appends are serialized (an
 // advisory lock held to commit, so ids become visible in id order and a
 // reader that remembers the last id never skips one) and announced with
-// NOTIFY; every process LISTENs on a dedicated connection. Payloads are
+// NOTIFY; every process LISTENs (pglisten). Payloads are
 // stored in clear: publishers keep secrets (pairing QRs) out of events.
 package eventpg
 
 import (
 	"context"
-	"database/sql/driver"
 	"encoding/json"
-	"fmt"
-	"log/slog"
 	"strconv"
 	"time"
 
-	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
-	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/Abraxas-365/seaport/internal/pglisten"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -26,9 +22,6 @@ import (
 const appendLock = 7_401_005
 
 const channel = "seaport_events"
-
-// retry is the pause before re-listening after the connection broke.
-const retry = time.Second
 
 // sweepBatch bounds one retention DELETE (statement_timeout).
 const sweepBatch = 5000
@@ -135,49 +128,9 @@ func (l *Log) Sweep(ctx context.Context, before time.Time) (int64, error) {
 	}
 }
 
-// Listen holds one connection of the pool for LISTEN; when it breaks it
-// reconnects (and wakes: notifications may have been missed). A silently
-// dead connection may block it for long; the bus's poll covers that.
+// Listen wakes on every append of any process (and after reconnecting).
 func (l *Log) Listen(ctx context.Context, wake func()) {
-	for ctx.Err() == nil {
-		err := l.listenOnce(ctx, wake)
-		if ctx.Err() != nil {
-			return
-		}
-		slog.Warn("event listener reconnecting", "err", err)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(retry):
-		}
-	}
-}
-
-func (l *Log) listenOnce(ctx context.Context, wake func()) error {
-	conn, err := l.db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = conn.Close() }()
-	return conn.Raw(func(driverConn any) error {
-		sc, ok := driverConn.(*stdlib.Conn)
-		if !ok {
-			return errx.Internal("event listener needs the pgx driver")
-		}
-		pc := sc.Conn()
-		// Never hand a listening (or interrupted) connection back to the
-		// pool: an error wrapping ErrBadConn makes database/sql discard it.
-		if _, err := pc.Exec(ctx, "LISTEN "+channel); err != nil {
-			return fmt.Errorf("listen: %w (%w)", err, driver.ErrBadConn)
-		}
-		wake()
-		for {
-			if _, err := pc.WaitForNotification(ctx); err != nil {
-				return fmt.Errorf("wait for notification: %w (%w)", err, driver.ErrBadConn)
-			}
-			wake()
-		}
-	})
+	pglisten.Listen(ctx, l.db.DB, channel, wake, func(string) { wake() })
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

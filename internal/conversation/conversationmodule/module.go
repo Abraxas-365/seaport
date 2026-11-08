@@ -2,6 +2,7 @@
 package conversationmodule
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/conversation/adapters/conversationhttp"
@@ -16,8 +17,11 @@ type Module struct {
 	http    *conversationhttp.Handler
 }
 
-func New(db *sqlx.DB, events event.Publisher) *Module {
-	svc := conversationsvc.New(conversationpg.New(db), conversationpg.NewCustoms(db), events)
+// New builds the module; lockDB is a pool of its own for the per-dock
+// customs locks (they span the work done on db).
+func New(db *sqlx.DB, lockDB *sql.DB, events event.Publisher) *Module {
+	svc := conversationsvc.New(conversationpg.New(db), conversationpg.NewCustoms(db),
+		conversationpg.NewDockLocker(lockDB), events)
 	return &Module{Service: svc, http: conversationhttp.New(svc, svc, svc, svc)}
 }
 

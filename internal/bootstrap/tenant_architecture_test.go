@@ -22,6 +22,7 @@ var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
+	"Presence": true, "DockLocker": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.
@@ -37,8 +38,12 @@ var systemWide = map[string]string{
 	"crew.TokenCommands.Authenticate": "a crew token value names its organization (agent sign-in)",
 	"crew.TokenRepository.FindByHash": "a crew token value names its organization (agent sign-in)",
 	"crew.TokenRepository.Touch":      "records a use of the token just authenticated (keyed by its id)",
-	"ship.Commands.ReleaseExpired":    "lease sweeper and process start requeue every organization",
-	"ship.Repository.ReleaseExpired":  "lease sweeper and process start requeue every organization",
+	"ship.Commands.ReleaseExpired":    "lease sweeper requeues every organization",
+	"ship.Repository.ReleaseExpired":  "lease sweeper requeues every organization",
+	"crew.Presence.Touch":             "a process keeps its own connections alive (keyed by process)",
+	"crew.Presence.Reap":              "any process reaps a dead process's connections, of every organization",
+	"crew.Presence.Signal":            "a cross-process signal; the signal names its organization",
+	"crew.Presence.Listen":            "a process listens to the signals of every organization",
 }
 
 func tenantViolations(files []goFile) []string {

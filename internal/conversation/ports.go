@@ -62,3 +62,11 @@ type CustomsRepository interface {
 	RemoveRule(ctx context.Context, organization identity.OrganizationID, rule identity.RuleID) (Rule, error)
 	CountRules(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (int, error)
 }
+
+// DockLocker serializes the customs decisions of one dock across
+// processes, so a status computed from old rules can't land after a rule
+// change re-decided the dock.
+type DockLocker interface {
+	// Lock waits for the dock's lock and returns its release.
+	Lock(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (unlock func(), err error)
+}

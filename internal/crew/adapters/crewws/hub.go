@@ -2,6 +2,12 @@
 // claims deliveries for each connection up to its concurrency, pushes them,
 // and turns acks/releases/disconnects into ship commands. It is the ship
 // domain's Notifier.
+//
+// Several processes may serve one database: every connection is recorded
+// in crew.Presence (status and quota span processes), wakes and revokes
+// are signalled to every process, and each process keeps its connections
+// alive (touch) and reaps those of dead processes, releasing their
+// deliveries.
 package crewws
 
 import (
@@ -12,7 +18,6 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,12 +34,28 @@ import (
 // opTimeout bounds one ship command run for a connection.
 const opTimeout = 15 * time.Second
 
+// maxTouch is the longest pause between two touches of a process's
+// connections; a connection untouched for staleTouches periods is a dead
+// process's and gets reaped.
+const (
+	maxTouch     = 10 * time.Second
+	staleTouches = 3
+)
+
+// closeWait bounds Close waiting for connections to release their work.
+const closeWait = 5 * time.Second
+
 type Hub struct {
 	lease  time.Duration
 	mcpURL string
 	events event.Publisher
-	// maxConns bounds each organization's live connections (≤ 0: unlimited).
+	// maxConns bounds each organization's live connections, across
+	// processes (≤ 0: unlimited).
 	maxConns int
+	presence crew.Presence
+	// process names this process in crew.Presence and its signals.
+	process string
+	touch   time.Duration
 
 	mu    sync.Mutex
 	ships ship.Commands
@@ -42,12 +63,27 @@ type Hub struct {
 	// opening are connections still in their hello handshake (not yet in
 	// conns): a revoke must close them too.
 	opening map[*pending]struct{}
+	closing bool
+
+	serving sync.WaitGroup // ServeHTTP calls in progress
+	stop    context.CancelFunc
+	done    sync.WaitGroup // Start's goroutines
+
+	// outbox coalesces signals for the other processes; one goroutine
+	// sends them, so Notify and Disconnect never wait on the database.
+	outboxMu sync.Mutex
+	outbox   map[crew.Signal]struct{}
+	kick     chan struct{}
+	// unreleased are reaped sessions whose claims could not be released
+	// yet (retried on the next reap).
+	unreleased map[crew.Reaped]struct{}
 }
 
 // pending is a connection before its hello: enough for Disconnect.
 type pending struct {
 	organization identity.OrganizationID
 	credential   string
+	session      string
 	cancel       context.CancelFunc
 }
 
@@ -72,6 +108,9 @@ type conn struct {
 	mu sync.Mutex
 	// inFlight maps each open delivery to what was pushed for it.
 	inFlight map[identity.DeliveryID]*tracked
+	// recording serializes reading inFlight and writing it to crew.Presence,
+	// so an older snapshot never lands after a newer one.
+	recording sync.Mutex
 }
 
 // tracked is an open delivery on a connection. ships are the ships pushed
@@ -83,48 +122,43 @@ type tracked struct {
 	since        time.Time
 }
 
-func New(lease time.Duration, mcpURL string, events event.Publisher, maxConns int) *Hub {
+// New builds the hub; a delivery lease is lease, and connections are
+// touched every lease/4 (at most maxTouch).
+func New(lease time.Duration, mcpURL string, events event.Publisher, maxConns int, presence crew.Presence) *Hub {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Hub{lease: lease, mcpURL: mcpURL, events: events, maxConns: maxConns,
-		conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{}}
+	return &Hub{lease: lease, mcpURL: mcpURL, events: events, maxConns: maxConns, presence: presence,
+		process: newSession(), touch: min(lease/4, maxTouch),
+		conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{},
+		outbox: map[crew.Signal]struct{}{}, kick: make(chan struct{}, 1), unreleased: map[crew.Reaped]struct{}{}}
 }
 
-// Status lists an organization's connected agents and their deliveries in
-// flight.
-func (h *Hub) Status(org identity.OrganizationID) crew.Status {
-	h.mu.Lock()
-	conns := make([]*conn, 0, len(h.conns))
-	for c := range h.conns {
-		if c.organization == org {
-			conns = append(conns, c)
-		}
-	}
-	h.mu.Unlock()
-	out := crew.Status{Agents: make([]crew.Agent, 0, len(conns))}
-	for _, c := range conns {
-		out.Agents = append(out.Agents, c.status())
-	}
-	slices.SortFunc(out.Agents, func(a, b crew.Agent) int {
-		if c := a.ConnectedAt.Compare(b.ConnectedAt); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Session, b.Session)
-	})
-	return out
+// Status lists an organization's connected agents (of every process) and
+// their deliveries in flight.
+func (h *Hub) Status(ctx context.Context, org identity.OrganizationID) (crew.Status, error) {
+	return h.presence.Status(ctx, org)
 }
 
-func (c *conn) status() crew.Agent {
+func (c *conn) agentInfo() crew.Agent {
+	return crew.Agent{Session: c.session, Name: c.agent, Concurrency: c.concurrency, Steer: c.steer}
+}
+
+// deliveryList is what the connection works on (for crew.Presence).
+func (c *conn) deliveryList() []crew.AgentDelivery {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	a := crew.Agent{Session: c.session, Name: c.agent, Concurrency: c.concurrency, Steer: c.steer,
-		Remote: c.remote, ConnectedAt: c.connectedAt, Deliveries: make([]crew.AgentDelivery, 0, len(c.inFlight))}
+	out := make([]crew.AgentDelivery, 0, len(c.inFlight))
 	for id, t := range c.inFlight {
-		a.Deliveries = append(a.Deliveries, crew.AgentDelivery{ID: id, Conversation: t.conversation, Ships: len(t.ships), Since: t.since})
+		out = append(out, crew.AgentDelivery{ID: id, Conversation: t.conversation, Ships: len(t.ships), Since: t.since})
 	}
-	slices.SortFunc(a.Deliveries, func(x, y crew.AgentDelivery) int { return x.Since.Compare(y.Since) })
-	return a
+	slices.SortFunc(out, func(x, y crew.AgentDelivery) int {
+		if c := x.Since.Compare(y.Since); c != 0 {
+			return c
+		}
+		return strings.Compare(x.ID.String(), y.ID.String())
+	})
+	return out
 }
 
 // StatusHandler answers GET /api/v1/crew (admin).
@@ -134,14 +168,207 @@ func (h *Hub) StatusHandler() http.Handler {
 		if err != nil {
 			return err
 		}
-		return httpx.JSON(w, http.StatusOK, h.Status(org))
+		st, err := h.Status(r.Context(), org)
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(w, http.StatusOK, st)
 	})
+}
+
+// Start listens to the other processes' signals and keeps this process's
+// connections alive (reaping dead processes') until ctx ends or Close.
+func (h *Hub) Start(ctx context.Context) {
+	ctx, h.stop = context.WithCancel(ctx)
+	h.done.Add(4)
+	go func() {
+		defer h.done.Done()
+		// Signals sent while not listening are lost: every (re)connect
+		// wakes every local connection (they find what was queued).
+		h.presence.Listen(ctx, h.wakeAll, h.signal)
+	}()
+	go func() {
+		defer h.done.Done()
+		h.sender(ctx)
+	}()
+	// Touching never waits behind reaping, so a slow reap can't age this
+	// process's own rows toward the stale limit.
+	go func() {
+		defer h.done.Done()
+		every(ctx, h.touch, h.keepAlive)
+	}()
+	go func() {
+		defer h.done.Done()
+		every(ctx, h.touch, h.reap)
+	}()
+}
+
+func every(ctx context.Context, d time.Duration, fn func(context.Context)) {
+	t := time.NewTicker(d)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			fn(ctx)
+		}
+	}
+}
+
+// Close closes this process's connections (they release their
+// deliveries, so other processes take them at once) and stops the hub.
+func (h *Hub) Close() {
+	h.mu.Lock()
+	h.closing = true
+	for c := range h.conns {
+		c.cancel()
+	}
+	for o := range h.opening {
+		o.cancel()
+	}
+	h.mu.Unlock()
+	served := make(chan struct{})
+	go func() { h.serving.Wait(); close(served) }()
+	select {
+	case <-served:
+	case <-time.After(closeWait):
+		slog.Warn("crew connections still closing")
+	}
+	if h.stop != nil {
+		h.stop()
+		h.done.Wait()
+	}
+}
+
+// keepAlive touches this process's connections and closes those it must
+// (reaped, or revoked elsewhere).
+func (h *Hub) keepAlive(ctx context.Context) {
+	opCtx, cancel := context.WithTimeout(ctx, h.touch)
+	defer cancel()
+	h.mu.Lock()
+	byID := map[string]context.CancelFunc{}
+	for c := range h.conns {
+		byID[c.session] = c.cancel
+	}
+	for o := range h.opening {
+		byID[o.session] = o.cancel
+	}
+	h.mu.Unlock()
+	sessions := make([]string, 0, len(byID))
+	for s := range byID {
+		sessions = append(sessions, s)
+	}
+	closing, err := h.presence.Touch(opCtx, h.process, sessions)
+	if err != nil {
+		slog.Error("touch crew connections", "err", err)
+		return
+	}
+	for _, s := range closing {
+		if cancel, ok := byID[s]; ok {
+			slog.Info("closing crew connection (revoked or reaped)", "session", s)
+			cancel()
+		}
+	}
+}
+
+// reap forgets dead processes' connections and requeues what they held.
+func (h *Hub) reap(ctx context.Context) {
+	opCtx, cancel := context.WithTimeout(ctx, opTimeout)
+	defer cancel()
+	reaped, err := h.presence.Reap(opCtx, staleTouches*h.touch)
+	if err != nil {
+		slog.Error("reap crew connections", "err", err)
+		return
+	}
+	for _, r := range reaped {
+		slog.Info("reaped crew connection of a stopped process", "organization", r.Organization, "session", r.Session)
+		h.unreleased[r] = struct{}{}
+	}
+	changed := map[identity.OrganizationID]bool{}
+	for r := range h.unreleased {
+		// Requeues and wakes every process; a failure is retried on the
+		// next round (and the lease ends it at worst).
+		if _, err := h.commands().ReleaseSession(opCtx, r.Organization, r.Session); err != nil {
+			slog.Error("release deliveries of reaped connection", "session", r.Session, "err", err)
+			continue
+		}
+		delete(h.unreleased, r)
+		changed[r.Organization] = true
+	}
+	for org := range changed {
+		h.changed(org)
+	}
+}
+
+// wakeAll wakes every local connection.
+func (h *Hub) wakeAll() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns {
+		c.poke()
+	}
+}
+
+// signal acts on another process's signal.
+func (h *Hub) signal(s crew.Signal) {
+	if s.From == h.process {
+		return // acted locally already
+	}
+	switch s.Kind {
+	case crew.SignalWake:
+		h.wakeLocal(s.Organization)
+	case crew.SignalRevoke:
+		h.disconnectLocal(s.Organization, s.Token)
+	}
+}
+
+// send queues a signal for the other processes (coalesced: one wake per
+// organization is enough).
+func (h *Hub) send(s crew.Signal) {
+	s.From = h.process
+	h.outboxMu.Lock()
+	h.outbox[s] = struct{}{}
+	h.outboxMu.Unlock()
+	select {
+	case h.kick <- struct{}{}:
+	default:
+	}
+}
+
+// sender sends queued signals until ctx ends. A lost revoke is caught by
+// the next touch; a lost wake by the claim tick.
+func (h *Hub) sender(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-h.kick:
+		}
+		h.outboxMu.Lock()
+		batch := h.outbox
+		h.outbox = map[crew.Signal]struct{}{}
+		h.outboxMu.Unlock()
+		for s := range batch {
+			sctx, cancel := context.WithTimeout(ctx, opTimeout)
+			if err := h.presence.Signal(sctx, s); err != nil {
+				slog.Error("signal crew processes", "kind", s.Kind, "err", err)
+			}
+			cancel()
+		}
+	}
 }
 
 var _ crew.Disconnector = (*Hub)(nil)
 
-// Disconnect closes the organization's connections opened with the token.
+// Disconnect closes the organization's connections opened with the
+// token, in every process (the touch backstops a lost signal).
 func (h *Hub) Disconnect(org identity.OrganizationID, token identity.CrewTokenID) {
+	h.disconnectLocal(org, token)
+	h.send(crew.Signal{Kind: crew.SignalRevoke, Organization: org, Token: token})
+}
+
+func (h *Hub) disconnectLocal(org identity.OrganizationID, token identity.CrewTokenID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
@@ -159,7 +386,28 @@ func (h *Hub) Disconnect(org identity.OrganizationID, token identity.CrewTokenID
 
 // changed announces an organization's new crew state.
 func (h *Hub) changed(org identity.OrganizationID) {
-	h.events.Publish(org, crew.EventChanged, h.Status(org))
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+	st, err := h.Status(ctx, org)
+	if err != nil {
+		slog.Error("crew status", "err", err)
+		return
+	}
+	h.events.Publish(org, crew.EventChanged, st)
+}
+
+// working records a connection's deliveries (shown in the status; what
+// to release is on the ships themselves) and announces the change.
+func (h *Hub) working(c *conn) {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+	c.recording.Lock()
+	err := h.presence.SetDeliveries(ctx, c.organization, c.session, c.deliveryList())
+	c.recording.Unlock()
+	if err != nil {
+		slog.Error("record crew deliveries", "session", c.session, "err", err)
+	}
+	h.changed(c.organization)
 }
 
 func newSession() string {
@@ -180,8 +428,14 @@ func (h *Hub) Bind(ships ship.Commands) {
 	h.mu.Unlock()
 }
 
-// Notify wakes an organization's connections so they try to claim.
+// Notify wakes an organization's connections, in every process, so they
+// try to claim.
 func (h *Hub) Notify(org identity.OrganizationID) {
+	h.wakeLocal(org)
+	h.send(crew.Signal{Kind: crew.SignalWake, Organization: org})
+}
+
+func (h *Hub) wakeLocal(org identity.OrganizationID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
@@ -201,22 +455,6 @@ func (h *Hub) commands() ship.Commands {
 	return h.ships
 }
 
-// countLocked counts an organization's open and opening connections.
-func (h *Hub) countLocked(org identity.OrganizationID) int {
-	n := 0
-	for c := range h.conns {
-		if c.organization == org {
-			n++
-		}
-	}
-	for o := range h.opening {
-		if o.organization == org {
-			n++
-		}
-	}
-	return n
-}
-
 // ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
 // principal): the connection belongs to the principal's organization.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -230,16 +468,43 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	org := p.Organization
+	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		httpx.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
+		return
+	}
+	h.serving.Add(1)
+	h.mu.Unlock()
+	defer h.serving.Done()
 	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
 	defer cancel()
-	// Tracked from here, so a revoke during the handshake closes it too;
-	// the quota counts open and opening connections under the same lock.
-	open := &pending{organization: org, credential: p.Credential, cancel: cancel}
+	// Recorded before the upgrade: the quota counts open and opening
+	// connections of every process.
+	session := newSession()
+	connectedAt := time.Now().UTC()
+	if err := h.presence.Open(r.Context(), org, crew.Connection{Session: session, Process: h.process,
+		Credential: p.Credential, Remote: r.RemoteAddr, ConnectedAt: connectedAt}, h.maxConns); err != nil {
+		httpx.WriteError(w, r, err)
+		return
+	}
+	dropped := false // from then on drop owns the row (it may keep it for the reaper)
+	defer func() {
+		if dropped {
+			return
+		}
+		cctx, ccancel := context.WithTimeout(context.Background(), opTimeout)
+		defer ccancel()
+		if err := h.presence.Close(cctx, org, session); err != nil {
+			slog.Error("forget crew connection", "session", session, "err", err)
+		}
+	}()
+	// Tracked from here, so a revoke during the handshake closes it too.
+	open := &pending{organization: org, credential: p.Credential, session: session, cancel: cancel}
 	h.mu.Lock()
-	if h.maxConns > 0 && h.countLocked(org) >= h.maxConns {
+	if h.closing { // Close swept while Open ran
 		h.mu.Unlock()
-		httpx.WriteError(w, r, errx.QuotaExceeded("crew_connections", h.maxConns, "this organization already has "+
-			strconv.Itoa(h.maxConns)+" agents connected; disconnect one first"))
+		httpx.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
 		return
 	}
 	h.opening[open] = struct{}{}
@@ -269,7 +534,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = ws.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
-	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: newSession(), remote: r.RemoteAddr, connectedAt: time.Now().UTC(),
+	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: session, remote: r.RemoteAddr, connectedAt: connectedAt,
 		agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
 
@@ -277,16 +542,22 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	delete(h.opening, open)
 	opened = true
-	if ctx.Err() != nil { // revoked or expired during the handshake
+	if ctx.Err() != nil || h.closing { // revoked, expired or shutting down during the handshake
 		h.mu.Unlock()
 		_ = ws.Close(websocket.StatusPolicyViolation, "the crew token is no longer valid")
 		return
 	}
 	h.conns[c] = struct{}{}
 	h.mu.Unlock()
+	dropped = true
+	defer h.drop(c)
+	if err := h.presence.Ready(ctx, org, session, c.agentInfo()); err != nil {
+		slog.Error("record crew connection", "session", session, "err", err)
+		_ = ws.Close(websocket.StatusInternalError, "try again")
+		return
+	}
 	slog.Info("crew connected", "organization", org, "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
 	h.changed(org)
-	defer h.drop(c)
 
 	go c.writer(ctx, cancel)
 	c.send <- crew.Frame{Type: crew.FrameWelcome, MCPURL: h.mcpURL}
@@ -383,7 +654,7 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 			err = ships.Release(opCtx, c.organization, *f.DeliveryID)
 		}
 		c.forget(*f.DeliveryID)
-		h.changed(c.organization)
+		h.working(c)
 		c.poke()
 		return err
 	case crew.FrameReply:
@@ -425,7 +696,7 @@ func (h *Hub) claimer(ctx context.Context, c *conn) {
 				break
 			}
 			c.track(d)
-			h.changed(c.organization)
+			h.working(c)
 			if !c.push(ctx, crew.Frame{Type: crew.FrameDelivery, Delivery: &d}) {
 				return
 			}
@@ -454,7 +725,7 @@ func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 			// claimed ships. The steer is just dropped.
 			continue
 		}
-		h.changed(c.organization)
+		h.working(c)
 		if !c.push(ctx, crew.Frame{Type: crew.FrameSteer, Delivery: &d}) {
 			return false
 		}
@@ -465,7 +736,7 @@ func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 func (h *Hub) claim(ctx context.Context, c *conn) (ship.Delivery, bool, error) {
 	opCtx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
-	return h.commands().Claim(opCtx, c.organization, ship.Claim{Owner: c.agent, Lease: h.lease})
+	return h.commands().Claim(opCtx, c.organization, ship.Claim{Owner: c.agent, Session: c.session, Lease: h.lease})
 }
 
 // leaseKeeper extends the leases of a live connection's deliveries, so a
@@ -501,6 +772,16 @@ func (h *Hub) drop(c *conn) {
 		if err := h.commands().Release(ctx, c.organization, id); err != nil && !errx.IsType(err, errx.TypeNotFound) {
 			slog.Error("release delivery of closed connection", "delivery", id, "err", err)
 		}
+	}
+	// And any claim it never tracked (committed as the connection closed).
+	if _, err := h.commands().ReleaseSession(ctx, c.organization, c.session); err != nil {
+		// Its row stays: the reaper retries once the touches stop.
+		slog.Error("release deliveries of closed connection", "session", c.session, "err", err)
+		h.changed(c.organization)
+		return
+	}
+	if err := h.presence.Close(ctx, c.organization, c.session); err != nil {
+		slog.Error("forget crew connection", "session", c.session, "err", err)
 	}
 	slog.Info("crew disconnected", "organization", c.organization, "agent", c.agent)
 	h.changed(c.organization)

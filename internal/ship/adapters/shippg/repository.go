@@ -118,7 +118,7 @@ func (r *Repository) SetOutcome(ctx context.Context, org identity.OrganizationID
 	return s, pgerr.MapWith(err, "set ship outcome", messages)
 }
 
-func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (identity.ConversationID, []ship.Ship, error) {
+func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, delivery identity.DeliveryID, session string, until time.Time) (identity.ConversationID, []ship.Ship, error) {
 	var conv identity.ConversationID
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -144,10 +144,10 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, del
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH claimed AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $5
 			WHERE organization_id = $4 AND conversation_id = $1 AND status = 'queued'
 			RETURNING `+columns+`)
-		SELECT * FROM claimed ORDER BY sent_at, created_at, id`, conv, delivery, until, org)
+		SELECT * FROM claimed ORDER BY sent_at, created_at, id`, conv, delivery, until, org, session)
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "claim ships")
 	}
@@ -169,8 +169,13 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, claimLock, org); err != nil {
 		return conv, nil, pgerr.Map(err, "lock claims")
 	}
-	err = tx.GetContext(ctx, &conv, `SELECT conversation_id FROM ships
+	var open struct {
+		Conversation identity.ConversationID `db:"conversation_id"`
+		Session      string                  `db:"claimed_by"`
+	}
+	err = tx.GetContext(ctx, &open, `SELECT conversation_id, claimed_by FROM ships
 		WHERE organization_id = $1 AND delivery_id = $2 AND status = 'claimed' LIMIT 1`, org, delivery)
+	conv = open.Conversation
 	if pgerr.IsNoRows(err) {
 		return conv, nil, nil // closed (acked, released or expired)
 	}
@@ -180,10 +185,10 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH joined AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $5
 			WHERE organization_id = $4 AND conversation_id = $1 AND status = 'queued'
 			RETURNING `+columns+`)
-		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org)
+		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org, open.Session)
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "join ships")
 	}
@@ -215,7 +220,7 @@ func (r *Repository) Ack(ctx context.Context, org identity.OrganizationID, deliv
 		return 0, pgerr.Map(err, "begin ack")
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx, `UPDATE ships SET status = 'handled', claimed_until = NULL
+	res, err := tx.ExecContext(ctx, `UPDATE ships SET status = 'handled', claimed_until = NULL, claimed_by = NULL
 		WHERE delivery_id = $1 AND status = 'claimed' AND id = ANY($2::uuid[]) AND organization_id = $3`, delivery, ids, org)
 	if err != nil {
 		return 0, pgerr.Map(err, "ack ships")
@@ -224,7 +229,7 @@ func (r *Repository) Ack(ctx context.Context, org identity.OrganizationID, deliv
 		return 0, pgerr.MapWith(pgerr.ErrNoRows, "ack delivery", pgerr.Messages{NotFound: "delivery not found or no longer claimed"})
 	}
 	// Ships joined after the agent's turn ended were never seen: requeue.
-	res, err = tx.ExecContext(ctx, `UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL
+	res, err = tx.ExecContext(ctx, `UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL
 		WHERE organization_id = $2 AND delivery_id = $1 AND status = 'claimed'`, delivery, org)
 	if err != nil {
 		return 0, pgerr.Map(err, "requeue unhandled ships")
@@ -238,8 +243,18 @@ func (r *Repository) Ack(ctx context.Context, org identity.OrganizationID, deliv
 
 func (r *Repository) Release(ctx context.Context, org identity.OrganizationID, delivery identity.DeliveryID) error {
 	return r.execDelivery(ctx, "release delivery",
-		`UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL
+		`UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL
 		 WHERE delivery_id = $1 AND status = 'claimed' AND organization_id = $2`, delivery, org)
+}
+
+func (r *Repository) ReleaseSession(ctx context.Context, org identity.OrganizationID, session string) (int, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL
+		WHERE organization_id = $1 AND claimed_by = $2 AND status = 'claimed'`, org, session)
+	if err != nil {
+		return 0, pgerr.Map(err, "release session")
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 func (r *Repository) ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error) {
@@ -249,7 +264,7 @@ func (r *Repository) ReleaseExpired(ctx context.Context, before time.Time) (map[
 	}
 	err := r.db.SelectContext(ctx, &rows, `
 		WITH released AS (
-			UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL
+			UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL
 			WHERE status = 'claimed' AND claimed_until < $1
 			RETURNING organization_id)
 		SELECT organization_id, count(*) AS n FROM released GROUP BY organization_id`, before)

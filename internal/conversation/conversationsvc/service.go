@@ -6,7 +6,6 @@ import (
 	"context"
 	"log/slog"
 	"strings"
-	"sync"
 
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -21,17 +20,15 @@ type Service struct {
 	customs conversation.CustomsRepository
 	events  event.Publisher
 
-	// locks serializes customs decisions per dock, so a status computed
-	// from old rules can't land after a rule change re-decided the dock.
-	mu    sync.Mutex
-	locks map[identity.DockID]*sync.Mutex
+	// locks serializes customs decisions per dock (in every process).
+	locks conversation.DockLocker
 }
 
-func New(repo conversation.Repository, customs conversation.CustomsRepository, events event.Publisher) *Service {
+func New(repo conversation.Repository, customs conversation.CustomsRepository, locks conversation.DockLocker, events event.Publisher) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Service{repo: repo, customs: customs, events: events, locks: map[identity.DockID]*sync.Mutex{}}
+	return &Service{repo: repo, customs: customs, locks: locks, events: events}
 }
 
 var (
@@ -41,16 +38,12 @@ var (
 	_ conversation.CustomsQueries  = (*Service)(nil)
 )
 
-func (s *Service) lock(dock identity.DockID) func() {
-	s.mu.Lock()
-	l, ok := s.locks[dock]
-	if !ok {
-		l = &sync.Mutex{}
-		s.locks[dock] = l
+func (s *Service) lock(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (func(), error) {
+	unlock, err := s.locks.Lock(ctx, org, dock)
+	if err != nil {
+		return nil, errx.Wrap(err, "lock dock customs", errx.TypeInternal)
 	}
-	s.mu.Unlock()
-	l.Lock()
-	return l.Unlock
+	return unlock, nil
 }
 
 func (s *Service) Arrive(ctx context.Context, org identity.OrganizationID, input conversation.Arrive) (conversation.Arrival, error) {
@@ -63,7 +56,11 @@ func (s *Service) Arrive(ctx context.Context, org identity.OrganizationID, input
 	chat.Handles = conversation.CleanHandles(append(chat.Handles, chat.ExternalID))
 	senders := conversation.CleanHandles(input.Senders)
 
-	defer s.lock(chat.Dock)()
+	unlock, err := s.lock(ctx, org, chat.Dock)
+	if err != nil {
+		return conversation.Arrival{}, err
+	}
+	defer unlock()
 	customs, err := s.load(ctx, org, chat.Dock)
 	if err != nil {
 		return conversation.Arrival{}, err
@@ -105,7 +102,11 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 	if input.GroupMode != nil && *input.GroupMode != conversation.GroupInherit && current.Kind != conversation.KindGroup {
 		return conversation.Conversation{}, errx.InvalidField("group_mode", "group_mode only applies to groups")
 	}
-	defer s.lock(current.Dock)()
+	unlock, err := s.lock(ctx, org, current.Dock)
+	if err != nil {
+		return conversation.Conversation{}, err
+	}
+	defer unlock()
 	c, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {
 		return conversation.Conversation{}, errx.Wrap(err, "update conversation", errx.TypeInternal)
@@ -166,7 +167,11 @@ func (s *Service) SetPolicy(ctx context.Context, org identity.OrganizationID, do
 	if dock.IsZero() {
 		return conversation.Customs{}, errx.InvalidField("dock_id", "dock_id is required")
 	}
-	defer s.lock(dock)()
+	unlock, err := s.lock(ctx, org, dock)
+	if err != nil {
+		return conversation.Customs{}, err
+	}
+	defer unlock()
 	customs, err := s.load(ctx, org, dock)
 	if err != nil {
 		return conversation.Customs{}, err
@@ -187,7 +192,11 @@ func (s *Service) AddRule(ctx context.Context, org identity.OrganizationID, inpu
 	if err := input.Validate(); err != nil {
 		return conversation.Rule{}, err
 	}
-	defer s.lock(input.Dock)()
+	unlock, err := s.lock(ctx, org, input.Dock)
+	if err != nil {
+		return conversation.Rule{}, err
+	}
+	defer unlock()
 	if _, err := s.load(ctx, org, input.Dock); err != nil {
 		return conversation.Rule{}, err
 	}
@@ -218,7 +227,11 @@ func (s *Service) RemoveRule(ctx context.Context, org identity.OrganizationID, i
 	if err != nil {
 		return errx.Wrap(err, "remove rule", errx.TypeInternal)
 	}
-	defer s.lock(rule.Dock)()
+	unlock, err := s.lock(ctx, org, rule.Dock)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	customs, err := s.load(ctx, org, rule.Dock)
 	if err != nil {
 		return err
