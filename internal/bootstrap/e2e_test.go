@@ -29,11 +29,15 @@ const (
 )
 
 // testDatabaseURL is the throwaway database of the integration tests
-// (docker compose up -d; createdb seaport_test). Tests skip without it.
+// (docker compose up -d; createdb seaport_test). Tests skip without it,
+// except in CI, where a missing database must fail rather than pass quietly.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
 	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
 	if url == "" {
+		if os.Getenv("CI") != "" {
+			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
+		}
 		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
 	}
 	return url

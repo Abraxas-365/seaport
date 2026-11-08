@@ -1,4 +1,5 @@
 /seaport
 /bin/
+/dist/
 *.test
 .env

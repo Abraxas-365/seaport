@@ -101,6 +101,18 @@ Connect your agent (crew token), from the directory it should work in:
 seaport connect -- rness --acp -m anthropic/claude-sonnet-4-5
 ```
 
+The connector is the same `seaport` binary. On the agent's machine, take it
+from [Releases](https://github.com/Abraxas-365/seaport/releases) (linux,
+macOS, windows; amd64/arm64; web app included) or build it with Go:
+
+```bash
+go install github.com/Abraxas-365/seaport/cmd/seaport@latest
+```
+
+(`go install` can't run the web build, so that binary serves the API but not
+the web app — fine for `connect` and the CLI. Release binaries and the Docker
+image have both.)
+
 Flags: `-concurrency N`, `-auto-reply` (send the agent's final text, for
 agents without HTTP MCP), `-approve allow|reject` (tool permission requests;
 default reject), `-deliver steer|queue`, `-server`, `-token`.

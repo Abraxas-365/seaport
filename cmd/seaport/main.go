@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -54,6 +55,13 @@ Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN):
 `
 
 func main() {
+	if bootstrap.Version == "dev" {
+		// `go install …/cmd/seaport@vX` has no -ldflags; the module version
+		// it was built from is in the build info.
+		if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+			bootstrap.Version = bi.Main.Version
+		}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:]); err != nil {

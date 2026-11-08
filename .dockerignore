@@ -4,6 +4,7 @@
 !deploy/.env.example
 bin/
 /seaport
+/dist/
 *.test
 web/node_modules
 web/dist

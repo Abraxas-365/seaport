@@ -1,0 +1,41 @@
+version: 2
+# Release binaries: `git tag vX.Y.Z && git push origin vX.Y.Z` runs
+# .github/workflows/release.yml. Local dry run: goreleaser release --snapshot --clean
+
+project_name: seaport
+
+before:
+  hooks:
+    # The web app is embedded into the binary (web/embed.go).
+    - sh -c "cd web && pnpm install --frozen-lockfile && pnpm build"
+
+builds:
+  - main: ./cmd/seaport
+    binary: seaport
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/Abraxas-365/seaport/internal/bootstrap.Version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [README.md]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^Merge "]
+
+release:
+  draft: false
+  prerelease: auto

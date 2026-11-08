@@ -14,7 +14,14 @@ docker build -t seaport .                        # image (web + binary, distrole
 PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
+goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
 ```
+
+CI (`.github/workflows/ci.yml`): gofmt, vet, `go test -race` against a
+Postgres service (with `CI` set, a missing test database fails instead of
+skipping), web lint + build, docker build. Releases: push a `v*` tag →
+`release.yml` runs goreleaser (`.goreleaser.yaml`) and publishes the
+binaries to GitHub Releases.
 
 Run the integration tests before finishing any change to a repository, the
 hub, the MCP tools or the HTTP API.
