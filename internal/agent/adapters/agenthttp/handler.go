@@ -27,6 +27,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/docks/{dock}/agents", httpx.RequireFunc(permission.AgentsRead, h.team))
 	mux.Handle("PUT /api/v1/docks/{dock}/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.assign))
 	mux.Handle("DELETE /api/v1/docks/{dock}/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.unassign))
+	// Profiles and secrets: writing either can direct the agent's secrets
+	// (an MCP header naming one), so both need agents:write.
+	mux.Handle("GET /api/v1/agents/{id}/profile", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	mux.Handle("PUT /api/v1/agents/{id}/profile", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
+	mux.Handle("GET /api/v1/agents/{id}/profile/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
+	mux.Handle("GET /api/v1/agents/{id}/profile/versions/{version}", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	mux.Handle("GET /api/v1/agents/{id}/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
+	mux.Handle("PUT /api/v1/agents/{id}/secrets/{name}", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
+	mux.Handle("DELETE /api/v1/agents/{id}/secrets/{name}", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {

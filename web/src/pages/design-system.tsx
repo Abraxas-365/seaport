@@ -382,6 +382,8 @@ const sampleAgent: Agent = {
   name: "rness en la laptop",
   concurrency: 3,
   steer: true,
+  profile_version: 2,
+  outdated: true,
   remote: "190.237.12.4:51022",
   connected_at: ago(95),
   deliveries: [

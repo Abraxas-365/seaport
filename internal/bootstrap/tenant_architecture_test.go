@@ -23,7 +23,7 @@ var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
-	"Presence": true, "DockLocker": true, "Owners": true, "Relay": true,
+	"Presence": true, "DockLocker": true, "Owners": true, "Relay": true, "Kits": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.

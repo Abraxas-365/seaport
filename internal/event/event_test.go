@@ -118,9 +118,20 @@ func TestSlowSubscriberIsDropped(t *testing.T) {
 	if _, _, reset := subscribe(t, b, orgA, "0"); !reset {
 		t.Fatal("2000 events behind must reset")
 	}
-	_, replay, reset := subscribe(t, b, orgA, "1500")
-	if reset || len(replay) != 500 || replay[0].Seq != 1501 {
-		t.Fatalf("replay after drop: %d reset=%v", len(replay), reset)
+	// (last, head] comes as replay and the rest on C (the fan-out may not
+	// have reached 2000 yet): 1501..2000, no gap, no duplicate.
+	s2, replay, reset := subscribe(t, b, orgA, "1500")
+	if reset {
+		t.Fatal("500 events behind must replay, not reset")
+	}
+	got := replay
+	for len(got) < 500 {
+		got = append(got, recv(t, s2))
+	}
+	for i, e := range got {
+		if e.Seq != int64(1501+i) {
+			t.Fatalf("replay after drop: event %d is seq %d (replayed %d)", i, e.Seq, len(replay))
+		}
 	}
 }
 

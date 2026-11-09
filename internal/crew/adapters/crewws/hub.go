@@ -111,10 +111,14 @@ type conn struct {
 	agent       string
 	concurrency int
 	steer       bool
+	profile     int
 	wake        chan struct{}
 	send        chan crew.Frame
 
 	mu sync.Mutex
+	// draining: the connector asked for no new deliveries (it restarts
+	// its harness once idle).
+	draining bool
 	// inFlight maps each open delivery to what was pushed for it.
 	inFlight map[identity.DeliveryID]*tracked
 	// recording serializes reading inFlight and writing it to crew.Presence,
@@ -152,7 +156,7 @@ func (h *Hub) Status(ctx context.Context, org identity.OrganizationID) (crew.Sta
 
 func (c *conn) agentInfo() crew.Agent {
 	return crew.Agent{Session: c.session, AgentID: c.agentID, AgentName: c.agentName, Name: c.agent,
-		Concurrency: c.concurrency, Steer: c.steer}
+		Concurrency: c.concurrency, Steer: c.steer, ProfileVersion: c.profile}
 }
 
 // deliveryList is what the connection works on (for crew.Presence).
@@ -333,6 +337,8 @@ func (h *Hub) signal(s crew.Signal) {
 		h.disconnectLocal(s.Organization, s.Token)
 	case crew.SignalAgentGone:
 		h.disconnectAgentLocal(s.Organization, s.Agent)
+	case crew.SignalProfile:
+		h.profileLocal(s.Organization, s.Agent)
 	}
 }
 
@@ -422,6 +428,29 @@ func (h *Hub) disconnectAgentLocal(org identity.OrganizationID, id identity.Agen
 	}
 }
 
+// ProfileChanged tells the organization's connections working as the
+// agent, in every process, that its kit changed (a profile frame: they
+// fetch it again), and announces the crew (their version is outdated).
+func (h *Hub) ProfileChanged(org identity.OrganizationID, id identity.AgentID) {
+	h.profileLocal(org, id)
+	h.send(crew.Signal{Kind: crew.SignalProfile, Organization: org, Agent: id})
+	go h.changed(org)
+}
+
+func (h *Hub) profileLocal(org identity.OrganizationID, id identity.AgentID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns {
+		if c.organization == org && c.agentID == id {
+			select {
+			case c.send <- crew.Frame{Type: crew.FrameProfile}:
+			default: // a full queue: the connector also re-checks its kit on reconnect
+				slog.Warn("crew connection busy: profile frame dropped", "session", c.session)
+			}
+		}
+	}
+}
+
 // changed announces an organization's new crew state.
 func (h *Hub) changed(org identity.OrganizationID) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
@@ -497,23 +526,10 @@ func (h *Hub) commands() ship.Commands {
 // resolveAgent is the agent a connection works as: its token's (hello.as,
 // when given, must name it), or in open mode the one hello.as names.
 func (h *Hub) resolveAgent(ctx context.Context, p httpx.Principal, hello crew.Hello) (identity.AgentID, string, error) {
-	if !p.Agent.IsZero() {
-		if hello.As != "" && hello.As != p.AgentName {
-			return identity.AgentID{}, "", errx.Forbidden("this crew token belongs to agent " + p.AgentName + ", not " + hello.As)
-		}
-		return p.Agent, p.AgentName, nil
-	}
-	if hello.As == "" {
-		return identity.AgentID{}, "", errx.Validation("name the agent to work as: seaport connect -agent <name>")
-	}
 	h.mu.Lock()
 	agents := h.agents
 	h.mu.Unlock()
-	a, err := agents.FindByName(ctx, p.Organization, hello.As)
-	if err != nil {
-		return identity.AgentID{}, "", err
-	}
-	return a.ID, a.Name, nil
+	return crew.ResolveAgent(ctx, agents, crew.Caller{Organization: p.Organization, Agent: p.Agent, AgentName: p.AgentName}, hello.As)
 }
 
 // ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
@@ -619,7 +635,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: session, remote: r.RemoteAddr, connectedAt: connectedAt,
-		agentID: agentID, agentName: agentName, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
+		agentID: agentID, agentName: agentName, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer, profile: hello.ProfileVersion,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
 
 	// From opening to conns under one lock: a revoke sees it in one of them.
@@ -661,7 +677,7 @@ func readHello(ctx context.Context, ws *websocket.Conn) (crew.Hello, error) {
 	if err != nil || f.Type != crew.FrameHello {
 		return crew.Hello{}, errx.Validation("first frame must be hello")
 	}
-	hello := crew.Hello{Agent: f.Agent, As: f.As, Concurrency: f.Concurrency, Steer: f.Steer}
+	hello := crew.Hello{Agent: f.Agent, As: f.As, Concurrency: f.Concurrency, Steer: f.Steer, ProfileVersion: f.ProfileVersion}
 	if err := hello.Validate(); err != nil {
 		return crew.Hello{}, err
 	}
@@ -741,6 +757,11 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 		h.working(c)
 		c.poke()
 		return err
+	case crew.FrameDrain:
+		c.mu.Lock()
+		c.draining = true
+		c.mu.Unlock()
+		return nil
 	case crew.FrameReply:
 		if f.ConversationID == nil {
 			return errx.InvalidField("conversation_id", "conversation_id is required")
@@ -890,7 +911,7 @@ func (c *conn) poke() {
 func (c *conn) room() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.inFlight) < c.concurrency
+	return !c.draining && len(c.inFlight) < c.concurrency
 }
 
 func (c *conn) track(d ship.Delivery) {

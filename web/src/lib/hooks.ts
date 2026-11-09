@@ -22,6 +22,7 @@ import type {
   GroupMode,
   InboxItem,
   Paginated,
+  ProfileInput,
   Ship,
 } from "./types"
 
@@ -331,6 +332,79 @@ export function useUnassignAgent() {
     mutationFn: ({ dock, agent }: { dock: string; agent: string }) => api.unassignAgent(dock, agent),
     onSuccess: changed,
     onError: fail("No se pudo quitar el agente"),
+  })
+}
+
+export function useAgent(id: string) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.agent(id), queryFn: () => api.agent(id), enabled: can(Perm.AgentsRead) })
+}
+
+/** An agent's profile: the current one (version 0) or a past version. */
+export function useProfile(id: string, version = 0) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.profile(id, version),
+    queryFn: () => api.profile(id, version),
+    enabled: can(Perm.AgentsRead),
+  })
+}
+
+export function useProfileVersions(id: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.profileVersions(id),
+    queryFn: () => api.profileVersions(id),
+    enabled: can(Perm.AgentsRead),
+  })
+}
+
+export function useSecrets(id: string) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.secrets(id), queryFn: () => api.secrets(id), enabled: can(Perm.AgentsRead) })
+}
+
+/** A saved profile or secret changes the agent's kit: its connections
+ * restart once idle. */
+function useKitChanged(id: string) {
+  const qc = useQueryClient()
+  return () => {
+    qc.invalidateQueries({ queryKey: keys.agents })
+    qc.invalidateQueries({ queryKey: ["profile", id] })
+    qc.invalidateQueries({ queryKey: keys.secrets(id) })
+  }
+}
+
+export function useSaveProfile(id: string) {
+  const changed = useKitChanged(id)
+  return useMutation({
+    mutationFn: ({ base, profile }: { base: number; profile: ProfileInput }) => api.saveProfile(id, base, profile),
+    onSuccess: (p) => {
+      changed()
+      toast.success(`Perfil v${p.version} guardado`, {
+        description: "Sus conexiones reinician el agente con él al terminar lo que están atendiendo.",
+      })
+    },
+    onError: fail("No se pudo guardar el perfil"),
+  })
+}
+
+export function useSetSecret(id: string) {
+  const changed = useKitChanged(id)
+  return useMutation({
+    mutationFn: ({ name, value, env }: { name: string; value: string; env: boolean }) =>
+      api.setSecret(id, name, value, env),
+    onSuccess: changed,
+    onError: fail("No se pudo guardar el secreto"),
+  })
+}
+
+export function useDeleteSecret(id: string) {
+  const changed = useKitChanged(id)
+  return useMutation({
+    mutationFn: (name: string) => api.deleteSecret(id, name),
+    onSuccess: changed,
+    onError: fail("No se pudo eliminar el secreto"),
   })
 }
 

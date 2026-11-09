@@ -113,6 +113,11 @@ export interface Agent {
   name: string
   concurrency: number
   steer: boolean
+  /** The agent profile version its harness runs (0: none). */
+  profile_version: number
+  /** The agent's current profile is another one: it restarts once idle, or
+   * its connector predates profiles. */
+  outdated: boolean
   remote: string
   connected_at: string
   deliveries: AgentDelivery[]
@@ -140,6 +145,62 @@ export interface LibraryAgent {
   updated_at: string
   /** Where it works; none: inactive. */
   docks: Assignment[]
+  /** Its current profile version (0: none saved yet). */
+  profile_version: number
+}
+
+/** A SKILL.md the agent can load (through the port's MCP `skill` tool). */
+export interface Skill {
+  name: string
+  /** When to use it: what the harness sees before loading it. */
+  description: string
+  body: string
+}
+
+export interface McpHeader {
+  name: string
+  /** May name the agent's secrets as ${NAME}. */
+  value: string
+}
+
+/** A streamable-HTTP MCP server added to the agent's sessions. */
+export interface McpServer {
+  name: string
+  url: string
+  headers: McpHeader[]
+}
+
+export type Approve = "" | "allow" | "reject"
+
+/** One version of an agent's profile (GET /api/v1/agents/{id}/profile). */
+export interface AgentProfile {
+  agent_id: ID
+  /** 0: none saved yet (the rest is empty). */
+  version: number
+  instructions: string
+  skills: Skill[]
+  mcp_servers: McpServer[]
+  approve: Approve
+  model: string
+  effort: string
+  created_by: string
+  created_at: string
+}
+
+export type ProfileInput = Pick<AgentProfile, "instructions" | "skills" | "mcp_servers" | "approve" | "model" | "effort">
+
+export interface ProfileVersion {
+  version: number
+  created_by: string
+  created_at: string
+}
+
+/** What the web sees of a secret: never its value. */
+export interface AgentSecret {
+  name: string
+  /** Also given to the harness as an environment variable. */
+  env: boolean
+  updated_at: string
 }
 
 /** One agent of a dock's team (GET /api/v1/docks/{id}/agents). */

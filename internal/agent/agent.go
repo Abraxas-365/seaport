@@ -45,6 +45,8 @@ type Agent struct {
 	CreatedBy   string    `db:"created_by" json:"created_by"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	// ProfileVersion is the profile it runs (0: none saved yet).
+	ProfileVersion int `db:"profile_version" json:"profile_version"`
 	// Docks are where it works; none: it is inactive (nothing reaches it).
 	Docks []Assignment `db:"-" json:"docks"`
 }

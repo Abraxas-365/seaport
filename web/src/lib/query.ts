@@ -35,6 +35,11 @@ export const keys = {
   crew: ["crew"] as const,
   crewTokens: ["crew-tokens"] as const,
   agents: ["agents"] as const,
+  agent: (id: string) => ["agents", id] as const,
+  profileAll: ["profile"] as const,
+  profile: (id: string, version = 0) => ["profile", id, version] as const,
+  profileVersions: (id: string) => ["profile", id, "versions"] as const,
+  secrets: (id: string) => ["secrets", id] as const,
   teamAll: ["team"] as const,
   team: (dock: string) => ["team", dock] as const,
 }

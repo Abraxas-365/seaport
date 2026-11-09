@@ -33,7 +33,8 @@ type Config struct {
 	AgentName   string // label of this connection in the port's crew view
 	Concurrency int
 	AutoReply   bool
-	// Approve answers agent permission requests: "reject" (default) or "allow".
+	// Approve answers agent permission requests: "reject" or "allow"; ""
+	// takes the agent profile's (reject without one).
 	Approve string
 	// Deliver says what happens to messages that arrive while the agent is
 	// working on the conversation: "steer" (default) hands them to the
@@ -45,22 +46,38 @@ type Config struct {
 	SessionsFile string
 }
 
-// Run connects to the port and keeps the agent working until ctx ends,
-// reconnecting with backoff. A refused credential ends it: a revoked,
-// expired or wrong crew token, or a hello the port refuses (an agent the
-// token isn't for, or none named), never starts working again.
+// Run fetches the agent's kit (profile and secrets), starts the harness
+// with it, connects to the port and keeps the agent working until ctx
+// ends, reconnecting with backoff. When the profile changes it finishes
+// the work in flight, then starts the harness again with the new kit. A
+// refused credential ends it: a revoked, expired or wrong crew token, or
+// a hello the port refuses (an agent the token isn't for, or none named),
+// never starts working again.
 func Run(ctx context.Context, cfg Config) error {
 	if len(cfg.Command) == 0 {
 		return errx.Validation("an agent command is required: seaport connect -- rness --acp")
 	}
-	agent, err := StartAgent(ctx, cfg)
-	if err != nil {
-		return err
+	for {
+		kit, err := fetchKitRetrying(ctx, cfg)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		agent, err := StartAgent(ctx, cfg, kit)
+		if err != nil {
+			return err
+		}
+		err = keepConnected(ctx, agent.Done(), time.Second, func(ctx context.Context) error {
+			return session(ctx, cfg, agent)
+		})
+		agent.Stop()
+		if !errors.Is(err, errRestart) {
+			return err
+		}
+		slog.Info("agent profile changed; restarting the agent with it")
 	}
-	defer agent.Close()
-	return keepConnected(ctx, agent.Done(), time.Second, func(ctx context.Context) error {
-		return session(ctx, cfg, agent)
-	})
 }
 
 // keepConnected runs connect again after each lost connection, waiting
@@ -80,7 +97,7 @@ func keepConnected(ctx context.Context, agentDone <-chan struct{}, backoff time.
 			return errx.Internal("agent process exited")
 		default:
 		}
-		if errx.IsType(err, errx.TypeAuthorization) {
+		if errx.IsType(err, errx.TypeAuthorization) || errors.Is(err, errRestart) {
 			return err
 		}
 		if time.Since(started) > time.Minute {
@@ -119,9 +136,15 @@ func refused(err error) error {
 	return err
 }
 
-// session runs one WebSocket connection.
+// restartFrame, queued after the last ack, makes the writer end the
+// connection with errRestart once everything before it is written.
+const restartFrame crew.FrameType = ""
+
+// session runs one WebSocket connection. It returns errRestart when the
+// agent's kit changed and the work in flight is done.
 func session(ctx context.Context, cfg Config, agent *Agent) error {
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancelCause := context.WithCancelCause(ctx)
+	cancel := func() { cancelCause(nil) }
 	defer cancel()
 	ws, resp, err := websocket.Dial(ctx, wsURL(cfg.Server), &websocket.DialOptions{HTTPHeader: authHeader(cfg.Token)})
 	if err != nil {
@@ -154,6 +177,10 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			case <-ctx.Done():
 				return
 			case f := <-out:
+				if f.Type == restartFrame {
+					cancelCause(errRestart)
+					return
+				}
 				raw, _ := json.Marshal(f)
 				if err := ws.Write(ctx, websocket.MessageText, raw); err != nil {
 					cancel()
@@ -174,15 +201,53 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	if cfg.Deliver != DeliverQueue && !agent.CanSteer() {
 		slog.Warn("the agent can't take messages mid-turn; they will queue for the next turn")
 	}
-	send(crew.Frame{Type: crew.FrameHello, Agent: cfg.AgentName, As: cfg.As, Concurrency: cfg.Concurrency, Steer: steering})
+	send(crew.Frame{Type: crew.FrameHello, Agent: cfg.AgentName, As: cfg.As, Concurrency: cfg.Concurrency, Steer: steering,
+		ProfileVersion: agent.Version()})
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	jobs := map[identity.DeliveryID]*job{}
 	var jobsMu sync.Mutex
+	draining, checking := false, false
+	// check fetches the kit and, when it isn't the one the agent runs,
+	// drains: no new deliveries, restart once the last one is acked.
+	check := func() {
+		jobsMu.Lock()
+		if draining || checking || !agent.Profiled() {
+			jobsMu.Unlock()
+			return
+		}
+		checking = true
+		jobsMu.Unlock()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			kit, err := fetchKit(ctx, cfg)
+			jobsMu.Lock()
+			checking = false
+			if err != nil || revision(kit) == agent.Revision() {
+				jobsMu.Unlock()
+				if err != nil && ctx.Err() == nil {
+					slog.Warn("could not fetch the changed agent profile; keeping the current one", "err", err)
+				}
+				return
+			}
+			draining = true
+			idle := len(jobs) == 0
+			jobsMu.Unlock()
+			slog.Info("agent profile changed; finishing the work in flight before restarting", "version", kit.Version, "revision", revision(kit))
+			send(crew.Frame{Type: crew.FrameDrain})
+			if idle {
+				send(crew.Frame{Type: restartFrame})
+			}
+		}()
+	}
 	for {
 		_, raw, err := ws.Read(ctx)
 		if err != nil {
+			if errors.Is(context.Cause(ctx), errRestart) {
+				return errRestart
+			}
 			return refused(err)
 		}
 		f, err := crew.Decode(raw)
@@ -193,6 +258,9 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 		case crew.FrameWelcome:
 			agent.SetMCPURL(f.MCPURL)
 			slog.Info("connected to port", "server", cfg.Server, "mcp", f.MCPURL)
+			check() // a change while disconnected sent no signal
+		case crew.FrameProfile:
+			check()
 		case crew.FrameDelivery:
 			if f.Delivery == nil {
 				continue
@@ -212,7 +280,11 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 				work(ctx, cfg, agent, j, send)
 				jobsMu.Lock()
 				delete(jobs, d.ID)
+				idle := draining && len(jobs) == 0
 				jobsMu.Unlock()
+				if idle {
+					send(crew.Frame{Type: restartFrame})
+				}
 			}()
 		case crew.FrameSteer:
 			if f.Delivery == nil {

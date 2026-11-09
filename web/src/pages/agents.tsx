@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link } from "react-router"
-import { Anchor, Bot, KeyRound, MoreHorizontal, Pencil, Plus, Star, Trash2, X } from "lucide-react"
+import { Anchor, Bot, KeyRound, MoreHorizontal, Pencil, Plus, ScrollText, Star, Trash2, X } from "lucide-react"
 
 import {
   useAgents,
@@ -120,7 +120,16 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate font-mono font-medium">@{a.name}</span>
+              <Link to={`/agents/${a.id}`} className="truncate font-mono font-medium hover:underline">
+                @{a.name}
+              </Link>
+              {a.profile_version > 0 ? (
+                <StatusBadge tone="brand" dot={false}>
+                  Perfil v{a.profile_version}
+                </StatusBadge>
+              ) : (
+                <StatusBadge dot={false}>Sin perfil</StatusBadge>
+              )}
               {inactive && <StatusBadge tone="warning">Inactivo</StatusBadge>}
               {connections !== undefined &&
                 (connections ? (
@@ -143,6 +152,11 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem asChild>
+                  <Link to={`/agents/${a.id}`}>
+                    <ScrollText /> Perfil y secretos
+                  </Link>
+                </DropdownMenuItem>
                 <AgentDialog
                   agent={a}
                   trigger={

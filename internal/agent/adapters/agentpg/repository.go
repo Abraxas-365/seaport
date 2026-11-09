@@ -17,10 +17,11 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, organization_id, name, description, created_by, created_at, updated_at`
+const columns = `id, organization_id, name, description, created_by, created_at, updated_at, profile_version`
 
 // createLock serializes one organization's agent creations while its
 // agents are counted (second key: hashtext(organization)).
@@ -29,9 +30,14 @@ const createLock = 7_401_008
 var messages = pgerr.Messages{NotFound: "agent not found", Unique: "an agent with this name already exists",
 	ForeignKey: "dock not found"}
 
-type Repository struct{ db *sqlx.DB }
+type Repository struct {
+	db *sqlx.DB
+	// sealer seals agent secrets; nil when the port has no secret key
+	// (secrets are refused).
+	sealer *seal.Sealer
+}
 
-func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
+func New(db *sqlx.DB, sealer *seal.Sealer) *Repository { return &Repository{db: db, sealer: sealer} }
 
 var _ agent.Repository = (*Repository)(nil)
 
@@ -175,6 +181,10 @@ func (r *Repository) Delete(ctx context.Context, org identity.OrganizationID, id
 	if _, err := tx.ExecContext(ctx, `UPDATE crew_tokens SET revoked_at = now()
 		WHERE organization_id = $1 AND agent_id = $2 AND revoked_at IS NULL`, org, id); err != nil {
 		return pgerr.Map(err, "revoke tokens of deleted agent")
+	}
+	// Its secrets go with it (profiles stay: they are history).
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_secrets WHERE organization_id = $1 AND agent_id = $2`, org, id); err != nil {
+		return pgerr.Map(err, "delete secrets of deleted agent")
 	}
 	return pgerr.Map(tx.Commit(), "commit delete agent")
 }

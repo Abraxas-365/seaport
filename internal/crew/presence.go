@@ -38,6 +38,9 @@ const (
 	// SignalAgentGone: close the organization's connections of Agent (it
 	// was deleted).
 	SignalAgentGone SignalKind = "agent"
+	// SignalProfile: Agent's kit changed (profile or secrets); tell its
+	// connections.
+	SignalProfile SignalKind = "profile"
 )
 
 // Signal crosses processes (Presence.Send/Listen).

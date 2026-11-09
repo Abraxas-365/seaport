@@ -17,6 +17,10 @@ import type {
   InboxItem,
   IssuedCrewToken,
   LibraryAgent,
+  AgentProfile,
+  AgentSecret,
+  ProfileInput,
+  ProfileVersion,
   Paginated,
   Rule,
   PortConfig,
@@ -132,6 +136,17 @@ export const api = {
   updateAgent: (id: string, patch: { name?: string; description?: string }) =>
     request<LibraryAgent>("PATCH", `${v1}/agents/${id}`, patch),
   deleteAgent: (id: string) => request<void>("DELETE", `${v1}/agents/${id}`),
+  agent: (id: string) => request<LibraryAgent>("GET", `${v1}/agents/${id}`),
+  profile: (id: string, version?: number) =>
+    request<AgentProfile>("GET", `${v1}/agents/${id}/profile${version ? `/versions/${version}` : ""}`),
+  saveProfile: (id: string, base: number, profile: ProfileInput) =>
+    request<AgentProfile>("PUT", `${v1}/agents/${id}/profile`, { base, ...profile }),
+  profileVersions: (id: string) => request<{ versions: ProfileVersion[] }>("GET", `${v1}/agents/${id}/profile/versions`),
+  secrets: (id: string) => request<{ secrets: AgentSecret[] }>("GET", `${v1}/agents/${id}/secrets`),
+  setSecret: (id: string, name: string, value: string, env: boolean) =>
+    request<AgentSecret>("PUT", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
+  deleteSecret: (id: string, name: string) =>
+    request<void>("DELETE", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`),
   team: (dock: string) => request<{ agents: TeamMember[] }>("GET", `${v1}/docks/${dock}/agents`),
   assignAgent: (dock: string, agent: string, isDefault: boolean) =>
     request<LibraryAgent>("PUT", `${v1}/docks/${dock}/agents/${agent}`, { default: isDefault }),

@@ -21,9 +21,22 @@ type Commands interface {
 	// Unassign takes it off a dock; the ships of that dock waiting for it
 	// are held.
 	Unassign(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, agent identity.AgentID) (Agent, error)
+	// SaveProfile stores the next profile version and makes it current
+	// (Conflict when input.Base is not the current one). Its connections
+	// are told to pick it up.
+	SaveProfile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SaveProfile) (Profile, error)
+	// SetSecret creates or replaces a secret (sealed; never read back).
+	SetSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SetSecret) (Secret, error)
+	// DeleteSecret removes one (Conflict while the current profile uses it).
+	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
 }
 
 type Queries interface {
+	// Profile is a version of the agent's profile (0: the current one; an
+	// agent with none has an empty version 0).
+	Profile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, version int) (Profile, error)
+	Versions(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Version, error)
+	Secrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Secret, error)
 	Find(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Agent, error)
 	// FindByName finds an agent by its name (NotFound if none).
 	FindByName(ctx context.Context, organization identity.OrganizationID, name string) (Agent, error)
@@ -36,6 +49,17 @@ type Queries interface {
 // process (the crew hub): a deleted agent's, whatever their credential.
 type Revoker interface {
 	DisconnectAgent(organization identity.OrganizationID, agent identity.AgentID)
+	// ProfileChanged tells the agent's live connections, in every
+	// process, that its kit changed (profile or secrets).
+	ProfileChanged(organization identity.OrganizationID, agent identity.AgentID)
+}
+
+// Kits hands an agent's connections what they run with, secrets included:
+// only the crew side (the agent's own credential) may call it
+// (TestOnlyTheCrewEquips).
+type Kits interface {
+	// Equip is the agent's current kit (Kit.Revision names it).
+	Equip(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Kit, error)
 }
 
 type Repository interface {
@@ -54,4 +78,18 @@ type Repository interface {
 	// the agent, in one transaction (NotFound if it was not assigned).
 	Unassign(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, agent identity.AgentID) error
 	Team(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]Member, error)
+
+	// SaveProfile inserts version input.Base+1 and points the agent at it,
+	// atomically; Conflict when the current version is not input.Base, or
+	// when a ${NAME} the profile uses is not a secret of the agent.
+	SaveProfile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SaveProfile) (Profile, error)
+	Profile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, version int) (Profile, error)
+	Versions(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Version, error)
+	// SetSecret seals and upserts a secret, at most limit per agent.
+	SetSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SetSecret, limit int) (Secret, error)
+	// DeleteSecret removes one; Conflict while the current profile uses it.
+	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
+	Secrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Secret, error)
+	// OpenSecrets are the agent's secrets with their values.
+	OpenSecrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]SecretValue, error)
 }

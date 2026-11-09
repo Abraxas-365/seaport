@@ -47,6 +47,13 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
                                         the default takes messages that call nobody (else they are held)
   seaport agents unassign <agent> <dock-id>
   seaport agents delete <agent> -yes    revoke its tokens, disconnect it, hold what waits for it
+  seaport agents profile [show] <agent> [-version N] [-json]   what its harness is told and given
+  seaport agents profile set <agent> [-f profile.json] [-instructions-file F] [-skills-dir D]
+         [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E]
+  seaport agents profile versions <agent>
+  seaport agents secrets [list] <agent>
+  seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers use it as ${NAME}
+  seaport agents secrets rm <agent> NAME
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents
@@ -62,7 +69,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
 
 Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
   seaport connect [flags] -- <agent command>   e.g. seaport connect -- rness --acp
-                                        works as the token's agent (-agent <name> without a token)
+                                        works as the token's agent (-agent <name> without a token),
+                                        with its profile: instructions, skills, MCP servers, secrets
 `
 
 func main() {
@@ -211,7 +219,7 @@ func connect(ctx context.Context, args []string) error {
 	name := fs.String("name", "", "label of this connection shown by the port (default: command name)")
 	concurrency := fs.Int("concurrency", 2, "conversations worked at once")
 	autoReply := fs.Bool("auto-reply", false, "send the agent's final text as the reply (for agents without MCP)")
-	approve := fs.String("approve", "reject", "answer to agent permission requests: reject|allow")
+	approve := fs.String("approve", "", "answer to agent permission requests: reject|allow (default: the agent profile's, else reject)")
 	deliver := fs.String("deliver", "steer", "messages arriving mid-turn: steer (into the running turn, if the agent supports it) | queue (next turn)")
 	cwd := fs.String("cwd", "", "agent working directory (default: current)")
 	verbose := fs.Bool("v", false, "debug logs")
@@ -230,7 +238,7 @@ func connect(ctx context.Context, args []string) error {
 	if *deliver != connector.DeliverSteer && *deliver != connector.DeliverQueue {
 		return errx.InvalidField("deliver", "-deliver must be steer or queue")
 	}
-	if *approve != "reject" && *approve != "allow" {
+	if *approve != "" && *approve != "reject" && *approve != "allow" {
 		return errx.InvalidField("approve", "-approve must be reject or allow")
 	}
 	if *name == "" {

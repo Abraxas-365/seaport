@@ -1,5 +1,6 @@
 // Package crewmcp exposes the port's tools to agents over MCP (streamable
-// HTTP at /mcp, crew token): reply, history, conversations.
+// HTTP at /mcp, crew token): reply, history, conversations, and skill when
+// the agent's profile has skills.
 package crewmcp
 
 import (
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -28,8 +30,41 @@ type Deps struct {
 	Version string
 }
 
-// Handler returns the MCP endpoint.
+// Handler returns the MCP endpoint. Each request gets a server of its own
+// (stateless): its skill tool lists the calling agent's current skills.
 func Handler(d Deps) http.Handler {
+	h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server(r.Context(), d) },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+	return withAgent(d.Agents, h)
+}
+
+// withAgent resolves the agent the request acts as (crew.AgentHeader): in
+// open mode the header names it, and it becomes the principal's agent, so
+// the tools are scoped to it like a token's; with a token the header must
+// name the token's agent.
+func withAgent(agents agent.Queries, next http.Handler) http.Handler {
+	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		p, ok := httpx.PrincipalFrom(r.Context())
+		if !ok {
+			return errx.Unauthorized("missing crew principal")
+		}
+		name := r.Header.Get(crew.AgentHeader)
+		if name == "" {
+			next.ServeHTTP(w, r)
+			return nil
+		}
+		id, resolved, err := crew.ResolveAgent(r.Context(), agents,
+			crew.Caller{Organization: p.Organization, Agent: p.Agent, AgentName: p.AgentName}, name)
+		if err != nil {
+			return err
+		}
+		p.Agent, p.AgentName = id, resolved
+		next.ServeHTTP(w, r.WithContext(httpx.WithPrincipal(r.Context(), p)))
+		return nil
+	})
+}
+
+func server(ctx context.Context, d Deps) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "seaport", Title: "Seaport", Version: d.Version}, &mcp.ServerOptions{
 		Instructions: "Seaport is the port where your messages (WhatsApp and other channels) arrive. " +
 			"Each prompt from seaport names a conversation_id. Answer people with the reply tool; " +
@@ -48,8 +83,8 @@ func Handler(d Deps) http.Handler {
 		Name:        "conversations",
 		Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
 	}, t.conversations)
-	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+	t.addSkill(ctx, srv)
+	return srv
 }
 
 type tools struct{ d Deps }

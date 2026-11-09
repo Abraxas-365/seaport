@@ -16,7 +16,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// agents is `seaport agents [list|add|edit|delete|assign|unassign]`.
+// agents is `seaport agents [list|add|edit|delete|assign|unassign|profile|secrets]`.
 func agents(ctx context.Context, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
@@ -27,6 +27,10 @@ func agents(ctx context.Context, args []string) error {
 		return err
 	}
 	switch sub {
+	case "profile":
+		return profileCmd(ctx, a, args)
+	case "secrets":
+		return secretsCmd(ctx, a, args)
 	case "list":
 		all, err := listAgents(ctx, a)
 		if err != nil {
@@ -37,7 +41,7 @@ func agents(ctx context.Context, args []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tDOCKS\tDESCRIPTION")
+		fmt.Fprintln(w, "ID\tNAME\tPROFILE\tDOCKS\tDESCRIPTION")
 		for _, ag := range all {
 			docks := []string{}
 			for _, d := range ag.Docks {
@@ -50,7 +54,11 @@ func agents(ctx context.Context, args []string) error {
 			if len(docks) == 0 {
 				docks = append(docks, "- (inactive)")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", ag.ID, ag.Name, strings.Join(docks, ", "), ag.Description)
+			profile := "-"
+			if ag.ProfileVersion > 0 {
+				profile = fmt.Sprintf("v%d", ag.ProfileVersion)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ag.ID, ag.Name, profile, strings.Join(docks, ", "), ag.Description)
 		}
 		return w.Flush()
 	case "add":

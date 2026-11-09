@@ -123,6 +123,8 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
   // events): refetch histories and the inbox too.
   "agent.updated": (qc) => {
     qc.invalidateQueries({ queryKey: keys.agents })
+    qc.invalidateQueries({ queryKey: keys.profileAll }) // a saved profile or secret
+    qc.invalidateQueries({ queryKey: ["secrets"] })
     qc.invalidateQueries({ queryKey: keys.teamAll })
     qc.invalidateQueries({ queryKey: keys.crewTokens })
     qc.invalidateQueries({ queryKey: ["ships"] })

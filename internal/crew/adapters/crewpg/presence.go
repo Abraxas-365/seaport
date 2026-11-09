@@ -57,7 +57,7 @@ func (p *Presence) Open(ctx context.Context, org identity.OrganizationID, c crew
 
 func (p *Presence) Ready(ctx context.Context, org identity.OrganizationID, session string, a crew.Agent) error {
 	_, err := p.db.ExecContext(ctx, `UPDATE crew_connections SET ready = true, agent = $3, concurrency = $4, steer = $5,
-		agent_id = $6 WHERE organization_id = $1 AND session = $2`, org, session, a.Name, a.Concurrency, a.Steer, a.AgentID)
+		agent_id = $6, profile_version = $7 WHERE organization_id = $1 AND session = $2`, org, session, a.Name, a.Concurrency, a.Steer, a.AgentID, a.ProfileVersion)
 	return pgerr.Map(err, "crew connection ready")
 }
 
@@ -87,6 +87,8 @@ type connectionRow struct {
 	AgentName    string                  `db:"agent_name"`
 	Concurrency  int                     `db:"concurrency"`
 	Steer        bool                    `db:"steer"`
+	Profile      int                     `db:"profile_version"`
+	Outdated     bool                    `db:"outdated"`
 	Remote       string                  `db:"remote"`
 	Deliveries   string                  `db:"deliveries"`
 	ConnectedAt  time.Time               `db:"connected_at"`
@@ -103,7 +105,7 @@ func (r connectionRow) deliveries() []crew.AgentDelivery {
 func (p *Presence) Status(ctx context.Context, org identity.OrganizationID) (crew.Status, error) {
 	var rows []connectionRow
 	if err := p.db.SelectContext(ctx, &rows, `SELECT c.organization_id, c.session, c.agent, c.agent_id, a.name AS agent_name,
-		c.concurrency, c.steer, c.remote, c.deliveries, c.connected_at
+		c.concurrency, c.steer, c.profile_version, c.profile_version <> a.profile_version AS outdated, c.remote, c.deliveries, c.connected_at
 		FROM crew_connections c JOIN agents a ON a.organization_id = c.organization_id AND a.id = c.agent_id
 		WHERE c.organization_id = $1 AND c.ready ORDER BY a.name, c.connected_at, c.session`, org); err != nil {
 		return crew.Status{}, pgerr.Map(err, "crew status")
@@ -112,7 +114,7 @@ func (p *Presence) Status(ctx context.Context, org identity.OrganizationID) (cre
 	for _, r := range rows {
 		out.Agents = append(out.Agents, crew.Agent{Session: r.Session, AgentID: r.AgentID, AgentName: r.AgentName,
 			Name: r.Agent, Concurrency: r.Concurrency,
-			Steer: r.Steer, Remote: r.Remote, ConnectedAt: r.ConnectedAt.UTC(), Deliveries: r.deliveries()})
+			Steer: r.Steer, ProfileVersion: r.Profile, Outdated: r.Outdated, Remote: r.Remote, ConnectedAt: r.ConnectedAt.UTC(), Deliveries: r.deliveries()})
 	}
 	return out, nil
 }

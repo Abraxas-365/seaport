@@ -23,11 +23,16 @@ type Agent struct {
 	AgentID   identity.AgentID `json:"agent_id"`
 	AgentName string           `json:"agent_name"`
 	// Name is the connector's label (hello.agent).
-	Name        string    `json:"name"`
-	Concurrency int       `json:"concurrency"`
-	Steer       bool      `json:"steer"`
-	Remote      string    `json:"remote"`
-	ConnectedAt time.Time `json:"connected_at"`
+	Name        string `json:"name"`
+	Concurrency int    `json:"concurrency"`
+	Steer       bool   `json:"steer"`
+	// ProfileVersion is the agent profile version it runs (0: none);
+	// Outdated: the agent's current profile is another one (the connector
+	// restarts its harness when idle, or doesn't apply profiles).
+	ProfileVersion int       `json:"profile_version"`
+	Outdated       bool      `json:"outdated"`
+	Remote         string    `json:"remote"`
+	ConnectedAt    time.Time `json:"connected_at"`
 	// Deliveries are the conversations it is working on.
 	Deliveries []AgentDelivery `json:"deliveries"`
 }

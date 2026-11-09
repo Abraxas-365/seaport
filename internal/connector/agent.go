@@ -7,21 +7,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	acp "github.com/coder/acp-go-sdk"
 )
 
-// Agent is an ACP agent process with one session per conversation.
+// Agent is an ACP agent process with one session per conversation,
+// running one kit of its agent (nil: no profile, or an older port).
 type Agent struct {
 	cfg  Config
+	kit  *agent.Kit
 	cmd  *exec.Cmd
 	conn *acp.ClientSideConnection
 	caps acp.AgentCapabilities
+	wire *wire
 	done chan struct{}
+	// approve answers permission requests: -approve, else the profile's,
+	// else reject.
+	approve string
 
 	mu       sync.Mutex
 	mcpURL   string
@@ -29,13 +39,23 @@ type Agent struct {
 	open     map[string]acp.SessionId // opened on this connection
 	opening  map[string]*sync.Mutex
 	answers  map[acp.SessionId]*strings.Builder
+	// briefed: sessions opened by this process whose next prompt must
+	// carry the profile's instructions (agents without systemPrompt).
+	briefed map[acp.SessionId]bool
 }
 
-// StartAgent spawns the agent command and runs the ACP handshake.
-func StartAgent(ctx context.Context, cfg Config) (*Agent, error) {
+// StartAgent spawns the agent command with the kit (its secrets in the
+// environment) and runs the ACP handshake.
+func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error) {
 	cmd := exec.Command(cfg.Command[0], cfg.Command[1:]...)
 	cmd.Dir = cfg.Cwd
 	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	if kit != nil {
+		for k, v := range kit.Env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, errx.Wrap(err, "agent stdin", errx.TypeInternal)
@@ -47,14 +67,25 @@ func StartAgent(ctx context.Context, cfg Config) (*Agent, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, errx.Wrap(err, "start agent "+cfg.Command[0], errx.TypeValidation)
 	}
-	a := &Agent{cfg: cfg, cmd: cmd, done: make(chan struct{}),
+	a := &Agent{cfg: cfg, kit: kit, cmd: cmd, done: make(chan struct{}), wire: &wire{},
 		sessions: map[string]acp.SessionId{}, open: map[string]acp.SessionId{},
-		opening: map[string]*sync.Mutex{}, answers: map[acp.SessionId]*strings.Builder{}}
+		opening: map[string]*sync.Mutex{}, answers: map[acp.SessionId]*strings.Builder{},
+		briefed: map[acp.SessionId]bool{}}
+	a.approve = cfg.Approve
+	if kit != nil {
+		a.wire.prompt = strings.TrimSpace(kit.Instructions)
+		if a.approve == "" {
+			a.approve = kit.Approve
+		}
+	}
+	if a.approve == "" {
+		a.approve = agent.ApproveReject
+	}
 	go func() {
 		_ = cmd.Wait()
 		close(a.done)
 	}()
-	a.conn = acp.NewClientSideConnection(&client{a: a}, stdin, stdout)
+	a.conn = acp.NewClientSideConnection(&client{a: a}, injector{w: stdin, wire: a.wire}, &sniffer{r: stdout, wire: a.wire})
 	a.conn.SetLogger(slog.Default().With("component", "acp"))
 	a.loadSessions()
 
@@ -68,12 +99,37 @@ func StartAgent(ctx context.Context, cfg Config) (*Agent, error) {
 	}
 	a.caps = init.AgentCapabilities
 	slog.Info("agent ready", "command", strings.Join(cfg.Command, " "),
-		"resume", a.caps.SessionCapabilities.Resume != nil, "load", a.caps.LoadSession, "mcp_http", a.caps.McpCapabilities.Http)
+		"resume", a.caps.SessionCapabilities.Resume != nil, "load", a.caps.LoadSession, "mcp_http", a.caps.McpCapabilities.Http,
+		"system_prompt", a.wire.Supported())
 	if !a.caps.McpCapabilities.Http && !cfg.AutoReply {
 		slog.Warn("agent does not support HTTP MCP servers; it can't use the reply tool. Use --auto-reply.")
 	}
+	if kit != nil {
+		slog.Info("agent profile", "agent", kit.Name, "version", kit.Version, "skills", len(kit.Skills),
+			"mcp_servers", len(kit.MCPServers), "env", len(kit.Env), "approve", a.approve)
+		if !a.caps.McpCapabilities.Http && (len(kit.Skills) > 0 || len(kit.MCPServers) > 0) {
+			slog.Warn("the agent can't use HTTP MCP servers: the profile's skills and MCP servers are not available to it")
+		}
+		if a.wire.prompt != "" && !a.wire.Supported() {
+			slog.Info("the agent doesn't take a system prompt; the profile's instructions go with the first prompt of each session")
+		}
+	}
 	return a, nil
 }
+
+// Version is the profile version it runs (0: none).
+func (a *Agent) Version() int {
+	if a.kit == nil {
+		return 0
+	}
+	return a.kit.Version
+}
+
+// Revision names the kit it runs ("" without one).
+func (a *Agent) Revision() string { return revision(a.kit) }
+
+// Profiled reports whether the port served a kit (it has profiles).
+func (a *Agent) Profiled() bool { return a.kit != nil }
 
 // Done is closed when the agent process exits.
 func (a *Agent) Done() <-chan struct{} { return a.done }
@@ -81,6 +137,17 @@ func (a *Agent) Done() <-chan struct{} { return a.done }
 func (a *Agent) Close() {
 	if a.cmd.Process != nil {
 		_ = a.cmd.Process.Signal(os.Interrupt)
+	}
+}
+
+// Stop closes the agent and waits for it to exit (killing it after 10 s).
+func (a *Agent) Stop() {
+	a.Close()
+	select {
+	case <-a.done:
+	case <-time.After(10 * time.Second):
+		_ = a.cmd.Process.Kill()
+		<-a.done
 	}
 }
 
@@ -100,6 +167,10 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	buf := &strings.Builder{}
 	a.mu.Lock()
 	a.answers[sid] = buf
+	if a.briefed[sid] {
+		delete(a.briefed, sid)
+		text = briefing(a.wire.prompt) + text
+	}
 	a.mu.Unlock()
 	defer func() {
 		a.mu.Lock()
@@ -157,6 +228,15 @@ func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text st
 	return resp.Steered, nil
 }
 
+// briefing carries the profile's instructions in a prompt, for agents
+// that don't take a system prompt.
+func briefing(instructions string) string {
+	return "[seaport] Your instructions (agent profile). Follow them in this conversation:\n\n" +
+		instructions + "\n\n---\n\n"
+}
+
+// mcpServers are seaport's MCP (tools and skills; it names the agent, so
+// an open port scopes the tools to it) and the profile's.
 func (a *Agent) mcpServers() []acp.McpServer {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -167,9 +247,22 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	if a.cfg.Token != "" {
 		headers = append(headers, acp.HttpHeader{Name: "Authorization", Value: "Bearer " + a.cfg.Token})
 	}
-	return []acp.McpServer{{Http: &acp.McpServerHttpInline{
+	if a.cfg.As != "" {
+		headers = append(headers, acp.HttpHeader{Name: crew.AgentHeader, Value: a.cfg.As})
+	}
+	out := []acp.McpServer{{Http: &acp.McpServerHttpInline{
 		Name: "seaport", Type: "http", Url: a.mcpURL, Headers: headers,
 	}}}
+	if a.kit != nil {
+		for _, s := range a.kit.MCPServers {
+			hs := make([]acp.HttpHeader, 0, len(s.Headers))
+			for _, h := range s.Headers {
+				hs = append(hs, acp.HttpHeader{Name: h.Name, Value: h.Value})
+			}
+			out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{Name: s.Name, Type: "http", Url: s.URL, Headers: hs}})
+		}
+	}
+	return out
 }
 
 // sessionFor opens (resume/load) or creates the conversation's session.
@@ -196,16 +289,22 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 	servers := a.mcpServers()
 	if hasSaved {
 		var err error
+		var options []acp.SessionConfigOption
 		switch {
 		case a.caps.SessionCapabilities.Resume != nil:
-			_, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
+			var r acp.ResumeSessionResponse
+			r, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
+			options = r.ConfigOptions
 		case a.caps.LoadSession:
-			_, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
+			var r acp.LoadSessionResponse
+			r, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
+			options = r.ConfigOptions
 		default:
 			err = errx.Business("agent can't resume sessions")
 		}
 		if err == nil {
 			a.remember(key, saved, false)
+			a.configure(ctx, saved, options)
 			slog.Info("agent session resumed", "conversation", key, "session", saved)
 			return saved, nil
 		}
@@ -216,8 +315,75 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 		return "", errx.Wrap(err, "agent new session", errx.TypeExternal)
 	}
 	a.remember(key, resp.SessionId, true)
+	a.configure(ctx, resp.SessionId, resp.ConfigOptions)
 	slog.Info("agent session created", "conversation", key, "session", resp.SessionId)
 	return resp.SessionId, nil
+}
+
+// configure applies the profile to a session this process opened: model
+// and effort among its config options, and the instructions with its next
+// prompt when the agent doesn't take a system prompt (resumed sessions
+// too: the profile may have changed since).
+func (a *Agent) configure(ctx context.Context, sid acp.SessionId, options []acp.SessionConfigOption) {
+	if a.kit == nil {
+		return
+	}
+	if a.wire.prompt != "" && !a.wire.Supported() {
+		a.mu.Lock()
+		a.briefed[sid] = true
+		a.mu.Unlock()
+	}
+	for _, want := range []struct {
+		value    string
+		category acp.SessionConfigOptionCategory
+		ids      []string
+	}{
+		{a.kit.Model, acp.SessionConfigOptionCategoryModel, []string{"model"}},
+		{a.kit.Effort, acp.SessionConfigOptionCategoryThoughtLevel, []string{"reasoning_effort", "effort", "thought_level"}},
+	} {
+		if want.value == "" {
+			continue
+		}
+		opt, value, ok := pickOption(options, want.category, want.ids, want.value)
+		if !ok {
+			slog.Warn("the agent has no such session option; using its default", "option", want.category, "value", want.value)
+			continue
+		}
+		if opt.CurrentValue == value {
+			continue
+		}
+		_, err := a.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
+			SessionId: sid, ConfigId: opt.Id, Value: value}})
+		if err != nil {
+			slog.Warn("could not set the session option", "option", opt.Id, "value", value, "err", err)
+		}
+	}
+}
+
+// pickOption finds the select option of a category (or one of ids) and
+// its value matching want (by value or name, any case).
+func pickOption(options []acp.SessionConfigOption, category acp.SessionConfigOptionCategory, ids []string, want string) (*acp.SessionConfigOptionSelect, acp.SessionConfigValueId, bool) {
+	for _, o := range options {
+		s := o.Select
+		if s == nil || !((s.Category != nil && *s.Category == category) || slices.Contains(ids, string(s.Id))) {
+			continue
+		}
+		var values []acp.SessionConfigSelectOption
+		if s.Options.Ungrouped != nil {
+			values = *s.Options.Ungrouped
+		}
+		if s.Options.Grouped != nil {
+			for _, g := range *s.Options.Grouped {
+				values = append(values, g.Options...)
+			}
+		}
+		for _, v := range values {
+			if strings.EqualFold(string(v.Value), want) || strings.EqualFold(v.Name, want) {
+				return s, v.Value, true
+			}
+		}
+	}
+	return nil, "", false
 }
 
 func (a *Agent) remember(key string, sid acp.SessionId, save bool) {
@@ -230,9 +396,15 @@ func (a *Agent) remember(key string, sid acp.SessionId, save bool) {
 	}
 }
 
-// sessionsKey scopes saved sessions to the port and the agent's workspace.
+// sessionsKey scopes saved sessions to the port, the agent's workspace
+// and (with a profile) the library agent: two agents in one directory
+// keep their own sessions.
 func (a *Agent) sessionsKey() string {
-	return strings.TrimRight(a.cfg.Server, "/") + " " + a.cfg.Cwd + " " + filepath.Base(a.cfg.Command[0])
+	key := strings.TrimRight(a.cfg.Server, "/") + " " + a.cfg.Cwd + " " + filepath.Base(a.cfg.Command[0])
+	if a.kit != nil {
+		key += " " + a.kit.Name
+	}
+	return key
 }
 
 type sessionsFile map[string]map[string]acp.SessionId
@@ -307,7 +479,7 @@ func (c *client) RequestPermission(_ context.Context, p acp.RequestPermissionReq
 	want := map[bool][]acp.PermissionOptionKind{
 		true:  {acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways},
 		false: {acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways},
-	}[c.a.cfg.Approve == "allow"]
+	}[c.a.approve == agent.ApproveAllow]
 	title := ""
 	if p.ToolCall.Title != nil {
 		title = *p.ToolCall.Title

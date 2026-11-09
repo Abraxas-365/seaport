@@ -29,6 +29,7 @@ type Module struct {
 	Resolver httpx.CrewResolver
 	tokens   *crewhttp.Handler
 	mcp      http.Handler
+	kit      http.Handler
 	version  string
 }
 
@@ -53,11 +54,16 @@ func (m *Module) Register(mux *http.ServeMux) {
 func (m *Module) Bind(ships interface {
 	ship.Commands
 	ship.Queries
-}, convs conversation.Queries, agents agent.Queries) {
+}, convs conversation.Queries, agents interface {
+	agent.Queries
+	agent.Kits
+}) {
 	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Version: m.version})
+	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.Hub.Bind(ships, agents)
 }
 
-// WS is the /crew/ws handler; MCP the /mcp handler.
+// WS is the /crew/ws handler, MCP the /mcp handler, Kit GET /crew/profile.
 func (m *Module) WS() http.Handler  { return m.Hub }
 func (m *Module) MCP() http.Handler { return m.mcp }
+func (m *Module) Kit() http.Handler { return m.kit }

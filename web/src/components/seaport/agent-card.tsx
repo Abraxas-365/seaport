@@ -37,6 +37,14 @@ export function AgentCard({
                   {agent.name}
                 </span>
               )}
+              {agent.outdated && (
+                <StatusBadge
+                  tone="warning"
+                  title="El perfil del agente cambió: reinicia con el nuevo al quedar libre (o su conector no aplica perfiles)"
+                >
+                  {agent.profile_version ? `perfil v${agent.profile_version}` : "sin perfil"} · desactualizado
+                </StatusBadge>
+              )}
               {agent.steer && (
                 <StatusBadge tone="brand" dot={false} title="Recibe mensajes nuevos a mitad de turno">
                   <Zap className="size-3" /> steer

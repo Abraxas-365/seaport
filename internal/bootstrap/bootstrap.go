@@ -181,8 +181,11 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	convs := conversationmodule.New(db, lockDB.DB, bus)
+	// The secret key seals the WhatsApp store and agent secrets. Without
+	// WhatsApp (tests) it is loaded only when given; agent secrets are
+	// then refused.
 	var secretKey string
-	if !opts.DisableWhatsApp {
+	if !opts.DisableWhatsApp || cfg.SecretKey != "" {
 		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
 			bus.Close()
 			closeDBs()
@@ -197,7 +200,13 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	crew := crewmodule.New(db, process, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
-	agents := agentmodule.New(db, crew.Hub, bus)
+	agents, err := agentmodule.New(db, secretKey, crew.Hub, bus)
+	if err != nil {
+		docks.Close()
+		bus.Close()
+		closeDBs()
+		return nil, err
+	}
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: crew.Hub, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
@@ -254,6 +263,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/api/", auth.Admin(limit.Wrap(admin)))
 	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
 	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
+	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
 	ui := httpx.SPA(web.Dist())

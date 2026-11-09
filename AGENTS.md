@@ -75,9 +75,11 @@ internal/
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
   crew/               wire protocol + crew tokens (token.go): crewsvc, crewmodule,
                       adapters/{crewws (hub), crewmcp (tools), crewpg, crewhttp}
-  agent/              agent library + dock teams + routing (Route, pure):
-                      agentsvc, agentmodule, adapters/{agentpg, agenthttp}
-  connector           agent side (`seaport connect`): WS client + ACP client
+  agent/              agent library + dock teams + routing (Route, pure) +
+                      profiles/secrets/kit (profile.go): agentsvc, agentmodule,
+                      adapters/{agentpg, agenthttp}
+  connector           agent side (`seaport connect`): WS client + ACP client,
+                      applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
 scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
 migrations/           goose SQL, embedded, applied at start
@@ -94,7 +96,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship`/`agent` `Commands`,
-  `Queries`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
+  `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
   `Relay` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
   ones (gateway callbacks, lease sweep, crew token sign-in, crew presence
@@ -123,6 +125,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   permission in `bootstrap.EventPermissions` (`TestEveryEventTypeHasAPermission`);
   the generated Go/TS files match `iam/permissions.json` (drift tests in
   `internal/permission/gen`).
+- Agent secrets (`secret_architecture_test.go`, `TestOnlyTheCrewEquips`):
+  `Equip` (the kit, secrets resolved) is called only by `crewhttp`
+  (`GET /crew/profile`, the agent's own crew credential) and `OpenSecrets`
+  only by `agentsvc` (`secretCalls`), so no admin handler, event or MCP
+  tool can hand a secret back.
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -190,6 +197,28 @@ test together with the reason. Add a rule when you add a pattern.
   its agent on `pending` and re-checks it after the hello). Migration 00013 gave every
   organization in use an agent `default` (default of every dock, owner of
   every token).
+- Agent profiles (migration 00014, `agent/profile.go`): `agent_profiles`
+  keeps every version (PK org, agent, version; `agents.profile_version`
+  is the current one, 0 = none). `SaveProfile` is optimistic: `Base` must
+  be the current version (else `Conflict`), and MCP headers may name only
+  secrets the agent has (`${NAME}`). `agent_secrets` are sealed
+  (`internal/seal`, info `seaport agent secrets v1`, purpose
+  `agent-secret/<org>/<agent>/<name>`); the admin API answers names and
+  flags only, and a secret a header uses can't be deleted. `Equip` builds
+  the agent's `Kit` (profile + resolved headers + `env` secrets +
+  `Revision`, a hash of it all). A saved profile or secret calls
+  `agent.Revoker.ProfileChanged` (`Hub`: `profile` frame to the agent's
+  connections, everywhere via `crew.SignalProfile`) and publishes
+  `agent.updated`. The connector fetches its kit at start and on welcome
+  and `profile` frames; on a new revision it sends `drain` (the hub gives
+  it no new deliveries), waits until idle and restarts its harness with
+  the kit, resuming sessions. `hello.profile_version` is stored with the
+  connection; the crew status marks it `outdated` when it isn't the
+  agent's current version. Instructions go as ACP `systemPrompt` (append)
+  when the agent advertises `sessionCapabilities.systemPrompt`, else with
+  each session's first prompt; skills are served by the MCP `skill` tool
+  (per request, from the current profile), never written to the agent's
+  machine.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
@@ -367,7 +396,7 @@ test together with the reason. Add a rule when you add a pattern.
   `bootstrap.MigrateTo`). A dock's `address` is its device JID.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
-  link into place) — never while `wa_devices` has rows (a new key can't open
+  link into place) — never while `wa_devices` or `agent_secrets` has rows (a new key can't open
   them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info

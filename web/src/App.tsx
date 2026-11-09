@@ -20,6 +20,7 @@ import { DockPage } from "@/pages/dock"
 import { CrewPage } from "@/pages/crew"
 import { TokensPage } from "@/pages/tokens"
 import { AgentsPage } from "@/pages/agents"
+import { AgentPage } from "@/pages/agent"
 import { DesignSystemPage } from "@/pages/design-system"
 
 export function App() {
@@ -116,6 +117,14 @@ function Gate() {
           element={
             <Guard perm={Perm.AgentsRead} what="los agentes">
               <AgentsPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/agents/:agentId"
+          element={
+            <Guard perm={Perm.AgentsRead} what="los agentes">
+              <AgentPage />
             </Guard>
           }
         />

@@ -131,6 +131,47 @@ machine) and several connections; they share its work. The connector reconnects 
 drops or the port restarts, but exits with an error when the port refuses
 its crew token (revoked, expired or wrong): create a new one.
 
+#### Profiles
+
+An agent's **profile** is what its harness is told and given, kept in the
+port and applied by `seaport connect` on whatever machine runs it:
+instructions, skills, extra MCP servers, the answer to permission requests
+and the model / reasoning effort. Edit it in the web app (Agentes → the
+agent) or the CLI:
+
+```bash
+seaport agents profile set pm -instructions-file AGENTS.md -skills-dir skills/ -approve allow -effort high
+printf %s "$LINEAR_TOKEN" | seaport agents secrets set pm LINEAR_TOKEN   # value from stdin
+seaport agents profile show pm -json > pm.json   # edit (e.g. mcp_servers), then:
+seaport agents profile set pm -f pm.json
+seaport agents profile versions pm               # every save is a version; show -version N
+```
+
+- **Instructions** go as the session's system prompt when the agent supports
+  ACP's client system prompt (`systemPrompt`, appended to its own), else with
+  the first prompt of each session.
+- **Skills** (SKILL.md: name, when to use it, instructions) reach any harness
+  through the port's MCP server: a `skill` tool lists them and returns one's
+  instructions when the agent calls it. Nothing is written on the agent's
+  machine.
+- **MCP servers** (streamable HTTP) are added to every session next to
+  Seaport's; their headers may name the agent's **secrets** as `${NAME}`.
+  Secrets are sealed with the port's secret key (`SEAPORT_SECRET_KEY[_FILE]`),
+  never shown again after they are written, and handed out (resolved, plus
+  those marked `-env` as environment variables of the harness) only to the
+  agent's own connections, through `GET /crew/profile`.
+- **Permissions** (`allow|reject`) answer the harness's permission requests;
+  the connector's `-approve` flag overrides it. **Model** and **effort** are
+  set through the agent's ACP session options (`model`, `reasoning_effort`)
+  when it offers them.
+
+Saves are optimistic (an edit made on an older version is refused). A saved
+profile or secret reaches the agent's connectors at once: each finishes
+what it is working on, takes no new work meanwhile, restarts its harness
+with the new profile and resumes its sessions. The crew view shows a
+connection still running an older version (or a connector from before
+profiles) as outdated.
+
 The connector is the same `seaport` binary. On the agent's machine, take it
 from [Releases](https://github.com/Abraxas-365/seaport/releases) (linux,
 macOS, windows; amd64/arm64; web app included) or build it with Go:
@@ -145,7 +186,7 @@ image have both.)
 
 Flags: `-concurrency N`, `-auto-reply` (send the agent's final text, for
 agents without HTTP MCP), `-approve allow|reject` (tool permission requests;
-default reject), `-deliver steer|queue`, `-server`, `-token`.
+default: the profile's, else reject), `-deliver steer|queue`, `-server`, `-token`.
 
 Messages that arrive while the agent is working on a conversation are
 **steered** into the running turn by default (the model sees them at its next
@@ -162,7 +203,7 @@ new prompt, never lost.
 | `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
 | `SEAPORT_CREW_TOKEN` | — | `seaport connect`: the crew token to use (it names the agent) |
 | `SEAPORT_AGENT` | — | `seaport connect` with `SEAPORT_AUTH=none`: the agent to work as (`-agent`) |
-| `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again (and signs everyone out) |
+| `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys and agent secrets at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again, setting every agent secret again (and signs everyone out) |
 | `SEAPORT_SECRET_KEY_FILE` | `<config dir>/seaport/secret.key` | where the generated key lives (`/data/secret.key` in the image: mount a volume) |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
@@ -293,7 +334,7 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
   The proxy runs `token` or `iam` mode (`none` refuses proxied requests).
 - Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
   (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
-  (root by default). The WhatsApp keys in them (and, in iam mode, the IAMKit
+  (root by default). The WhatsApp keys and agent secrets in them (and, in iam mode, the IAMKit
   tokens of browser sessions) are sealed with `SEAPORT_SECRET_KEY`, which is
   not in the dumps: keep a copy of the key apart from them (from `.env`, or
   `docker compose cp seaport:/data/secret.key .` when it was generated) — a
@@ -356,6 +397,8 @@ In iam mode each route needs its permission (`iam/permissions.json`):
 | `POST /api/v1/session` `{"token"}`, `GET /api/v1/session`, `DELETE /api/v1/session` | token mode browser login: trades the admin token for an HttpOnly, SameSite=Strict cookie (7 days, stateless HMAC; rotating the token ends all sessions). Cookie writes from another origin get 403. `GET` answers `{"authenticated", "permissions", …}` in every mode (iam: name, email, organization) |
 | `GET /api/v1/session/login[?next=&organization=&switch=1]`, `GET /auth/callback` | iam mode: sign in through IAMKit (top-level navigation); `DELETE /api/v1/session` answers `{"logout_url"}` (IAMKit's end session) |
 | `GET/POST /api/v1/agents`, `GET/PATCH/DELETE /api/v1/agents/{id}` | the agent library (each with its docks); POST/PATCH `{"name","description"}`; DELETE revokes its tokens and holds what waits for it |
+| `GET/PUT /api/v1/agents/{id}/profile`, `GET …/profile/versions[/{version}]` | an agent's profile (version 0: none yet); PUT `{"base","instructions","skills","mcp_servers","approve","model","effort"}` saves version base+1 (`409` if base isn't the current one) |
+| `GET /api/v1/agents/{id}/secrets`, `PUT/DELETE …/secrets/{NAME}` | an agent's secrets: names only, never values; PUT `{"value","env"}`; DELETE refuses one the profile's headers use (`409`) |
 | `GET /api/v1/docks/{id}/agents`, `PUT/DELETE /api/v1/docks/{id}/agents/{agent}` | a dock's agents (`{"agents":[…]}`); PUT `{"default"}` assigns (or changes the default), both answer the agent |
 | `GET/POST /api/v1/crew/tokens`, `DELETE /api/v1/crew/tokens/{id}` | crew tokens of your organization; POST `{"agent_id","name","expires_at"?}` answers the value once |
 | `GET /api/v1/events[?last_event_id=]` | live events (SSE, below) |
@@ -367,7 +410,8 @@ In iam mode each route needs its permission (`iam/permissions.json`):
 | `GET /api/v1/docks/{id}/customs`, `PATCH …/customs/policy` `{"default","group_mode"}`, `POST …/customs/rules` `{"effect","pattern"}`, `DELETE /api/v1/customs/rules/{id}` | customs |
 | `GET/POST /api/v1/conversations/{id}/ships` | history; send as the agent |
 | `GET /crew/ws` | crew WebSocket (`internal/crew/protocol.go`) |
-| `POST /mcp` | MCP tools: `reply`, `history`, `conversations` |
+| `GET /crew/profile[?agent=]` | crew credential: its agent's kit (profile with secrets resolved, `env`, `revision`); `?agent=` only in `none` mode |
+| `POST /mcp` | MCP tools: `reply`, `history`, `conversations`, and `skill` when the agent's profile has skills |
 | `GET /healthz` | public liveness: `{"status","version"}`, nothing about any organization |
 
 ### Events

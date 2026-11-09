@@ -2,8 +2,15 @@
 // work it (connectors). Connectors dial out to /crew/ws, so agents behind
 // NAT need no public address.
 //
-//	server → client: welcome, delivery, steer
-//	client → server: hello, ack, release, reply
+//	server → client: welcome, delivery, steer, profile
+//	client → server: hello, ack, release, reply, drain
+//
+// Profiles: a connector working as an agent with a profile fetches its
+// kit (GET /crew/profile) and says which version it runs in its hello. A
+// profile frame says the kit changed (profile or secrets): the connector
+// fetches it again and, when it changed, says drain: the port gives the
+// connection no new deliveries (steers still join the ones in flight).
+// Once its work is acked it closes and reconnects with the new harness.
 //
 // Steering: a connector whose agent can take input mid-turn says
 // hello.steer. Ships that arrive for a conversation while its delivery is
@@ -24,6 +31,11 @@ import (
 	"github.com/Abraxas-365/seaport/internal/text"
 )
 
+// AgentHeader names the agent a connector works as on /mcp: needed in
+// open mode (scopes the tools and attributes replies to it); with a crew
+// token it is the token's agent and the header, when sent, must match.
+const AgentHeader = "X-Seaport-Agent"
+
 // FrameType names a frame.
 type FrameType string
 
@@ -35,6 +47,8 @@ const (
 	FrameAck      FrameType = "ack"
 	FrameRelease  FrameType = "release"
 	FrameReply    FrameType = "reply"
+	FrameProfile  FrameType = "profile"
+	FrameDrain    FrameType = "drain"
 	FrameError    FrameType = "error"
 )
 
@@ -60,6 +74,9 @@ type Frame struct {
 	As          string `json:"as,omitempty"`
 	Concurrency int    `json:"concurrency,omitempty"`
 	Steer       bool   `json:"steer,omitempty"`
+	// ProfileVersion is the agent profile version the harness runs (0:
+	// none, or a connector that doesn't apply profiles).
+	ProfileVersion int `json:"profile_version,omitempty"`
 
 	// welcome
 	MCPURL string `json:"mcp_url,omitempty"`
@@ -91,11 +108,16 @@ type Hello struct {
 	Concurrency int
 	// Steer: the agent takes new ships mid-turn (steer frames).
 	Steer bool
+	// ProfileVersion: the agent profile version it runs (crew status).
+	ProfileVersion int
 }
 
 func (h Hello) Validate() error {
 	if h.Concurrency < 0 || h.Concurrency > MaxConcurrency {
 		return errx.InvalidField("concurrency", "concurrency must be between 1 and 32")
+	}
+	if h.ProfileVersion < 0 {
+		return errx.InvalidField("profile_version", "profile_version must not be negative")
 	}
 	if h.As != "" && agent.ValidName(h.As) != nil {
 		return errx.InvalidField("as", "as must be an agent name (lowercase letters, digits, - and _)")
