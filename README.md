@@ -276,6 +276,34 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
 - Seaport warns at start when `SEAPORT_PUBLIC_URL` is plain `http` on a
   non-local host.
 
+### Several processes
+
+Several Seaport processes (replicas behind one load balancer, or a rolling
+deploy) can serve one Postgres; any process answers any request, no sticky
+sessions. Give them all the same configuration, and in particular the same
+`SEAPORT_SECRET_KEY` (and admin token in token mode): set the key
+explicitly instead of letting each process generate its own file.
+
+Agents may connect to any process: connections are recorded in
+Postgres, so the crew status and the agent quota count every process, a
+message arriving at one process wakes agents on all of them, and revoking a
+token closes its connections everywhere. A process shutting down hands its
+agents' deliveries back at once; one that dies is noticed within about half
+a minute (it stops renewing its connections) and another process gives its
+deliveries to the remaining agents.
+
+A WhatsApp number keeps one connection, so each WhatsApp dock runs in one
+process at a time (its owner, recorded in Postgres); the others pass it
+their replies, unlinks and relinks, and show its pairing QR code. A process
+shutting down hands its docks over at once; one that dies loses them within
+about 30 seconds, and another process reconnects them (a pairing in progress
+there is lost: link again). Replicas need a direct (or
+session-pooled) Postgres connection: they use LISTEN/NOTIFY and session
+advisory locks, which PgBouncer's transaction mode breaks.
+
+Per process, not shared: the API rate limit (with N processes a caller may
+get up to N× `SEAPORT_API_RATE`).
+
 ## API
 
 Admin routes accept `Authorization: Bearer <token>` (the admin token; in
@@ -322,20 +350,3 @@ LISTEN/NOTIFY, so every Seaport process streams every process's events.
 The browser resends the last event id on reconnect (to any process) and
 gets what it missed; after an hour, or with an unknown id, it gets `reset`
 and refetches.
-
-Agents may connect to any process too: connections are recorded in
-Postgres, so the crew status and the agent quota count every process, a
-message arriving at one process wakes agents on all of them, and revoking a
-token closes its connections everywhere. A process shutting down hands its
-agents' deliveries back at once; one that dies is noticed within about half
-a minute (it stops renewing its connections) and another process gives its
-deliveries to the remaining agents.
-
-A WhatsApp number keeps one connection, so each WhatsApp dock runs in one
-process at a time (its owner, recorded in Postgres); the others pass it
-their replies, unlinks and relinks, and show its pairing QR code. A process
-shutting down hands its docks over at once; one that dies loses them within
-about 30 seconds, and another process reconnects them (a pairing in progress
-there is lost: link again). Replicas need a direct (or
-session-pooled) Postgres connection: they use LISTEN/NOTIFY and session
-advisory locks, which PgBouncer's transaction mode breaks.

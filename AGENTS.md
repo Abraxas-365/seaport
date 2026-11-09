@@ -302,7 +302,10 @@ test together with the reason. Add a rule when you add a pattern.
   connections of docks it doesn't own (claiming is first come, not
   balanced). `App.Close` hands docks over (refuses routed work, waits up
   to 15 s for work in flight, stops each connection under its dock's
-  lock, then `ReleaseAll`).
+  lock, then `ReleaseAll`). e2e: `docks_replicas_e2e_test.go` runs
+  several processes over a fake exclusive gateway (`world`, fails if two
+  processes connect one dock; it also delivers inbound messages to the
+  process running the dock: `Options.Gateways` with `BindReceiver`).
   The WhatsApp pairing code lives sealed in `wa_pairings` (purpose
   `pairing`/dock), so any process shows it; message ids need no session
   (`whatsmeow.GenerateMessageID`). `StreamReplaced` (another connection of

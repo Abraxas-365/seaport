@@ -32,14 +32,21 @@ type Deps struct {
 	// owns docks for DockLease at a time (renewed while it lives).
 	Process   string
 	DockLease time.Duration
-	// Gateways are extra gateways (tests: a fake exclusive channel).
+	// Gateways are extra gateways (tests: a fake exclusive channel); one
+	// with a BindReceiver(Receiver) method gets inbound messages' receiver.
 	Gateways []dock.Gateway
+}
+
+// Receiver takes inbound messages (the ship domain, bound late).
+type Receiver interface {
+	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
 }
 
 type Module struct {
 	Service *docksvc.Service
 	http    *dockhttp.Handler
 	wa      *dockwa.Gateway
+	extra   []dock.Gateway
 }
 
 func New(ctx context.Context, d Deps) (*Module, error) {
@@ -57,15 +64,18 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	return &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa}, nil
+	return &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, extra: d.Gateways}, nil
 }
 
 // BindReceiver hands inbound messages to the ship domain (built later).
-func (m *Module) BindReceiver(r interface {
-	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
-}) {
+func (m *Module) BindReceiver(r Receiver) {
 	if m.wa != nil {
 		m.wa.Bind(m.Service, r)
+	}
+	for _, g := range m.extra {
+		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
+			b.BindReceiver(r)
+		}
 	}
 }
 

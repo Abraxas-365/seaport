@@ -2,6 +2,7 @@ package bootstrap_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"testing"
@@ -9,7 +10,10 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -22,6 +26,32 @@ type world struct {
 	mu      sync.Mutex
 	running map[identity.DockID]string // dock → process connected
 	sent    []string                   // process that sent each message
+	// receivers: each process's inbound receiver (its ship service).
+	receivers map[string]dockmodule.Receiver
+}
+
+func newWorld(t *testing.T) *world {
+	return &world{t: t, running: map[identity.DockID]string{}, receivers: map[string]dockmodule.Receiver{}}
+}
+
+// arrive is a message from the account's chat: the process connected to
+// the dock receives it.
+func (w *world) arrive(d dock.Dock, msgID, text string) ship.Ship {
+	w.t.Helper()
+	w.mu.Lock()
+	process := w.running[d.ID]
+	r := w.receivers[process]
+	w.mu.Unlock()
+	if r == nil {
+		w.t.Fatalf("message for dock %s, which no process runs (%q)", d.ID, process)
+	}
+	s, _, err := r.Receive(context.Background(), config.DefaultOrganization, ship.Inbound{
+		Dock: d.ID, Channel: dock.ChannelWhatsApp, ChatID: "chat@test", ChatKind: conversation.KindDirect,
+		ExternalID: msgID, SenderID: "chat@test", SenderName: "Ana", Text: text, SentAt: time.Now()})
+	if err != nil {
+		w.t.Fatalf("receive in %s: %v", process, err)
+	}
+	return s
 }
 
 // exclusiveGateway is one process's gateway of an exclusive channel
@@ -32,7 +62,13 @@ type exclusiveGateway struct {
 }
 
 func (g exclusiveGateway) Channel() dock.Channel { return dock.ChannelWhatsApp }
-func (g exclusiveGateway) Exclusive() bool       { return true }
+
+func (g exclusiveGateway) BindReceiver(r dockmodule.Receiver) {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	g.w.receivers[g.name] = r
+}
+func (g exclusiveGateway) Exclusive() bool { return true }
 
 func (g exclusiveGateway) connect(id identity.DockID) {
 	g.w.mu.Lock()
@@ -153,7 +189,7 @@ func eventually(t *testing.T, what string, ok func() bool) {
 // another process takes the dock over and reconnects it; a process that
 // lost the lease drops its connection.
 func TestReplicasShareTheDocks(t *testing.T) {
-	w := &world{t: t, running: map[identity.DockID]string{}}
+	w := newWorld(t)
 	with := func(name string) bootstrap.Options {
 		return bootstrap.Options{Gateways: []dock.Gateway{exclusiveGateway{w: w, name: name}}}
 	}
@@ -225,4 +261,79 @@ func TestReplicasShareTheDocks(t *testing.T) {
 	}
 	eventually(t, "c drops the dock it lost", func() bool { return w.owner(d.ID) == "" })
 	eventually(t, "a live process takes the dock over", func() bool { return w.owner(d.ID) != "" })
+}
+
+// The whole port across three processes: the dock runs in a, the agent is
+// connected to c and the owner watches b. A WhatsApp message received by
+// a wakes the agent on c; its reply goes out through a; b streams it all.
+// When a stops, another process takes the dock and the conversation goes
+// on.
+func TestPortAcrossProcesses(t *testing.T) {
+	w := newWorld(t)
+	with := func(name string) bootstrap.Options {
+		return bootstrap.Options{Gateways: []dock.Gateway{exclusiveGateway{w: w, name: name}}}
+	}
+	none := func(*config.Server) {}
+	a := startPortWith(t, none, with("a"))
+	b := joinPort(t, none, with("b"))
+	c := joinPort(t, none, with("c"))
+	events := b.openEvents("")
+	next(t, events, "ready", nil)
+
+	var d dock.Dock
+	if code := a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "whatsapp", "name": "wa"}, &d); code != http.StatusCreated || w.owner(d.ID) != "a" {
+		t.Fatalf("create dock: %d, runs in %q", code, w.owner(d.ID))
+	}
+	agent := c.dialCrewWith(crew.Frame{Type: crew.FrameHello, Agent: "on-c", Concurrency: 1})
+
+	// The first message waits at customs; the owner (on b) allows the chat.
+	held := w.arrive(d, "m0", "hola")
+	if held.Status != ship.StatusHeld {
+		t.Fatalf("first message: %+v", held)
+	}
+	next(t, events, ship.EventCreated, func(raw json.RawMessage) bool { return hasShip(raw, held.ID, ship.StatusHeld) })
+	if code := b.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil); code != http.StatusOK {
+		t.Fatalf("allow: %d", code)
+	}
+
+	// converse: a message reaches the agent on c, which replies; the reply
+	// goes out through the process running the dock, and b sees it sent.
+	converse := func(msgID, via string) {
+		t.Helper()
+		in := w.arrive(d, msgID, "¿hay mesa?")
+		f := agent.read()
+		if f.Type != crew.FrameDelivery || f.Delivery.Ships[0].ID != in.ID {
+			t.Fatalf("delivery of %s: %+v", msgID, f)
+		}
+		conv := f.Delivery.Conversation.ID
+		agent.send(crew.Frame{Type: crew.FrameReply, ConversationID: &conv, Text: "sí, a las 9"})
+		next(t, events, ship.EventUpdated, func(raw json.RawMessage) bool {
+			var s ship.Ship
+			return json.Unmarshal(raw, &s) == nil && s.Direction == ship.DirectionOut && s.Status == ship.StatusSent && s.Conversation == conv
+		})
+		if got := w.lastSender(); got != via {
+			t.Fatalf("reply to %s sent by %q, want %q", msgID, got, via)
+		}
+		agent.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
+		next(t, events, ship.EventDelivery, func(raw json.RawMessage) bool {
+			var e ship.DeliveryEvent
+			return json.Unmarshal(raw, &e) == nil && e.State == ship.DeliveryAcked && e.Delivery != nil && *e.Delivery == f.Delivery.ID
+		})
+	}
+	converse("m1", "a")
+
+	// a stops: b or c takes the dock over, and the conversation goes on.
+	a.stop()
+	eventually(t, "the dock is taken over", func() bool { o := w.owner(d.ID); return o == "b" || o == "c" })
+	converse("m2", w.owner(d.ID))
+
+	var got dock.Dock
+	if code := b.admin(http.MethodGet, "/api/v1/docks/"+d.ID.String(), nil, &got); code != http.StatusOK || got.Status != dock.StatusLinked {
+		t.Fatalf("dock after takeover: %d %+v", code, got)
+	}
+}
+
+func hasShip(raw json.RawMessage, id identity.ShipID, status ship.Status) bool {
+	var s ship.Ship
+	return json.Unmarshal(raw, &s) == nil && s.ID == id && s.Status == status
 }
