@@ -28,4 +28,5 @@ var EventPermissions = map[string]string{
 	hosting.EventEnvironmentUpdated: permission.EnvironmentsRead,
 	hosting.EventEnvironmentDeleted: permission.EnvironmentsRead,
 	hosting.EventSlotsUpdated:       permission.EnvironmentsRead,
+	hosting.EventEnvironmentBuild:   permission.EnvironmentsRead,
 }

@@ -30,6 +30,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/environments/{id}", httpx.RequireFunc(permission.EnvironmentsWrite, h.delete))
 	mux.Handle("GET /api/v1/environments/{id}/versions", httpx.RequireFunc(permission.EnvironmentsRead, h.versions))
 	mux.Handle("GET /api/v1/environments/{id}/versions/{version}", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
+	mux.Handle("POST /api/v1/environments/{id}/build", httpx.RequireFunc(permission.EnvironmentsWrite, h.startBuild))
+	mux.Handle("GET /api/v1/environments/{id}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
+	mux.Handle("GET /api/v1/environments/{id}/versions/{version}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
 	mux.Handle("GET /api/v1/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hostedAgents))
 	mux.Handle("GET /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hosted))
 	mux.Handle("PUT /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.host))
@@ -115,17 +118,78 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	version := 0
-	if v := r.PathValue("version"); v != "" {
-		if version, err = strconv.Atoi(v); err != nil || version <= 0 {
-			return errx.InvalidField("version", "version must be a positive number")
-		}
+	version, err := pathVersion(r)
+	if err != nil {
+		return err
 	}
 	e, err := h.queries.Environment(r.Context(), org, id, version)
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, e)
+}
+
+// pathVersion is {version} (0 when the route has none).
+func pathVersion(r *http.Request) (int, error) {
+	v := r.PathValue("version")
+	if v == "" {
+		return 0, nil
+	}
+	version, err := strconv.Atoi(v)
+	if err != nil || version <= 0 {
+		return 0, errx.InvalidField("version", "version must be a positive number")
+	}
+	return version, nil
+}
+
+type buildRequest struct {
+	// Version to build (0: the current one).
+	Version int  `json:"version"`
+	Force   bool `json:"force"`
+}
+
+// startBuild answers 202 with the build (in progress, or as it is when
+// already built or building); the body is optional.
+func (h *Handler) startBuild(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := h.environmentID(r, org)
+	if err != nil {
+		return err
+	}
+	var req buildRequest
+	if r.ContentLength != 0 {
+		if err := httpx.DecodeJSON(r, &req); err != nil {
+			return err
+		}
+	}
+	b, err := h.commands.StartBuild(r.Context(), org, id, hosting.BuildEnvironment{Version: req.Version, Force: req.Force})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusAccepted, b)
+}
+
+func (h *Handler) build(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := h.environmentID(r, org)
+	if err != nil {
+		return err
+	}
+	version, err := pathVersion(r)
+	if err != nil {
+		return err
+	}
+	b, err := h.queries.Build(r.Context(), org, id, version)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, b)
 }
 
 type saveRequest struct {

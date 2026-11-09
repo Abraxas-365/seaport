@@ -53,6 +53,7 @@ type App struct {
 	crew    *crewmodule.Module
 	docks   *dockmodule.Module
 	ships   *shipmodule.Module
+	hosted  *hostingmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
 	signIn *authmodule.Module
 	cfg    config.Server
@@ -71,6 +72,8 @@ type Options struct {
 	DockLease time.Duration
 	// Gateways are extra dock gateways (tests: a fake exclusive channel).
 	Gateways []dock.Gateway
+	// Runtime runs hosted agents instead of cfg.Runtime's (tests).
+	Runtime hosting.Runtime
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
@@ -215,8 +218,15 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
-	hosted := hostingmodule.New(db, agents.Service, hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs),
-		MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots}, bus)
+	hosted, err := hostingmodule.New(ctx, db, agents.Service, hostingmodule.Config{
+		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
+		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg)}, bus)
+	if err != nil {
+		docks.Close()
+		bus.Close()
+		closeDBs()
+		return nil, err
+	}
 
 	done := make(chan struct{})
 	var once sync.Once
@@ -225,6 +235,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if auth == nil {
 		if cfg.Auth == config.AuthIAM {
 			if signIn, err = authmodule.New(db, cfg, crew.Resolver); err != nil {
+				hosted.Close()
 				docks.Close()
 				bus.Close()
 				closeDBs()
@@ -280,7 +291,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, signIn: signIn, cfg: cfg,
+	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -307,6 +318,21 @@ func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authe
 			Sessions: httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,
 				Secure: strings.HasPrefix(cfg.PublicURL, "https://")}}
 	}
+}
+
+// baseImages are the harnesses' base images: SEAPORT_IMAGE_*, else the
+// ones published with this version.
+func baseImages(cfg config.Server) map[string]string {
+	out := map[string]string{
+		hosting.HarnessRness:      cfg.ImageRness,
+		hosting.HarnessClaudeCode: cfg.ImageClaudeCode,
+	}
+	for harness, image := range out {
+		if image == "" {
+			out[harness] = config.BaseImage(harness, Version)
+		}
+	}
+	return out
 }
 
 // publicConfig is GET /api/v1/config: what the web app needs before
@@ -356,6 +382,7 @@ func (a *App) Close() {
 	// and the bus.
 	a.crew.Hub.Close()
 	a.docks.Close()
+	a.hosted.Close() // builds record their end (database and bus still open)
 	a.bus.Close()
 	_ = a.lockDB.Close()
 	_ = a.db.Close()

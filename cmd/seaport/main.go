@@ -58,6 +58,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport env apply -f env.yaml         create it, or save a new version (an unchanged file makes none)
   seaport env export <env> [-version N] print it as YAML (the format of apply)
   seaport env versions <env>
+  seaport env build <env> [-force]      build its image (needs SEAPORT_RUNTIME=docker); follows the log
   seaport env delete <env> -yes         only when no agent runs on it
   seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
   seaport agents unhost <agent>

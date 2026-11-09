@@ -61,6 +61,9 @@ var vendorSDKs = map[string][]string{
 	// pgx itself (not via database/sql): opening the pool, error codes, and
 	// LISTEN connections (pglisten: event log, crew signals)
 	"github.com/jackc/pgx": {"bootstrap", "pgerr", "pglisten"},
+	// the Docker Engine API (hosted agents' runtime) and its error kinds
+	"github.com/moby/moby":          {"hosting/adapters/hostingdocker"},
+	"github.com/containerd/errdefs": {"hosting/adapters/hostingdocker"},
 }
 
 // forbiddenEverywhere: packages no production code may import, with why.

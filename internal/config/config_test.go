@@ -63,3 +63,20 @@ func TestCheckSecretKey(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseImage(t *testing.T) {
+	for version, tag := range map[string]string{
+		"v1.2.3":       "1.2.3",
+		"1.2.3":        "1.2.3",
+		"v1.3.0-rc.1":  "1.3.0-rc.1",
+		"dev":          "latest",
+		"":             "latest",
+		"45761cf5d2e0": "latest",
+		"v0.0.0-20261109210049-45761cf5d2e0+dirty": "latest",
+		"v0.0.0-20261109210049-45761cf5d2e0":       "latest",
+	} {
+		if got := BaseImage("rness", version); got != "ghcr.io/abraxas-365/seaport-rness:"+tag {
+			t.Errorf("BaseImage(%q) = %s, want tag %s", version, got, tag)
+		}
+	}
+}

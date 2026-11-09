@@ -14,6 +14,9 @@ const (
 	// slots changed state. Data: Hosted (no environment and no slots when
 	// it is no longer hosted).
 	EventSlotsUpdated = "slot.updated"
+	// EventEnvironmentBuild: an environment version's build started,
+	// finished or failed. Data: Build (without its log).
+	EventEnvironmentBuild = "environment.build"
 )
 
 // EnvironmentDeleted is the payload of EventEnvironmentDeleted.

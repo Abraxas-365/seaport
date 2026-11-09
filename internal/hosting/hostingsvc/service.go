@@ -21,13 +21,14 @@ type Service struct {
 	agents agent.Queries
 	limits hosting.Limits
 	events event.Publisher
+	builds *builds
 }
 
-func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher) *Service {
+func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Service{repo: repo, agents: agents, limits: limits, events: events}
+	return &Service{repo: repo, agents: agents, limits: limits, events: events, builds: newBuilds(builder)}
 }
 
 var (

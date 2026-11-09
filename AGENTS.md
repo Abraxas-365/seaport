@@ -79,11 +79,14 @@ internal/
                       profiles/secrets/kit (profile.go): agentsvc, agentmodule,
                       adapters/{agentpg, agenthttp}
   hosting/            hosted agents: environments (versioned specs, environment.go)
-                      + slots (slot.go): hostingsvc, hostingmodule,
-                      adapters/{hostingpg, hostinghttp}
+                      + slots (slot.go) + image builds (build.go): hostingsvc,
+                      hostingmodule, adapters/{hostingpg, hostinghttp,
+                      hostingdocker (Docker Engine API: hosting.Runtime)}
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
+images/               base images of hosted agents (Dockerfile targets rness,
+                      claude-code; release.yml pushes ghcr.io/abraxas-365/seaport-*)
 scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
 migrations/           goose SQL, embedded, applied at start
 web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at /
@@ -118,7 +121,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
-  pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections)
+  pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
+  the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -240,6 +244,22 @@ test together with the reason. Add a rule when you add a pattern.
   (`hostinghttp.credentials`). An environment with hosted agents can't be
   deleted; deleting an agent unhosts it (slots cascade); a running slot
   must be stopped before unhosting or dropping it.
+- Environment builds (`hosting/build.go`, migration 00016,
+  `SEAPORT_RUNTIME=docker`; `off`, the default, refuses builds): each
+  environment version is built once into an image (`environment_builds`,
+  state building → ready | failed) `FROM` its `image:` or the harness's
+  base (`SEAPORT_IMAGE_*`, default `config.BaseImage`: the release's tag,
+  else `:latest`), plus packages (apt) and setup (bash as root, home handed
+  back to uid 1000), tagged `seaport-env-<env>:v<N>-<hash>` (harness, base,
+  Dockerfile, setup) and labeled with org/environment/version. A base must
+  carry `io.seaport.base` and the spec's `io.seaport.harness` (Seaport's
+  base images set them; derived images inherit them). `ClaimBuild` makes
+  one caller the builder (an insert, or taking over a failed, forced or
+  stale one: no progress for `hosting.BuildStale`); the build runs in the
+  background (`hostingsvc.runBuild`), stores its log's tail
+  (`MaxBuildLog`) every `BuildStale/6`, and records its end even on
+  shutdown (`App.Close` → `hosted.Close` cancels and waits, before the
+  bus closes). `environment.build` events carry no log.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a

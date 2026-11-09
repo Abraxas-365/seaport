@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -96,7 +97,38 @@ type Server struct {
 	// SEAPORT_HOST_MAX_MEMORY_MB (8192) bound one slot's resources,
 	// SEAPORT_MAX_SLOTS (10) an organization's slots.
 	HostMaxCPUs, HostMaxMemoryMB, MaxSlots int
+	// Runtime runs hosted agents: SEAPORT_RUNTIME off (default: nothing is
+	// built or run) or docker (the engine at DOCKER_HOST, behind a
+	// docker-socket proxy in production).
+	Runtime Runtime
+	// Base images per harness (environments without `image:` build FROM
+	// them): SEAPORT_IMAGE_RNESS, SEAPORT_IMAGE_CLAUDE_CODE; default the
+	// published ones at this release's version (ghcr.io/abraxas-365/…).
+	ImageRness, ImageClaudeCode string
 }
+
+// Runtime is where hosted agents run (SEAPORT_RUNTIME).
+type Runtime string
+
+const (
+	RuntimeOff    Runtime = "off"
+	RuntimeDocker Runtime = "docker"
+)
+
+// BaseImage is the published base image of a harness at a Seaport version
+// (images/Dockerfile, pushed by the release workflow for v* tags):
+// releases (v1.2.3, goreleaser's 1.2.3, pre-releases too) use their tag,
+// anything else (dev, commit SHAs, Go pseudo-versions) :latest.
+func BaseImage(harness, version string) string {
+	tag := strings.TrimPrefix(version, "v")
+	if !releaseVersion.MatchString(tag) || strings.HasPrefix(tag, "0.0.0-") {
+		tag = "latest"
+	}
+	return "ghcr.io/abraxas-365/seaport-" + harness + ":" + tag
+}
+
+// releaseVersion is a release's semver (no build metadata).
+var releaseVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 
 func LoadServer() (Server, error) {
 	c := Server{
@@ -118,6 +150,10 @@ func LoadServer() (Server, error) {
 			WebClientID: os.Getenv("IAMKIT_WEB_CLIENT_ID"),
 		},
 		LogLevel: env("SEAPORT_LOG_LEVEL", "info"),
+		Runtime:  Runtime(env("SEAPORT_RUNTIME", string(RuntimeOff))),
+		// empty: bootstrap fills BaseImage(harness, Version)
+		ImageRness:      strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
+		ImageClaudeCode: strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
 	}
 	if c.IAMKit.PublicURL == "" {
 		c.IAMKit.PublicURL = c.IAMKit.URL
@@ -162,6 +198,11 @@ func LoadServer() (Server, error) {
 func (c Server) Validate() error {
 	if c.DatabaseURL == "" {
 		return errx.Validation("DATABASE_URL is required")
+	}
+	switch c.Runtime {
+	case "", RuntimeOff, RuntimeDocker:
+	default:
+		return errx.Validation("SEAPORT_RUNTIME must be off or docker")
 	}
 	switch c.Auth {
 	case AuthNone:

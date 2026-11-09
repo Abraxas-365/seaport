@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
@@ -110,7 +111,7 @@ func prune(n *yaml.Node) bool {
 	return false
 }
 
-// env is `seaport env [list|apply|export|versions|delete] ...`.
+// env is `seaport env [list|apply|export|versions|build|delete] ...`.
 func env(ctx context.Context, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
@@ -199,6 +200,18 @@ func env(ctx context.Context, args []string) error {
 			fmt.Fprintf(w, "v%d\t%s\t%s\n", v.Version, v.CreatedBy, v.CreatedAt.Local().Format("2006-01-02 15:04"))
 		}
 		return w.Flush()
+	case "build":
+		fs := flag.NewFlagSet("env build", flag.ContinueOnError)
+		version := fs.Int("version", 0, "a past version (default: current)")
+		force := fs.Bool("force", false, "build again even when built (pulls the base anew)")
+		wait := fs.Bool("wait", true, "follow the build until it ends")
+		if len(args) == 0 {
+			return errx.Validation("usage: seaport env build <env> [-version N] [-force] [-wait=false]")
+		}
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return buildEnv(ctx, a, args[0], *version, *force, *wait)
 	case "delete":
 		fs := flag.NewFlagSet("env delete", flag.ContinueOnError)
 		yes := fs.Bool("yes", false, "confirm")
@@ -247,4 +260,48 @@ func applyEnv(ctx context.Context, a *admin, f envFile) error {
 		fmt.Printf("environment %s v%d\n", e.Name, e.Version)
 	}
 	return nil
+}
+
+// buildEnv starts a build and, with wait, prints its log as it grows until
+// it ends (a failed build is an error).
+func buildEnv(ctx context.Context, a *admin, name string, version int, force, wait bool) error {
+	path := "/api/v1/environments/" + url.PathEscape(name)
+	var b hosting.Build
+	if err := a.do(ctx, http.MethodPost, path+"/build", map[string]any{"version": version, "force": force}, &b); err != nil {
+		return err
+	}
+	if b.State == hosting.BuildReady && !force {
+		fmt.Printf("%s v%d is built: %s (seaport env build %s -force builds it again)\n", name, b.Version, b.Image, name)
+		return nil
+	}
+	if !wait {
+		fmt.Printf("building %s v%d FROM %s\n", name, b.Version, b.Base)
+		return nil
+	}
+	path += "/versions/" + strconv.Itoa(b.Version) + "/build"
+	printed := 0
+	for {
+		if err := a.do(ctx, http.MethodGet, path, nil, &b); err != nil {
+			return err
+		}
+		// the stored log is a tail: print what is new (all of it if it rolled)
+		if len(b.Log) < printed {
+			printed = 0
+		}
+		fmt.Print(b.Log[printed:])
+		printed = len(b.Log)
+		switch b.State {
+		case hosting.BuildReady:
+			fmt.Printf("\n%s v%d built: %s\n", name, b.Version, b.Image)
+			return nil
+		case hosting.BuildFailed:
+			return errx.Business("build of " + name + " v" + strconv.Itoa(b.Version) + " failed: " + b.Detail)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+		b.Log = ""
+	}
 }
