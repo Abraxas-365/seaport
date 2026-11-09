@@ -120,12 +120,24 @@ func openDB(ctx context.Context, url string, force map[string]string) (*sqlx.DB,
 
 // Migrate applies the embedded migrations.
 func Migrate(ctx context.Context, db *sql.DB) error {
+	return MigrateTo(ctx, db, 0)
+}
+
+// MigrateTo applies the embedded migrations up to version (0: all); tests
+// use it to check a migration against the data before it.
+func MigrateTo(ctx context.Context, db *sql.DB, version int64) error {
 	goose.SetBaseFS(migrations.FS)
 	goose.SetLogger(goose.NopLogger())
 	if err := goose.SetDialect("postgres"); err != nil {
 		return errx.Wrap(err, "goose dialect", errx.TypeInternal)
 	}
-	if err := goose.UpContext(ctx, db, "."); err != nil {
+	var err error
+	if version == 0 {
+		err = goose.UpContext(ctx, db, ".")
+	} else {
+		err = goose.UpToContext(ctx, db, ".", version)
+	}
+	if err != nil {
 		return errx.Wrap(err, "run migrations", errx.TypeInternal)
 	}
 	return nil

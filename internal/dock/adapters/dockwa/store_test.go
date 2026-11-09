@@ -29,6 +29,12 @@ const testKey = "dockwa-test-secret-0123456789abcdefghij"
 // whatsmeow's own sqlstore tables (the reference implementation).
 func testDB(t *testing.T) (*sqlx.DB, *sqlstore.Container) {
 	t.Helper()
+	return testDBAt(t, 0)
+}
+
+// testDBAt migrates up to version (0: all).
+func testDBAt(t *testing.T, version int64) (*sqlx.DB, *sqlstore.Container) {
+	t.Helper()
 	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
 	if url == "" {
 		if os.Getenv("CI") != "" {
@@ -45,7 +51,7 @@ func testDB(t *testing.T) (*sqlx.DB, *sqlstore.Container) {
 	if _, err := db.ExecContext(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
 		t.Fatal(err)
 	}
-	if err := bootstrap.Migrate(ctx, db.DB); err != nil {
+	if err := bootstrap.MigrateTo(ctx, db.DB, version); err != nil {
 		t.Fatal(err)
 	}
 	legacy := sqlstore.NewWithDB(db.DB, "pgx", nil)

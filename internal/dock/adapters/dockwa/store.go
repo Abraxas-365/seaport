@@ -252,13 +252,8 @@ func (d *dockStore) DeleteDevice(ctx context.Context, dev *store.Device) error {
 	if dev.ID == nil {
 		return errx.Internal("whatsapp device has no JID yet")
 	}
-	return d.st.inTx(ctx, func(ctx context.Context) error {
-		q := d.q(ctx)
-		if _, err := q.ExecContext(ctx, `DELETE FROM wa_devices WHERE dock_id = $1 AND jid = $2`, d.dock, dev.ID.String()); err != nil {
-			return pgerr.Map(err, "delete whatsapp device")
-		}
-		return purgeLegacy(ctx, q, dev.ID.String())
-	})
+	_, err := d.q(ctx).ExecContext(ctx, `DELETE FROM wa_devices WHERE dock_id = $1 AND jid = $2`, d.dock, dev.ID.String())
+	return pgerr.Map(err, "delete whatsapp device")
 }
 
 func (d *dockStore) attach(dev *store.Device) {
@@ -325,28 +320,8 @@ func (s *Store) Device(ctx context.Context, org identity.OrganizationID, dock id
 
 // DeleteDock forgets a dock's device and keys.
 func (s *Store) DeleteDock(ctx context.Context, org identity.OrganizationID, dock identity.DockID) error {
-	return s.inTx(ctx, func(ctx context.Context) error {
-		q := s.q(ctx)
-		var jids []string
-		if err := q.SelectContext(ctx, &jids, `DELETE FROM wa_devices WHERE organization_id = $1 AND dock_id = $2 RETURNING jid`, org, dock); err != nil {
-			return pgerr.Map(err, "delete whatsapp device")
-		}
-		// a device never imported (or that failed to) is known by the dock's address
-		var address string
-		err := q.GetContext(ctx, &address, `SELECT address FROM docks WHERE organization_id = $1 AND id = $2`, org, dock)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return pgerr.Map(err, "load dock address")
-		}
-		if address != "" {
-			jids = append(jids, address)
-		}
-		for _, jid := range jids {
-			if err := purgeLegacy(ctx, q, jid); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	_, err := s.q(ctx).ExecContext(ctx, `DELETE FROM wa_devices WHERE organization_id = $1 AND dock_id = $2`, org, dock)
+	return pgerr.Map(err, "delete whatsapp device")
 }
 
 // CheckKey opens one sealed device: a changed SEAPORT_SECRET_KEY is found

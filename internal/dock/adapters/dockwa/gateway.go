@@ -87,8 +87,7 @@ type session struct {
 	titles   map[types.JID]string
 }
 
-// Open opens the sealed store (secretKey: SEAPORT_SECRET_KEY) and moves in
-// the devices still in whatsmeow's old sqlstore tables.
+// Open opens the sealed store (secretKey: SEAPORT_SECRET_KEY).
 func Open(ctx context.Context, db *sqlx.DB, secretKey string) (*Gateway, error) {
 	sealer, err := seal.New(secretKey, SealInfo)
 	if err != nil {
@@ -96,9 +95,6 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string) (*Gateway, error) 
 	}
 	devices := NewStore(db, sealer)
 	if err := devices.CheckKey(ctx); err != nil {
-		return nil, err
-	}
-	if _, err := devices.ImportLegacy(ctx); err != nil {
 		return nil, err
 	}
 	return &Gateway{devices: devices, clients: map[identity.DockID]*session{}, replaced: map[identity.DockID]replacement{}}, nil

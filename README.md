@@ -259,14 +259,15 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
   tokens of browser sessions) are sealed with `SEAPORT_SECRET_KEY`, which is
   not in the dumps: keep a copy of the key apart from them (from `.env`, or
   `docker compose cp seaport:/data/secret.key .` when it was generated) — a
-  dump without it is useless, which is also why a stolen dump is. (Docks
-  linked before the sealed store also keep a clear copy in the old
-  `whatsmeow_*` tables until the release that drops them; unlinking a dock
-  deletes it.) Copy the
+  dump without it is useless, which is also why a stolen dump is. Copy the
   dumps off the server too (the same disk is not a backup). Restore: `docker compose stop seaport backup`, then
   `docker compose exec -T postgres pg_restore -U seaport -d seaport --clean --if-exists < backups/<file>.dump`,
   then `docker compose start seaport backup`.
 - Upgrade: `git pull && docker compose up -d --build` (migrations run at start).
+  From a version before the sealed WhatsApp store (migration 00008), run
+  the release that has it (up to `e807f94`) once first: it moves linked
+  WhatsApp devices out of whatsmeow's clear-text tables, which migration
+  00012 then drops (it refuses while a linked dock is still only there).
 - The image alone: `docker build -t seaport .` (distroless, non-root, ~24 MB,
   `seaport healthcheck` as the container health check).
 - Try it locally: `SEAPORT_DOMAIN=localhost` makes Caddy use its own CA

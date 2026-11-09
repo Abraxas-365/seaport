@@ -325,13 +325,11 @@ test together with the reason. Add a rule when you add a pattern.
   table, dock and row, so a value copied to another row doesn't open.
   whatsmeow's `sqlstore` keeps keys in clear and is banned outside tests
   (`forbiddenEverywhere`); `store_test.go` runs one script against both and
-  requires identical answers. Devices still in the old `whatsmeow_*` tables
-  are copied in at start (`ImportLegacy`; a broken one is logged and
-  skipped, never panics or blocks start); those tables stay one release
-  (still in clear: a rollback reads them, but a rollback after Signal state
-  moved on leaves the copies stale, so it is one-way in practice), then a
-  migration drops them. Logout, unlink and dock deletion also delete the
-  device's `whatsmeow_*` copy. A dock's `address` is its device JID.
+  requires identical answers. Migration 00012 dropped whatsmeow's own
+  `whatsmeow_*` tables (clear text, before 00008; the release before it
+  copied their devices in at start); it refuses while a linked dock's
+  device is only there (`TestMigrationDropsTheOldStore`, via
+  `bootstrap.MigrateTo`). A dock's `address` is its device JID.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices` has rows (a new key can't open
