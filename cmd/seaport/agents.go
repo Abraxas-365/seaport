@@ -61,6 +61,8 @@ func agents(ctx context.Context, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ag.ID, ag.Name, profile, strings.Join(docks, ", "), ag.Description)
 		}
 		return w.Flush()
+	case "host", "unhost", "slots":
+		return hostCmd(ctx, a, sub, args)
 	case "add":
 		if len(args) == 0 {
 			return errx.Validation("usage: seaport agents add <name> [-description D]")

@@ -28,6 +28,8 @@ import (
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/event/eventpg"
 	"github.com/Abraxas-365/seaport/internal/event/eventsse"
+	"github.com/Abraxas-365/seaport/internal/hosting"
+	"github.com/Abraxas-365/seaport/internal/hosting/hostingmodule"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
@@ -213,6 +215,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
+	hosted := hostingmodule.New(db, agents.Service, hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs),
+		MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots}, bus)
 
 	done := make(chan struct{})
 	var once sync.Once
@@ -239,6 +243,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	ships.Register(admin)
 	crew.Register(admin)
 	agents.Register(admin)
+	hosted.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
 	admin.Handle("DELETE /api/v1/session", session.Logout)
 	admin.HandleFunc("/", httpx.NotFound)

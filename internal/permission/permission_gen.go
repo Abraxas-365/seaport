@@ -23,6 +23,8 @@ const (
 	CrewTokensWrite    = "seaport:crew-tokens:write"   // Create and revoke crew tokens
 	AgentsRead         = "seaport:agents:read"         // View agents and the docks they work on
 	AgentsWrite        = "seaport:agents:write"        // Create, change and delete agents and assign them to docks
+	EnvironmentsRead   = "seaport:environments:read"   // View environments and the agents the port hosts
+	EnvironmentsWrite  = "seaport:environments:write"  // Create, change and delete environments, host agents and start or stop them
 )
 
 // All is the whole catalog, in manifest order.
@@ -40,6 +42,8 @@ var All = []string{
 	CrewTokensWrite,
 	AgentsRead,
 	AgentsWrite,
+	EnvironmentsRead,
+	EnvironmentsWrite,
 }
 
 // Labels say what each permission lets someone do.
@@ -57,11 +61,13 @@ var Labels = map[string]string{
 	CrewTokensWrite:    "Create and revoke crew tokens",
 	AgentsRead:         "View agents and the docks they work on",
 	AgentsWrite:        "Create, change and delete agents and assign them to docks",
+	EnvironmentsRead:   "View environments and the agents the port hosts",
+	EnvironmentsWrite:  "Create, change and delete environments, host agents and start or stop them",
 }
 
 // Roles on the resource, in manifest order.
 var Roles = []Role{
-	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite}},
-	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead}},
-	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead}},
+	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite, EnvironmentsRead, EnvironmentsWrite}},
+	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead}},
+	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead}},
 }

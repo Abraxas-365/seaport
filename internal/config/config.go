@@ -92,6 +92,10 @@ type Server struct {
 	// per caller (organization + subject + credential) on /api, /crew/ws
 	// and /mcp; 0 disables.
 	APIRate, APIBurst int
+	// Hosted agents (0 disables a limit): SEAPORT_HOST_MAX_CPUS (4) and
+	// SEAPORT_HOST_MAX_MEMORY_MB (8192) bound one slot's resources,
+	// SEAPORT_MAX_SLOTS (10) an organization's slots.
+	HostMaxCPUs, HostMaxMemoryMB, MaxSlots int
 }
 
 func LoadServer() (Server, error) {
@@ -135,6 +139,9 @@ func LoadServer() (Server, error) {
 		{"SEAPORT_SEND_ORG_PER_HOUR", 1000, &c.SendOrgPerHour},
 		{"SEAPORT_API_RATE", 20, &c.APIRate},
 		{"SEAPORT_API_BURST", 60, &c.APIBurst},
+		{"SEAPORT_HOST_MAX_CPUS", 4, &c.HostMaxCPUs},
+		{"SEAPORT_HOST_MAX_MEMORY_MB", 8192, &c.HostMaxMemoryMB},
+		{"SEAPORT_MAX_SLOTS", 10, &c.MaxSlots},
 	} {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err

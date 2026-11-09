@@ -54,6 +54,14 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents secrets [list] <agent>
   seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers use it as ${NAME}
   seaport agents secrets rm <agent> NAME
+  seaport env [list]                    environments: where hosted agents run (harness, image, repos, network)
+  seaport env apply -f env.yaml         create it, or save a new version (an unchanged file makes none)
+  seaport env export <env> [-version N] print it as YAML (the format of apply)
+  seaport env versions <env>
+  seaport env delete <env> -yes         only when no agent runs on it
+  seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
+  seaport agents unhost <agent>
+  seaport agents slots [<agent>]        hosted agents and the state of their slots
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents
@@ -129,6 +137,8 @@ func run(ctx context.Context, args []string) error {
 			return dockDelete(ctx, rest[1:])
 		}
 		return errx.Validation("unknown dock command " + rest[0])
+	case "env", "envs", "environments":
+		return env(ctx, rest)
 	case "agents", "agent":
 		return agents(ctx, rest)
 	case "crew":

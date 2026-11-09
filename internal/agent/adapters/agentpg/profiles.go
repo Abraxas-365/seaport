@@ -216,6 +216,19 @@ func (r *Repository) DeleteSecret(ctx context.Context, org identity.Organization
 			}
 		}
 	}
+	// Nor one the repo credentials of its environment name (hosted agent).
+	var envName string
+	err = tx.GetContext(ctx, &envName, `SELECT e.name FROM agent_hosting h
+		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
+		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
+		WHERE h.organization_id = $1 AND h.agent_id = $2
+		  AND v.spec->'repos' @> jsonb_build_array(jsonb_build_object('credential', '${' || $3 || '}'))`, org, id, name)
+	if err == nil {
+		return errx.Conflict("the agent's environment " + envName + " uses " + name + " as a repo credential; change it first")
+	}
+	if !pgerr.IsNoRows(err) {
+		return pgerr.Map(err, "check environment credentials")
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM agent_secrets WHERE organization_id = $1 AND agent_id = $2 AND name = $3`, org, id, name)
 	if err != nil {
 		return pgerr.Map(err, "delete secret")

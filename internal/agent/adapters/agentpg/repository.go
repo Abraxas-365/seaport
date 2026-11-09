@@ -182,9 +182,13 @@ func (r *Repository) Delete(ctx context.Context, org identity.OrganizationID, id
 		WHERE organization_id = $1 AND agent_id = $2 AND revoked_at IS NULL`, org, id); err != nil {
 		return pgerr.Map(err, "revoke tokens of deleted agent")
 	}
-	// Its secrets go with it (profiles stay: they are history).
+	// Its secrets go with it (profiles stay: they are history), and so
+	// does its hosting (slots cascade).
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_secrets WHERE organization_id = $1 AND agent_id = $2`, org, id); err != nil {
 		return pgerr.Map(err, "delete secrets of deleted agent")
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_hosting WHERE organization_id = $1 AND agent_id = $2`, org, id); err != nil {
+		return pgerr.Map(err, "unhost deleted agent")
 	}
 	return pgerr.Map(tx.Commit(), "commit delete agent")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -450,7 +451,12 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	}
 	crewB.quiet(300 * time.Millisecond)
 
-	dk, cv, ag := d.ID.String(), conv, agentA.ID.String()
+	var envA hosting.Environment
+	if code := p.call(http.MethodPost, "/api/v1/environments", adminA, map[string]any{"name": "a", "spec": map[string]string{"harness": "rness"}}, &envA); code != http.StatusCreated {
+		t.Fatalf("create environment: %d", code)
+	}
+	dk, cv, ag, env := d.ID.String(), conv, agentA.ID.String(), envA.ID.String()
+	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
 	routes := []adminRoute{
 		{"GET", "/api/v1/docks", "GET /api/v1/docks", nil, permission.DocksRead},
@@ -489,6 +495,17 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/docks/" + dk + "/agents", "GET /api/v1/docks/{dock}/agents", nil, permission.AgentsRead},
 		{"PUT", "/api/v1/docks/" + dk + "/agents/" + ag, "PUT /api/v1/docks/{dock}/agents/{id}", map[string]bool{"default": true}, permission.AgentsWrite},
 		{"DELETE", "/api/v1/docks/" + dk + "/agents/" + ag, "DELETE /api/v1/docks/{dock}/agents/{id}", nil, permission.AgentsWrite},
+		{"GET", "/api/v1/environments", "GET /api/v1/environments", nil, permission.EnvironmentsRead},
+		{"POST", "/api/v1/environments", "POST /api/v1/environments", map[string]any{"name": "x", "spec": map[string]string{"harness": "rness"}}, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/environments/" + env, "GET /api/v1/environments/{id}", nil, permission.EnvironmentsRead},
+		{"PUT", "/api/v1/environments/" + env, "PUT /api/v1/environments/{id}", envSpec, permission.EnvironmentsWrite},
+		{"DELETE", "/api/v1/environments/" + env, "DELETE /api/v1/environments/{id}", nil, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/environments/" + env + "/versions", "GET /api/v1/environments/{id}/versions", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/environments/" + env + "/versions/1", "GET /api/v1/environments/{id}/versions/{version}", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/hosting", "GET /api/v1/hosting", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsRead},
+		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]string{"environment": env}, permission.EnvironmentsWrite},
+		{"DELETE", "/api/v1/agents/" + ag + "/hosting", "DELETE /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsWrite},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.

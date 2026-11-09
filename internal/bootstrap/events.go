@@ -5,6 +5,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
@@ -14,14 +15,17 @@ import (
 // returning that data). A type missing here is never streamed;
 // TestEveryEventTypeHasAPermission keeps it complete.
 var EventPermissions = map[string]string{
-	dock.EventUpdated:         permission.DocksRead,
-	dock.EventDeleted:         permission.DocksRead,
-	conversation.EventUpdated: permission.ConversationsRead,
-	conversation.EventCustoms: permission.CustomsRead,
-	ship.EventCreated:         permission.ShipsRead,
-	ship.EventUpdated:         permission.ShipsRead,
-	ship.EventDelivery:        permission.ShipsRead,
-	crew.EventChanged:         permission.CrewRead,
-	agent.EventUpdated:        permission.AgentsRead,
-	agent.EventDeleted:        permission.AgentsRead,
+	dock.EventUpdated:               permission.DocksRead,
+	dock.EventDeleted:               permission.DocksRead,
+	conversation.EventUpdated:       permission.ConversationsRead,
+	conversation.EventCustoms:       permission.CustomsRead,
+	ship.EventCreated:               permission.ShipsRead,
+	ship.EventUpdated:               permission.ShipsRead,
+	ship.EventDelivery:              permission.ShipsRead,
+	crew.EventChanged:               permission.CrewRead,
+	agent.EventUpdated:              permission.AgentsRead,
+	agent.EventDeleted:              permission.AgentsRead,
+	hosting.EventEnvironmentUpdated: permission.EnvironmentsRead,
+	hosting.EventEnvironmentDeleted: permission.EnvironmentsRead,
+	hosting.EventSlotsUpdated:       permission.EnvironmentsRead,
 }

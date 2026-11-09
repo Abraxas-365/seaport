@@ -78,6 +78,9 @@ internal/
   agent/              agent library + dock teams + routing (Route, pure) +
                       profiles/secrets/kit (profile.go): agentsvc, agentmodule,
                       adapters/{agentpg, agenthttp}
+  hosting/            hosted agents: environments (versioned specs, environment.go)
+                      + slots (slot.go): hostingsvc, hostingmodule,
+                      adapters/{hostingpg, hostinghttp}
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
@@ -95,7 +98,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   (`TestLayerDependencies`).
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
-- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent` `Commands`,
+- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting` `Commands`,
   `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
   `Relay` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
@@ -146,7 +149,7 @@ test together with the reason. Add a rule when you add a pattern.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -219,6 +222,24 @@ test together with the reason. Add a rule when you add a pattern.
   each session's first prompt; skills are served by the MCP `skill` tool
   (per request, from the current profile), never written to the agent's
   machine.
+- Hosting (`hosting`, migration 00015): an organization's environments
+  (`environments` + `environment_versions`, versioned and optimistic like
+  profiles; an unchanged spec makes no version; at most
+  `hosting.MaxEnvironments`, counted under `hostingpg.hostingLock`
+  `7_401_009`) say where hosted agents run: harness (`rness` |
+  `claude-code`), image (`FROM` Seaport's base), packages, setup, repos
+  (https, `credential: ${SECRET}` = a secret of the hosted agent), egress
+  hosts, resources (S/M/L or custom, within `SEAPORT_HOST_MAX_*`),
+  workspace, idle stop. `hosting.Normalize` resolves defaults before
+  storing, so a stored spec is complete. Hosting an agent (`agent_hosting`)
+  gives it slots (`agent_slots`, stable `<agent>-<n>`; at most
+  `SEAPORT_MAX_SLOTS` per organization, under the same lock); its
+  environment's credentials must be secrets it has (checked on host and
+  on each save of the spec), a secret they use can't be deleted, and
+  naming credentials needs `agents:write` besides `environments:write`
+  (`hostinghttp.credentials`). An environment with hosted agents can't be
+  deleted; deleting an agent unhosts it (slots cascade); a running slot
+  must be stopped before unhosting or dropping it.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
