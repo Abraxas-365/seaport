@@ -8,15 +8,30 @@ import {
   Link2Off,
   MoreHorizontal,
   Pencil,
+  Plus,
   RefreshCw,
   Send,
   ShieldCheck,
+  Star,
   Trash2,
+  Users,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import { api } from "@/lib/api"
-import { flatten, useCan, useDock, useDockAction, useInbox } from "@/lib/hooks"
+import {
+  flatten,
+  useAgents,
+  useAssignAgent,
+  useCan,
+  useCrew,
+  useDock,
+  useDockAction,
+  useDockTeam,
+  useInbox,
+  useUnassignAgent,
+} from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
 import type { Dock } from "@/lib/types"
@@ -31,10 +46,12 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  AgentChip,
   ChannelIcon,
   ConfirmAction,
   ConversationRow,
@@ -188,6 +205,8 @@ function DockDetail({ dock }: { dock: Dock }) {
           </Card>
         )}
 
+        {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
+
         {dock.channel === "api" && can(Perm.ShipsWrite) && <ApiDockCard dock={dock} />}
 
         {can(Perm.ConversationsRead) && <DockConversations dock={dock} />}
@@ -261,6 +280,128 @@ function RenameTitle({ dock, editable }: { dock: Dock; editable: boolean }) {
         {rename.isPending ? <Spinner /> : <Check />}
       </Button>
     </form>
+  )
+}
+
+/**
+ * The agents working this dock. One gets every message; with several, @name
+ * calls one, a chat stays with the agent it was talking to, and the default
+ * takes the rest (none: held).
+ */
+function DockTeam({ dock }: { dock: Dock }) {
+  const can = useCan()
+  const write = can(Perm.AgentsWrite)
+  const team = useDockTeam(dock.id)
+  const agents = useAgents()
+  const crew = useCrew()
+  const assign = useAssignAgent()
+  const unassign = useUnassignAgent()
+  const [pick, setPick] = React.useState("")
+  const members = team.data?.agents ?? []
+  const online = (id: string) => (crew.data ? crew.data.agents.some((c) => c.agent_id === id) : undefined)
+  const free = (agents.data?.items ?? []).filter((a) => !members.some((m) => m.agent_id === a.id))
+  const hasDefault = members.some((m) => m.default)
+  const description =
+    members.length === 0
+      ? "Nadie atiende este muelle: los mensajes que lleguen quedan retenidos."
+      : members.length === 1
+        ? "Recibe todos los mensajes del muelle."
+        : hasDefault
+          ? "Se llama a uno con @nombre; un chat sigue con el agente con el que hablaba; el resto va al de por defecto."
+          : "Se llama a uno con @nombre; un chat sigue con el agente con el que hablaba; sin agente por defecto, lo que no llama a nadie queda retenido."
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="size-4" /> Agentes
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {team.isPending ? (
+          <Skeleton className="h-8 w-48" />
+        ) : team.isError ? (
+          <ErrorState error={team.error} onRetry={() => team.refetch()} />
+        ) : (
+          members.length > 0 && (
+            <ul className="divide-y rounded-lg border">
+              {members.map((m) => (
+                <li key={m.agent_id} className="flex items-center gap-2 px-3 py-2">
+                  <AgentChip name={m.name} online={online(m.agent_id)} isDefault={m.default} />
+                  {m.default && <span className="text-xs text-muted-foreground">por defecto</span>}
+                  <span className="flex-1" />
+                  {write && !m.default && members.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => assign.mutate({ dock: dock.id, agent: m.agent_id, isDefault: true })}
+                    >
+                      <Star /> Por defecto
+                    </Button>
+                  )}
+                  {write && m.default && members.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => assign.mutate({ dock: dock.id, agent: m.agent_id, isDefault: false })}
+                    >
+                      Quitar por defecto
+                    </Button>
+                  )}
+                  {write && (
+                    <ConfirmAction
+                      trigger={
+                        <Button variant="ghost" size="icon-sm" aria-label={`Quitar @${m.name}`}>
+                          <X />
+                        </Button>
+                      }
+                      title={`¿Quitar @${m.name} de ${dock.name}?`}
+                      description={<p>Los mensajes que esperaban por este agente en el muelle quedan retenidos.</p>}
+                      actionLabel="Quitar"
+                      onConfirm={() => unassign.mutateAsync({ dock: dock.id, agent: m.agent_id })}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+        {write && free.length > 0 && (
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              assign.mutate(
+                { dock: dock.id, agent: pick, isDefault: false },
+                { onSuccess: () => setPick("") },
+              )
+            }}
+          >
+            <Select value={pick} onValueChange={setPick}>
+              <SelectTrigger className="w-56" aria-label="Agente">
+                <SelectValue placeholder="Agregar un agente" />
+              </SelectTrigger>
+              <SelectContent>
+                {free.map((a) => (
+                  <SelectItem key={a.id} value={a.id} className="font-mono">
+                    @{a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="submit" variant="secondary" disabled={!pick || assign.isPending}>
+              {assign.isPending ? <Spinner /> : <Plus />} Asignar
+            </Button>
+          </form>
+        )}
+        {write && agents.data && agents.data.items.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Todavía no hay agentes. <Link to="/agents" className="text-primary hover:underline">Crea uno</Link>.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

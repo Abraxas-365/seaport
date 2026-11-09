@@ -106,6 +106,13 @@ func (r *Repository) List(ctx context.Context, org identity.OrganizationID, f co
 	if f.Status != nil {
 		add("status = ?", *f.Status)
 	}
+	if f.Docks != nil {
+		ids := make([]string, len(f.Docks))
+		for i, d := range f.Docks {
+			ids[i] = d.String()
+		}
+		add("dock_id = ANY(?::uuid[])", ids)
+	}
 	cond := strings.Join(where, " AND ")
 	out := query.Paginated[conversation.Conversation]{
 		Items: []conversation.Conversation{},

@@ -18,12 +18,17 @@ type Commands interface {
 	// and wakes the crew when customs lets it through. created is false for
 	// a duplicate (including the echo of our own outbound message).
 	Receive(ctx context.Context, organization identity.OrganizationID, input Inbound) (s Ship, created bool, err error)
-	// Claim hands the oldest conversation with queued ships and nothing in
-	// flight to the caller. ok is false when there is nothing to do.
+	// Claim hands the agent (input.Agent) the oldest conversation whose
+	// oldest queued ship is routed to it and that has nothing in flight:
+	// its ships queued for that agent, up to the first one routed to
+	// another agent (a conversation is worked in order, by one agent at a
+	// time). ok is false when there is nothing to do.
 	Claim(ctx context.Context, organization identity.OrganizationID, input Claim) (d Delivery, ok bool, err error)
-	// Join adds the ships queued since in the delivery's conversation to that
-	// still-claimed delivery and returns them (same delivery ID, only the new
-	// ships). ok is false when there are none or the delivery is closed.
+	// Join adds the ships queued since in the delivery's conversation for
+	// the delivery's agent to that still-claimed delivery and returns them
+	// (same delivery ID, only the new ships; not past a ship queued for
+	// another agent). ok is false when there are none or the delivery is
+	// closed.
 	Join(ctx context.Context, organization identity.OrganizationID, input Join) (d Delivery, ok bool, err error)
 	// Extend renews the lease of a delivery still being worked on.
 	Extend(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, lease time.Duration) error
@@ -50,13 +55,19 @@ type Queries interface {
 }
 
 // Notifier wakes the crew of an organization when ships are waiting
-// (infrastructure).
+// (infrastructure): the connections of one agent, or of every agent when
+// agent is zero (a requeue may concern any of them).
 type Notifier interface {
-	Notify(organization identity.OrganizationID)
+	Notify(organization identity.OrganizationID, agent identity.AgentID)
 }
 
 type Repository interface {
-	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation identity.ConversationID, input Inbound, status Status) (s Ship, created bool, err error)
+	// CreateInbound stores an inbound ship (idempotent on its channel
+	// message id). With a hold reason (customs) it is held; else route
+	// picks its agent from the dock's team, read in the same transaction
+	// and locked against unassigning, so a ship is never queued for an
+	// agent that just left the dock (no agent: held with route's reason).
+	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation conversation.Conversation, input Inbound, hold string, route Router) (s Ship, created bool, err error)
 	// CreateOutbound stores a reply only if admit accepts the dock's and the
 	// conversation's recent outbound counts; counting and inserting are
 	// atomic per dock, so concurrent replies can't overshoot a limit.
@@ -64,7 +75,7 @@ type Repository interface {
 	SetOutcome(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, status Status, errMsg string) (Ship, error)
 	// Claim records session as the ships' holder; Join gives joined ships
 	// the delivery's holder.
-	Claim(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, session string, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
+	Claim(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, delivery identity.DeliveryID, session string, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
 	Join(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)
 	Extend(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, until time.Time) error
 	// Ack returns how many unnamed claimed ships went back to the queue.

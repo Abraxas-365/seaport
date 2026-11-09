@@ -27,17 +27,32 @@ export function ShipStatusIcon({ ship, className }: { ship: Ship; className?: st
   }
 }
 
+/** Why a ship was held (internal/conversation/customs.go, internal/agent/agent.go). */
+const holdLabel: Record<string, string> = {
+  "sender denied by a rule": "remitente bloqueado por una regla",
+  "group message without a mention": "mensaje de grupo sin mención",
+  "no agent is assigned to this dock": "ningún agente atiende este muelle",
+  "no agent was called (mention one with @name)": "no se llamó a ningún agente (@nombre)",
+  "its agent left the dock": "su agente dejó el muelle",
+}
+
 /**
  * One message in a conversation. Inbound on the left (sender shown in
  * groups), the agent's replies on the right in the brand color. Held
- * messages are dimmed with a dashed outline: customs kept them.
+ * messages are dimmed with a dashed outline: customs or routing kept them.
+ * `agentName` is the agent it went to (inbound) or that sent it (outbound).
  */
 export function ShipBubble({
   ship,
+  agentName,
+  multiAgent = false,
   showSender = false,
   grouped = false,
 }: {
   ship: Ship
+  agentName?: string
+  /** several agents in the chat: name the agent on the bubble, not only in its tooltip */
+  multiAgent?: boolean
   showSender?: boolean
   /** follows a bubble of the same side: tighter spacing, no tail */
   grouped?: boolean
@@ -76,12 +91,15 @@ export function ShipBubble({
             >
               {held && <span className="font-medium text-warning">retenido</span>}
               {failed && <span className="font-medium">no se envió</span>}
+              {agentName && multiAgent && <span className="font-mono">@{agentName}</span>}
               <span>{formatTime(ship.sent_at)}</span>
               <ShipStatusIcon ship={ship} className="size-3" />
             </div>
           </TooltipTrigger>
           <TooltipContent side={out ? "left" : "right"}>
             {shipLabel[ship.status]} · {formatFull(ship.sent_at)}
+            {held && ship.hold_reason ? ` · ${holdLabel[ship.hold_reason] ?? ship.hold_reason}` : ""}
+            {agentName ? ` · ${out ? "enviado por" : "para"} @${agentName}` : ""}
             {ship.error ? ` · ${ship.error}` : ""}
           </TooltipContent>
         </Tooltip>

@@ -5,9 +5,11 @@ package crewmcp
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
@@ -21,7 +23,9 @@ type Deps struct {
 	Ships         ship.Commands
 	History       ship.Queries
 	Conversations conversation.Queries
-	Version       string
+	// Agents scopes a token's tools to its agent's docks.
+	Agents  agent.Queries
+	Version string
 }
 
 // Handler returns the MCP endpoint.
@@ -42,7 +46,7 @@ func Handler(d Deps) http.Handler {
 	}, t.history)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "conversations",
-		Description: "List the allowed conversations the agent can reply to.",
+		Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
 	}, t.conversations)
 	return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
@@ -50,15 +54,52 @@ func Handler(d Deps) http.Handler {
 
 type tools struct{ d Deps }
 
-// organization is the tenant of the crew token that made the HTTP request
-// (the stateless handler runs each call under the request's context).
-// Tools fail closed without one.
-func organization(ctx context.Context) (identity.OrganizationID, error) {
+// caller is the crew principal that made the HTTP request (the stateless
+// handler runs each call under the request's context): its organization,
+// and its agent with a crew token (nil in open mode: the local owner sees
+// every dock). Tools fail closed without one.
+func caller(ctx context.Context) (identity.OrganizationID, *identity.AgentID, error) {
 	p, ok := httpx.PrincipalFrom(ctx)
 	if !ok {
-		return identity.OrganizationID{}, errx.Unauthorized("missing crew principal")
+		return identity.OrganizationID{}, nil, errx.Unauthorized("missing crew principal")
 	}
-	return p.Organization, nil
+	if p.Agent.IsZero() {
+		return p.Organization, nil, nil
+	}
+	return p.Organization, &p.Agent, nil
+}
+
+// docks are the docks an agent works on.
+func (t tools) docks(ctx context.Context, org identity.OrganizationID, id identity.AgentID) ([]identity.DockID, error) {
+	a, err := t.d.Agents.Find(ctx, org, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]identity.DockID, 0, len(a.Docks))
+	for _, d := range a.Docks {
+		out = append(out, d.Dock)
+	}
+	return out, nil
+}
+
+// visible fails NotFound for a conversation of a dock the agent doesn't
+// work on.
+func (t tools) visible(ctx context.Context, org identity.OrganizationID, id *identity.AgentID, conv identity.ConversationID) error {
+	if id == nil {
+		return nil
+	}
+	c, err := t.d.Conversations.Find(ctx, org, conv)
+	if err != nil {
+		return err
+	}
+	docks, err := t.docks(ctx, org, *id)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(docks, c.Dock) {
+		return errx.NotFound("conversation not found")
+	}
+	return nil
 }
 
 type ReplyIn struct {
@@ -72,7 +113,7 @@ type ReplyOut struct {
 }
 
 func (t tools) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (*mcp.CallToolResult, ReplyOut, error) {
-	org, err := organization(ctx)
+	org, agentID, err := caller(ctx)
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
@@ -80,7 +121,8 @@ func (t tools) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (*
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
-	s, err := t.d.Ships.Send(ctx, org, ship.Outbound{Conversation: id, Text: in.Text})
+	// Send refuses a conversation of a dock the agent doesn't work on.
+	s, err := t.d.Ships.Send(ctx, org, ship.Outbound{Conversation: id, Text: in.Text, Agent: agentID})
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
@@ -106,12 +148,15 @@ type HistoryOut struct {
 }
 
 func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn) (*mcp.CallToolResult, HistoryOut, error) {
-	org, err := organization(ctx)
+	org, agentID, err := caller(ctx)
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
 	id, err := identity.ParseConversationID(strings.TrimSpace(in.ConversationID))
 	if err != nil {
+		return failure(err), HistoryOut{}, nil
+	}
+	if err := t.visible(ctx, org, agentID, id); err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
 	page, err := t.d.History.History(ctx, org, id, query.Pagination{Limit: in.Limit})
@@ -146,12 +191,18 @@ type ConversationsOut struct {
 }
 
 func (t tools) conversations(ctx context.Context, _ *mcp.CallToolRequest, _ ConversationsIn) (*mcp.CallToolResult, ConversationsOut, error) {
-	org, err := organization(ctx)
+	org, agentID, err := caller(ctx)
 	if err != nil {
 		return failure(err), ConversationsOut{}, nil
 	}
 	allowed := conversation.StatusAllowed
-	page, err := t.d.Conversations.List(ctx, org, conversation.Filter{Status: &allowed}, query.Pagination{Limit: query.MaxLimit})
+	filter := conversation.Filter{Status: &allowed}
+	if agentID != nil {
+		if filter.Docks, err = t.docks(ctx, org, *agentID); err != nil {
+			return failure(err), ConversationsOut{}, nil
+		}
+	}
+	page, err := t.d.Conversations.List(ctx, org, filter, query.Pagination{Limit: query.MaxLimit})
 	if err != nil {
 		return failure(err), ConversationsOut{}, nil
 	}

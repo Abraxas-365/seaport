@@ -76,6 +76,6 @@ func (s *Service) Authenticate(ctx context.Context, value string) (crew.Token, e
 	return t, nil
 }
 
-func (s *Service) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[crew.Token], error) {
-	return s.repo.List(ctx, org, page.Normalize())
+func (s *Service) List(ctx context.Context, org identity.OrganizationID, filter crew.TokenFilter, page query.Pagination) (query.Paginated[crew.Token], error) {
+	return s.repo.List(ctx, org, filter, page.Normalize())
 }

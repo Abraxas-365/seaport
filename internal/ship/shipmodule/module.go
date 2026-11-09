@@ -4,6 +4,7 @@ package shipmodule
 import (
 	"net/http"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -25,6 +26,7 @@ type Deps struct {
 	Notifier  ship.Notifier
 	Events    event.Publisher
 	Limits    ship.Limits
+	Agents    agent.Queries
 }
 
 type Module struct {
@@ -34,7 +36,7 @@ type Module struct {
 
 func New(d Deps) *Module {
 	svc := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
-		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits})
+		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents})
 	return &Module{Service: svc, http: shiphttp.New(svc, svc, d.Docks)}
 }
 

@@ -101,8 +101,7 @@ func TestFrontendAPI(t *testing.T) {
 		t.Fatalf("ready: %s", ready.Data)
 	}
 
-	var d dock.Dock
-	p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "web"}, &d)
+	d := p.apiDock("web")
 	next(t, events, dock.EventUpdated, nil)
 
 	// A held message: ship + conversation events, inbox preview.

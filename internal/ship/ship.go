@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -35,14 +36,10 @@ const (
 	StatusFailed  Status = "failed"
 )
 
-// InitialInbound is the status of a new inbound ship given the customs
-// hold reason (conversation.HoldNone: deliver it).
-func InitialInbound(hold string) Status {
-	if hold == conversation.HoldNone {
-		return StatusQueued
-	}
-	return StatusHeld
-}
+// Router picks the agent of a dock's team an inbound ship is for, given
+// the agent the conversation's last routed ship went to (agent.Route
+// bound to the message); a hold reason when nobody takes it.
+type Router func(team []agent.Member, previous identity.AgentID) (identity.AgentID, string)
 
 const (
 	// MaxSenderID bounds a channel's sender identifier.
@@ -62,11 +59,16 @@ type Ship struct {
 	SenderName   string                  `db:"sender_name" json:"sender_name"`
 	Text         string                  `db:"text" json:"text"`
 	Status       Status                  `db:"status" json:"status"`
-	Delivery     *identity.DeliveryID    `db:"delivery_id" json:"delivery_id,omitempty"`
-	ClaimedUntil *time.Time              `db:"claimed_until" json:"-"`
-	Error        string                  `db:"error" json:"error,omitempty"`
-	SentAt       time.Time               `db:"sent_at" json:"sent_at"`
-	CreatedAt    time.Time               `db:"created_at" json:"created_at"`
+	// Agent: inbound, the agent it is (or was) for; outbound, the agent
+	// that sent it (nil: sent by a person).
+	Agent *identity.AgentID `db:"agent_id" json:"agent_id,omitempty"`
+	// HoldReason says why a held ship was held (customs or routing).
+	HoldReason   string               `db:"hold_reason" json:"hold_reason,omitempty"`
+	Delivery     *identity.DeliveryID `db:"delivery_id" json:"delivery_id,omitempty"`
+	ClaimedUntil *time.Time           `db:"claimed_until" json:"-"`
+	Error        string               `db:"error" json:"error,omitempty"`
+	SentAt       time.Time            `db:"sent_at" json:"sent_at"`
+	CreatedAt    time.Time            `db:"created_at" json:"created_at"`
 }
 
 // Summary is the inbox preview of one conversation's ships.
@@ -146,6 +148,8 @@ func (in Inbound) Arrival() conversation.Arrive {
 type Outbound struct {
 	Conversation identity.ConversationID
 	Text         string
+	// Agent is the agent replying (nil: a person, from the admin).
+	Agent *identity.AgentID
 }
 
 func (o Outbound) Validate() error {
@@ -163,8 +167,10 @@ type Delivery struct {
 	Ships        []Ship                    `json:"ships"`
 }
 
-// Claim asks for the next delivery.
+// Claim asks for the next delivery of an agent: a conversation whose
+// oldest queued ship is routed to it.
 type Claim struct {
+	Agent identity.AgentID
 	// Owner names the claimer (logs, debugging).
 	Owner string
 	// Session is the claiming connection; ReleaseSession puts back what it
@@ -174,6 +180,9 @@ type Claim struct {
 }
 
 func (c Claim) Validate() error {
+	if c.Agent.IsZero() {
+		return errx.InvalidField("agent_id", "agent_id is required")
+	}
 	if c.Lease < time.Second {
 		return errx.InvalidField("lease", "lease must be at least one second")
 	}

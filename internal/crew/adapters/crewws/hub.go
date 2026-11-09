@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -59,7 +60,9 @@ type Hub struct {
 
 	mu    sync.Mutex
 	ships ship.Commands
-	conns map[*conn]struct{}
+	// agents resolves the agent an open-mode connection names (hello.as).
+	agents agent.Queries
+	conns  map[*conn]struct{}
 	// opening are connections still in their hello handshake (not yet in
 	// conns): a revoke must close them too.
 	opening map[*pending]struct{}
@@ -79,10 +82,12 @@ type Hub struct {
 	unreleased map[crew.Reaped]struct{}
 }
 
-// pending is a connection before its hello: enough for Disconnect.
+// pending is a connection before its hello: enough for Disconnect and
+// DisconnectAgent (agent is zero until the hello in open mode).
 type pending struct {
 	organization identity.OrganizationID
 	credential   string
+	agent        identity.AgentID
 	session      string
 	cancel       context.CancelFunc
 }
@@ -91,9 +96,13 @@ type conn struct {
 	// organization owns the connection (its crew token): it only claims,
 	// acks and replies within it.
 	organization identity.OrganizationID
-	// credential is the crew token it connected with ("" for the static
-	// token and open mode); revoking the token closes the connection.
-	credential  string
+	// credential is the crew token it connected with ("" in open mode);
+	// revoking the token closes the connection.
+	credential string
+	// agentID/agentName: the library agent it works as. It claims only
+	// ships routed to it; deleting the agent closes the connection.
+	agentID     identity.AgentID
+	agentName   string
 	cancel      context.CancelFunc
 	ws          *websocket.Conn
 	session     string
@@ -142,7 +151,8 @@ func (h *Hub) Status(ctx context.Context, org identity.OrganizationID) (crew.Sta
 }
 
 func (c *conn) agentInfo() crew.Agent {
-	return crew.Agent{Session: c.session, Name: c.agent, Concurrency: c.concurrency, Steer: c.steer}
+	return crew.Agent{Session: c.session, AgentID: c.agentID, AgentName: c.agentName, Name: c.agent,
+		Concurrency: c.concurrency, Steer: c.steer}
 }
 
 // deliveryList is what the connection works on (for crew.Presence).
@@ -318,9 +328,11 @@ func (h *Hub) signal(s crew.Signal) {
 	}
 	switch s.Kind {
 	case crew.SignalWake:
-		h.wakeLocal(s.Organization)
+		h.wakeLocal(s.Organization, s.Agent)
 	case crew.SignalRevoke:
 		h.disconnectLocal(s.Organization, s.Token)
+	case crew.SignalAgentGone:
+		h.disconnectAgentLocal(s.Organization, s.Agent)
 	}
 }
 
@@ -385,6 +397,31 @@ func (h *Hub) disconnectLocal(org identity.OrganizationID, token identity.CrewTo
 	}
 }
 
+var _ agent.Revoker = (*Hub)(nil)
+
+// DisconnectAgent closes the organization's connections working as the
+// agent, in every process (the touch backstops a lost signal).
+func (h *Hub) DisconnectAgent(org identity.OrganizationID, id identity.AgentID) {
+	h.disconnectAgentLocal(org, id)
+	h.send(crew.Signal{Kind: crew.SignalAgentGone, Organization: org, Agent: id})
+}
+
+func (h *Hub) disconnectAgentLocal(org identity.OrganizationID, id identity.AgentID) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns {
+		if c.organization == org && c.agentID == id {
+			slog.Info("agent deleted: closing connection", "organization", org, "agent", c.agentName)
+			c.cancel()
+		}
+	}
+	for o := range h.opening {
+		if o.organization == org && o.agent == id {
+			o.cancel()
+		}
+	}
+}
+
 // changed announces an organization's new crew state.
 func (h *Hub) changed(org identity.OrganizationID) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
@@ -419,28 +456,29 @@ func newSession() string {
 
 var _ ship.Notifier = (*Hub)(nil)
 
-// Bind sets the ship commands (the hub is built before the ship service).
-func (h *Hub) Bind(ships ship.Commands) {
+// Bind sets the ship commands and the agent queries (the hub is built
+// before the services that use it).
+func (h *Hub) Bind(ships ship.Commands, agents agent.Queries) {
 	h.mu.Lock()
-	h.ships = ships
+	h.ships, h.agents = ships, agents
 	for c := range h.conns {
 		c.poke()
 	}
 	h.mu.Unlock()
 }
 
-// Notify wakes an organization's connections, in every process, so they
-// try to claim.
-func (h *Hub) Notify(org identity.OrganizationID) {
-	h.wakeLocal(org)
-	h.send(crew.Signal{Kind: crew.SignalWake, Organization: org})
+// Notify wakes an organization's connections of the agent (zero: of
+// every agent), in every process, so they try to claim.
+func (h *Hub) Notify(org identity.OrganizationID, id identity.AgentID) {
+	h.wakeLocal(org, id)
+	h.send(crew.Signal{Kind: crew.SignalWake, Organization: org, Agent: id})
 }
 
-func (h *Hub) wakeLocal(org identity.OrganizationID) {
+func (h *Hub) wakeLocal(org identity.OrganizationID, id identity.AgentID) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.conns {
-		if c.organization != org {
+		if c.organization != org || (!id.IsZero() && c.agentID != id) {
 			continue
 		}
 		select {
@@ -454,6 +492,28 @@ func (h *Hub) commands() ship.Commands {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.ships
+}
+
+// resolveAgent is the agent a connection works as: its token's (hello.as,
+// when given, must name it), or in open mode the one hello.as names.
+func (h *Hub) resolveAgent(ctx context.Context, p httpx.Principal, hello crew.Hello) (identity.AgentID, string, error) {
+	if !p.Agent.IsZero() {
+		if hello.As != "" && hello.As != p.AgentName {
+			return identity.AgentID{}, "", errx.Forbidden("this crew token belongs to agent " + p.AgentName + ", not " + hello.As)
+		}
+		return p.Agent, p.AgentName, nil
+	}
+	if hello.As == "" {
+		return identity.AgentID{}, "", errx.Validation("name the agent to work as: seaport connect -agent <name>")
+	}
+	h.mu.Lock()
+	agents := h.agents
+	h.mu.Unlock()
+	a, err := agents.FindByName(ctx, p.Organization, hello.As)
+	if err != nil {
+		return identity.AgentID{}, "", err
+	}
+	return a.ID, a.Name, nil
 }
 
 // ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
@@ -501,7 +561,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	// Tracked from here, so a revoke during the handshake closes it too.
-	open := &pending{organization: org, credential: p.Credential, session: session, cancel: cancel}
+	open := &pending{organization: org, credential: p.Credential, agent: p.Agent, session: session, cancel: cancel}
 	h.mu.Lock()
 	if h.closing { // Close swept while Open ran
 		h.mu.Unlock()
@@ -535,8 +595,31 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = ws.Close(websocket.StatusPolicyViolation, err.Error())
 		return
 	}
+	actx, acancel := context.WithTimeout(ctx, opTimeout)
+	agentID, agentName, err := h.resolveAgent(actx, p, hello)
+	acancel()
+	if err != nil {
+		_ = ws.Close(websocket.StatusPolicyViolation, publicMessage(err))
+		return
+	}
+	if p.Agent.IsZero() {
+		// Open mode: the agent came from hello.as. Record it on the pending
+		// connection, then check it again: a delete that committed before
+		// this check fails it, one after finds the connection to close.
+		h.mu.Lock()
+		open.agent = agentID
+		agents := h.agents
+		h.mu.Unlock()
+		actx, acancel := context.WithTimeout(ctx, opTimeout)
+		_, err := agents.Find(actx, org, agentID)
+		acancel()
+		if err != nil {
+			_ = ws.Close(websocket.StatusPolicyViolation, publicMessage(err))
+			return
+		}
+	}
 	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: session, remote: r.RemoteAddr, connectedAt: connectedAt,
-		agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
+		agentID: agentID, agentName: agentName, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
 
 	// From opening to conns under one lock: a revoke sees it in one of them.
@@ -557,7 +640,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = ws.Close(websocket.StatusInternalError, "try again")
 		return
 	}
-	slog.Info("crew connected", "organization", org, "agent", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
+	slog.Info("crew connected", "organization", org, "agent", c.agentName, "label", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
 	h.changed(org)
 
 	go c.writer(ctx, cancel)
@@ -578,7 +661,7 @@ func readHello(ctx context.Context, ws *websocket.Conn) (crew.Hello, error) {
 	if err != nil || f.Type != crew.FrameHello {
 		return crew.Hello{}, errx.Validation("first frame must be hello")
 	}
-	hello := crew.Hello{Agent: f.Agent, Concurrency: f.Concurrency, Steer: f.Steer}
+	hello := crew.Hello{Agent: f.Agent, As: f.As, Concurrency: f.Concurrency, Steer: f.Steer}
 	if err := hello.Validate(); err != nil {
 		return crew.Hello{}, err
 	}
@@ -662,7 +745,7 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 		if f.ConversationID == nil {
 			return errx.InvalidField("conversation_id", "conversation_id is required")
 		}
-		_, err := ships.Send(opCtx, c.organization, ship.Outbound{Conversation: *f.ConversationID, Text: f.Text})
+		_, err := ships.Send(opCtx, c.organization, ship.Outbound{Conversation: *f.ConversationID, Text: f.Text, Agent: &c.agentID})
 		return err
 	default:
 		return errx.Validation("unexpected frame type " + string(f.Type))
@@ -737,7 +820,7 @@ func (h *Hub) joinAll(ctx context.Context, c *conn) bool {
 func (h *Hub) claim(ctx context.Context, c *conn) (ship.Delivery, bool, error) {
 	opCtx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
-	return h.commands().Claim(opCtx, c.organization, ship.Claim{Owner: c.agent, Session: c.session, Lease: h.lease})
+	return h.commands().Claim(opCtx, c.organization, ship.Claim{Agent: c.agentID, Owner: c.agentName, Session: c.session, Lease: h.lease})
 }
 
 // leaseKeeper extends the leases of a live connection's deliveries, so a

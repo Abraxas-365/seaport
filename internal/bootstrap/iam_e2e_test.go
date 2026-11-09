@@ -343,8 +343,12 @@ func TestIAMBearers(t *testing.T) {
 			t.Fatalf("inbox (preview %v): %d %+v", c.preview, code, inbox)
 		}
 	}
+	ci := p.agentAs(full.Value, "ci")
+	if ci.CreatedBy != "API key "+full.Name {
+		t.Fatalf("agent by API key: %+v", ci)
+	}
 	var issued crew.Issued
-	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", full.Value, map[string]any{"name": "ci"}, &issued); code != http.StatusCreated ||
+	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", full.Value, map[string]any{"name": "ci", "agent_id": ci.ID}, &issued); code != http.StatusCreated ||
 		issued.CreatedBy != "API key "+full.Name {
 		t.Fatalf("crew token by API key: %d %+v", code, issued)
 	}
@@ -383,7 +387,7 @@ func TestIAMBearers(t *testing.T) {
 		// A token made in the app records the person's name.
 		if permission.Has(got, permission.CrewTokensWrite) {
 			var made crew.Issued
-			if code := b.api(http.MethodPost, p.srv.URL+"/api/v1/crew/tokens", map[string]any{"name": "web"}, &made); code != http.StatusCreated || made.CreatedBy != u.Name {
+			if code := b.api(http.MethodPost, p.srv.URL+"/api/v1/crew/tokens", map[string]any{"name": "web", "agent_id": ci.ID}, &made); code != http.StatusCreated || made.CreatedBy != u.Name {
 				t.Fatalf("crew token from the app: %d created_by %q, want %q", code, made.CreatedBy, u.Name)
 			}
 		}
@@ -431,13 +435,9 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		map[string]string{"effect": "deny", "pattern": "+51*"}, &rule); code != http.StatusCreated {
 		t.Fatalf("add rule: %d", code)
 	}
-	var tokA, tokB crew.Issued
-	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", adminA, map[string]any{"name": "a"}, &tokA); code != http.StatusCreated {
-		t.Fatalf("crew token A: %d", code)
-	}
-	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", adminB, map[string]any{"name": "b"}, &tokB); code != http.StatusCreated {
-		t.Fatalf("crew token B: %d", code)
-	}
+	agentA, agentB := p.agentAs(adminA, "a"), p.agentAs(adminB, "b")
+	p.assignAs(adminA, d.ID, agentA.ID, false)
+	tokA, tokB := p.issueAs(adminA, agentA.ID, "a"), p.issueAs(adminB, agentB.ID, "b")
 	crewB := p.dialCrewAs(tokB.Value, crew.Frame{Type: crew.FrameHello, Agent: "b", Concurrency: 2})
 	crewA := p.dialCrewAs(tokA.Value, crew.Frame{Type: crew.FrameHello, Agent: "a", Concurrency: 2})
 	// m1 stays held (allowing doesn't deliver history); m2 is delivered.
@@ -450,7 +450,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	}
 	crewB.quiet(300 * time.Millisecond)
 
-	dk, cv := d.ID.String(), conv
+	dk, cv, ag := d.ID.String(), conv, agentA.ID.String()
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
 	routes := []adminRoute{
 		{"GET", "/api/v1/docks", "GET /api/v1/docks", nil, permission.DocksRead},
@@ -473,7 +473,15 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"DELETE", "/api/v1/customs/rules/" + rule.ID.String(), "DELETE /api/v1/customs/rules/{id}", nil, permission.CustomsWrite},
 		{"GET", "/api/v1/crew", "GET /api/v1/crew", nil, permission.CrewRead},
 		{"GET", "/api/v1/crew/tokens", "GET /api/v1/crew/tokens", nil, permission.CrewTokensRead},
-		{"POST", "/api/v1/crew/tokens", "POST /api/v1/crew/tokens", map[string]any{"name": "x"}, permission.CrewTokensWrite},
+		{"POST", "/api/v1/crew/tokens", "POST /api/v1/crew/tokens", map[string]any{"name": "x", "agent_id": ag}, permission.CrewTokensWrite},
+		{"GET", "/api/v1/agents", "GET /api/v1/agents", nil, permission.AgentsRead},
+		{"POST", "/api/v1/agents", "POST /api/v1/agents", map[string]string{"name": "x"}, permission.AgentsWrite},
+		{"GET", "/api/v1/agents/" + ag, "GET /api/v1/agents/{id}", nil, permission.AgentsRead},
+		{"PATCH", "/api/v1/agents/" + ag, "PATCH /api/v1/agents/{id}", map[string]string{"description": "x"}, permission.AgentsWrite},
+		{"DELETE", "/api/v1/agents/" + ag, "DELETE /api/v1/agents/{id}", nil, permission.AgentsWrite},
+		{"GET", "/api/v1/docks/" + dk + "/agents", "GET /api/v1/docks/{dock}/agents", nil, permission.AgentsRead},
+		{"PUT", "/api/v1/docks/" + dk + "/agents/" + ag, "PUT /api/v1/docks/{dock}/agents/{id}", map[string]bool{"default": true}, permission.AgentsWrite},
+		{"DELETE", "/api/v1/docks/" + dk + "/agents/" + ag, "DELETE /api/v1/docks/{dock}/agents/{id}", nil, permission.AgentsWrite},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.
@@ -513,7 +521,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 
 	// 404 for org B's admin on every route naming one of org A's objects.
 	for _, r := range routes {
-		if !strings.Contains(r.pattern, "{id}") {
+		if !strings.Contains(r.pattern, "{id}") && !strings.Contains(r.pattern, "{dock}") {
 			continue
 		}
 		if code := p.call(r.method, r.path, adminB, r.body, nil); code != http.StatusNotFound {

@@ -40,7 +40,6 @@ services:
       SEAPORT_PUBLIC_URL: ${SEAPORT_PUBLIC_URL:-https://${SEAPORT_DOMAIN}}
       # token mode
       SEAPORT_ADMIN_TOKEN: ${SEAPORT_ADMIN_TOKEN:-}
-      SEAPORT_CREW_TOKEN: ${SEAPORT_CREW_TOKEN:-}
       # Seals the WhatsApp keys (and in iam mode the sessions; required
       # there). Unset: generated into the seaport_data volume on first start.
       # Keep a copy apart from the database backups either way.

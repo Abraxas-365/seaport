@@ -2,12 +2,17 @@ import { Bot, Terminal } from "lucide-react"
 import { toast } from "sonner"
 import { Copy } from "lucide-react"
 
+import { useQuery } from "@tanstack/react-query"
+
+import { api } from "@/lib/api"
+import { keys } from "@/lib/query"
 import { flatten, useCrew, useInbox, useNow } from "@/lib/hooks"
 import { conversationName } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AgentCard, EmptyState, ErrorState, PageHeader } from "@/components/seaport"
+import type { Agent } from "@/lib/types"
+import { AgentCard, EmptyState, ErrorState, PageHeader, Section } from "@/components/seaport"
 
 export function CrewPage() {
   const crew = useCrew()
@@ -22,11 +27,12 @@ export function CrewPage() {
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
       <PageHeader
         title="Tripulación"
-        description="Los agentes conectados al puerto y lo que están atendiendo ahora."
+        description="Las conexiones de tus agentes y lo que están atendiendo ahora."
       >
         {agents.length > 0 && (
           <div className="flex gap-6 text-sm">
-            <Stat label="Agentes" value={agents.length} />
+            <Stat label="Agentes" value={new Set(agents.map((a) => a.agent_id)).size} />
+            <Stat label="Conexiones" value={agents.length} />
             <Stat label="En curso" value={working} />
             <Stat label="Capacidad" value={`${working}/${capacity}`} />
           </div>
@@ -47,16 +53,31 @@ export function CrewPage() {
             description="Conecta un agente desde tu máquina; los mensajes permitidos lo despertarán."
           />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {agents.map((a) => (
-              <AgentCard key={a.session} agent={a} now={now} titleOf={(id) => titles.get(id)} />
-            ))}
-          </div>
+          byAgent(agents).map(([name, conns]) => (
+            <Section
+              key={name}
+              title={<span className="font-mono">@{name}</span>}
+              description={conns.length === 1 ? "1 conexión" : `${conns.length} conexiones`}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                {conns.map((a) => (
+                  <AgentCard key={a.session} agent={a} now={now} titleOf={(id) => titles.get(id)} />
+                ))}
+              </div>
+            </Section>
+          ))
         )}
         <ConnectCard />
       </div>
     </div>
   )
+}
+
+/** Connections grouped by the library agent they work as, by name. */
+function byAgent(conns: Agent[]): [string, Agent[]][] {
+  const groups = new Map<string, Agent[]>()
+  for (const c of conns) groups.set(c.agent_name, [...(groups.get(c.agent_name) ?? []), c])
+  return [...groups].sort(([a], [b]) => a.localeCompare(b))
 }
 
 function Stat({ label, value }: { label: string; value: number | string }) {
@@ -69,7 +90,12 @@ function Stat({ label, value }: { label: string; value: number | string }) {
 }
 
 function ConnectCard() {
-  const cmd = `SEAPORT_CREW_TOKEN=… seaport connect -server ${window.location.origin} -- rness --acp`
+  const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
+  // Open mode has no tokens: the connector names its agent.
+  const cmd =
+    config.data?.auth === "none"
+      ? `seaport connect -server ${window.location.origin} -agent <nombre> -- rness --acp`
+      : `SEAPORT_CREW_TOKEN=… seaport connect -server ${window.location.origin} -- rness --acp`
   return (
     <Card>
       <CardHeader>
@@ -77,7 +103,8 @@ function ConnectCard() {
           <Terminal className="size-4" /> Conectar un agente
         </CardTitle>
         <CardDescription>
-          Corre esto donde vive tu agente. Se conecta hacia afuera (no abre puertos) y se despierta con cada mensaje.
+          Corre esto donde vive tu agente. Trabaja como el agente de su token, en los muelles asignados a él; se
+          conecta hacia afuera (no abre puertos) y se despierta con cada mensaje.
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -8,6 +8,7 @@ package connector
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -24,9 +25,12 @@ import (
 
 // Config of a connector.
 type Config struct {
-	Server      string // http(s)://host:port of the port
-	Token       string // crew token ("" for a port in SEAPORT_AUTH=none)
-	AgentName   string
+	Server string // http(s)://host:port of the port
+	Token  string // crew token ("" for a port in SEAPORT_AUTH=none)
+	// As is the agent to work as: optional with a crew token (it belongs
+	// to one; a different name is refused), required without one.
+	As          string
+	AgentName   string // label of this connection in the port's crew view
 	Concurrency int
 	AutoReply   bool
 	// Approve answers agent permission requests: "reject" (default) or "allow".
@@ -42,7 +46,9 @@ type Config struct {
 }
 
 // Run connects to the port and keeps the agent working until ctx ends,
-// reconnecting with backoff.
+// reconnecting with backoff. A refused credential ends it: a revoked,
+// expired or wrong crew token, or a hello the port refuses (an agent the
+// token isn't for, or none named), never starts working again.
 func Run(ctx context.Context, cfg Config) error {
 	if len(cfg.Command) == 0 {
 		return errx.Validation("an agent command is required: seaport connect -- rness --acp")
@@ -52,21 +58,33 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer agent.Close()
+	return keepConnected(ctx, agent.Done(), time.Second, func(ctx context.Context) error {
+		return session(ctx, cfg, agent)
+	})
+}
 
-	backoff := time.Second
+// keepConnected runs connect again after each lost connection, waiting
+// first (doubling from backoff up to 30 s; back to backoff after a
+// connection that lasted a minute). It returns nil when ctx ends, and an
+// error when the agent exits or the port refuses the credential.
+func keepConnected(ctx context.Context, agentDone <-chan struct{}, backoff time.Duration, connect func(context.Context) error) error {
+	first := backoff
 	for {
 		started := time.Now()
-		err := session(ctx, cfg, agent)
+		err := connect(ctx)
 		if ctx.Err() != nil {
 			return nil
 		}
 		select {
-		case <-agent.Done():
+		case <-agentDone:
 			return errx.Internal("agent process exited")
 		default:
 		}
+		if errx.IsType(err, errx.TypeAuthorization) {
+			return err
+		}
 		if time.Since(started) > time.Minute {
-			backoff = time.Second
+			backoff = first
 		}
 		slog.Warn("port connection lost, reconnecting", "err", err, "in", backoff)
 		select {
@@ -89,6 +107,18 @@ func wsURL(server string) string {
 	return u + "/crew/ws"
 }
 
+// refused turns the port closing the connection for a policy reason (the
+// hello names an agent the credential can't work as) into an
+// authorization error, which ends the connector; other errors are
+// returned as they are (retried).
+func refused(err error) error {
+	var ce websocket.CloseError
+	if errors.As(err, &ce) && ce.Code == websocket.StatusPolicyViolation {
+		return errx.Unauthorized("the port refused the connection: " + ce.Reason)
+	}
+	return err
+}
+
 // session runs one WebSocket connection.
 func session(ctx context.Context, cfg Config, agent *Agent) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -99,7 +129,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			if cfg.Token == "" {
 				return errx.Unauthorized("the port requires a crew token (-token or SEAPORT_CREW_TOKEN)")
 			}
-			return errx.Unauthorized("the port rejected the crew token")
+			return errx.Unauthorized("the port rejected the crew token (revoked, expired or not of this port); create one with `seaport crew tokens create` or in the web app")
 		}
 		if resp != nil && resp.StatusCode == http.StatusUnprocessableEntity {
 			return errx.Business("the port refused the connection: this organization already has as many agents connected as it allows")
@@ -144,7 +174,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	if cfg.Deliver != DeliverQueue && !agent.CanSteer() {
 		slog.Warn("the agent can't take messages mid-turn; they will queue for the next turn")
 	}
-	send(crew.Frame{Type: crew.FrameHello, Agent: cfg.AgentName, Concurrency: cfg.Concurrency, Steer: steering})
+	send(crew.Frame{Type: crew.FrameHello, Agent: cfg.AgentName, As: cfg.As, Concurrency: cfg.Concurrency, Steer: steering})
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -153,7 +183,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	for {
 		_, raw, err := ws.Read(ctx)
 		if err != nil {
-			return err
+			return refused(err)
 		}
 		f, err := crew.Decode(raw)
 		if err != nil {

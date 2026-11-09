@@ -76,7 +76,9 @@ func TestDockQuota(t *testing.T) {
 // organization, and a disconnect frees the slot.
 func TestCrewConnectionQuota(t *testing.T) {
 	p := startPortWith(t, func(c *config.Server) { c.MaxCrewConnections = 2 }, bootstrap.Options{Authenticator: twoOrgs{}})
-	hello := crew.Frame{Type: crew.FrameHello, Agent: "a", Concurrency: 1}
+	p.agentAs(adminA, "a")
+	p.agentAs(adminB, "b")
+	hello := crew.Frame{Type: crew.FrameHello, Agent: "a", As: "a", Concurrency: 1}
 	first := p.dialCrewAs(crewA, hello)
 	p.dialCrewAs(crewA, hello)
 
@@ -94,7 +96,7 @@ func TestCrewConnectionQuota(t *testing.T) {
 	if resp == nil || resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("third connection: %v %v", err, resp)
 	}
-	p.dialCrewAs(crewB, crew.Frame{Type: crew.FrameHello, Agent: "b", Concurrency: 1})
+	p.dialCrewAs(crewB, crew.Frame{Type: crew.FrameHello, Agent: "b", As: "b", Concurrency: 1})
 
 	first.ws.CloseNow()
 	deadline := time.Now().Add(5 * time.Second)

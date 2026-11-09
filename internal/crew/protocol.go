@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -53,8 +54,10 @@ const (
 type Frame struct {
 	Type FrameType `json:"type"`
 
-	// hello
+	// hello: Agent is a free label (the harness); As names the library
+	// agent the connection works as.
 	Agent       string `json:"agent,omitempty"`
+	As          string `json:"as,omitempty"`
 	Concurrency int    `json:"concurrency,omitempty"`
 	Steer       bool   `json:"steer,omitempty"`
 
@@ -79,7 +82,12 @@ type Frame struct {
 
 // Hello is the first frame a connector sends.
 type Hello struct {
-	Agent       string
+	// Agent is a label shown in the crew status (the harness, a host).
+	Agent string
+	// As is the name of the library agent it works as: required in open
+	// mode; with a crew token it may be left out (the token's agent) and
+	// must match when given.
+	As          string
 	Concurrency int
 	// Steer: the agent takes new ships mid-turn (steer frames).
 	Steer bool
@@ -88,6 +96,9 @@ type Hello struct {
 func (h Hello) Validate() error {
 	if h.Concurrency < 0 || h.Concurrency > MaxConcurrency {
 		return errx.InvalidField("concurrency", "concurrency must be between 1 and 32")
+	}
+	if h.As != "" && agent.ValidName(h.As) != nil {
+		return errx.InvalidField("as", "as must be an agent name (lowercase letters, digits, - and _)")
 	}
 	return text.Optional("agent", h.Agent, text.MaxName)
 }

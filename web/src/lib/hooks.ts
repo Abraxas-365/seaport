@@ -245,7 +245,8 @@ export function useCrewTokens() {
 export function useCreateCrewToken() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ name, expires_at }: { name: string; expires_at?: string }) => api.createCrewToken(name, expires_at),
+    mutationFn: ({ agent_id, name, expires_at }: { agent_id: string; name: string; expires_at?: string }) =>
+      api.createCrewToken(agent_id, name, expires_at),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.crewTokens }),
     onError: fail("No se pudo crear el token"),
   })
@@ -260,6 +261,76 @@ export function useRevokeCrewToken() {
       toast.success("Token revocado", { description: "Sus agentes conectados se desconectaron." })
     },
     onError: fail("No se pudo revocar el token"),
+  })
+}
+
+export function useAgents() {
+  const can = useCan()
+  return useQuery({ queryKey: keys.agents, queryFn: api.agents, enabled: can(Perm.AgentsRead) })
+}
+
+export function useDockTeam(dock: string) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.team(dock), queryFn: () => api.team(dock), enabled: can(Perm.AgentsRead) })
+}
+
+/** Agents and every dock team change together (a default demotes another). */
+function useAgentsChanged() {
+  const qc = useQueryClient()
+  return () => {
+    qc.invalidateQueries({ queryKey: keys.agents })
+    qc.invalidateQueries({ queryKey: keys.teamAll })
+  }
+}
+
+export function useCreateAgent() {
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: ({ name, description }: { name: string; description: string }) => api.createAgent(name, description),
+    onSuccess: changed,
+    onError: fail("No se pudo crear el agente"),
+  })
+}
+
+export function useUpdateAgent() {
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; name?: string; description?: string }) => api.updateAgent(id, patch),
+    onSuccess: changed,
+    onError: fail("No se pudo guardar el agente"),
+  })
+}
+
+export function useDeleteAgent() {
+  const qc = useQueryClient()
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteAgent(id),
+    onSuccess: () => {
+      changed()
+      qc.invalidateQueries({ queryKey: keys.crewTokens })
+      toast.success("Agente eliminado", { description: "Sus tokens se revocaron y sus conexiones se cerraron." })
+    },
+    onError: fail("No se pudo eliminar el agente"),
+  })
+}
+
+export function useAssignAgent() {
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: ({ dock, agent, isDefault }: { dock: string; agent: string; isDefault: boolean }) =>
+      api.assignAgent(dock, agent, isDefault),
+    onSuccess: changed,
+    onError: fail("No se pudo asignar el agente"),
+  })
+}
+
+export function useUnassignAgent() {
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: ({ dock, agent }: { dock: string; agent: string }) => api.unassignAgent(dock, agent),
+    onSuccess: changed,
+    onError: fail("No se pudo quitar el agente"),
   })
 }
 

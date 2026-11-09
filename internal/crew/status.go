@@ -18,7 +18,11 @@ type Status struct {
 // Agent is one connected connector (`seaport connect`).
 type Agent struct {
 	// Session identifies this connection (a reconnect gets a new one).
-	Session     string    `json:"session"`
+	Session string `json:"session"`
+	// AgentID/AgentName: the library agent it works as.
+	AgentID   identity.AgentID `json:"agent_id"`
+	AgentName string           `json:"agent_name"`
+	// Name is the connector's label (hello.agent).
 	Name        string    `json:"name"`
 	Concurrency int       `json:"concurrency"`
 	Steer       bool      `json:"steer"`

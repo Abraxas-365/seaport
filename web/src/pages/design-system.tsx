@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import {
   AgentCard,
+  AgentChip,
   ChannelIcon,
   ChatAvatar,
   ChoiceCards,
@@ -376,7 +377,9 @@ const sampleDocks: Dock[] = [
 
 const sampleAgent: Agent = {
   session: "s-7f3a",
-  name: "rness",
+  agent_id: "a-pm",
+  agent_name: "pm",
+  name: "rness en la laptop",
   concurrency: 3,
   steer: true,
   remote: "190.237.12.4:51022",
@@ -411,8 +414,13 @@ function Domain() {
             <DockCard key={d.id} dock={d} now={now} />
           ))}
         </Specimen>
-        <Specimen label="AgentCard">
+        <Specimen label="AgentCard (una conexión, como el agente de la biblioteca)">
           <AgentCard agent={sampleAgent} now={now} titleOf={() => "Ana Torres"} />
+        </Specimen>
+        <Specimen label="AgentChip (@nombre; punto = conectado, estrella = por defecto)" className="flex flex-wrap items-center gap-2">
+          <AgentChip name="pm" online isDefault />
+          <AgentChip name="reviewer" online={false} />
+          <AgentChip name="soporte" />
         </Specimen>
         <Specimen label="PairingPanel" className="lg:col-span-2">
           <Card className="py-0">

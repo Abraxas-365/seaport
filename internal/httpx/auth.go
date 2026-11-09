@@ -2,7 +2,6 @@ package httpx
 
 import (
 	"context"
-	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
@@ -44,6 +43,10 @@ type Principal struct {
 	// Credential identifies a revocable credential (a crew token id) so
 	// its live connections can be closed when it is revoked.
 	Credential string
+	// Agent is the agent a crew principal works as (its token's agent);
+	// zero in open mode, where the connector names it in its hello.
+	Agent     identity.AgentID
+	AgentName string
 }
 
 // Can reports whether the principal holds the permission.
@@ -112,25 +115,18 @@ func Bearer(r *http.Request) string {
 }
 
 // CrewAuth serves next with the crew principal of the request's bearer
-// token: static (when set, constant-time) or resolved by tokens.
-func CrewAuth(static string, staticPrincipal Principal, tokens CrewResolver, next http.Handler) http.Handler {
+// token, resolved by tokens (crew tokens: each names its organization and
+// its agent).
+func CrewAuth(tokens CrewResolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := Bearer(r)
-		var p Principal
-		switch {
-		case got == "":
+		if got == "" || tokens == nil {
 			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
 			return
-		case static != "" && subtle.ConstantTimeCompare([]byte(got), []byte(static)) == 1:
-			p = staticPrincipal
-		case tokens != nil:
-			var err error
-			if p, err = tokens.ResolveCrew(r.Context(), got); err != nil {
-				WriteError(w, r, err)
-				return
-			}
-		default:
-			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
+		}
+		p, err := tokens.ResolveCrew(r.Context(), got)
+		if err != nil {
+			WriteError(w, r, err)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
@@ -245,11 +241,10 @@ func (o Open) Session() SessionRoutes {
 
 // Tokens is SEAPORT_AUTH=token: a static admin token (bearer, or traded
 // for a session cookie), one organization. Agents use crew tokens created
-// in the admin (CrewTokens) or the optional static SEAPORT_CREW_TOKEN.
+// in the admin (CrewTokens), each bound to an agent.
 type Tokens struct {
 	Organization identity.OrganizationID
 	Sessions     Sessions // admin token + cookie settings
-	CrewToken    string   // optional static crew token
 	CrewTokens   CrewResolver
 }
 
@@ -262,10 +257,7 @@ func (t Tokens) Admin(next http.Handler) http.Handler {
 	}))
 }
 
-func (t Tokens) Crew(next http.Handler) http.Handler {
-	p := Principal{Organization: t.Organization, Role: RoleCrew, Subject: "crew"}
-	return CrewAuth(t.CrewToken, p, t.CrewTokens, next)
-}
+func (t Tokens) Crew(next http.Handler) http.Handler { return CrewAuth(t.CrewTokens, next) }
 
 func (t Tokens) Session() SessionRoutes {
 	return SessionRoutes{Login: t.Sessions.Login(), Current: t.Sessions.Current(), Logout: t.Sessions.Logout()}

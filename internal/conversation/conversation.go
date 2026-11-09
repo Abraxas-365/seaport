@@ -133,4 +133,7 @@ func (u Update) Validate() error {
 type Filter struct {
 	Dock   *identity.DockID
 	Status *Status
+	// Docks, when not nil, keeps only conversations of these docks (an
+	// agent's; empty: none).
+	Docks []identity.DockID
 }

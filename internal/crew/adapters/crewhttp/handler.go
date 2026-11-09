@@ -37,7 +37,15 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.List(r.Context(), org, page)
+	var filter crew.TokenFilter
+	if raw := r.URL.Query().Get("agent_id"); raw != "" {
+		id, err := identity.ParseAgentID(raw)
+		if err != nil {
+			return err
+		}
+		filter.Agent = &id
+	}
+	out, err := h.queries.List(r.Context(), org, filter, page)
 	if err != nil {
 		return err
 	}
@@ -45,8 +53,9 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 type createRequest struct {
-	Name      string     `json:"name"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	Name      string           `json:"name"`
+	Agent     identity.AgentID `json:"agent_id"`
+	ExpiresAt *time.Time       `json:"expires_at"`
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
@@ -63,7 +72,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		by = p.Subject
 	}
 	t, err := h.commands.Create(r.Context(), p.Organization,
-		crew.CreateToken{Name: req.Name, ExpiresAt: req.ExpiresAt, CreatedBy: by})
+		crew.CreateToken{Name: req.Name, Agent: req.Agent, ExpiresAt: req.ExpiresAt, CreatedBy: by})
 	if err != nil {
 		return err
 	}
@@ -97,7 +106,8 @@ func (res Resolver) ResolveCrew(ctx context.Context, value string) (httpx.Princi
 	if err != nil {
 		return httpx.Principal{}, err
 	}
-	p := httpx.Principal{Organization: t.Organization, Role: httpx.RoleCrew, Subject: "crew:" + t.Name, Credential: t.ID.String()}
+	p := httpx.Principal{Organization: t.Organization, Role: httpx.RoleCrew, Subject: "crew:" + t.Name,
+		Credential: t.ID.String(), Agent: t.Agent, AgentName: t.AgentName}
 	if t.ExpiresAt != nil {
 		p.Expires = *t.ExpiresAt
 	}

@@ -42,6 +42,16 @@ func freshDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
+// newAgent stores an agent row (crewpg reads agents, it doesn't make them).
+func newAgent(t *testing.T, db *sqlx.DB, org identity.OrganizationID, name string) identity.AgentID {
+	t.Helper()
+	id := identity.NewAgentID()
+	if _, err := db.Exec(`INSERT INTO agents (id, organization_id, name) VALUES ($1, $2, $3)`, id, org, name); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func connection(session, process, credential string) crew.Connection {
 	return crew.Connection{Session: session, Process: process, Credential: credential, ConnectedAt: time.Now().UTC()}
 }
@@ -88,7 +98,8 @@ func TestOpenQuota(t *testing.T) {
 		t.Fatalf("after close: %v", err)
 	}
 
-	if err := p.Ready(ctx, org, "extra", crew.Agent{Name: "rness", Concurrency: 2}); err != nil {
+	pm := newAgent(t, db, org, "pm")
+	if err := p.Ready(ctx, org, "extra", crew.Agent{Name: "rness", AgentID: pm, Concurrency: 2}); err != nil {
 		t.Fatal(err)
 	}
 	d := crew.AgentDelivery{ID: identity.NewDeliveryID(), Conversation: identity.NewConversationID(), Ships: 2, Since: time.Now().UTC().Truncate(time.Microsecond)}
@@ -99,22 +110,25 @@ func TestOpenQuota(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(st.Agents) != 1 || st.Agents[0].Name != "rness" || len(st.Agents[0].Deliveries) != 1 || st.Agents[0].Deliveries[0] != d {
+	if len(st.Agents) != 1 || st.Agents[0].Name != "rness" || st.Agents[0].AgentID != pm || st.Agents[0].AgentName != "pm" ||
+		len(st.Agents[0].Deliveries) != 1 || st.Agents[0].Deliveries[0] != d {
 		t.Fatalf("status: %+v", st)
 	}
 }
 
-// Touch keeps a process's rows, tells it which to close (reaped, or a
-// revoked or expired token) and never touches another process's rows;
+// Touch keeps a process's rows, tells it which to close (reaped, a revoked
+// or expired token, or a deleted agent) and never touches another
+// process's rows;
 // Reap takes only rows untouched for the stale period.
 func TestTouchAndReap(t *testing.T) {
 	db := freshDB(t)
 	p := crewpg.NewPresence(db)
 	tokens := crewpg.New(db)
 	ctx := context.Background()
+	pm, gone := newAgent(t, db, org, "pm"), newAgent(t, db, org, "gone")
 	newToken := func(expires *time.Time) identity.CrewTokenID {
 		_, hash, hint := crew.NewTokenValue()
-		tok, err := tokens.Create(ctx, org, identity.NewCrewTokenID(), crew.CreateToken{Name: "t", ExpiresAt: expires}, hash, hint, 10)
+		tok, err := tokens.Create(ctx, org, identity.NewCrewTokenID(), crew.CreateToken{Name: "t", Agent: pm, ExpiresAt: expires}, hash, hint, 10)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,11 +137,21 @@ func TestTouchAndReap(t *testing.T) {
 	live, revoked := newToken(nil), newToken(nil)
 	soon := time.Now().Add(time.Hour)
 	expiring := newToken(&soon)
-	for s, cred := range map[string]string{"live": live.String(), "static": "", "revoked": revoked.String(),
-		"expired": expiring.String()} {
+	for s, cred := range map[string]string{"live": live.String(), "open": "", "revoked": revoked.String(),
+		"expired": expiring.String(), "deleted": ""} {
 		if err := p.Open(ctx, org, connection(s, "a", cred), 0); err != nil {
 			t.Fatal(err)
 		}
+		as := pm
+		if s == "deleted" {
+			as = gone
+		}
+		if err := p.Ready(ctx, org, s, crew.Agent{Name: s, AgentID: as, Concurrency: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE agents SET deleted_at = now() WHERE id = $1`, gone); err != nil {
+		t.Fatal(err)
 	}
 	if err := p.Open(ctx, org, connection("elsewhere", "b", revoked.String()), 0); err != nil {
 		t.Fatal(err)
@@ -142,12 +166,12 @@ func TestTouchAndReap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	closing, err := p.Touch(ctx, "a", []string{"live", "static", "revoked", "expired", "gone"})
+	closing, err := p.Touch(ctx, "a", []string{"live", "open", "revoked", "expired", "deleted", "gone"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(closing)
-	if !slices.Equal(closing, []string{"expired", "gone", "revoked"}) {
+	if !slices.Equal(closing, []string{"deleted", "expired", "gone", "revoked"}) {
 		t.Fatalf("closing %v", closing)
 	}
 	reaped, err := p.Reap(ctx, time.Minute)

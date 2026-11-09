@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation"
@@ -71,6 +72,7 @@ func (twoOrgs) Session() httpx.SessionRoutes {
 
 func TestOrganizationsAreIsolated(t *testing.T) {
 	p := startPortWith(t, func(*config.Server) {}, bootstrap.Options{Authenticator: twoOrgs{}})
+	agentB := p.agentAs(adminB, "b") // B's own agent.updated may reach its stream
 
 	// Org B's admin streams events: it must never see org A's.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -93,8 +95,19 @@ func TestOrganizationsAreIsolated(t *testing.T) {
 
 	// Org A: a dock, an allowed conversation, a crew member with a delivery.
 	var d dock.Dock
+	var agents query.Paginated[agent.Agent]
 	if code := p.call(http.MethodPost, "/api/v1/docks", adminA, map[string]string{"channel": "api", "name": "a"}, &d); code != http.StatusCreated {
 		t.Fatalf("create dock: %d", code)
+	}
+	agentA := p.agentAs(adminA, "a")
+	p.assignAs(adminA, d.ID, agentA.ID, false)
+	// Agents are per organization: B's admin can't put A's agent on a dock
+	// or see it, and B's crew can't work as it.
+	if code := p.call(http.MethodGet, "/api/v1/agents", adminB, nil, &agents); code != http.StatusOK || len(agents.Items) != 1 || agents.Items[0].Name != "b" {
+		t.Fatalf("org B agents: %d %+v", code, agents)
+	}
+	if reason := p.dialRefused(crewB, crew.Frame{Type: crew.FrameHello, As: "a"}); !strings.Contains(reason, "not found") {
+		t.Fatalf("org B crew as org A agent: %q", reason)
 	}
 	var s ship.Ship
 	if code := p.call(http.MethodPost, "/api/v1/docks/"+d.ID.String()+"/ships", adminA,
@@ -107,13 +120,13 @@ func TestOrganizationsAreIsolated(t *testing.T) {
 	}
 
 	// Org B's crew connects first; org A's ships must not reach it.
-	crewConnB := p.dialCrewAs(crewB, crew.Frame{Type: crew.FrameHello, Agent: "b", Concurrency: 2})
+	crewConnB := p.dialCrewAs(crewB, crew.Frame{Type: crew.FrameHello, Agent: "b", As: "b", Concurrency: 2})
 	if code := p.call(http.MethodPost, "/api/v1/docks/"+d.ID.String()+"/ships", adminA,
 		map[string]any{"chat_id": "111", "message_id": "m2", "sender_id": "111", "text": "sigues?"}, nil); code != http.StatusCreated {
 		t.Fatalf("inject m2: %d", code)
 	}
 	crewConnB.quiet(500 * time.Millisecond)
-	crewConnA := p.dialCrewAs(crewA, crew.Frame{Type: crew.FrameHello, Agent: "a", Concurrency: 2})
+	crewConnA := p.dialCrewAs(crewA, crew.Frame{Type: crew.FrameHello, Agent: "a", As: "a", Concurrency: 2})
 	if f := crewConnA.read(); f.Type != crew.FrameDelivery || f.Delivery.Conversation.ID != s.Conversation {
 		t.Fatalf("org A delivery: %+v", f)
 	}
@@ -150,6 +163,12 @@ func TestOrganizationsAreIsolated(t *testing.T) {
 		{http.MethodPatch, "/api/v1/conversations/" + conv, map[string]string{"access": "deny"}},
 		{http.MethodGet, "/api/v1/conversations/" + conv + "/ships", nil},
 		{http.MethodPost, "/api/v1/conversations/" + conv + "/ships", map[string]string{"text": "hi"}},
+		{http.MethodGet, "/api/v1/agents/" + agentA.ID.String(), nil},
+		{http.MethodPatch, "/api/v1/agents/" + agentA.ID.String(), map[string]string{"description": "x"}},
+		{http.MethodDelete, "/api/v1/agents/" + agentA.ID.String(), nil},
+		{http.MethodGet, "/api/v1/docks/" + d.ID.String() + "/agents", nil},
+		{http.MethodPut, "/api/v1/docks/" + d.ID.String() + "/agents/" + agentA.ID.String(), map[string]bool{"default": true}},
+		{http.MethodDelete, "/api/v1/docks/" + d.ID.String() + "/agents/" + agentA.ID.String(), nil},
 	} {
 		if code := p.call(c.method, c.path, adminB, c.body, nil); code != http.StatusNotFound {
 			t.Errorf("org B %s %s: %d, want 404", c.method, c.path, code)
@@ -193,10 +212,15 @@ func TestOrganizationsAreIsolated(t *testing.T) {
 
 	cancel()
 	for line := range eventsB {
-		if strings.HasPrefix(line, "event: ") && !strings.Contains(line, "ready") && !strings.Contains(line, "crew.changed") {
+		if strings.HasPrefix(line, "event: ") && !strings.Contains(line, "ready") && !strings.Contains(line, "crew.changed") &&
+			!strings.Contains(line, "agent.updated") {
 			t.Errorf("org B received %q", line)
 		}
-		if strings.HasPrefix(line, "data: ") && (strings.Contains(line, d.ID.String()) || strings.Contains(line, conv)) {
+		if strings.HasPrefix(line, "data: ") && strings.Contains(line, "agent_id") && !strings.Contains(line, agentB.ID.String()) {
+			t.Errorf("org B received another agent %q", line)
+		}
+		if strings.HasPrefix(line, "data: ") && (strings.Contains(line, d.ID.String()) || strings.Contains(line, conv) ||
+			strings.Contains(line, agentA.ID.String())) {
 			t.Errorf("org B received org A data %q", line)
 		}
 	}
@@ -204,7 +228,7 @@ func TestOrganizationsAreIsolated(t *testing.T) {
 
 func TestOpenModeNeedsNoCredentials(t *testing.T) {
 	p := startPortWith(t, func(c *config.Server) {
-		c.Auth, c.AdminToken, c.CrewToken = config.AuthNone, "", ""
+		c.Auth, c.AdminToken = config.AuthNone, ""
 	}, bootstrap.Options{})
 
 	var cfg map[string]any
@@ -219,9 +243,18 @@ func TestOpenModeNeedsNoCredentials(t *testing.T) {
 	if code := p.call(http.MethodPost, "/api/v1/docks", "", map[string]string{"channel": "api", "name": "local"}, &d); code != http.StatusCreated {
 		t.Fatalf("create dock without credentials: %d", code)
 	}
-	// Agents connect without a token too.
-	c := p.dialCrewAs("", crew.Frame{Type: crew.FrameHello, Agent: "local", Concurrency: 1})
+	// Agents connect without a token too, naming the agent they work as.
+	local := p.agentAs("", "local")
+	p.assignAs("", d.ID, local.ID, true)
+	if reason := p.dialRefused("", crew.Frame{Type: crew.FrameHello, Agent: "local"}); !strings.Contains(reason, "-agent") {
+		t.Fatalf("open mode hello without an agent: %q", reason)
+	}
+	if reason := p.dialRefused("", crew.Frame{Type: crew.FrameHello, As: "nobody"}); !strings.Contains(reason, "not found") {
+		t.Fatalf("open mode hello naming a missing agent: %q", reason)
+	}
+	c := p.dialCrewAs("", crew.Frame{Type: crew.FrameHello, Agent: "local", As: "local", Concurrency: 1})
 	c.quiet(100 * time.Millisecond)
+	waitCrew(t, p, func(st crew.Status) bool { return len(st.Agents) == 1 && st.Agents[0].AgentID == local.ID })
 
 	// A browser on another site still can't drive it.
 	req, _ := http.NewRequest(http.MethodPost, p.srv.URL+"/api/v1/docks", strings.NewReader(`{"channel":"api","name":"x"}`))
@@ -298,7 +331,8 @@ func TestOpenModeNeedsNoCredentials(t *testing.T) {
 
 func TestHealthzRevealsNoTenantData(t *testing.T) {
 	p := startPortWith(t, func(*config.Server) {}, bootstrap.Options{Authenticator: twoOrgs{}})
-	p.dialCrewAs(crewA, crew.Frame{Type: crew.FrameHello, Agent: "a", Concurrency: 1})
+	p.agentAs(adminA, "a")
+	p.dialCrewAs(crewA, crew.Frame{Type: crew.FrameHello, Agent: "a", As: "a", Concurrency: 1})
 	var health map[string]any
 	if code := p.call(http.MethodGet, "/healthz", "", nil, &health); code != http.StatusOK {
 		t.Fatalf("healthz: %d", code)

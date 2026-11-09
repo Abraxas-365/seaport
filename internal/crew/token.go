@@ -14,8 +14,9 @@ import (
 )
 
 // Crew tokens are the credentials agents connect with (`seaport connect`,
-// /crew/ws, /mcp). Each belongs to one organization: its connections and
-// MCP calls act only there. The value is shown once at creation; Seaport
+// /crew/ws, /mcp). Each belongs to one agent of one organization: its
+// connections work as that agent (only the ships routed to it) and its MCP
+// calls act only there. The value is shown once at creation; Seaport
 // stores its SHA-256.
 const (
 	// TokenPrefix starts every crew token value (recognizable in logs and
@@ -34,6 +35,9 @@ type Token struct {
 	ID           identity.CrewTokenID    `db:"id" json:"id"`
 	Organization identity.OrganizationID `db:"organization_id" json:"-"`
 	Name         string                  `db:"name" json:"name"`
+	// Agent is who connects with it; AgentName its name (display).
+	Agent     identity.AgentID `db:"agent_id" json:"agent_id"`
+	AgentName string           `db:"agent_name" json:"agent_name"`
 	// Hint is the start of the value ("sp_crew_AbCd"), to tell tokens apart.
 	Hint string `db:"hint" json:"hint"`
 	// CreatedBy is who created it (the admin's name, else its subject).
@@ -46,6 +50,11 @@ type Token struct {
 // Expired reports whether the token is past its expiry at now.
 func (t Token) Expired(now time.Time) bool { return t.ExpiresAt != nil && !now.Before(*t.ExpiresAt) }
 
+// TokenFilter narrows TokenQueries.List.
+type TokenFilter struct {
+	Agent *identity.AgentID
+}
+
 // Issued is a newly created token with its value (returned once).
 type Issued struct {
 	Token
@@ -55,6 +64,8 @@ type Issued struct {
 // CreateToken is the input of TokenCommands.Create.
 type CreateToken struct {
 	Name string
+	// Agent is the agent it connects as (required, must exist).
+	Agent identity.AgentID
 	// ExpiresAt, when set, must be in the future and within
 	// MaxTokenLifetime.
 	ExpiresAt *time.Time
@@ -65,6 +76,9 @@ type CreateToken struct {
 func (c CreateToken) Validate() error {
 	if err := text.Required("name", c.Name, text.MaxName); err != nil {
 		return err
+	}
+	if c.Agent.IsZero() {
+		return errx.InvalidField("agent_id", "agent_id is required: a crew token connects as an agent")
 	}
 	if c.ExpiresAt != nil {
 		now := time.Now()

@@ -105,6 +105,7 @@ type (
 	deliveryTag     struct{}
 	ruleTag         struct{}
 	crewTokenTag    struct{}
+	agentTag        struct{}
 )
 
 func tagName[T any]() string {
@@ -124,6 +125,8 @@ func tagName[T any]() string {
 		return "rule_id"
 	case crewTokenTag:
 		return "crew_token_id"
+	case agentTag:
+		return "agent_id"
 	default:
 		return "id"
 	}
@@ -181,3 +184,10 @@ type CrewTokenID = ID[crewTokenTag]
 
 func NewCrewTokenID() CrewTokenID                      { return NewID[crewTokenTag]() }
 func ParseCrewTokenID(raw string) (CrewTokenID, error) { return ParseID[crewTokenTag](raw) }
+
+// AgentID identifies an agent of an organization's library (the identity
+// its crew tokens connect as, assigned to docks).
+type AgentID = ID[agentTag]
+
+func NewAgentID() AgentID                      { return NewID[agentTag]() }
+func ParseAgentID(raw string) (AgentID, error) { return ParseID[agentTag](raw) }

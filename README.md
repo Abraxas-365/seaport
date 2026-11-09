@@ -15,6 +15,10 @@ WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ s
 - **Customs** — per dock rules decide which chats and messages wake the agent.
   Messages that don't pass are *held*: stored (visible in history) but not
   delivered. Your own "message yourself" chat is always allowed.
+- **Agents** — your library of agents (`@pm`, `@reviewer`, …). An agent works
+  only on the docks you assign it to; on a dock with several, a message picks
+  one with `@name`, else the chat stays with the agent it was talking to,
+  else it goes to the dock's default (with none, it is held).
 - **Deliveries** — the allowed messages of one conversation, handed to one
   connector at a time (leased, renewed while the agent works, released if it
   disconnects, so nothing is lost).
@@ -28,7 +32,7 @@ One binary, several ways to run it — only the start-up config differs
 | Mode | For | Auth |
 |---|---|---|
 | `none` | your own computer | no login, no tokens; loopback only — refuses other listen addresses, foreign `Host` names and anything relayed by a proxy or tunnel |
-| `token` (default) | one owner on a server | static admin token; agents use crew tokens (or a static one) |
+| `token` (default) | one owner on a server | static admin token; agents use crew tokens |
 | `iam` | many organizations | [IAMKit](https://github.com/Abraxas-365/iamkit) accounts, organizations and permissions; per-organization crew tokens |
 
 Inside, Seaport is always multi-tenant: every dock, conversation, ship and
@@ -40,7 +44,7 @@ organization), so moving from one mode to another needs no data migration.
 ```bash
 docker compose up -d                                    # Postgres on 127.0.0.1:5449
 export DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport?sslmode=disable"
-export SEAPORT_ADMIN_TOKEN=$(openssl rand -hex 24) SEAPORT_CREW_TOKEN=$(openssl rand -hex 24)
+export SEAPORT_ADMIN_TOKEN=$(openssl rand -hex 24)
 go run ./cmd/seaport serve
 ```
 
@@ -95,17 +99,37 @@ rule matching a group member holds that member's messages in allowed groups
 existing chats; held history is never delivered retroactively (the agent can
 read it with `history`).
 
-Connect your agent (a crew token), from the directory it should work in:
+### Agents
+
+Create agents, put them on docks, then connect each one with a crew token of
+its own (or in the web app: Agentes, Tokens de agentes), from the directory
+it should work in:
 
 ```bash
-seaport crew tokens create laptop      # or in the web app: Tokens de agentes; shown once
+seaport agents add pm -description "Genera tickets"
+seaport agents add reviewer
+seaport agents assign pm <dock-id> -default     # gets whatever nobody @mentions
+seaport agents assign reviewer <dock-id>        # "@reviewer mira el PR 12"
+seaport crew tokens create laptop -agent pm     # shown once
 SEAPORT_CREW_TOKEN=sp_crew_… seaport connect -- rness --acp -m anthropic/claude-sonnet-4-5
 ```
 
-Crew tokens belong to an organization, can expire (`-expires 720h`) and are
-revoked one by one (`seaport crew tokens revoke <id>` closes that agent's
-connections). In `token` mode a static `SEAPORT_CREW_TOKEN` on the server
-still works too.
+Routing on a dock: the first `@name` of an agent on that dock picks it; else
+the agent the conversation was talking to (if still on the dock); else the
+only agent; else the dock's default. Otherwise the message is held (no agent
+on the dock, or several and none called) and shows why in the web app. A
+conversation is worked by one agent at a time, in arrival order. An agent on
+no dock receives nothing. Unassigning or deleting an agent holds what was
+waiting for it; deleting also revokes its tokens and closes its connections.
+With `SEAPORT_AUTH=none` there are no tokens: `seaport connect -agent pm --
+…` names the agent.
+
+Every crew token belongs to one agent of an organization, can expire
+(`-expires 720h`) and is revoked one by one (`seaport crew tokens revoke
+<id>` closes its connections). An agent may have several tokens (one per
+machine) and several connections; they share its work. The connector reconnects on its own when the connection
+drops or the port restarts, but exits with an error when the port refuses
+its crew token (revoked, expired or wrong): create a new one.
 
 The connector is the same `seaport` binary. On the agent's machine, take it
 from [Releases](https://github.com/Abraxas-365/seaport/releases) (linux,
@@ -136,7 +160,8 @@ new prompt, never lost.
 | `DATABASE_URL` | — | Postgres (everything, WhatsApp keys included — sealed) |
 | `SEAPORT_AUTH` | `token` | `none` (loopback only, no tokens), `token` or `iam` |
 | `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
-| `SEAPORT_CREW_TOKEN` | — | token mode, optional: a static agent token (≥16 chars). `seaport connect`: the crew token to use |
+| `SEAPORT_CREW_TOKEN` | — | `seaport connect`: the crew token to use (it names the agent) |
+| `SEAPORT_AGENT` | — | `seaport connect` with `SEAPORT_AUTH=none`: the agent to work as (`-agent`) |
 | `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again (and signs everyone out) |
 | `SEAPORT_SECRET_KEY_FILE` | `<config dir>/seaport/secret.key` | where the generated key lives (`/data/secret.key` in the image: mount a volume) |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
@@ -191,8 +216,20 @@ organizations, roles and API keys managed by an
   `SEAPORT_ADMIN_TOKEN` (`ik_key_…`, created in IAMKit's admin, holding the
   permissions you choose). An IAMKit access token works too.
 - **Agents** use crew tokens of their organization, created by people with
-  `seaport:crew-tokens:write`; deliveries, MCP tools and the stream never
+  `seaport:crew-tokens:write` (each for one agent, managed with
+  `seaport:agents:write`); deliveries, MCP tools and the stream never
   cross organizations (another organization's object is a 404).
+- **When changes take effect.** Seaport asks IAMKit about people's tokens
+  and API keys on every request, so removing someone from the organization,
+  suspending them or revoking an API key works on their next request (and
+  revoking a crew token, Seaport's own, closes its agents at once).
+  A **role change** reaches a person's permissions when IAMKit issues their
+  next access token: at the session's next refresh (at most the access
+  token's lifetime, 15 minutes by IAMKit's default) or when they sign in
+  again. An access token sent as a bearer keeps the permissions it was
+  issued with until it expires, and an API key keeps the ones it was
+  created with (a role change never touches it: revoke it and create
+  another).
 
 Provision IAMKit once (idempotent; re-run after editing
 `iam/permissions.json`; needs `curl` and `jq` and an IAMKit management key):
@@ -242,7 +279,8 @@ docker compose logs -f seaport
 ```
 
 Open `https://$SEAPORT_DOMAIN`, sign in with `SEAPORT_ADMIN_TOKEN`, link
-WhatsApp, create a crew token (Tokens de agentes). On your computer:
+WhatsApp, create an agent and assign it to the dock (Agentes), then a crew
+token for it (Tokens de agentes). On your computer:
 
 ```bash
 SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport connect -- rness --acp -m …
@@ -317,7 +355,9 @@ In iam mode each route needs its permission (`iam/permissions.json`):
 | `GET /api/v1/config` | public: `{"auth", "version"}` — how the web app must sign in |
 | `POST /api/v1/session` `{"token"}`, `GET /api/v1/session`, `DELETE /api/v1/session` | token mode browser login: trades the admin token for an HttpOnly, SameSite=Strict cookie (7 days, stateless HMAC; rotating the token ends all sessions). Cookie writes from another origin get 403. `GET` answers `{"authenticated", "permissions", …}` in every mode (iam: name, email, organization) |
 | `GET /api/v1/session/login[?next=&organization=&switch=1]`, `GET /auth/callback` | iam mode: sign in through IAMKit (top-level navigation); `DELETE /api/v1/session` answers `{"logout_url"}` (IAMKit's end session) |
-| `GET/POST /api/v1/crew/tokens`, `DELETE /api/v1/crew/tokens/{id}` | crew tokens of your organization; POST `{"name","expires_at"?}` answers the value once |
+| `GET/POST /api/v1/agents`, `GET/PATCH/DELETE /api/v1/agents/{id}` | the agent library (each with its docks); POST/PATCH `{"name","description"}`; DELETE revokes its tokens and holds what waits for it |
+| `GET /api/v1/docks/{id}/agents`, `PUT/DELETE /api/v1/docks/{id}/agents/{agent}` | a dock's agents (`{"agents":[…]}`); PUT `{"default"}` assigns (or changes the default), both answer the agent |
+| `GET/POST /api/v1/crew/tokens`, `DELETE /api/v1/crew/tokens/{id}` | crew tokens of your organization; POST `{"agent_id","name","expires_at"?}` answers the value once |
 | `GET /api/v1/events[?last_event_id=]` | live events (SSE, below) |
 | `GET /api/v1/crew` | connected agents and their deliveries in flight |
 | `GET /api/v1/inbox[?status=&dock_id=]` | conversations by last activity, each with `last_ship` (null without `ships:read`), `held`, `queued`, `in_flight` |
@@ -345,6 +385,7 @@ session cookie). Each event's `data` is JSON:
 | `ship.created` / `ship.updated` | the ship (inbound, outbound pending → sent/failed) |
 | `delivery.changed` | `{"state":"claimed\|joined\|acked\|released\|expired", "delivery_id", "conversation_id", "ship_ids", "count", "owner"}` |
 | `crew.changed` | the whole crew status (as `GET /api/v1/crew`) |
+| `agent.updated` / `agent.deleted` | the agent with its docks (created, edited, assigned, unassigned; a demoted default gets no event: refetch) / `{"id"}` |
 
 Events are stored in Postgres for an hour and announced with
 LISTEN/NOTIFY, so every Seaport process streams every process's events.

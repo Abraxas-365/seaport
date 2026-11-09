@@ -32,22 +32,30 @@ func crewTokens(ctx context.Context, args []string) error {
 			return err
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tTOKEN\tCREATED\tEXPIRES\tLAST USED")
+		fmt.Fprintln(w, "ID\tAGENT\tNAME\tTOKEN\tCREATED\tEXPIRES\tLAST USED")
 		for _, t := range page.Items {
-			fmt.Fprintf(w, "%s\t%s\t%s…\t%s\t%s\t%s\n", t.ID, t.Name, t.Hint, day(&t.CreatedAt), day(t.ExpiresAt), day(t.LastUsedAt))
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s…\t%s\t%s\t%s\n", t.ID, t.AgentName, t.Name, t.Hint, day(&t.CreatedAt), day(t.ExpiresAt), day(t.LastUsedAt))
 		}
 		return w.Flush()
 	case "create":
 		if len(args) == 0 {
-			return errx.Validation("usage: seaport crew tokens create <name> [-expires 720h]")
+			return errx.Validation("usage: seaport crew tokens create <name> -agent <agent> [-expires 720h]")
 		}
 		name := args[0]
 		fs := flag.NewFlagSet("crew tokens create", flag.ContinueOnError)
+		as := fs.String("agent", "", "the agent it connects as (name or id; required)")
 		expires := fs.Duration("expires", 0, "lifetime (e.g. 720h); default never")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
-		body := map[string]any{"name": name}
+		if *as == "" {
+			return errx.Validation("every crew token belongs to an agent: -agent <name> (seaport agents)")
+		}
+		ag, err := findAgent(ctx, a, *as)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{"name": name, "agent_id": ag.ID}
 		if *expires > 0 {
 			body["expires_at"] = time.Now().Add(*expires).UTC()
 		}
@@ -55,7 +63,7 @@ func crewTokens(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/crew/tokens", body, &t); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "crew token %s created; it is shown only once:\n", t.ID)
+		fmt.Fprintf(os.Stderr, "crew token %s for agent %s created; it is shown only once:\n", t.ID, ag.Name)
 		fmt.Println(t.Value)
 		return nil
 	case "revoke":

@@ -353,7 +353,7 @@ func startIAMPort(t *testing.T) (*port, config.Server) {
 			"redirect_uris": []string{c.PublicURL + "/auth/callback"}, "post_logout_redirect_uris": []string{c.PublicURL + "/"},
 			"allowed_origins": []string{c.PublicURL}, "hosted_login": true,
 		}, &client)
-		c.Auth, c.AdminToken, c.CrewToken, c.SecretKey = config.AuthIAM, "", "", iamSecretKey
+		c.Auth, c.AdminToken, c.SecretKey = config.AuthIAM, "", iamSecretKey
 		c.IAMKit = config.IAMKit{URL: iam.base, PublicURL: iam.base, Issuer: iamIssuer, Environment: iam.environment,
 			Application: iam.application, Resource: iam.resource, Audience: iamAudience, WebClientID: client.ID}
 		if err := c.Validate(); err != nil {

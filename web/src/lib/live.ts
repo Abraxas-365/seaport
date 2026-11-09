@@ -118,6 +118,23 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)
   },
+  // A default demotes another agent without its own event: refetch.
+  // Unassigning or deleting an agent holds what waited for it (no ship
+  // events): refetch histories and the inbox too.
+  "agent.updated": (qc) => {
+    qc.invalidateQueries({ queryKey: keys.agents })
+    qc.invalidateQueries({ queryKey: keys.teamAll })
+    qc.invalidateQueries({ queryKey: keys.crewTokens })
+    qc.invalidateQueries({ queryKey: ["ships"] })
+    qc.invalidateQueries({ queryKey: keys.inboxAll })
+  },
+  "agent.deleted": (qc) => {
+    qc.invalidateQueries({ queryKey: keys.agents })
+    qc.invalidateQueries({ queryKey: keys.teamAll })
+    qc.invalidateQueries({ queryKey: keys.crewTokens })
+    qc.invalidateQueries({ queryKey: ["ships"] })
+    qc.invalidateQueries({ queryKey: keys.inboxAll })
+  },
 }
 
 /** One shared stream for the whole app. */

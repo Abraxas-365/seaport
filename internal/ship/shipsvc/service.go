@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -29,7 +30,10 @@ type Deps struct {
 	Messenger dock.Messenger
 	Notifier  ship.Notifier
 	Events    event.Publisher
-	Now       func() time.Time
+	// Agents tells whether a replying agent works on the conversation's
+	// dock.
+	Agents agent.Queries
+	Now    func() time.Time
 	// Limits cap outbound messages (zero value: ship.DefaultLimits).
 	Limits *ship.Limits
 }
@@ -43,6 +47,7 @@ type Service struct {
 	messenger dock.Messenger
 	notifier  ship.Notifier
 	events    event.Publisher
+	agents    agent.Queries
 	now       func() time.Time
 	limits    ship.Limits
 }
@@ -61,7 +66,7 @@ func New(d Deps) *Service {
 		limits = *d.Limits
 	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
-		events: events, now: now, limits: limits}
+		events: events, agents: d.Agents, now: now, limits: limits}
 }
 
 var (
@@ -80,20 +85,24 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		return ship.Ship{}, false, errx.Wrap(err, "customs", errx.TypeInternal)
 	}
 	conv := arrival.Conversation
-	st, created, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv.ID, input, ship.InitialInbound(arrival.Hold))
-	if created && st.Status == ship.StatusHeld {
-		slog.Debug("ship held by customs", "conversation", conv.ID, "reason", arrival.Hold)
+	route := func(team []agent.Member, previous identity.AgentID) (identity.AgentID, string) {
+		return agent.Route(team, input.Text, previous)
 	}
+	st, created, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv, input, arrival.Hold, route)
 	if err != nil {
 		return ship.Ship{}, false, errx.Wrap(err, "store inbound ship", errx.TypeInternal)
 	}
-	if created {
-		s.events.Publish(org, ship.EventCreated, st)
+	if !created {
+		return st, false, nil
 	}
-	if created && st.Status == ship.StatusQueued {
-		s.notifier.Notify(org)
+	if st.Status == ship.StatusHeld {
+		slog.Debug("ship held", "conversation", conv.ID, "reason", st.HoldReason)
 	}
-	return st, created, nil
+	s.events.Publish(org, ship.EventCreated, st)
+	if st.Status == ship.StatusQueued && st.Agent != nil {
+		s.notifier.Notify(org, *st.Agent)
+	}
+	return st, true, nil
 }
 
 func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input ship.Claim) (ship.Delivery, bool, error) {
@@ -101,7 +110,7 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 		return ship.Delivery{}, false, err
 	}
 	id := identity.NewDeliveryID()
-	convID, ships, err := s.repo.Claim(ctx, org, id, input.Session, s.now().Add(input.Lease))
+	convID, ships, err := s.repo.Claim(ctx, org, input.Agent, id, input.Session, s.now().Add(input.Lease))
 	if err != nil {
 		return ship.Delivery{}, false, errx.Wrap(err, "claim delivery", errx.TypeInternal)
 	}
@@ -164,7 +173,7 @@ func (s *Service) Ack(ctx context.Context, org identity.OrganizationID, input sh
 	s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryAcked, Delivery: &input.Delivery,
 		Ships: input.Ships, Count: requeued})
 	// The conversation may have more ships queued behind this delivery.
-	s.notifier.Notify(org)
+	s.notifier.Notify(org, identity.AgentID{})
 	return nil
 }
 
@@ -176,7 +185,7 @@ func (s *Service) Release(ctx context.Context, org identity.OrganizationID, deli
 		return errx.Wrap(err, "release delivery", errx.TypeInternal)
 	}
 	s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryReleased, Delivery: &delivery})
-	s.notifier.Notify(org)
+	s.notifier.Notify(org, identity.AgentID{})
 	return nil
 }
 
@@ -191,7 +200,7 @@ func (s *Service) ReleaseSession(ctx context.Context, org identity.OrganizationI
 	if n > 0 {
 		slog.Info("released deliveries of a closed connection", "organization", org, "session", session, "ships", n)
 		s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryReleased, Count: n})
-		s.notifier.Notify(org)
+		s.notifier.Notify(org, identity.AgentID{})
 	}
 	return n, nil
 }
@@ -206,7 +215,7 @@ func (s *Service) ReleaseExpired(ctx context.Context, before time.Time) (int, er
 		total += n
 		slog.Info("released expired deliveries", "organization", org, "ships", n)
 		s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryExpired, Count: n})
-		s.notifier.Notify(org)
+		s.notifier.Notify(org, identity.AgentID{})
 	}
 	return total, nil
 }
@@ -222,6 +231,11 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, input s
 	}
 	if !conv.Allowed() {
 		return ship.Ship{}, errx.Forbidden("conversation is not allowed; the port owner must allow it first")
+	}
+	if input.Agent != nil {
+		if err := s.onDock(ctx, org, *input.Agent, conv.Dock); err != nil {
+			return ship.Ship{}, err
+		}
 	}
 	msgID, err := s.messenger.NewMessageID(ctx, org, conv.Dock)
 	if err != nil {
@@ -295,4 +309,19 @@ func idsOf(ships []ship.Ship) []identity.ShipID {
 		out[i] = s.ID
 	}
 	return out
+}
+
+// onDock: an agent replies only to conversations of docks it works on
+// (another dock's conversation is NotFound, as if it did not exist).
+func (s *Service) onDock(ctx context.Context, org identity.OrganizationID, id identity.AgentID, d identity.DockID) error {
+	team, err := s.agents.Team(ctx, org, d)
+	if err != nil {
+		return errx.Wrap(err, "dock team", errx.TypeInternal)
+	}
+	for _, m := range team {
+		if m.Agent == id {
+			return nil
+		}
+	}
+	return errx.NotFound("conversation not found")
 }

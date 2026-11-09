@@ -1,7 +1,8 @@
 import * as React from "react"
+import { Link } from "react-router"
 import { Check, Copy, KeyRound, Plus, Trash2 } from "lucide-react"
 
-import { useCan, useCreateCrewToken, useCrewTokens, useNow, useRevokeCrewToken } from "@/lib/hooks"
+import { useAgents, useCan, useCreateCrewToken, useCrewTokens, useNow, useRevokeCrewToken } from "@/lib/hooks"
 import { formatFull, formatRelative } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
 import type { CrewToken, IssuedCrewToken } from "@/lib/types"
@@ -17,9 +18,11 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import {
+  AgentChip,
   ConfirmAction,
   EmptyState,
   ErrorState,
@@ -49,7 +52,7 @@ export function TokensPage() {
     <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
       <PageHeader
         title="Tokens de agentes"
-        description="Las credenciales con las que se conectan tus agentes. Cada uno actúa solo en tu organización."
+        description="Las credenciales con las que se conectan tus agentes. Cada token pertenece a un agente y solo actúa como él."
         actions={write && <NewTokenDialog />}
       />
       <div className="mx-auto max-w-4xl p-6">
@@ -66,7 +69,7 @@ export function TokensPage() {
             title="Ningún agente tiene token"
             description={
               <>
-                Crea uno y conéctate con <code>SEAPORT_CREW_TOKEN=… seaport connect -- rness --acp</code>.
+                Crea uno para un agente y conéctate con <code>SEAPORT_CREW_TOKEN=… seaport connect -- rness --acp</code>.
               </>
             }
             action={write && <NewTokenDialog />}
@@ -91,6 +94,7 @@ function TokenRow({ token: t, now, canRevoke }: { token: CrewToken; now: number;
       <KeyRound className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          <AgentChip name={t.agent_name} />
           <span className="truncate text-sm font-medium">{t.name}</span>
           <Mono className="text-xs text-muted-foreground">{t.hint}…</Mono>
           {expired && <StatusBadge tone="danger">Vencido</StatusBadge>}
@@ -117,7 +121,7 @@ function TokenRow({ token: t, now, canRevoke }: { token: CrewToken; now: number;
       {canRevoke && (
         <ConfirmAction
           destructive
-          title={`¿Revocar «${t.name}»?`}
+          title={`¿Revocar «${t.name}» de @${t.agent_name}?`}
           description={
             <p>Los agentes conectados con este token se desconectan ahora y no podrán volver a entrar con él.</p>
           }
@@ -136,7 +140,10 @@ function TokenRow({ token: t, now, canRevoke }: { token: CrewToken; now: number;
 
 function NewTokenDialog() {
   const create = useCreateCrewToken()
+  const agents = useAgents()
+  const can = useCan()
   const [open, setOpen] = React.useState(false)
+  const [agent, setAgent] = React.useState("")
   const [name, setName] = React.useState("")
   const [lifetime, setLifetime] = React.useState<Lifetime>("90")
   const [issued, setIssued] = React.useState<IssuedCrewToken>()
@@ -145,6 +152,7 @@ function NewTokenDialog() {
     if (!o) {
       // The value is gone once the dialog closes; it is never shown again.
       setName("")
+      setAgent("")
       setIssued(undefined)
     }
   }
@@ -164,14 +172,40 @@ function NewTokenDialog() {
               e.preventDefault()
               const expires_at =
                 lifetime === "never" ? undefined : new Date(Date.now() + Number(lifetime) * 86_400_000).toISOString()
-              create.mutate({ name: name.trim(), expires_at }, { onSuccess: setIssued })
+              create.mutate({ agent_id: agent, name: name.trim(), expires_at }, { onSuccess: setIssued })
             }}
           >
             <DialogHeader>
               <DialogTitle>Nuevo token de agente</DialogTitle>
-              <DialogDescription>Un token por agente o máquina, para poder revocarlos por separado.</DialogDescription>
+              <DialogDescription>Un token por máquina, para poder revocarlos por separado.</DialogDescription>
             </DialogHeader>
             <FieldGroup className="py-5">
+              <Field>
+                <FieldLabel>Agente</FieldLabel>
+                <Select value={agent} onValueChange={setAgent}>
+                  <SelectTrigger aria-label="Agente">
+                    <SelectValue placeholder="Elige el agente que se conecta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(agents.data?.items ?? []).map((a) => (
+                      <SelectItem key={a.id} value={a.id} className="font-mono">
+                        @{a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  {agents.data?.items.length === 0 ? (
+                    can(Perm.AgentsWrite) ? (
+                      <>Primero crea un agente en <Link to="/agents">Agentes</Link>.</>
+                    ) : (
+                      "No hay agentes todavía."
+                    )
+                  ) : (
+                    "Quien se conecte con este token trabaja como ese agente."
+                  )}
+                </FieldDescription>
+              </Field>
               <Field>
                 <FieldLabel htmlFor="token-name">Nombre</FieldLabel>
                 <Input
@@ -199,7 +233,7 @@ function NewTokenDialog() {
               <Button type="button" variant="outline" onClick={() => close(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" disabled={!name.trim() || create.isPending}>
+              <Button type="submit" disabled={!agent || !name.trim() || create.isPending}>
                 {create.isPending && <Spinner />} Crear token
               </Button>
             </DialogFooter>
@@ -221,7 +255,9 @@ function IssuedToken({ token, onDone }: { token: IssuedCrewToken; onDone: () => 
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Token «{token.name}» creado</DialogTitle>
+        <DialogTitle>
+          Token «{token.name}» de @{token.agent_name} creado
+        </DialogTitle>
         <DialogDescription>Cópialo ahora: no se vuelve a mostrar. Seaport solo guarda su huella.</DialogDescription>
       </DialogHeader>
       <div className="min-w-0 space-y-3 py-5">

@@ -40,8 +40,15 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock unlink <dock-id>         log the number out (keeps history; relink to pair again)
   seaport dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
   seaport crew                          connected agents and what they are working on
+  seaport agents [list]                 your organization's agents and the docks they work
+  seaport agents add <name> [-description D]
+  seaport agents edit <agent> [-name N] [-description D]
+  seaport agents assign <agent> <dock-id> [-default]   with several agents on a dock, @name calls one;
+                                        the default takes messages that call nobody (else they are held)
+  seaport agents unassign <agent> <dock-id>
+  seaport agents delete <agent> -yes    revoke its tokens, disconnect it, hold what waits for it
   seaport crew tokens [list]            agent credentials of your organization
-  seaport crew tokens create <name> [-expires 720h]   prints the token once
+  seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents
   seaport conversations [-allowed|-pending|-denied]
   seaport allow <conversation-id>       always let the agent receive and answer this chat
@@ -53,8 +60,9 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport history <conversation-id> [-limit N]
   seaport send <conversation-id> <text>
 
-Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN):
+Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
   seaport connect [flags] -- <agent command>   e.g. seaport connect -- rness --acp
+                                        works as the token's agent (-agent <name> without a token)
 `
 
 func main() {
@@ -113,6 +121,8 @@ func run(ctx context.Context, args []string) error {
 			return dockDelete(ctx, rest[1:])
 		}
 		return errx.Validation("unknown dock command " + rest[0])
+	case "agents", "agent":
+		return agents(ctx, rest)
 	case "crew":
 		if len(rest) > 0 && rest[0] == "tokens" {
 			return crewTokens(ctx, rest[1:])
@@ -156,6 +166,10 @@ func serve(ctx context.Context) error {
 		slog.Warn("SEAPORT_PUBLIC_URL is plain http on a non-local host: tokens and the session cookie "+
 			"travel unencrypted; put Seaport behind TLS (see deploy/)", "public_url", cfg.PublicURL)
 	}
+	if os.Getenv("SEAPORT_CREW_TOKEN") != "" {
+		slog.Warn("SEAPORT_CREW_TOKEN is ignored by the server: every agent now connects with a crew token of its own " +
+			"(seaport agents add <name>; seaport crew tokens create <name> -agent <name>)")
+	}
 	app, err := bootstrap.Build(ctx, cfg, bootstrap.Options{})
 	if err != nil {
 		return err
@@ -193,7 +207,8 @@ func connect(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("connect", flag.ContinueOnError)
 	server := fs.String("server", envOr("SEAPORT_URL", "http://127.0.0.1:8740"), "port URL")
 	token := fs.String("token", os.Getenv("SEAPORT_CREW_TOKEN"), "crew token (default $SEAPORT_CREW_TOKEN; none for a SEAPORT_AUTH=none port)")
-	name := fs.String("name", "", "agent name shown by the port (default: command name)")
+	as := fs.String("agent", os.Getenv("SEAPORT_AGENT"), "agent to work as (default $SEAPORT_AGENT; optional with a crew token, which belongs to one; required for a SEAPORT_AUTH=none port)")
+	name := fs.String("name", "", "label of this connection shown by the port (default: command name)")
 	concurrency := fs.Int("concurrency", 2, "conversations worked at once")
 	autoReply := fs.Bool("auto-reply", false, "send the agent's final text as the reply (for agents without MCP)")
 	approve := fs.String("approve", "reject", "answer to agent permission requests: reject|allow")
@@ -236,7 +251,7 @@ func connect(ctx context.Context, args []string) error {
 	setupLogging(level)
 	cfgDir, _ := os.UserConfigDir()
 	return connector.Run(ctx, connector.Config{
-		Server: strings.TrimRight(*server, "/"), Token: *token, AgentName: *name, Concurrency: *concurrency,
+		Server: strings.TrimRight(*server, "/"), Token: *token, As: *as, AgentName: *name, Concurrency: *concurrency,
 		AutoReply: *autoReply, Approve: *approve, Deliver: *deliver, Cwd: dir, Command: command,
 		SessionsFile: filepath.Join(cfgDir, "seaport", "sessions.json"),
 	})

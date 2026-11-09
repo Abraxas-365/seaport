@@ -5,6 +5,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -13,7 +15,7 @@ import (
 )
 
 const columns = `id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status,
-	delivery_id, claimed_until, error, sent_at, created_at`
+	agent_id, hold_reason, delivery_id, claimed_until, error, sent_at, created_at`
 
 // claimLock serializes the claims of one organization so two connectors
 // never get the same conversation (the "nothing in flight" check needs
@@ -33,20 +35,59 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 
 var _ ship.Repository = (*Repository)(nil)
 
-func (r *Repository) CreateInbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, conv identity.ConversationID, in ship.Inbound, status ship.Status) (ship.Ship, bool, error) {
+func (r *Repository) CreateInbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, conv conversation.Conversation,
+	in ship.Inbound, hold string, route ship.Router) (ship.Ship, bool, error) {
 	var s ship.Ship
-	err := r.db.GetContext(ctx, &s, `
-		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status, sent_at)
-		VALUES ($1, $9, $2, 'in', $3, $4, $5, $6, $7, $8)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return s, false, pgerr.Map(err, "begin inbound")
+	}
+	defer func() { _ = tx.Rollback() }()
+	status := ship.StatusHeld
+	var target *identity.AgentID
+	if hold == "" {
+		// The team's rows stay locked until commit: unassigning or deleting
+		// an agent (agentpg) waits, then holds this ship if it was its.
+		team := []agent.Member{}
+		if err := tx.SelectContext(ctx, &team, `SELECT d.agent_id, a.name, d.is_default FROM dock_agents d
+			JOIN agents a ON a.organization_id = d.organization_id AND a.id = d.agent_id
+			WHERE d.organization_id = $1 AND d.dock_id = $2 ORDER BY d.created_at, a.name FOR SHARE OF d`,
+			org, conv.Dock); err != nil {
+			return s, false, pgerr.Map(err, "dock team")
+		}
+		var previous identity.AgentID
+		// The agent the conversation last talked with: its last routed
+		// inbound ship or the last reply an agent sent.
+		err := tx.GetContext(ctx, &previous, `SELECT agent_id FROM ships
+			WHERE organization_id = $1 AND conversation_id = $2 AND agent_id IS NOT NULL
+			ORDER BY created_at DESC LIMIT 1`, org, conv.ID)
+		if err != nil && !pgerr.IsNoRows(err) {
+			return s, false, pgerr.Map(err, "previous agent")
+		}
+		picked, reason := route(team, previous)
+		if picked.IsZero() {
+			hold = reason
+		} else {
+			status, target = ship.StatusQueued, &picked
+		}
+	}
+	err = tx.GetContext(ctx, &s, `
+		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text,
+			status, agent_id, hold_reason, sent_at)
+		VALUES ($1, $2, $3, 'in', $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (conversation_id, external_id) DO NOTHING
 		RETURNING `+columns,
-		id, conv, in.ExternalID, in.SenderID, in.SenderName, in.Text, status, in.SentAt, org)
+		id, org, conv.ID, in.ExternalID, in.SenderID, in.SenderName, in.Text, status, target, hold, in.SentAt)
 	if pgerr.IsNoRows(err) {
+		_ = tx.Rollback()
 		err = r.db.GetContext(ctx, &s, `SELECT `+columns+` FROM ships
-			WHERE organization_id = $1 AND conversation_id = $2 AND external_id = $3`, org, conv, in.ExternalID)
+			WHERE organization_id = $1 AND conversation_id = $2 AND external_id = $3`, org, conv.ID, in.ExternalID)
 		return s, false, pgerr.MapWith(err, "find duplicate ship", messages)
 	}
-	return s, err == nil, pgerr.MapWith(err, "create inbound ship", messages)
+	if err != nil {
+		return s, false, pgerr.MapWith(err, "create inbound ship", messages)
+	}
+	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
 }
 
 func (r *Repository) CreateOutbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, in ship.Outbound,
@@ -102,9 +143,9 @@ func (r *Repository) CreateOutbound(ctx context.Context, org identity.Organizati
 		return s, err
 	}
 	err = tx.GetContext(ctx, &s, `
-		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, text, status, sent_at)
-		VALUES ($1, $5, $2, 'out', $3, $4, 'pending', now())
-		RETURNING `+columns, id, in.Conversation, externalID, in.Text, org)
+		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, text, status, agent_id, sent_at)
+		VALUES ($1, $5, $2, 'out', $3, $4, 'pending', $6, now())
+		RETURNING `+columns, id, in.Conversation, externalID, in.Text, org, in.Agent)
 	if err != nil {
 		return s, pgerr.MapWith(err, "create outbound ship", messages)
 	}
@@ -118,7 +159,15 @@ func (r *Repository) SetOutcome(ctx context.Context, org identity.OrganizationID
 	return s, pgerr.MapWith(err, "set ship outcome", messages)
 }
 
-func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, delivery identity.DeliveryID, session string, until time.Time) (identity.ConversationID, []ship.Ship, error) {
+// claimable limits an UPDATE of a conversation's queued ships of agent $5
+// to those before the first one queued for another agent: a conversation
+// is worked in arrival order, one agent at a time.
+const claimable = `organization_id = $4 AND conversation_id = $1 AND status = 'queued' AND agent_id = $5
+	AND NOT EXISTS (SELECT 1 FROM ships o WHERE o.organization_id = $4 AND o.conversation_id = $1
+	                  AND o.status = 'queued' AND o.agent_id <> $5
+	                  AND (o.created_at, o.id) < (ships.created_at, ships.id))`
+
+func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, delivery identity.DeliveryID, session string, until time.Time) (identity.ConversationID, []ship.Ship, error) {
 	var conv identity.ConversationID
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -128,13 +177,18 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, del
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, claimLock, org); err != nil {
 		return conv, nil, pgerr.Map(err, "lock claims")
 	}
+	// The agent's oldest ship that is also its conversation's oldest
+	// queued one, in a conversation with nothing in flight.
 	err = tx.GetContext(ctx, &conv, `
 		SELECT q.conversation_id FROM ships q
-		WHERE q.organization_id = $1 AND q.status = 'queued'
+		WHERE q.organization_id = $1 AND q.status = 'queued' AND q.agent_id = $2
+		  AND NOT EXISTS (SELECT 1 FROM ships e WHERE e.organization_id = q.organization_id
+		                    AND e.conversation_id = q.conversation_id AND e.status = 'queued'
+		                    AND (e.created_at, e.id) < (q.created_at, q.id))
 		  AND NOT EXISTS (SELECT 1 FROM ships c WHERE c.organization_id = q.organization_id
 		                    AND c.conversation_id = q.conversation_id AND c.status = 'claimed')
 		ORDER BY q.created_at, q.id
-		LIMIT 1`, org)
+		LIMIT 1`, org, agentID)
 	if pgerr.IsNoRows(err) {
 		return conv, nil, nil
 	}
@@ -144,10 +198,10 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, del
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH claimed AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $5
-			WHERE organization_id = $4 AND conversation_id = $1 AND status = 'queued'
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6
+			WHERE `+claimable+`
 			RETURNING `+columns+`)
-		SELECT * FROM claimed ORDER BY sent_at, created_at, id`, conv, delivery, until, org, session)
+		SELECT * FROM claimed ORDER BY sent_at, created_at, id`, conv, delivery, until, org, agentID, session)
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "claim ships")
 	}
@@ -172,8 +226,9 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 	var open struct {
 		Conversation identity.ConversationID `db:"conversation_id"`
 		Session      string                  `db:"claimed_by"`
+		Agent        identity.AgentID        `db:"agent_id"`
 	}
-	err = tx.GetContext(ctx, &open, `SELECT conversation_id, claimed_by FROM ships
+	err = tx.GetContext(ctx, &open, `SELECT conversation_id, claimed_by, agent_id FROM ships
 		WHERE organization_id = $1 AND delivery_id = $2 AND status = 'claimed' LIMIT 1`, org, delivery)
 	conv = open.Conversation
 	if pgerr.IsNoRows(err) {
@@ -185,10 +240,10 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH joined AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $5
-			WHERE organization_id = $4 AND conversation_id = $1 AND status = 'queued'
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6
+			WHERE `+claimable+`
 			RETURNING `+columns+`)
-		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org, open.Session)
+		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org, open.Agent, open.Session)
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "join ships")
 	}

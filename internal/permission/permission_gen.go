@@ -21,6 +21,8 @@ const (
 	CrewRead           = "seaport:crew:read"           // View connected agents
 	CrewTokensRead     = "seaport:crew-tokens:read"    // View crew tokens
 	CrewTokensWrite    = "seaport:crew-tokens:write"   // Create and revoke crew tokens
+	AgentsRead         = "seaport:agents:read"         // View agents and the docks they work on
+	AgentsWrite        = "seaport:agents:write"        // Create, change and delete agents and assign them to docks
 )
 
 // All is the whole catalog, in manifest order.
@@ -36,6 +38,8 @@ var All = []string{
 	CrewRead,
 	CrewTokensRead,
 	CrewTokensWrite,
+	AgentsRead,
+	AgentsWrite,
 }
 
 // Labels say what each permission lets someone do.
@@ -51,11 +55,13 @@ var Labels = map[string]string{
 	CrewRead:           "View connected agents",
 	CrewTokensRead:     "View crew tokens",
 	CrewTokensWrite:    "Create and revoke crew tokens",
+	AgentsRead:         "View agents and the docks they work on",
+	AgentsWrite:        "Create, change and delete agents and assign them to docks",
 }
 
 // Roles on the resource, in manifest order.
 var Roles = []Role{
-	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite}},
-	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead}},
-	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead}},
+	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite}},
+	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead}},
+	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead}},
 }

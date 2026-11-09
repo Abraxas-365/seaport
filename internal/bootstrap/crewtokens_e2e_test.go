@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -20,17 +21,23 @@ import (
 // Crew tokens: created in the admin, shown once, usable on /crew/ws and
 // /mcp, revoked → refused and live connections closed.
 func TestCrewTokens(t *testing.T) {
-	// No static SEAPORT_CREW_TOKEN: agents only use crew tokens.
-	p := startPortWith(t, func(c *config.Server) { c.CrewToken = "" }, bootstrap.Options{})
+	p := startPort(t)
+	pm := p.agent("pm")
 
 	var issued crew.Issued
-	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "laptop"}, &issued); code != http.StatusCreated {
+	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "laptop", "agent_id": pm.ID}, &issued); code != http.StatusCreated {
 		t.Fatalf("create: %d", code)
 	}
-	if !strings.HasPrefix(issued.Value, crew.TokenPrefix) || !strings.HasPrefix(issued.Value, issued.Hint) || issued.CreatedBy != "admin" {
+	if !strings.HasPrefix(issued.Value, crew.TokenPrefix) || !strings.HasPrefix(issued.Value, issued.Hint) || issued.CreatedBy != "admin" ||
+		issued.Agent != pm.ID || issued.AgentName != "pm" {
 		t.Fatalf("issued: %+v", issued)
 	}
-	for _, bad := range []map[string]any{{"name": ""}, {"name": "x", "expires_at": time.Now().Add(-time.Hour)}, {"name": "x", "nope": 1}} {
+	// Every token belongs to an agent that exists.
+	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "x", "agent_id": identity.NewAgentID()}, nil); code != http.StatusNotFound {
+		t.Fatalf("create for a missing agent: %d", code)
+	}
+	for _, bad := range []map[string]any{{"name": "x"}, {"name": "", "agent_id": pm.ID}, {"name": "x", "agent_id": pm.ID, "expires_at": time.Now().Add(-time.Hour)},
+		{"name": "x", "agent_id": pm.ID, "nope": 1}} {
 		if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", bad, nil); code != http.StatusBadRequest {
 			t.Fatalf("create %v: %d", bad, code)
 		}
@@ -45,7 +52,7 @@ func TestCrewTokens(t *testing.T) {
 	}
 
 	// The token works as crew, never as admin; no token or a wrong one is 401.
-	for _, tok := range []string{"", crew.TokenPrefix + strings.Repeat("A", 43), crewToken} {
+	for _, tok := range []string{"", crew.TokenPrefix + strings.Repeat("A", 43), adminToken} {
 		if code := p.call(http.MethodPost, "/mcp", tok, map[string]any{}, nil); code != http.StatusUnauthorized {
 			t.Fatalf("mcp with %q: %d", tok, code)
 		}
@@ -54,6 +61,9 @@ func TestCrewTokens(t *testing.T) {
 		t.Fatalf("crew token on admin api: %d", code)
 	}
 	c := p.dialCrewAs(issued.Value, crew.Frame{Type: crew.FrameHello, Agent: "laptop", Concurrency: 1})
+	waitCrew(t, p, func(st crew.Status) bool {
+		return len(st.Agents) == 1 && st.Agents[0].AgentID == pm.ID && st.Agents[0].AgentName == "pm" && st.Agents[0].Name == "laptop"
+	})
 	ctx := context.Background()
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx,
 		&mcp.StreamableClientTransport{Endpoint: p.srv.URL + "/mcp", HTTPClient: &http.Client{Transport: bearer{issued.Value}}}, nil)
@@ -90,7 +100,7 @@ func TestCrewTokens(t *testing.T) {
 	// An expiring token works until it expires; its connection ends then.
 	var short crew.Issued
 	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens",
-		map[string]any{"name": "short", "expires_at": time.Now().Add(1500 * time.Millisecond)}, &short); code != http.StatusCreated {
+		map[string]any{"name": "short", "agent_id": pm.ID, "expires_at": time.Now().Add(1500 * time.Millisecond)}, &short); code != http.StatusCreated {
 		t.Fatalf("create expiring: %d", code)
 	}
 	sc := p.dialCrewAs(short.Value, crew.Frame{Type: crew.FrameHello, Agent: "short", Concurrency: 1})
@@ -111,9 +121,10 @@ func TestCrewTokens(t *testing.T) {
 // one's own, revoking another's is 404.
 func TestCrewTokensAreIsolated(t *testing.T) {
 	p := startPortWith(t, func(*config.Server) {}, bootstrap.Options{Authenticator: twoOrgs{}})
-	var a crew.Issued
-	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", adminA, map[string]any{"name": "a"}, &a); code != http.StatusCreated {
-		t.Fatalf("create: %d", code)
+	a := p.issueAs(adminA, p.agentAs(adminA, "a").ID, "a")
+	// B can't issue a token for A's agent.
+	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", adminB, map[string]any{"name": "b", "agent_id": a.Agent}, nil); code != http.StatusNotFound {
+		t.Fatalf("B issues for A's agent: %d", code)
 	}
 	var list query.Paginated[crew.Token]
 	if code := p.call(http.MethodGet, "/api/v1/crew/tokens", adminB, nil, &list); code != http.StatusOK || len(list.Items) != 0 {
@@ -130,10 +141,11 @@ func TestCrewTokensAreIsolated(t *testing.T) {
 // The per-organization cap holds under concurrent creations (count and
 // insert are atomic), and revoked tokens free their slot.
 func TestCrewTokenCap(t *testing.T) {
-	p := startPortWith(t, func(c *config.Server) { c.CrewToken = "" }, bootstrap.Options{})
+	p := startPort(t)
+	ag := p.agent("cap").ID
 	var last crew.Issued
 	for i := range crew.MaxTokens - 2 {
-		if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("t", i)}, &last); code != http.StatusCreated {
+		if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("t", i), "agent_id": ag}, &last); code != http.StatusCreated {
 			t.Fatalf("create %d: %d", i, code)
 		}
 	}
@@ -143,7 +155,7 @@ func TestCrewTokenCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			switch code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("race", i)}, nil); code {
+			switch code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": fmt.Sprint("race", i), "agent_id": ag}, nil); code {
 			case http.StatusCreated:
 				created.Add(1)
 			case http.StatusUnprocessableEntity:
@@ -160,7 +172,7 @@ func TestCrewTokenCap(t *testing.T) {
 	if code := p.admin(http.MethodDelete, "/api/v1/crew/tokens/"+last.ID.String(), nil, nil); code != http.StatusNoContent {
 		t.Fatalf("revoke: %d", code)
 	}
-	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "after revoke"}, nil); code != http.StatusCreated {
+	if code := p.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "after revoke", "agent_id": ag}, nil); code != http.StatusCreated {
 		t.Fatalf("create after revoke: %d", code)
 	}
 }

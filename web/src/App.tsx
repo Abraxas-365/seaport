@@ -19,6 +19,7 @@ import { DocksPage } from "@/pages/docks"
 import { DockPage } from "@/pages/dock"
 import { CrewPage } from "@/pages/crew"
 import { TokensPage } from "@/pages/tokens"
+import { AgentsPage } from "@/pages/agents"
 import { DesignSystemPage } from "@/pages/design-system"
 
 export function App() {
@@ -66,6 +67,7 @@ function Gate() {
     [
       { to: "/inbox", perm: Perm.ConversationsRead },
       { to: "/docks", perm: Perm.DocksRead },
+      { to: "/agents", perm: Perm.AgentsRead },
       { to: "/crew", perm: Perm.CrewRead },
       { to: "/tokens", perm: Perm.CrewTokensRead },
     ].find((s) => can(s.perm))?.to ?? "/none"
@@ -106,6 +108,14 @@ function Gate() {
           element={
             <Guard perm={Perm.DocksRead} what="los muelles">
               <DockPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/agents"
+          element={
+            <Guard perm={Perm.AgentsRead} what="los agentes">
+              <AgentsPage />
             </Guard>
           }
         />

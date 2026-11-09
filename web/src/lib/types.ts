@@ -58,6 +58,10 @@ export interface Ship {
   sender_name: string
   text: string
   status: ShipStatus
+  /** Inbound: the agent it is (or was) for; outbound: the agent that sent it (none: a person). */
+  agent_id?: ID
+  /** Why a held ship was held (customs or routing). */
+  hold_reason?: string
   delivery_id?: ID
   error?: string
   sent_at: string
@@ -100,8 +104,12 @@ export interface AgentDelivery {
   since: string
 }
 
+/** One live connection (`seaport connect`) working as a library agent. */
 export interface Agent {
   session: string
+  agent_id: ID
+  agent_name: string
+  /** The connector's label. */
   name: string
   concurrency: number
   steer: boolean
@@ -112,6 +120,33 @@ export interface Agent {
 
 export interface CrewStatus {
   agents: Agent[]
+}
+
+/** An agent on a dock. */
+export interface Assignment {
+  dock_id: ID
+  /** It takes the dock's messages that call nobody. */
+  default: boolean
+}
+
+/** An agent of the organization's library (GET /api/v1/agents). */
+export interface LibraryAgent {
+  id: ID
+  /** Unique in the organization; how people call it (@name). */
+  name: string
+  description: string
+  created_by: string
+  created_at: string
+  updated_at: string
+  /** Where it works; none: inactive. */
+  docks: Assignment[]
+}
+
+/** One agent of a dock's team (GET /api/v1/docks/{id}/agents). */
+export interface TeamMember {
+  agent_id: ID
+  name: string
+  default: boolean
 }
 
 export interface Page {
@@ -147,6 +182,9 @@ export interface Session {
 /** A crew token (an agent credential); the value is shown only at creation. */
 export interface CrewToken {
   id: ID
+  /** The agent it connects as. */
+  agent_id: ID
+  agent_name: string
   name: string
   /** Start of the value ("sp_crew_AbCd"), to tell tokens apart. */
   hint: string
@@ -186,5 +224,7 @@ export interface EventMap {
   "ship.updated": Ship
   "delivery.changed": DeliveryEvent
   "crew.changed": CrewStatus
+  "agent.updated": LibraryAgent
+  "agent.deleted": { id: ID }
 }
 export type EventType = keyof EventMap

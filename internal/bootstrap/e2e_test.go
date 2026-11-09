@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation"
@@ -26,7 +28,8 @@ import (
 
 const (
 	adminToken = "admin-token-0123456789"
-	crewToken  = "crew-token-0123456789ab"
+	// testAgent is the agent dialCrew works as (crewToken).
+	testAgent = "test"
 )
 
 // testDatabaseURL is the throwaway database of the integration tests
@@ -49,6 +52,8 @@ type port struct {
 	srv *httptest.Server
 	// stop shuts the process down (also at cleanup; idempotent).
 	stop func()
+	// token is testAgent's crew token on this process (crewToken).
+	token string
 }
 
 func startPort(t *testing.T) *port {
@@ -80,7 +85,7 @@ func joinPort(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *
 	ctx := context.Background()
 	srv := httptest.NewUnstartedServer(nil)
 	cfg := config.Server{Addr: srv.Listener.Addr().String(), DatabaseURL: url,
-		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken, CrewToken: crewToken}
+		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken}
 	edit(&cfg)
 	opts.DisableWhatsApp, opts.Lease = true, 2*time.Second
 	if opts.DockLease == 0 {
@@ -136,6 +141,70 @@ func (p *port) admin(method, path string, body, out any) int {
 	return p.call(method, path, adminToken, body, out)
 }
 
+// agentAs makes (or finds, by name) an agent with the given admin
+// credential.
+func (p *port) agentAs(token, name string) agent.Agent {
+	p.t.Helper()
+	var a agent.Agent
+	switch code := p.call(http.MethodPost, "/api/v1/agents", token, map[string]string{"name": name}, &a); code {
+	case http.StatusCreated:
+		return a
+	case http.StatusConflict:
+		var list query.Paginated[agent.Agent]
+		p.call(http.MethodGet, "/api/v1/agents?limit=100", token, nil, &list)
+		for _, a := range list.Items {
+			if a.Name == name {
+				return a
+			}
+		}
+	}
+	p.t.Fatalf("agent %s: not created", name)
+	return a
+}
+
+// agent makes (or finds) an agent of the admin token's organization.
+func (p *port) agent(name string) agent.Agent { return p.agentAs(adminToken, name) }
+
+// assignAs puts an agent on a dock.
+func (p *port) assignAs(token string, d identity.DockID, a identity.AgentID, isDefault bool) {
+	p.t.Helper()
+	if code := p.call(http.MethodPut, "/api/v1/docks/"+d.String()+"/agents/"+a.String(), token,
+		map[string]bool{"default": isDefault}, nil); code != http.StatusOK {
+		p.t.Fatalf("assign agent: %d", code)
+	}
+}
+
+// issueAs creates a crew token for an agent.
+func (p *port) issueAs(token string, a identity.AgentID, name string) crew.Issued {
+	p.t.Helper()
+	var issued crew.Issued
+	if code := p.call(http.MethodPost, "/api/v1/crew/tokens", token,
+		map[string]any{"name": name, "agent_id": a}, &issued); code != http.StatusCreated {
+		p.t.Fatalf("issue crew token: %d", code)
+	}
+	return issued
+}
+
+// crewToken is testAgent's crew token (made on first use).
+func (p *port) crewToken() string {
+	p.t.Helper()
+	if p.token == "" {
+		p.token = p.issueAs(adminToken, p.agent(testAgent).ID, "test").Value
+	}
+	return p.token
+}
+
+// apiDock creates an api dock worked by testAgent.
+func (p *port) apiDock(name string) dock.Dock {
+	p.t.Helper()
+	var d dock.Dock
+	if code := p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": name}, &d); code != http.StatusCreated {
+		p.t.Fatalf("create dock: %d", code)
+	}
+	p.assignAs(adminToken, d.ID, p.agent(testAgent).ID, true)
+	return d
+}
+
 func (p *port) inject(d dock.Dock, chat, msgID, text string) ship.Ship {
 	p.t.Helper()
 	var s ship.Ship
@@ -159,9 +228,10 @@ func (p *port) dialCrew(concurrency int) *crewConn {
 	return p.dialCrewWith(crew.Frame{Type: crew.FrameHello, Agent: "test", Concurrency: concurrency})
 }
 
+// dialCrewWith connects as testAgent.
 func (p *port) dialCrewWith(hello crew.Frame) *crewConn {
 	p.t.Helper()
-	return p.dialCrewAs(crewToken, hello)
+	return p.dialCrewAs(p.crewToken(), hello)
 }
 
 // dialCrewAs connects a connector with the given crew token.
@@ -193,6 +263,35 @@ func (p *port) dialCrewAs(token string, hello crew.Frame) *crewConn {
 		p.t.Fatalf("welcome: %+v", f)
 	}
 	return c
+}
+
+// dialRefused connects with token and hello and returns why the port
+// closed the connection (it must close it before a welcome).
+func (p *port) dialRefused(token string, hello crew.Frame) string {
+	p.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(p.srv.URL, "http")+"/crew/ws",
+		&websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + token}}})
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	defer ws.CloseNow()
+	raw, _ := json.Marshal(hello)
+	if err := ws.Write(ctx, websocket.MessageText, raw); err != nil {
+		p.t.Fatal(err)
+	}
+	if _, frame, err := ws.Read(ctx); err == nil {
+		p.t.Fatalf("connection accepted: %s", frame)
+	} else if websocket.CloseStatus(err) == -1 {
+		p.t.Fatalf("connection not closed by the port: %v", err)
+	} else {
+		var ce websocket.CloseError
+		if errors.As(err, &ce) {
+			return ce.Reason
+		}
+	}
+	return ""
 }
 
 func (c *crewConn) send(f crew.Frame) {
@@ -233,17 +332,14 @@ func TestPortEndToEnd(t *testing.T) {
 	p := startPort(t)
 
 	// auth
-	if code := p.call(http.MethodGet, "/api/v1/docks", crewToken, nil, nil); code != http.StatusUnauthorized {
+	if code := p.call(http.MethodGet, "/api/v1/docks", p.crewToken(), nil, nil); code != http.StatusUnauthorized {
 		t.Fatalf("crew token on admin api: %d", code)
 	}
 	if code := p.call(http.MethodGet, "/mcp", adminToken, nil, nil); code != http.StatusUnauthorized {
 		t.Fatalf("admin token on mcp: %d", code)
 	}
 
-	var d dock.Dock
-	if code := p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "test"}, &d); code != http.StatusCreated {
-		t.Fatalf("create dock: %d", code)
-	}
+	d := p.apiDock("test")
 	if d.Status != dock.StatusLinked {
 		t.Fatalf("api dock status %s", d.Status)
 	}
@@ -295,7 +391,7 @@ func TestPortEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: p.srv.URL + "/mcp",
-		HTTPClient: &http.Client{Transport: bearer{crewToken}}}, nil)
+		HTTPClient: &http.Client{Transport: bearer{p.crewToken()}}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,8 +455,7 @@ func TestPortEndToEnd(t *testing.T) {
 // A connector that disconnects (or stops renewing) gives its delivery back.
 func TestDeliveryReleasedOnDisconnect(t *testing.T) {
 	p := startPort(t)
-	var d dock.Dock
-	p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := p.apiDock("t")
 	s := p.inject(d, "333", "a1", "hola")
 	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
 	p.inject(d, "333", "a2", "sigues ahí?")
@@ -395,8 +490,7 @@ func TestDeliveryReleasedOnDisconnect(t *testing.T) {
 // queued again.
 func TestSteerJoinsShipsToTheDeliveryInFlight(t *testing.T) {
 	p := startPort(t)
-	var d dock.Dock
-	p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := p.apiDock("t")
 	s := p.inject(d, "444", "s0", "hola")
 	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
 
@@ -458,8 +552,7 @@ func TestSteerJoinsShipsToTheDeliveryInFlight(t *testing.T) {
 // A connector that doesn't steer keeps one delivery per turn.
 func TestNoSteerKeepsLaterShipsQueued(t *testing.T) {
 	p := startPort(t)
-	var d dock.Dock
-	p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := p.apiDock("t")
 	s := p.inject(d, "555", "q0", "hola")
 	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
 	c := p.dialCrew(1)
@@ -495,8 +588,7 @@ func (p *port) conversation(id identity.ConversationID) conversation.Conversatio
 // held messages are stored, and rule changes re-decide existing chats.
 func TestCustomsRules(t *testing.T) {
 	p := startPort(t)
-	var d dock.Dock
-	p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := p.apiDock("t")
 	base := "/api/v1/docks/" + d.ID.String() + "/customs"
 
 	var c conversation.Customs

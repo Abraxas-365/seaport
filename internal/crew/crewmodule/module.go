@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewhttp"
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewmcp"
@@ -47,14 +48,14 @@ func (m *Module) Register(mux *http.ServeMux) {
 	m.tokens.Register(mux)
 }
 
-// Bind connects the crew to the ship and conversation domains (built after
-// the hub, which they use as Notifier).
+// Bind connects the crew to the ship, conversation and agent domains
+// (built after the hub, which they use as Notifier and Revoker).
 func (m *Module) Bind(ships interface {
 	ship.Commands
 	ship.Queries
-}, convs conversation.Queries) {
-	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Version: m.version})
-	m.Hub.Bind(ships)
+}, convs conversation.Queries, agents agent.Queries) {
+	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Version: m.version})
+	m.Hub.Bind(ships, agents)
 }
 
 // WS is the /crew/ws handler; MCP the /mcp handler.

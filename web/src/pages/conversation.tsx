@@ -15,6 +15,7 @@ import {
   flatten,
   useCan,
   useConversation,
+  useAgents,
   useCrew,
   useDocks,
   useSend,
@@ -74,7 +75,9 @@ export function ConversationPage() {
   const send = useSend(conversationId)
   const can = useCan()
 
-  const working = crew.data?.agents.some((a) => a.deliveries.some((d) => d.conversation_id === conversationId))
+  // The connection working this chat (one at a time), for its agent's name.
+  const worker = crew.data?.agents.find((a) => a.deliveries.some((d) => d.conversation_id === conversationId))
+  const working = !!worker
 
   if (conv.isError) return <ErrorState error={conv.error} onRetry={() => conv.refetch()} className="h-full" />
   if (!conv.data) return <ConversationSkeleton />
@@ -83,7 +86,7 @@ export function ConversationPage() {
   const allowed = c.status === "allowed"
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ConversationHeader conversation={c} working={!!working} />
+      <ConversationHeader conversation={c} working={working} agentName={worker?.agent_name} />
       {c.status === "pending" && can(Perm.ConversationsWrite) && <PendingBanner conversation={c} />}
       {can(Perm.ShipsRead) ? (
         <ShipList
@@ -114,7 +117,15 @@ export function ConversationPage() {
   )
 }
 
-function ConversationHeader({ conversation: c, working }: { conversation: Conversation; working: boolean }) {
+function ConversationHeader({
+  conversation: c,
+  working,
+  agentName,
+}: {
+  conversation: Conversation
+  working: boolean
+  agentName?: string
+}) {
   const name = conversationName(c)
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-background px-3 md:px-4">
@@ -129,7 +140,8 @@ function ConversationHeader({ conversation: c, working }: { conversation: Conver
         <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
           {working ? (
             <span className="flex items-center gap-1 font-medium text-info">
-              <Bot className="size-3.5 motion-safe:animate-pulse" /> el agente está respondiendo…
+              <Bot className="size-3.5 motion-safe:animate-pulse" />{" "}
+              {agentName ? `@${agentName} está respondiendo…` : "el agente está respondiendo…"}
             </span>
           ) : (
             <span className="truncate">
@@ -190,6 +202,9 @@ function ShipList({
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
   const ordered = React.useMemo(() => ships.slice().reverse(), [ships])
+  const agents = useAgents()
+  const agentNames = new Map((agents.data?.items ?? []).map((a) => [a.id, a.name]))
+  const multiAgent = new Set(ships.flatMap((s) => (s.agent_id ? [s.agent_id] : []))).size > 1
   const newest = ships[0]?.id
   const stick = React.useRef(true)
 
@@ -257,7 +272,13 @@ function ShipList({
             return (
               <React.Fragment key={s.id}>
                 {newDay && <DayDivider label={dayLabel(s.sent_at)} />}
-                <ShipBubble ship={s} grouped={grouped} showSender={group && !grouped} />
+                <ShipBubble
+                  ship={s}
+                  agentName={s.agent_id ? agentNames.get(s.agent_id) : undefined}
+                  multiAgent={multiAgent}
+                  grouped={grouped}
+                  showSender={group && !grouped}
+                />
               </React.Fragment>
             )
           })}

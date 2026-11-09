@@ -34,4 +34,7 @@ export const keys = {
   customs: (dock: string) => ["customs", dock] as const,
   crew: ["crew"] as const,
   crewTokens: ["crew-tokens"] as const,
+  agents: ["agents"] as const,
+  teamAll: ["team"] as const,
+  team: (dock: string) => ["team", dock] as const,
 }

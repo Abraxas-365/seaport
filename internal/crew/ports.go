@@ -24,15 +24,16 @@ type TokenCommands interface {
 
 type TokenQueries interface {
 	// List returns the organization's active (unrevoked) tokens.
-	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Token], error)
+	List(ctx context.Context, organization identity.OrganizationID, filter TokenFilter, page query.Pagination) (query.Paginated[Token], error)
 }
 
 type TokenRepository interface {
 	// Create stores a token unless the organization already has limit active
 	// (unrevoked, unexpired) ones: count and insert are atomic, so
 	// concurrent creations can't overshoot (errx.QuotaExceeded when full).
+	// The agent must exist (NotFound otherwise, or once deleted).
 	Create(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID, input CreateToken, hash, hint string, limit int) (Token, error)
-	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Token], error)
+	List(ctx context.Context, organization identity.OrganizationID, filter TokenFilter, page query.Pagination) (query.Paginated[Token], error)
 	// Revoke marks the token revoked (NotFound if it is not active).
 	Revoke(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID) error
 	// FindByHash finds an unrevoked token in any organization (system:
@@ -64,8 +65,9 @@ type Presence interface {
 	// Status lists the organization's ready connections of every process.
 	Status(ctx context.Context, organization identity.OrganizationID) (Status, error)
 	// Touch marks a process's connections alive (system: keyed by the
-	// process) and returns those it must close: reaped meanwhile, or
-	// opened with a token since revoked.
+	// process) and returns those it must close: reaped meanwhile, opened
+	// with a token since revoked or expired, or working as an agent since
+	// deleted.
 	Touch(ctx context.Context, process string, sessions []string) (close []string, err error)
 	// Reap deletes connections not touched for stale (by the database's
 	// clock, the one Touch writes), in every organization (system: a dead

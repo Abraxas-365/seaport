@@ -56,8 +56,8 @@ func (p *Presence) Open(ctx context.Context, org identity.OrganizationID, c crew
 }
 
 func (p *Presence) Ready(ctx context.Context, org identity.OrganizationID, session string, a crew.Agent) error {
-	_, err := p.db.ExecContext(ctx, `UPDATE crew_connections SET ready = true, agent = $3, concurrency = $4, steer = $5
-		WHERE organization_id = $1 AND session = $2`, org, session, a.Name, a.Concurrency, a.Steer)
+	_, err := p.db.ExecContext(ctx, `UPDATE crew_connections SET ready = true, agent = $3, concurrency = $4, steer = $5,
+		agent_id = $6 WHERE organization_id = $1 AND session = $2`, org, session, a.Name, a.Concurrency, a.Steer, a.AgentID)
 	return pgerr.Map(err, "crew connection ready")
 }
 
@@ -83,6 +83,8 @@ type connectionRow struct {
 	Organization identity.OrganizationID `db:"organization_id"`
 	Session      string                  `db:"session"`
 	Agent        string                  `db:"agent"`
+	AgentID      identity.AgentID        `db:"agent_id"`
+	AgentName    string                  `db:"agent_name"`
 	Concurrency  int                     `db:"concurrency"`
 	Steer        bool                    `db:"steer"`
 	Remote       string                  `db:"remote"`
@@ -100,14 +102,16 @@ func (r connectionRow) deliveries() []crew.AgentDelivery {
 
 func (p *Presence) Status(ctx context.Context, org identity.OrganizationID) (crew.Status, error) {
 	var rows []connectionRow
-	if err := p.db.SelectContext(ctx, &rows, `SELECT organization_id, session, agent, concurrency, steer, remote,
-		deliveries, connected_at FROM crew_connections WHERE organization_id = $1 AND ready
-		ORDER BY connected_at, session`, org); err != nil {
+	if err := p.db.SelectContext(ctx, &rows, `SELECT c.organization_id, c.session, c.agent, c.agent_id, a.name AS agent_name,
+		c.concurrency, c.steer, c.remote, c.deliveries, c.connected_at
+		FROM crew_connections c JOIN agents a ON a.organization_id = c.organization_id AND a.id = c.agent_id
+		WHERE c.organization_id = $1 AND c.ready ORDER BY a.name, c.connected_at, c.session`, org); err != nil {
 		return crew.Status{}, pgerr.Map(err, "crew status")
 	}
 	out := crew.Status{Agents: make([]crew.Agent, 0, len(rows))}
 	for _, r := range rows {
-		out.Agents = append(out.Agents, crew.Agent{Session: r.Session, Name: r.Agent, Concurrency: r.Concurrency,
+		out.Agents = append(out.Agents, crew.Agent{Session: r.Session, AgentID: r.AgentID, AgentName: r.AgentName,
+			Name: r.Agent, Concurrency: r.Concurrency,
 			Steer: r.Steer, Remote: r.Remote, ConnectedAt: r.ConnectedAt.UTC(), Deliveries: r.deliveries()})
 	}
 	return out, nil
@@ -122,11 +126,17 @@ func (p *Presence) Touch(ctx context.Context, process string, sessions []string)
 		WHERE process = $1 AND session = ANY($2) RETURNING session`, process, sessions); err != nil {
 		return nil, pgerr.Map(err, "touch crew connections")
 	}
+	// Also closed: connections of a revoked or expired token, or working
+	// as a deleted agent (open mode has no token).
 	var revoked []string
 	if err := p.db.SelectContext(ctx, &revoked, `SELECT c.session FROM crew_connections c
 		JOIN crew_tokens t ON t.organization_id = c.organization_id
 		  AND t.id = CASE WHEN c.credential ~ '^[0-9a-f-]{36}$' THEN c.credential::uuid END
-		WHERE c.process = $1 AND (t.revoked_at IS NOT NULL OR t.expires_at <= now())`, process); err != nil {
+		WHERE c.process = $1 AND (t.revoked_at IS NOT NULL OR t.expires_at <= now())
+		UNION
+		SELECT c.session FROM crew_connections c
+		JOIN agents a ON a.organization_id = c.organization_id AND a.id = c.agent_id
+		WHERE c.process = $1 AND a.deleted_at IS NOT NULL`, process); err != nil {
 		return nil, pgerr.Map(err, "find revoked crew connections")
 	}
 	seen := make(map[string]bool, len(alive))

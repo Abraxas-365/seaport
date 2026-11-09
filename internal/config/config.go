@@ -70,7 +70,6 @@ type Server struct {
 	PublicURL   string   // SEAPORT_PUBLIC_URL, default http://<Addr>; agents reach /mcp here
 	Auth        AuthMode // SEAPORT_AUTH: none | token (default) | iam
 	AdminToken  string   // SEAPORT_ADMIN_TOKEN (token mode): CLI and /api/v1
-	CrewToken   string   // SEAPORT_CREW_TOKEN (token mode, optional): a static agent token besides the crew tokens created in the admin
 	// SecretKey (SEAPORT_SECRET_KEY, ≥32 chars) seals the WhatsApp store
 	// and, in iam mode (where it is required), IAMKit tokens at rest and
 	// the sign-in cookie. Unset outside iam mode: the key is read from
@@ -102,7 +101,6 @@ func LoadServer() (Server, error) {
 		PublicURL:     strings.TrimRight(os.Getenv("SEAPORT_PUBLIC_URL"), "/"),
 		Auth:          AuthMode(env("SEAPORT_AUTH", string(AuthToken))),
 		AdminToken:    os.Getenv("SEAPORT_ADMIN_TOKEN"),
-		CrewToken:     os.Getenv("SEAPORT_CREW_TOKEN"),
 		SecretKey:     os.Getenv("SEAPORT_SECRET_KEY"),
 		SecretKeyFile: strings.TrimSpace(os.Getenv("SEAPORT_SECRET_KEY_FILE")),
 		IAMKit: IAMKit{
@@ -165,13 +163,8 @@ func (c Server) Validate() error {
 				"SEAPORT_ADDR " + c.Addr + " would expose an unauthenticated port")
 		}
 	case AuthToken:
-		switch {
-		case len(c.AdminToken) < 16:
+		if len(c.AdminToken) < 16 {
 			return errx.Validation("SEAPORT_ADMIN_TOKEN is required (at least 16 characters)")
-		case c.CrewToken != "" && len(c.CrewToken) < 16:
-			return errx.Validation("SEAPORT_CREW_TOKEN must be at least 16 characters (or unset: agents use crew tokens created in the admin)")
-		case c.CrewToken != "" && c.AdminToken == c.CrewToken:
-			return errx.Validation("SEAPORT_ADMIN_TOKEN and SEAPORT_CREW_TOKEN must differ")
 		}
 	case AuthIAM:
 		return c.validateIAM()
@@ -207,8 +200,8 @@ func (c Server) validateIAM() error {
 		return errx.Validation("SEAPORT_SECRET_KEY is required with SEAPORT_AUTH=iam (e.g. openssl rand -base64 32)")
 	case CheckSecretKey(c.SecretKey) != nil:
 		return CheckSecretKey(c.SecretKey)
-	case c.AdminToken != "" || c.CrewToken != "":
-		return errx.Validation("SEAPORT_ADMIN_TOKEN and SEAPORT_CREW_TOKEN are token mode settings; in iam mode people sign in with IAMKit and agents use crew tokens")
+	case c.AdminToken != "":
+		return errx.Validation("SEAPORT_ADMIN_TOKEN is a token mode setting; in iam mode people sign in with IAMKit and agents use crew tokens")
 	}
 	return nil
 }

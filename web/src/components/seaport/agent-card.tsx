@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Mono } from "./layout"
 import { StatusBadge, StatusDot } from "./status"
 
-/** A connected connector: name, capacity meter, current work. */
+/** A live connection: the agent it works as, capacity meter, current work. */
 export function AgentCard({
   agent,
   titleOf,
@@ -31,7 +31,12 @@ export function AgentCard({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="truncate font-medium">{agent.name || "agente"}</span>
+              <span className="truncate font-medium">@{agent.agent_name}</span>
+              {agent.name && agent.name !== agent.agent_name && (
+                <span className="truncate text-xs text-muted-foreground" title="Etiqueta de la conexión">
+                  {agent.name}
+                </span>
+              )}
               {agent.steer && (
                 <StatusBadge tone="brand" dot={false} title="Recibe mensajes nuevos a mitad de turno">
                   <Zap className="size-3" /> steer

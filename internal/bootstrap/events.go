@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
@@ -21,4 +22,6 @@ var EventPermissions = map[string]string{
 	ship.EventUpdated:         permission.ShipsRead,
 	ship.EventDelivery:        permission.ShipsRead,
 	crew.EventChanged:         permission.CrewRead,
+	agent.EventUpdated:        permission.AgentsRead,
+	agent.EventDeleted:        permission.AgentsRead,
 }

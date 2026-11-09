@@ -11,7 +11,9 @@
     { "name": "seaport:customs:write", "label": "Change customs policies and rules" },
     { "name": "seaport:crew:read", "label": "View connected agents" },
     { "name": "seaport:crew-tokens:read", "label": "View crew tokens" },
-    { "name": "seaport:crew-tokens:write", "label": "Create and revoke crew tokens" }
+    { "name": "seaport:crew-tokens:write", "label": "Create and revoke crew tokens" },
+    { "name": "seaport:agents:read", "label": "View agents and the docks they work on" },
+    { "name": "seaport:agents:write", "label": "Create, change and delete agents and assign them to docks" }
   ],
   "roles": [
     {
@@ -27,7 +29,9 @@
         "seaport:customs:write",
         "seaport:crew:read",
         "seaport:crew-tokens:read",
-        "seaport:crew-tokens:write"
+        "seaport:crew-tokens:write",
+        "seaport:agents:read",
+        "seaport:agents:write"
       ]
     },
     {
@@ -39,7 +43,8 @@
         "seaport:ships:read",
         "seaport:ships:write",
         "seaport:customs:read",
-        "seaport:crew:read"
+        "seaport:crew:read",
+        "seaport:agents:read"
       ]
     },
     {
@@ -49,7 +54,8 @@
         "seaport:conversations:read",
         "seaport:ships:read",
         "seaport:customs:read",
-        "seaport:crew:read"
+        "seaport:crew:read",
+        "seaport:agents:read"
       ]
     }
   ]

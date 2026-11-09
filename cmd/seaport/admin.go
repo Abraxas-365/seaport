@@ -187,7 +187,7 @@ func crewStatus(ctx context.Context) error {
 		if ag.Steer {
 			steer = ", steer"
 		}
-		fmt.Printf("%s  %s  concurrency %d%s  since %s  from %s\n", ag.Session, ag.Name, ag.Concurrency, steer,
+		fmt.Printf("%s  %s (%s)  concurrency %d%s  since %s  from %s\n", ag.Session, ag.AgentName, ag.Name, ag.Concurrency, steer,
 			ag.ConnectedAt.Local().Format("Jan 2 15:04"), ag.Remote)
 		for _, d := range ag.Deliveries {
 			fmt.Printf("    working on %s (%d ships, %s)\n", d.Conversation, d.Ships, time.Since(d.Since).Round(time.Second))

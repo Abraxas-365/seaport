@@ -73,7 +73,7 @@ func (a *Authenticator) Admin(next http.Handler) http.Handler {
 
 // Crew: agents present a crew token of their organization.
 func (a *Authenticator) Crew(next http.Handler) http.Handler {
-	return httpx.CrewAuth("", httpx.Principal{}, a.crew, next)
+	return httpx.CrewAuth(a.crew, next)
 }
 
 func (a *Authenticator) Session() httpx.SessionRoutes {

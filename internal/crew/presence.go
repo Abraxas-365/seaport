@@ -30,10 +30,14 @@ type Reaped struct {
 type SignalKind string
 
 const (
-	// SignalWake: ships are waiting in the organization; claim.
+	// SignalWake: ships are waiting in the organization for Agent (zero:
+	// any agent); claim.
 	SignalWake SignalKind = "wake"
 	// SignalRevoke: close the organization's connections of Token.
 	SignalRevoke SignalKind = "revoke"
+	// SignalAgentGone: close the organization's connections of Agent (it
+	// was deleted).
+	SignalAgentGone SignalKind = "agent"
 )
 
 // Signal crosses processes (Presence.Send/Listen).
@@ -41,6 +45,7 @@ type Signal struct {
 	Kind         SignalKind              `json:"k"`
 	Organization identity.OrganizationID `json:"o"`
 	Token        identity.CrewTokenID    `json:"t,omitzero"`
+	Agent        identity.AgentID        `json:"a,omitzero"`
 	// From is the sending process (it acted locally already).
 	From string `json:"p"`
 }

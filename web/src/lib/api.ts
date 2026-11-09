@@ -16,11 +16,13 @@ import type {
   Health,
   InboxItem,
   IssuedCrewToken,
+  LibraryAgent,
   Paginated,
   Rule,
   PortConfig,
   Session,
   Ship,
+  TeamMember,
 } from "./types"
 
 export class ApiError extends Error {
@@ -124,8 +126,20 @@ export const api = {
 
   crew: () => request<CrewStatus>("GET", `${v1}/crew`),
 
+  agents: () => request<Paginated<LibraryAgent>>("GET", `${v1}/agents${qs({ limit: 100 })}`),
+  createAgent: (name: string, description: string) =>
+    request<LibraryAgent>("POST", `${v1}/agents`, { name, description }),
+  updateAgent: (id: string, patch: { name?: string; description?: string }) =>
+    request<LibraryAgent>("PATCH", `${v1}/agents/${id}`, patch),
+  deleteAgent: (id: string) => request<void>("DELETE", `${v1}/agents/${id}`),
+  team: (dock: string) => request<{ agents: TeamMember[] }>("GET", `${v1}/docks/${dock}/agents`),
+  assignAgent: (dock: string, agent: string, isDefault: boolean) =>
+    request<LibraryAgent>("PUT", `${v1}/docks/${dock}/agents/${agent}`, { default: isDefault }),
+  unassignAgent: (dock: string, agent: string) =>
+    request<LibraryAgent>("DELETE", `${v1}/docks/${dock}/agents/${agent}`),
+
   crewTokens: () => request<Paginated<CrewToken>>("GET", `${v1}/crew/tokens${qs({ limit: 100 })}`),
-  createCrewToken: (name: string, expires_at?: string) =>
-    request<IssuedCrewToken>("POST", `${v1}/crew/tokens`, { name, expires_at }),
+  createCrewToken: (agent_id: string, name: string, expires_at?: string) =>
+    request<IssuedCrewToken>("POST", `${v1}/crew/tokens`, { agent_id, name, expires_at }),
   revokeCrewToken: (id: string) => request<void>("DELETE", `${v1}/crew/tokens/${id}`),
 }

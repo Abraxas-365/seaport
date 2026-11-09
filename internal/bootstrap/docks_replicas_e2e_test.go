@@ -284,6 +284,8 @@ func TestPortAcrossProcesses(t *testing.T) {
 	if code := a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "whatsapp", "name": "wa"}, &d); code != http.StatusCreated || w.owner(d.ID) != "a" {
 		t.Fatalf("create dock: %d, runs in %q", code, w.owner(d.ID))
 	}
+	a.assignAs(adminToken, d.ID, a.agent(testAgent).ID, true)
+	c.token = a.crewToken()
 	agent := c.dialCrewWith(crew.Frame{Type: crew.FrameHello, Agent: "on-c", Concurrency: 1})
 
 	// The first message waits at customs; the owner (on b) allows the chat.

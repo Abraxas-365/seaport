@@ -10,7 +10,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/crew"
-	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/coder/websocket"
 )
 
@@ -20,16 +19,12 @@ import (
 // other, a stopping process hands its deliveries back at once, and the
 // connections of a process that stops touching them are reaped.
 func TestReplicasShareTheCrew(t *testing.T) {
-	limit := func(c *config.Server) { c.MaxCrewConnections = 2; c.CrewToken = "" }
+	limit := func(c *config.Server) { c.MaxCrewConnections = 2 }
 	a := startPortWith(t, limit, bootstrap.Options{})
 	b := joinPort(t, limit, bootstrap.Options{})
 
-	var issued crew.Issued
-	if code := a.admin(http.MethodPost, "/api/v1/crew/tokens", map[string]any{"name": "replicas"}, &issued); code != http.StatusCreated {
-		t.Fatalf("create token: %d", code)
-	}
-	var d dock.Dock
-	a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := a.apiDock("t")
+	issued := a.issueAs(adminToken, a.agent(testAgent).ID, "replicas")
 	held := a.inject(d, "555", "r0", "hola") // held by customs until allowed
 	a.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil)
 	first := a.inject(d, "555", "r1", "hola")
@@ -88,8 +83,8 @@ func TestReplicasShareTheCrew(t *testing.T) {
 func TestStaleConnectionIsReaped(t *testing.T) {
 	a := startPort(t)
 	b := joinPort(t, func(*config.Server) {}, bootstrap.Options{})
-	var d dock.Dock
-	a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "api", "name": "t"}, &d)
+	d := a.apiDock("t")
+	b.token = a.crewToken() // one token, both processes
 	held := a.inject(d, "666", "x0", "hola")
 	a.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil)
 	s := a.inject(d, "666", "x1", "hola")

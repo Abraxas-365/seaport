@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent/agentmodule"
 	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
 	"github.com/Abraxas-365/seaport/internal/auth/authmodule"
 	"github.com/Abraxas-365/seaport/internal/config"
@@ -196,12 +197,13 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	crew := crewmodule.New(db, process, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
+	agents := agentmodule.New(db, crew.Hub, bus)
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
-		Messenger: docks.Service, Notifier: crew.Hub, Events: bus,
+		Messenger: docks.Service, Notifier: crew.Hub, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
 			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
-	crew.Bind(ships.Service, convs.Service)
+	crew.Bind(ships.Service, convs.Service, agents.Service)
 
 	done := make(chan struct{})
 	var once sync.Once
@@ -227,6 +229,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	convs.Register(admin)
 	ships.Register(admin)
 	crew.Register(admin)
+	agents.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
 	admin.Handle("DELETE /api/v1/session", session.Logout)
 	admin.HandleFunc("/", httpx.NotFound)
@@ -285,7 +288,7 @@ func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authe
 	case config.AuthNone:
 		return httpx.Open{Organization: config.DefaultOrganization}
 	default:
-		return httpx.Tokens{Organization: config.DefaultOrganization, CrewToken: cfg.CrewToken, CrewTokens: crewTokens,
+		return httpx.Tokens{Organization: config.DefaultOrganization, CrewTokens: crewTokens,
 			Sessions: httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,
 				Secure: strings.HasPrefix(cfg.PublicURL, "https://")}}
 	}

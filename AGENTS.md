@@ -75,6 +75,8 @@ internal/
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
   crew/               wire protocol + crew tokens (token.go): crewsvc, crewmodule,
                       adapters/{crewws (hub), crewmcp (tools), crewpg, crewhttp}
+  agent/              agent library + dock teams + routing (Route, pure):
+                      agentsvc, agentmodule, adapters/{agentpg, agenthttp}
   connector           agent side (`seaport connect`): WS client + ACP client
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
 scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
@@ -91,7 +93,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   (`TestLayerDependencies`).
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
-- Tenancy: every method of the `dock`/`conversation`/`ship` `Commands`,
+- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent` `Commands`,
   `Queries`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
   `Relay` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
@@ -121,6 +123,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   permission in `bootstrap.EventPermissions` (`TestEveryEventTypeHasAPermission`);
   the generated Go/TS files match `iam/permissions.json` (drift tests in
   `internal/permission/gen`).
+- Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
+  constant of a domain root (`conversation`, `agent`) has a Spanish entry
+  in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
+  held ships carry the reason string to the web
+  (`TestEveryHoldReasonIsTranslated`).
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.
@@ -132,7 +139,7 @@ test together with the reason. Add a rule when you add a pattern.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ShipID`, `DeliveryID`, `RuleID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -147,7 +154,7 @@ test together with the reason. Add a rule when you add a pattern.
   re-decided on every arrival and on every rule/policy/override change, under
   a per-dock lock (`conversation.DockLocker`, shared by every process). Adapters report normalized handles
   (`+<digits>`, JIDs) and `Addressed`; the engine knows no channel.
-- Ship status: inbound `held` (customs) | `queued` → `claimed`
+- Ship status: inbound `held` (customs or routing, `hold_reason`) | `queued` → `claimed`
   → `handled`; outbound `pending` → `sent|failed`. Allowing a conversation
   does not deliver its held history (the agent can read it with `history`).
 - At most one delivery in flight per conversation (claim under
@@ -156,6 +163,33 @@ test together with the reason. Add a rule when you add a pattern.
   `Join` the open delivery (same lock, same delivery id) and go out as
   `steer` frames; their ack must name the handled `ship_ids` and every other
   ship still claimed by the delivery is requeued.
+- Agents (`agent`, migration 00013): an organization's library
+  (`agents`, soft delete, unique live name = its `@mention` handle, at
+  most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)
+  and each dock's team (`dock_agents`, at most one `is_default`). An agent
+  works only through docks it is assigned to. Every inbound ship that goes
+  to the crew names its agent (`ships.agent_id`; CHECK: queued/claimed
+  ships have one), decided once at arrival by the pure `agent.Route(team,
+  msg, previous)`: no team → held `HoldNoAgent`; first `@name` of a
+  member; the conversation's previous agent if still on the team; the
+  only member; the default; else held `HoldNotCalled`.
+  `shippg.CreateInbound` reads the team `FOR SHARE` in the insert's
+  transaction, so an unassign/delete (which deletes the rows first, then
+  holds the agent's waiting ships with `HoldAgentGone`) and an arrival
+  never cross. Held ships keep their `hold_reason` (customs or routing).
+  Claims are per agent: a connection claims only its agent's ships, and a
+  conversation is worked in arrival order by one agent at a time
+  (`claimable`: never past an older ship queued for another agent; so a
+  conversation waits while the agent it owes a message is offline);
+  `Notify` wakes the agent's connections. A connection works as its
+  token's agent (`Principal.Agent`); in open mode `hello.as` names it, a
+  token's `hello.as` must match, and a refused hello closes with
+  `StatusPolicyViolation` + reason (the connector stops retrying).
+  Deleting an agent revokes its tokens and closes its connections
+  (`agent.Revoker` = `Hub.DisconnectAgent`; an open-mode connection records
+  its agent on `pending` and re-checks it after the hello). Migration 00013 gave every
+  organization in use an agent `default` (default of every dock, owner of
+  every token).
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
@@ -255,8 +289,9 @@ test together with the reason. Add a rule when you add a pattern.
   value is shown once. Revoking one closes its live connections in every
   process (the hub tracks `Principal.Credential`; see crew across processes). At most `crew.MaxTokens` active per
   organization: `crewpg.Create` counts and inserts under a per-organization
-  advisory lock (`tokenLock`). Token mode also accepts the optional
-  static `SEAPORT_CREW_TOKEN`.
+  advisory lock (`tokenLock`). Every crew token belongs to one agent
+  (`agent_id`, required): there are no generic or static crew tokens (the
+  server ignores `SEAPORT_CREW_TOKEN`, with a warning).
 - Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
   `POST /api/v1/session`; cookie writes go through

@@ -14,9 +14,13 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, organization_id, name, hint, created_by, created_at, expires_at, last_used_at`
+// columns are read from crew_tokens t joined with agents a.
+const columns = `t.id, t.organization_id, t.name, t.agent_id, a.name AS agent_name, t.hint, t.created_by,
+	t.created_at, t.expires_at, t.last_used_at`
 
-var messages = pgerr.Messages{NotFound: "crew token not found"}
+const from = ` FROM crew_tokens t JOIN agents a ON a.organization_id = t.organization_id AND a.id = t.agent_id `
+
+var messages = pgerr.Messages{NotFound: "crew token not found", ForeignKey: "agent not found"}
 
 type Repository struct{ db *sqlx.DB }
 
@@ -46,21 +50,39 @@ func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id
 	if n >= limit {
 		return t, errx.QuotaExceeded("crew_tokens", limit, "an organization can have at most "+strconv.Itoa(limit)+" crew tokens; revoke one first")
 	}
-	if err := tx.GetContext(ctx, &t, `INSERT INTO crew_tokens (id, organization_id, name, token_hash, hint, created_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+columns, id, org, in.Name, hash, hint, in.CreatedBy, in.ExpiresAt); err != nil {
+	// The agent row is locked FOR SHARE: a concurrent delete (which
+	// revokes the agent's tokens) can't miss this one.
+	var found int
+	err = tx.GetContext(ctx, &found, `SELECT 1 FROM agents WHERE organization_id = $1 AND id = $2
+		AND deleted_at IS NULL FOR SHARE`, org, in.Agent)
+	if pgerr.IsNoRows(err) {
+		return t, errx.NotFound("agent not found")
+	}
+	if err != nil {
+		return t, pgerr.Map(err, "find agent")
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO crew_tokens (id, organization_id, name, agent_id, token_hash, hint, created_by, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, id, org, in.Name, in.Agent, hash, hint, in.CreatedBy, in.ExpiresAt); err != nil {
 		return t, pgerr.MapWith(err, "create crew token", messages)
+	}
+	if err := tx.GetContext(ctx, &t, `SELECT `+columns+from+`WHERE t.organization_id = $1 AND t.id = $2`, org, id); err != nil {
+		return t, pgerr.MapWith(err, "read crew token", messages)
 	}
 	return t, pgerr.Map(tx.Commit(), "commit crew token")
 }
 
-func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[crew.Token], error) {
+func (r *Repository) List(ctx context.Context, org identity.OrganizationID, f crew.TokenFilter, page query.Pagination) (query.Paginated[crew.Token], error) {
 	out := query.Paginated[crew.Token]{Items: []crew.Token{}, Page: query.Page{Limit: page.Limit, Offset: page.Offset}}
-	if err := r.db.GetContext(ctx, &out.Page.Total,
-		`SELECT count(*) FROM crew_tokens WHERE organization_id = $1 AND revoked_at IS NULL`, org); err != nil {
+	var agent any // nil: every agent
+	if f.Agent != nil {
+		agent = *f.Agent
+	}
+	const where = `WHERE t.organization_id = $1 AND t.revoked_at IS NULL AND ($2::uuid IS NULL OR t.agent_id = $2)`
+	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*)`+from+where, org, agent); err != nil {
 		return out, pgerr.Map(err, "count crew tokens")
 	}
-	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM crew_tokens
-		WHERE organization_id = $1 AND revoked_at IS NULL ORDER BY created_at, id LIMIT $2 OFFSET $3`, org, page.Limit, page.Offset)
+	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+from+where+`
+		ORDER BY t.created_at, t.id LIMIT $3 OFFSET $4`, org, agent, page.Limit, page.Offset)
 	return out, pgerr.Map(err, "list crew tokens")
 }
 
@@ -78,7 +100,7 @@ func (r *Repository) Revoke(ctx context.Context, org identity.OrganizationID, id
 
 func (r *Repository) FindByHash(ctx context.Context, hash string) (crew.Token, error) {
 	var t crew.Token
-	err := r.db.GetContext(ctx, &t, `SELECT `+columns+` FROM crew_tokens WHERE token_hash = $1 AND revoked_at IS NULL`, hash)
+	err := r.db.GetContext(ctx, &t, `SELECT `+columns+from+`WHERE t.token_hash = $1 AND t.revoked_at IS NULL`, hash)
 	return t, pgerr.MapWith(err, "find crew token", messages)
 }
 
