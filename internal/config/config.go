@@ -18,6 +18,10 @@ const (
 	// ClaimLease is how long a delivery stays claimed by a connector before
 	// the sweeper hands it to someone else.
 	ClaimLease = 10 * time.Minute
+	// DockLease is how long a process owns an exclusive dock (WhatsApp)
+	// without renewing: a stopped process's docks are taken over within
+	// about that long (at once when it stops cleanly).
+	DockLease = 30 * time.Second
 	// SweepInterval is how often expired claims are released.
 	SweepInterval = 30 * time.Second
 	// EventRetention is how long the event log keeps events: a live client

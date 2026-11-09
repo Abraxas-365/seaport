@@ -72,8 +72,6 @@ func (r *memRepo) Get(_ context.Context, id identity.DockID) (dock.Dock, error) 
 	return d, nil
 }
 
-func (r *memRepo) ListByStatus(context.Context, dock.Status) ([]dock.Dock, error) { return nil, nil }
-
 func (r *memRepo) SetStatus(_ context.Context, id identity.DockID, st dock.Status) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -96,14 +94,18 @@ func (r *memRepo) SetLinked(_ context.Context, id identity.DockID, address strin
 type qrGateway struct{}
 
 func (qrGateway) Channel() dock.Channel { return dock.ChannelWhatsApp }
+func (qrGateway) Exclusive() bool       { return true }
 func (qrGateway) Link(context.Context, dock.Dock) (dock.Status, error) {
 	return dock.StatusLinking, nil
 }
-func (qrGateway) QR(identity.DockID) string                    { return secretQR }
-func (qrGateway) Restore(context.Context, dock.Dock) error     { return nil }
-func (qrGateway) Unlink(context.Context, dock.Dock) error      { return nil }
-func (qrGateway) NewMessageID(identity.DockID) (string, error) { return "m", nil }
-func (qrGateway) Send(context.Context, dock.Outgoing) error    { return nil }
+func (qrGateway) QR(context.Context, identity.DockID) (string, error) { return secretQR, nil }
+func (qrGateway) Restore(context.Context, dock.Dock) error            { return nil }
+func (qrGateway) Running(identity.DockID) bool                        { return false }
+func (qrGateway) RunningDocks() []identity.DockID                     { return nil }
+func (qrGateway) Stop(identity.DockID)                                {}
+func (qrGateway) Unlink(context.Context, dock.Dock) error             { return nil }
+func (qrGateway) NewMessageID(identity.DockID) (string, error)        { return "m", nil }
+func (qrGateway) Send(context.Context, dock.Outgoing) error           { return nil }
 
 type recorder struct {
 	mu       sync.Mutex
@@ -122,7 +124,7 @@ func (r *recorder) Publish(_ identity.OrganizationID, typ string, data any) {
 func TestEventsNeverCarryTheQR(t *testing.T) {
 	ctx := context.Background()
 	events := &recorder{}
-	s := docksvc.New(&memRepo{docks: map[identity.DockID]dock.Dock{}}, events, 0, qrGateway{})
+	s := docksvc.New(&memRepo{docks: map[identity.DockID]dock.Dock{}}, events, 0, docksvc.Cluster{}, qrGateway{})
 
 	d, err := s.Create(ctx, org, dock.Create{Channel: dock.ChannelWhatsApp, Name: "ventas"})
 	if err != nil {

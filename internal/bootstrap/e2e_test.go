@@ -83,6 +83,9 @@ func joinPort(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *
 		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken, CrewToken: crewToken}
 	edit(&cfg)
 	opts.DisableWhatsApp, opts.Lease = true, 2*time.Second
+	if opts.DockLease == 0 {
+		opts.DockLease = 3 * time.Second
+	}
 	app, err := bootstrap.Build(ctx, cfg, opts)
 	if err != nil {
 		t.Fatal(err)

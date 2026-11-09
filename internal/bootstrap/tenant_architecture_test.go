@@ -10,7 +10,8 @@ import (
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
 // tenant domain's Commands, Queries, CustomsCommands, CustomsQueries,
-// Messenger, Repository, CustomsRepository and Token* port takes
+// Messenger, Repository, CustomsRepository, Token*, Presence, DockLocker,
+// Owners and Relay port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
@@ -22,7 +23,7 @@ var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
-	"Presence": true, "DockLocker": true,
+	"Presence": true, "DockLocker": true, "Owners": true, "Relay": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.
@@ -30,9 +31,11 @@ var systemWide = map[string]string{
 	"dock.Commands.PairingChanged":    "gateway callback about a dock the gateway runs (keyed by dock id)",
 	"dock.Commands.SetLinked":         "gateway callback about a dock the gateway runs (keyed by dock id)",
 	"dock.Commands.SetStatus":         "gateway callback about a dock the gateway runs (keyed by dock id)",
-	"dock.Commands.RestoreAll":        "process start reconnects every organization's docks",
-	"dock.Repository.Get":             "gateway callbacks resolve a dock (and its organization) by id",
-	"dock.Repository.ListByStatus":    "process start reconnects every organization's docks",
+	"dock.Repository.Get":             "gateway callbacks and owner reconciliation resolve a dock (and its organization) by id",
+	"dock.Owners.Renew":               "a process renews its own leases (keyed by process)",
+	"dock.Owners.Claim":               "a process takes ownerless docks of every organization",
+	"dock.Owners.ReleaseAll":          "a stopping process gives up its own leases (keyed by process)",
+	"dock.Relay.Serve":                "a process serves the requests addressed to it, of every organization",
 	"dock.Repository.SetStatus":       "gateway callback (dock id from the gateway's own session)",
 	"dock.Repository.SetLinked":       "gateway callback (dock id from the gateway's own session)",
 	"crew.TokenCommands.Authenticate": "a crew token value names its organization (agent sign-in)",
@@ -123,7 +126,7 @@ func TestTenantRuleCatchesViolations(t *testing.T) {
 type Commands interface {
 	Create(ctx context.Context, organization identity.OrganizationID, in Create) (Dock, error)
 	Rename(ctx context.Context, dock identity.DockID, name string) error
-	RestoreAll(ctx context.Context) error
+	PairingChanged(ctx context.Context, dock identity.DockID)
 }
 type Queries interface {
 	Find(ctx context.Context, org identity.OrganizationID, dock identity.DockID) (Dock, error)

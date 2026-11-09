@@ -329,6 +329,13 @@ message arriving at one process wakes agents on all of them, and revoking a
 token closes its connections everywhere. A process shutting down hands its
 agents' deliveries back at once; one that dies is noticed within about half
 a minute (it stops renewing its connections) and another process gives its
-deliveries to the remaining agents. Replicas need a direct (or
+deliveries to the remaining agents.
+
+A WhatsApp number keeps one connection, so each WhatsApp dock runs in one
+process at a time (its owner, recorded in Postgres); the others pass it
+their replies, unlinks and relinks, and show its pairing QR code. A process
+shutting down hands its docks over at once; one that dies loses them within
+about 30 seconds, and another process reconnects them (a pairing in progress
+there is lost: link again). Replicas need a direct (or
 session-pooled) Postgres connection: they use LISTEN/NOTIFY and session
 advisory locks, which PgBouncer's transaction mode breaks.

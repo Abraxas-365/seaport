@@ -55,7 +55,22 @@ type Gateway struct {
 	clients  map[identity.DockID]*session
 	receiver Receiver
 	links    LinkSink
+	// replaced: docks whose connection another one replaced, and until
+	// when Restore refuses them (growing while it keeps happening).
+	replaced map[identity.DockID]replacement
 }
+
+type replacement struct {
+	until, at time.Time
+	delay     time.Duration
+}
+
+// replacedPause is the first pause after a replaced connection; it doubles
+// while replacements keep coming (within an hour), up to maxReplacedPause.
+const (
+	replacedPause    = 30 * time.Second
+	maxReplacedPause = 10 * time.Minute
+)
 
 type session struct {
 	dock identity.DockID
@@ -63,12 +78,11 @@ type session struct {
 	organization identity.OrganizationID
 	client       *whatsmeow.Client
 
-	// unlinked: the owner ended this session; its pairing goroutine and
-	// events must not report a status any more.
-	unlinked atomic.Bool
+	// ended: unlinked, stopped (the dock moved to another process) or
+	// replaced; its pairing goroutine and events must not report any more.
+	ended atomic.Bool
 
 	mu       sync.Mutex
-	qr       string
 	lastSend time.Time
 	titles   map[types.JID]string
 }
@@ -87,7 +101,7 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string) (*Gateway, error) 
 	if _, err := devices.ImportLegacy(ctx); err != nil {
 		return nil, err
 	}
-	return &Gateway{devices: devices, clients: map[identity.DockID]*session{}}, nil
+	return &Gateway{devices: devices, clients: map[identity.DockID]*session{}, replaced: map[identity.DockID]replacement{}}, nil
 }
 
 // Bind sets the domain callbacks (they are built after the gateway).
@@ -101,33 +115,81 @@ var _ dock.Gateway = (*Gateway)(nil)
 
 func (g *Gateway) Channel() dock.Channel { return dock.ChannelWhatsApp }
 
+// Exclusive: a WhatsApp device keeps one connection; a second one replaces
+// the first (StreamReplaced).
+func (g *Gateway) Exclusive() bool { return true }
+
 // Close disconnects every dock.
 func (g *Gateway) Close() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-	for _, s := range g.clients {
+	sessions := g.clients
+	g.clients = map[identity.DockID]*session{}
+	g.mu.Unlock()
+	for _, s := range sessions {
+		s.ended.Store(true)
 		s.client.Disconnect()
 	}
 }
 
-func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
+// take ends the dock's session in this process, if any.
+func (g *Gateway) take(id identity.DockID) *session {
 	g.mu.Lock()
-	if old, ok := g.clients[d.ID]; ok {
-		old.client.Disconnect()
-		delete(g.clients, d.ID)
-	}
+	s := g.clients[id]
+	delete(g.clients, id)
 	g.mu.Unlock()
+	if s != nil {
+		s.ended.Store(true)
+	}
+	return s
+}
+
+func (g *Gateway) Running(id identity.DockID) bool { return g.session(id) != nil }
+
+func (g *Gateway) RunningDocks() []identity.DockID {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	out := make([]identity.DockID, 0, len(g.clients))
+	for id := range g.clients {
+		out = append(out, id)
+	}
+	return out
+}
+
+// Stop disconnects the dock and keeps its keys (another process runs it
+// next). A pairing in progress is abandoned.
+func (g *Gateway) Stop(id identity.DockID) {
+	if s := g.take(id); s != nil {
+		s.client.Disconnect()
+		ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+		defer cancel()
+		if err := g.devices.SetPairing(ctx, s.organization, id, ""); err != nil {
+			slog.Warn("delete pairing code", "dock", id, "err", err)
+		}
+		slog.Info("whatsapp dock stopped in this process", "dock", id)
+	}
+}
+
+func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
+	if old := g.take(d.ID); old != nil {
+		old.client.Disconnect()
+	}
 
 	device := g.devices.NewDevice(d.Organization, d.ID)
 	s := g.newSession(d, device)
+	// Running from now on (the pairing goroutine may end it at once).
+	g.mu.Lock()
+	g.clients[d.ID] = s
+	g.mu.Unlock()
 	qrCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linkTimeout)
 	qrs, err := s.client.GetQRChannel(qrCtx)
 	if err != nil {
 		cancel()
+		g.end(s)
 		return "", errx.Wrap(err, "start whatsapp pairing", errx.TypeExternal)
 	}
 	if err := s.client.Connect(); err != nil {
 		cancel()
+		g.end(s)
 		return "", errx.Wrap(err, "connect to whatsapp", errx.TypeExternal)
 	}
 	first := make(chan struct{})
@@ -135,22 +197,23 @@ func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
 		defer cancel()
 		var once sync.Once
 		for item := range qrs {
-			if s.unlinked.Load() {
+			if s.ended.Load() {
 				continue
 			}
 			switch item.Event {
 			case whatsmeow.QRChannelEventCode:
-				s.setQR(item.Code)
+				g.setPairing(s, item.Code)
 				once.Do(func() { close(first) })
 				g.pairingChanged(d.ID)
 			case whatsmeow.QRChannelSuccess.Event:
-				s.setQR("")
+				g.setPairing(s, "")
 			default:
 				// timeout, error or scanned without multidevice
-				s.setQR("")
+				g.setPairing(s, "")
 				slog.Warn("whatsapp pairing ended", "dock", d.ID, "event", item.Event, "err", item.Error)
 				if !s.client.IsLoggedIn() {
 					g.setStatus(d.ID, dock.StatusFailed)
+					g.end(s)
 					s.client.Disconnect()
 				} else {
 					g.pairingChanged(d.ID)
@@ -164,9 +227,6 @@ func (g *Gateway) Link(ctx context.Context, d dock.Dock) (dock.Status, error) {
 	case <-first:
 	case <-time.After(10 * time.Second):
 	}
-	g.mu.Lock()
-	g.clients[d.ID] = s
-	g.mu.Unlock()
 	return dock.StatusLinking, nil
 }
 
@@ -178,6 +238,15 @@ func (g *Gateway) Restore(ctx context.Context, d dock.Dock) error {
 	if device == nil {
 		g.setStatus(d.ID, dock.StatusLoggedOut)
 		return errx.NotFound("whatsapp device of dock " + d.ID.String() + " is gone; link it again")
+	}
+	g.mu.Lock()
+	r := g.replaced[d.ID]
+	g.mu.Unlock()
+	if time.Now().Before(r.until) {
+		return errx.External("whatsapp dock " + d.ID.String() + " was connected elsewhere moments ago; waiting before reconnecting")
+	}
+	if old := g.take(d.ID); old != nil {
+		old.client.Disconnect()
 	}
 	s := g.newSession(d, device)
 	if err := s.client.Connect(); err != nil {
@@ -193,13 +262,10 @@ func (g *Gateway) Restore(ctx context.Context, d dock.Dock) error {
 // Unlink logs the device out of WhatsApp (it disappears from the phone's
 // linked devices) and deletes its keys, or stops a pairing in progress.
 func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
-	g.mu.Lock()
-	s := g.clients[d.ID]
-	delete(g.clients, d.ID)
-	g.mu.Unlock()
-	if s != nil {
-		s.unlinked.Store(true)
-		s.setQR("")
+	if err := g.devices.SetPairing(ctx, d.Organization, d.ID, ""); err != nil {
+		slog.Warn("delete pairing code", "dock", d.ID, "err", err)
+	}
+	if s := g.take(d.ID); s != nil {
 		if s.client.IsLoggedIn() {
 			if err := s.client.Logout(ctx); err != nil {
 				s.client.Disconnect()
@@ -209,27 +275,48 @@ func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
 			return nil
 		}
 		s.client.Disconnect()
+	} else if g.logoutOffline(ctx, d) {
+		return nil
 	}
 	// Not connected: forget stored keys so a relink starts clean.
 	return g.devices.DeleteDock(ctx, d.Organization, d.ID)
 }
 
-func (g *Gateway) QR(id identity.DockID) string {
-	s := g.session(id)
-	if s == nil {
-		return ""
+// logoutOffline logs out a linked device this process isn't running (it
+// owns the dock but hasn't reconnected it yet), so the phone drops it.
+// Callers delete the keys when this fails.
+func (g *Gateway) logoutOffline(ctx context.Context, d dock.Dock) bool {
+	device, err := g.devices.Device(ctx, d.Organization, d.ID)
+	if err != nil || device == nil {
+		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.qr
+	s := g.newSession(d, device)
+	s.ended.Store(true) // no callbacks: the caller stores logged_out
+	if err := s.client.Connect(); err != nil {
+		slog.Warn("connect to log out", "dock", d.ID, "err", err)
+		return false
+	}
+	defer s.client.Disconnect()
+	if !s.client.WaitForConnection(15 * time.Second) {
+		slog.Warn("whatsapp did not connect to log out", "dock", d.ID)
+		return false
+	}
+	if err := s.client.Logout(ctx); err != nil {
+		slog.Warn("log out of whatsapp", "dock", d.ID, "err", err)
+		return false
+	}
+	slog.Info("whatsapp dock logged out by owner", "dock", d.ID)
+	return true
 }
 
-func (g *Gateway) NewMessageID(id identity.DockID) (string, error) {
-	s := g.session(id)
-	if s == nil {
-		return "", errx.Business("whatsapp dock is not connected")
-	}
-	return string(s.client.GenerateMessageID()), nil
+func (g *Gateway) QR(ctx context.Context, id identity.DockID) (string, error) {
+	return g.devices.Pairing(ctx, id)
+}
+
+// NewMessageID is a random WhatsApp message id; any process can make one
+// (the send may run in the dock's owner).
+func (g *Gateway) NewMessageID(identity.DockID) (string, error) {
+	return string(whatsmeow.GenerateMessageID()), nil
 }
 
 func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
@@ -262,10 +349,23 @@ func (g *Gateway) newSession(d dock.Dock, device *store.Device) *session {
 	return s
 }
 
-func (s *session) setQR(code string) {
-	s.mu.Lock()
-	s.qr = code
-	s.mu.Unlock()
+// setPairing stores the session's current pairing code for every process.
+func (g *Gateway) setPairing(s *session, code string) {
+	ctx, cancel := context.WithTimeout(context.Background(), handlerTimeout)
+	defer cancel()
+	if err := g.devices.SetPairing(ctx, s.organization, s.dock, code); err != nil {
+		slog.Error("store pairing code", "dock", s.dock, "err", err)
+	}
+}
+
+// end forgets s if it is still the dock's session.
+func (g *Gateway) end(s *session) {
+	s.ended.Store(true)
+	g.mu.Lock()
+	if g.clients[s.dock] == s {
+		delete(g.clients, s.dock)
+	}
+	g.mu.Unlock()
 }
 
 // pace keeps at least minSendGap between two sends of one dock.
@@ -310,7 +410,7 @@ func (g *Gateway) pairingChanged(id identity.DockID) {
 }
 
 func (g *Gateway) handle(s *session, evt any) {
-	if s.unlinked.Load() {
+	if s.ended.Load() {
 		return
 	}
 	g.mu.Lock()
@@ -328,10 +428,24 @@ func (g *Gateway) handle(s *session, evt any) {
 		}
 	case *events.LoggedOut:
 		slog.Warn("whatsapp dock logged out", "dock", s.dock, "reason", e.Reason)
+		g.end(s)
 		g.setStatus(s.dock, dock.StatusLoggedOut)
+	case *events.StreamReplaced:
+		// Another connection of this device took over: another process
+		// that believes it owns the dock, or a copy of the keys elsewhere.
+		// The owner reconnects it later (backoff).
 		g.mu.Lock()
-		delete(g.clients, s.dock)
+		r := g.replaced[s.dock]
+		r.delay = replacedPause
+		if time.Since(r.at) < time.Hour {
+			r.delay = min(2*r.delay, maxReplacedPause)
+		}
+		r.at, r.until = time.Now(), time.Now().Add(r.delay)
+		g.replaced[s.dock] = r
 		g.mu.Unlock()
+		slog.Error("whatsapp dock connection replaced by another one", "dock", s.dock, "reconnect_in", r.delay)
+		g.end(s)
+		s.client.Disconnect()
 	case *events.Message:
 		if receiver == nil {
 			return

@@ -5,6 +5,7 @@ package dockmodule
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockapi"
@@ -27,6 +28,12 @@ type Deps struct {
 	Events   event.Publisher
 	// MaxDocks bounds each organization's docks (≤ 0: unlimited).
 	MaxDocks int
+	// Process names this process among those serving the database; it
+	// owns docks for DockLease at a time (renewed while it lives).
+	Process   string
+	DockLease time.Duration
+	// Gateways are extra gateways (tests: a fake exclusive channel).
+	Gateways []dock.Gateway
 }
 
 type Module struct {
@@ -36,7 +43,7 @@ type Module struct {
 }
 
 func New(ctx context.Context, d Deps) (*Module, error) {
-	gateways := []dock.Gateway{dockapi.New()}
+	gateways := append([]dock.Gateway{dockapi.New()}, d.Gateways...)
 	var wa *dockwa.Gateway
 	if d.WhatsApp {
 		var err error
@@ -45,7 +52,8 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, wa)
 	}
-	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, gateways...)
+	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
+	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
@@ -63,8 +71,14 @@ func (m *Module) BindReceiver(r interface {
 
 func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
 
-// Close disconnects the gateways.
+// Start runs dock ownership (serving other processes' requests, renewing
+// leases, taking over the docks of stopped processes).
+func (m *Module) Start(ctx context.Context) { m.Service.Start(ctx) }
+
+// Close hands the docks over (other processes take them at once) and
+// disconnects the gateways.
 func (m *Module) Close() {
+	m.Service.Stop()
 	if m.wa != nil {
 		m.wa.Close()
 	}

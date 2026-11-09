@@ -122,14 +122,15 @@ type tracked struct {
 	since        time.Time
 }
 
-// New builds the hub; a delivery lease is lease, and connections are
-// touched every lease/4 (at most maxTouch).
-func New(lease time.Duration, mcpURL string, events event.Publisher, maxConns int, presence crew.Presence) *Hub {
+// New builds the hub of process (its name among the processes serving the
+// database); a delivery lease is lease, and connections are touched every
+// lease/4 (at most maxTouch).
+func New(process string, lease time.Duration, mcpURL string, events event.Publisher, maxConns int, presence crew.Presence) *Hub {
 	if events == nil {
 		events = event.Nop{}
 	}
 	return &Hub{lease: lease, mcpURL: mcpURL, events: events, maxConns: maxConns, presence: presence,
-		process: newSession(), touch: min(lease/4, maxTouch),
+		process: process, touch: min(lease/4, maxTouch),
 		conns: map[*conn]struct{}{}, opening: map[*pending]struct{}{},
 		outbox: map[crew.Signal]struct{}{}, kick: make(chan struct{}, 1), unreleased: map[crew.Reaped]struct{}{}}
 }

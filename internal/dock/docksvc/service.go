@@ -1,4 +1,5 @@
-// Package docksvc implements the dock ports over one Gateway per channel.
+// Package docksvc implements the dock ports over one Gateway per channel,
+// running each exclusive dock in the process that owns it (cluster.go).
 package docksvc
 
 import (
@@ -19,13 +20,16 @@ type Service struct {
 	gateways map[dock.Channel]dock.Gateway
 	// maxDocks bounds each organization's docks (≤ 0: unlimited).
 	maxDocks int
+	cluster  Cluster
+	own      ownership
 }
 
-func New(repo dock.Repository, events event.Publisher, maxDocks int, gateways ...dock.Gateway) *Service {
+func New(repo dock.Repository, events event.Publisher, maxDocks int, cluster Cluster, gateways ...dock.Gateway) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	s := &Service{repo: repo, events: events, gateways: map[dock.Channel]dock.Gateway{}, maxDocks: maxDocks}
+	s := &Service{repo: repo, events: events, gateways: map[dock.Channel]dock.Gateway{}, maxDocks: maxDocks, cluster: cluster,
+		own: ownership{owned: map[identity.DockID]struct{}{}, retry: map[identity.DockID]backoff{}, locks: map[identity.DockID]*dockLock{}}}
 	for _, g := range gateways {
 		s.gateways[g.Channel()] = g
 	}
@@ -77,15 +81,10 @@ func (s *Service) link(ctx context.Context, d dock.Dock) (dock.Dock, error) {
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	status, err := g.Link(ctx, d)
-	if err != nil {
-		_ = s.repo.SetStatus(ctx, d.ID, dock.StatusFailed)
+	// The dock's process stores the status (failed when linking fails).
+	if _, err := s.route(ctx, d, g, dock.Request{Dock: d.ID, Kind: dock.RequestLink}); err != nil {
+		s.publish(ctx, d.ID)
 		return dock.Dock{}, errx.Wrap(err, "start linking", errx.TypeExternal)
-	}
-	if status != d.Status {
-		if err := s.repo.SetStatus(ctx, d.ID, status); err != nil {
-			return dock.Dock{}, errx.Wrap(err, "set dock status", errx.TypeInternal)
-		}
 	}
 	out, err := s.Find(ctx, d.Organization, d.ID)
 	if err == nil {
@@ -105,7 +104,7 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 		return dock.Dock{}, errx.Wrap(err, "update dock", errx.TypeInternal)
 	}
 	s.announce(d)
-	return s.withQR(d), nil
+	return s.withQR(ctx, d), nil
 }
 
 func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
@@ -120,12 +119,11 @@ func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id id
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	if err := g.Unlink(ctx, d); err != nil {
+	// The dock's process stores logged_out.
+	if _, err := s.route(ctx, d, g, dock.Request{Dock: d.ID, Kind: dock.RequestUnlink}); err != nil {
 		return dock.Dock{}, errx.Wrap(err, "unlink dock", errx.TypeExternal)
 	}
-	if err := s.SetStatus(ctx, id, dock.StatusLoggedOut); err != nil {
-		return dock.Dock{}, err
-	}
+	s.publish(ctx, id)
 	return s.Find(ctx, org, id)
 }
 
@@ -135,7 +133,7 @@ func (s *Service) Delete(ctx context.Context, org identity.OrganizationID, id id
 		return errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
 	if g, ok := s.gateways[d.Channel]; ok {
-		if err := g.Unlink(ctx, d); err != nil {
+		if _, err := s.route(ctx, d, g, dock.Request{Dock: d.ID, Kind: dock.RequestUnlink}); err != nil {
 			// The dock goes anyway; the phone may still list the device.
 			slog.Warn("unlink dock being deleted", "dock", id, "err", err)
 		}
@@ -194,31 +192,12 @@ func (s *Service) SetStatus(ctx context.Context, id identity.DockID, status dock
 	return nil
 }
 
-func (s *Service) RestoreAll(ctx context.Context) error {
-	docks, err := s.repo.ListByStatus(ctx, dock.StatusLinked)
-	if err != nil {
-		return errx.Wrap(err, "list linked docks", errx.TypeInternal)
-	}
-	for _, d := range docks {
-		g, err := s.gateway(d.Channel)
-		if err != nil {
-			slog.Warn("dock channel unavailable", "dock", d.ID, "channel", d.Channel)
-			continue
-		}
-		if err := g.Restore(ctx, d); err != nil {
-			// One broken dock must not keep the others down.
-			slog.Error("restore dock", "dock", d.ID, "err", err)
-		}
-	}
-	return nil
-}
-
 func (s *Service) Find(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
 	d, err := s.repo.Find(ctx, org, id)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
-	return s.withQR(d), nil
+	return s.withQR(ctx, d), nil
 }
 
 func (s *Service) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[dock.Dock], error) {
@@ -227,15 +206,21 @@ func (s *Service) List(ctx context.Context, org identity.OrganizationID, page qu
 		return out, errx.Wrap(err, "list docks", errx.TypeInternal)
 	}
 	for i := range out.Items {
-		out.Items[i] = s.withQR(out.Items[i])
+		out.Items[i] = s.withQR(ctx, out.Items[i])
 	}
 	return out, nil
 }
 
-func (s *Service) withQR(d dock.Dock) dock.Dock {
+// withQR adds the pairing code of a linking dock (whatever process pairs
+// it); a code that can't be read is left out (the client retries).
+func (s *Service) withQR(ctx context.Context, d dock.Dock) dock.Dock {
 	if d.Status == dock.StatusLinking {
 		if g, ok := s.gateways[d.Channel]; ok {
-			d.QRCode = g.QR(d.ID)
+			qr, err := g.QR(ctx, d.ID)
+			if err != nil {
+				slog.Warn("read pairing code", "dock", d.ID, "err", err)
+			}
+			d.QRCode = qr
 		}
 	}
 	return d
@@ -268,5 +253,6 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, msg doc
 	if err != nil {
 		return err
 	}
-	return errx.Wrap(g.Send(ctx, msg), "send through dock", errx.TypeExternal)
+	_, err = s.route(ctx, d, g, dock.Request{Dock: d.ID, Kind: dock.RequestSend, Outgoing: &msg})
+	return err
 }

@@ -4,10 +4,14 @@ package bootstrap
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +21,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -59,6 +64,10 @@ type Options struct {
 	DisableWhatsApp bool
 	// Lease overrides config.ClaimLease.
 	Lease time.Duration
+	// DockLease overrides config.DockLease.
+	DockLease time.Duration
+	// Gateways are extra dock gateways (tests: a fake exclusive channel).
+	Gateways []dock.Gateway
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
@@ -136,6 +145,13 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if lease == 0 {
 		lease = config.ClaimLease
 	}
+	dockLease := opts.DockLease
+	if dockLease == 0 {
+		dockLease = config.DockLease
+	}
+	// This process among those serving the database (crew connections,
+	// dock ownership).
+	process := newProcessID()
 
 	// Session advisory locks (per-dock customs) hold a connection while the
 	// work runs on db: a pool of their own can't starve it.
@@ -160,13 +176,14 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus, MaxDocks: cfg.MaxDocks})
+	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
+		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways})
 	if err != nil {
 		bus.Close()
 		closeDBs()
 		return nil, err
 	}
-	crew := crewmodule.New(db, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
+	crew := crewmodule.New(db, process, lease, cfg.PublicURL+"/mcp", Version, bus, cfg.MaxCrewConnections)
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: crew.Hub, Events: bus,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
@@ -237,6 +254,18 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
+// newProcessID names this process among those serving one database:
+// readable in logs (host, pid) and unique across restarts (random part).
+func newProcessID() string {
+	host, _ := os.Hostname()
+	if len(host) > 40 {
+		host = host[:40]
+	}
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return fmt.Sprintf("%s-%d-%s", host, os.Getpid(), hex.EncodeToString(b[:]))
+}
+
 // authenticator picks the auth adapter of the run mode; nothing else in
 // the port knows the mode.
 func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authenticator {
@@ -259,16 +288,14 @@ func publicConfig(cfg config.Server) http.Handler {
 	})
 }
 
-// Start reconnects linked docks and starts the crew hub (signals, presence,
-// reaping a stopped process's connections) and the sweepers. It returns at
-// once; they run until ctx ends or Close. Claims of other processes are
-// left alone: a stopped process's are released by the reaper (or their
-// lease).
+// Start starts the crew hub (signals, presence, reaping a stopped
+// process's connections), dock ownership (this process takes and connects
+// the docks no live process runs) and the sweepers. It returns at once;
+// they run until ctx ends or Close. Claims of other processes are left
+// alone: a stopped process's are released by the reaper (or their lease).
 func (a *App) Start(ctx context.Context) {
 	a.crew.Hub.Start(ctx)
-	if err := a.docks.Service.RestoreAll(ctx); err != nil {
-		slog.Error("restore docks", "err", err)
-	}
+	a.docks.Start(ctx)
 	if a.signIn != nil {
 		go a.signIn.Sweep(ctx)
 	}
@@ -294,8 +321,9 @@ func (a *App) Start(ctx context.Context) {
 // Close releases the database and gateways.
 func (a *App) Close() {
 	a.stopOnce()
-	// First: connections release their deliveries (other processes take
-	// them at once), which needs the database and the bus.
+	// First: connections release their deliveries and docks are handed
+	// over (other processes take them at once), which needs the database
+	// and the bus.
 	a.crew.Hub.Close()
 	a.docks.Close()
 	a.bus.Close()

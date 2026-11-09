@@ -92,14 +92,18 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship` `Commands`,
-  `Queries`, `Messenger`, `Repository`, `Customs*`, `DockLocker` and `crew` `Token*`,
-  `Presence` ports takes
+  `Queries`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
+  `Relay` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
-  ones (gateway callbacks, restore, lease sweep, crew token sign-in, crew
-  presence touch/reap/signals) are listed with their
-  reason in `systemWide` (`TestTenantFirstPorts`).
+  ones (gateway callbacks, lease sweep, crew token sign-in, crew presence
+  touch/reap/signals, dock lease renew/claim/release-all and relay serve)
+  are listed with their reason in `systemWide` (`TestTenantFirstPorts`).
 - Exported service methods call `Validate()` on their inputs
   (`TestServicesValidateInputs`).
+- In `docksvc`, gateway `Link`/`Unlink`/`Restore`/`Send` are called only
+  from the functions that run where ownership was checked (`ownerOnly`:
+  `local`, `sendHere`, `ensureRunning`, `restore`); everything else goes
+  through `route` (`TestOnlyTheOwnerDrivesADock`).
 - `connector` runs on the user's machine: it imports only foundation and
   domain roots (wire types), never services/adapters/wiring; only `cmd`
   imports it (`TestLayerDependencies`, "client" role).
@@ -272,6 +276,40 @@ test together with the reason. Add a rule when you add a pattern.
   tokens, so concurrent requests must not both use one. Sign-out deletes the
   row, revokes at IAMKit and returns its end-session URL. Tokens without an
   organization (service accounts) are refused.
+- Dock ownership across processes (`dock.Owners`/`dock.Relay`, `dockpg`,
+  `docksvc/cluster.go`, migration 00011): a dock of an exclusive channel
+  (`Gateway.Exclusive`: WhatsApp; `api` is not) runs in exactly one process,
+  the holder of its `dock_owners` lease (`config.DockLease`, 30 s; process
+  id made in `bootstrap`, shared with the crew hub). Link, unlink and send
+  `route` to it: here when this process holds (or just took, `Acquire`)
+  the lease, else a `dock_requests` row + `NOTIFY seaport_docks` that the
+  owner serves (`Relay.Serve`; reply and typed errors back by `NOTIFY`
+  plus a 500 ms poll; the caller waits 2 min at most). A request still
+  pending when its owner's lease ran out comes back `DOCK_MOVED` and is
+  routed again (5 tries, growing pause); one already running is never
+  retried (a send may have gone out). Request rows hold the outgoing text
+  in clear until answered (minutes at most). The owner
+  re-checks the lease under a per-dock mutex and stores the resulting
+  status there. Each process renews its leases every TTL/5 (each renew
+  bounded by TTL/5); a missed one is re-acquired or dropped and released
+  (connection stopped). Fencing: while no renew succeeded for half a
+  lease, the process owns nothing (`owns`) and a watchdog (every TTL/10,
+  no dock lock) stops every connection, since another process may take
+  the docks. Every TTL/3 it claims up to 10 ownerless linked/linking
+  docks, restores its linked ones that aren't running (backoff up to
+  5 min), marks a linking dock with no pairing anywhere for a minute
+  failed (its process died), releases logged-out/failed ones and stops
+  connections of docks it doesn't own (claiming is first come, not
+  balanced). `App.Close` hands docks over (refuses routed work, waits up
+  to 15 s for work in flight, stops each connection under its dock's
+  lock, then `ReleaseAll`).
+  The WhatsApp pairing code lives sealed in `wa_pairings` (purpose
+  `pairing`/dock), so any process shows it; message ids need no session
+  (`whatsmeow.GenerateMessageID`). `StreamReplaced` (another connection of
+  the device) ends the local session and pauses its restore (30 s,
+  doubling while it repeats, up to 10 min). Unlinking a linked dock the
+  owner hasn't reconnected yet connects it briefly to log out (the phone
+  drops the device); if that fails the keys are deleted anyway.
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
