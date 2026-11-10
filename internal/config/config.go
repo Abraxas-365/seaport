@@ -112,6 +112,17 @@ type Server struct {
 	// (default true) maps host.docker.internal to the host on Linux.
 	AgentURL, RuntimeNetwork string
 	RuntimeHostGateway       bool
+	// Model gateway: SEAPORT_GATEWAY_ANTHROPIC_URL is where it forwards
+	// Anthropic calls (default https://api.anthropic.com).
+	GatewayAnthropicURL string
+	// Egress proxy of hosted slots: SEAPORT_EGRESS_ADDR is its listen
+	// address ("": off, slots get no proxy and the runtime network alone
+	// decides what they reach); slots reach it at SEAPORT_EGRESS_URL
+	// (default SEAPORT_AGENT_URL's host with the listen port);
+	// SEAPORT_EGRESS_PRIVATE=true lets allowed hosts resolve to private
+	// addresses.
+	EgressAddr, EgressURL string
+	EgressPrivate         bool
 }
 
 // Runtime is where hosted agents run (SEAPORT_RUNTIME).
@@ -159,11 +170,15 @@ func LoadServer() (Server, error) {
 		LogLevel: env("SEAPORT_LOG_LEVEL", "info"),
 		Runtime:  Runtime(env("SEAPORT_RUNTIME", string(RuntimeOff))),
 		// empty: bootstrap fills BaseImage(harness, Version)
-		ImageRness:         strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
-		ImageClaudeCode:    strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
-		AgentURL:           strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
-		RuntimeNetwork:     env("SEAPORT_RUNTIME_NETWORK", "bridge"),
-		RuntimeHostGateway: os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
+		ImageRness:          strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
+		ImageClaudeCode:     strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
+		AgentURL:            strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
+		RuntimeNetwork:      env("SEAPORT_RUNTIME_NETWORK", "bridge"),
+		RuntimeHostGateway:  os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
+		GatewayAnthropicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_GATEWAY_ANTHROPIC_URL")), "/"),
+		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
+		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
+		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
 	}
 	if c.IAMKit.PublicURL == "" {
 		c.IAMKit.PublicURL = c.IAMKit.URL
@@ -220,6 +235,24 @@ func (c Server) Validate() error {
 	if c.Runtime == RuntimeDocker && c.Auth == AuthNone {
 		// hosted agents sign in with slot tokens: there are none in open mode
 		return errx.Validation("SEAPORT_RUNTIME=docker needs SEAPORT_AUTH=token or iam (hosted agents sign in with tokens)")
+	}
+	if c.EgressAddr != "" {
+		if _, _, err := net.SplitHostPort(c.EgressAddr); err != nil {
+			return errx.Validation("SEAPORT_EGRESS_ADDR must be host:port (e.g. :8741)")
+		}
+		if c.Auth == AuthNone {
+			return errx.Validation("SEAPORT_EGRESS_ADDR needs SEAPORT_AUTH=token or iam (slots sign in to the proxy with their tokens)")
+		}
+	}
+	if c.EgressURL != "" {
+		if u, err := url.Parse(c.EgressURL); err != nil || u.Scheme != "http" || u.Host == "" || u.User != nil {
+			return errx.Validation("SEAPORT_EGRESS_URL must be an http:// URL without credentials")
+		}
+	}
+	if c.GatewayAnthropicURL != "" {
+		if u, err := url.Parse(c.GatewayAnthropicURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return errx.Validation("SEAPORT_GATEWAY_ANTHROPIC_URL must be an http(s) URL")
+		}
 	}
 	switch c.Auth {
 	case AuthNone:

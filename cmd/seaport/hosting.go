@@ -17,9 +17,60 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// hostCmd is `seaport agents host|unhost|slots|start|stop ...`.
+// hostCmd is `seaport agents host|unhost|slots|start|stop|usage|egress ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
+	case "usage":
+		if len(args) < 1 {
+			return errx.Validation("usage: seaport agents usage <agent> [-days N]")
+		}
+		fs := flag.NewFlagSet("agents usage", flag.ContinueOnError)
+		days := fs.Int("days", 30, "days back, today included")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		ag, err := findAgent(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var out struct{ Days []hosting.UsageDay }
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/agents/%s/usage?days=%d", ag.ID, *days), nil, &out); err != nil {
+			return err
+		}
+		if len(out.Days) == 0 {
+			fmt.Printf("%s used no models through the gateway in %d day(s)\n", ag.Name, *days)
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(w, "DAY\tMODEL\tREQUESTS\tINPUT\tOUTPUT\tCACHE WRITE\tCACHE READ")
+		for _, d := range out.Days {
+			fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", d.Day.Format("2006-01-02"), d.Model, d.Requests, d.Input, d.Output, d.CacheWrite, d.CacheRead)
+		}
+		return w.Flush()
+	case "egress":
+		if len(args) != 1 {
+			return errx.Validation("usage: seaport agents egress <agent>")
+		}
+		ag, err := findAgent(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var out struct{ Denials []hosting.Denial }
+		if err := a.do(ctx, http.MethodGet, "/api/v1/agents/"+ag.ID.String()+"/hosting/egress", nil, &out); err != nil {
+			return err
+		}
+		if len(out.Denials) == 0 {
+			fmt.Printf("the egress proxy refused %s nothing\n", ag.Name)
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(w, "SLOT\tHOST\tTIMES\tLAST")
+		for _, d := range out.Denials {
+			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", hosting.SlotName(ag.Name, d.Slot), d.Host, d.Count, d.LastSeen.Local().Format("2006-01-02 15:04"))
+		}
+		_ = w.Flush()
+		fmt.Println("allow one: add it to the environment's network.egress (seaport env export|apply)")
+		return nil
 	case "start", "stop":
 		if len(args) != 1 {
 			return errx.Validation("usage: seaport agents " + sub + " <agent>[-<slot>]   (slot 1 by default)")

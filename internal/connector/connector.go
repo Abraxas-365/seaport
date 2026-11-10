@@ -55,6 +55,9 @@ type Config struct {
 	// slot: SEAPORT_URL).
 	MCPURL       string
 	SessionsFile string
+	// Protect names environment variables the kit's env may not replace (a
+	// hosted slot's gateway and proxy settings).
+	Protect []string
 }
 
 // Run fetches the agent's kit (profile and secrets), starts the harness

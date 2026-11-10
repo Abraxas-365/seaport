@@ -43,6 +43,7 @@ func TestSpecValidate(t *testing.T) {
 		"repo config":     func(s *hosting.Spec) { s.RepoConfig = "maybe" },
 		"idle":            func(s *hosting.Spec) { s.IdleStop = "30s" },
 		"setup nul":       func(s *hosting.Spec) { s.Setup = "a\x00b" },
+		"model key":       func(s *hosting.Spec) { s.Models.Anthropic = "sk-ant-literal" },
 	}
 	for name, mutate := range bad {
 		s := ok
@@ -99,5 +100,30 @@ func TestIdleStopAndLimits(t *testing.T) {
 	}
 	if h := (hosting.Repo{URL: "https://GitHub.com/a/b"}).Host(); h != "github.com" {
 		t.Fatalf("host: %q", h)
+	}
+}
+
+func TestNetworkOfASpec(t *testing.T) {
+	s := hosting.Spec{Harness: hosting.HarnessRness, Repos: []hosting.Repo{{URL: "https://github.com/a/b", Credential: "${GH}"}},
+		Models:  hosting.Models{Anthropic: "${ANTHROPIC_KEY}"},
+		Network: hosting.Network{Egress: []string{"registry.npmjs.org", "github.com"}}}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Secrets(); !reflect.DeepEqual(got, []string{"GH", "ANTHROPIC_KEY"}) {
+		t.Fatalf("secrets: %v", got)
+	}
+	if got := s.Models.KeyName(hosting.ProviderAnthropic); got != "ANTHROPIC_KEY" {
+		t.Fatalf("key name: %q", got)
+	}
+	if got := s.EgressHosts(); !reflect.DeepEqual(got, []string{"registry.npmjs.org", "github.com"}) {
+		t.Fatalf("egress: %v", got)
+	}
+	allow := []string{"api.example.com", "*.acme.dev"}
+	for host, want := range map[string]bool{"api.example.com": true, "API.Example.com.": true, "x.acme.dev": true,
+		"a.b.acme.dev": true, "acme.dev": false, "evilacme.dev": false, "example.com": false} {
+		if got := hosting.AllowedHost(host, allow); got != want {
+			t.Errorf("AllowedHost(%q) = %v", host, got)
+		}
 	}
 }

@@ -21,6 +21,8 @@ repos:
     ref: main
     credential: ${GITHUB_TOKEN}
     on_start: pnpm i
+models:
+  anthropic: ${ANTHROPIC_API_KEY}
 network:
   egress: [registry.npmjs.org]
 resources: {size: M}
@@ -33,7 +35,8 @@ func TestEnvFileRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f.Name != "web" || f.Harness != hosting.HarnessClaudeCode || f.Repos[0].Credential != "${GITHUB_TOKEN}" ||
-		f.Setup != "npm i -g pnpm\npnpm --version\n" || f.Resources.Size != "M" {
+		f.Setup != "npm i -g pnpm\npnpm --version\n" || f.Resources.Size != "M" ||
+		f.Models.Anthropic != "${ANTHROPIC_API_KEY}" {
 		t.Fatalf("read: %+v", f)
 	}
 	var out bytes.Buffer

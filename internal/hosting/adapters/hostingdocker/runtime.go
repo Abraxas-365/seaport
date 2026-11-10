@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ type Config struct {
 	// ExtraHosts are added to their /etc/hosts ("host.docker.internal:
 	// host-gateway" lets them reach a port on the host).
 	ExtraHosts []string
+	// Egress: the port runs the egress proxy, so the network should be
+	// internal (no route out but through it); New warns when it isn't.
+	Egress bool
 }
 
 // New connects to the engine named by the environment (DOCKER_HOST,
@@ -55,6 +59,16 @@ func New(ctx context.Context, cfg Config) (*Runtime, error) {
 	if _, err := api.Ping(ping, client.PingOptions{}); err != nil {
 		_ = api.Close()
 		return nil, errx.Wrap(err, "SEAPORT_RUNTIME=docker but the Docker engine (DOCKER_HOST) does not answer", errx.TypeInternal)
+	}
+	if cfg.Egress {
+		n, err := api.NetworkInspect(ping, cfg.Network, client.NetworkInspectOptions{})
+		switch {
+		case err != nil:
+			slog.Warn("hosting: can't inspect the runtime network", "network", cfg.Network, "err", err)
+		case !n.Network.Internal:
+			slog.Warn("hosting: the runtime network is not internal: slots can reach the internet around the egress proxy",
+				"network", cfg.Network, "hint", "docker network create --internal <name>; SEAPORT_RUNTIME_NETWORK=<name>")
+		}
 	}
 	return &Runtime{api: api, cfg: cfg}, nil
 }

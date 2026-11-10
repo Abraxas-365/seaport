@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -77,6 +78,8 @@ type Options struct {
 	Runtime hosting.Runtime
 	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
 	SupervisePeriod time.Duration
+	// EgressLookup resolves the egress proxy's hosts (tests).
+	EgressLookup func(ctx context.Context, host string) ([]netip.Addr, error)
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
@@ -227,12 +230,15 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
-		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod}
+		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod,
+		GatewayAnthropic: cfg.GatewayAnthropicURL}
 	if cfg.Auth != config.AuthNone { // slots sign in with tokens: none in open mode
 		hostCfg.Credentials, hostCfg.Kits, hostCfg.AgentURL = crew.Tokens, agents.Service, cfg.AgentURL
 		if hostCfg.AgentURL == "" {
 			hostCfg.AgentURL = cfg.PublicURL
 		}
+		hostCfg.EgressAddr, hostCfg.EgressURL, hostCfg.Tokens = cfg.EgressAddr, cfg.EgressURL, crew.Resolver
+		hostCfg.EgressPrivate, hostCfg.EgressLookup = cfg.EgressPrivate, opts.EgressLookup
 	}
 	hosted, err := hostingmodule.New(ctx, db, agents.Service, hostCfg, bus)
 	if err != nil {
@@ -296,6 +302,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
 	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
 	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
+	// The model gateway: hosted slots call their provider with their slot
+	// token (as x-api-key or bearer); not rate limited per request (one
+	// agent turn makes many calls; the provider limits the key).
+	root.Handle(hosting.GatewayPath+"/", hostingmodule.APIKeyAsBearer(auth.Crew(hosted.Gateway())))
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
 	ui := httpx.SPA(web.Dist())

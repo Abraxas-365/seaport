@@ -81,7 +81,9 @@ internal/
   hosting/            hosted agents: environments (versioned specs, environment.go)
                       + slots (slot.go) + image builds (build.go): hostingsvc,
                       hostingmodule, adapters/{hostingpg, hostinghttp,
-                      hostingdocker (Docker Engine API: hosting.Runtime)}
+                      hostingdocker (Docker Engine API: hosting.Runtime),
+                      hostinggateway (model gateway), hostingegress
+                      (slots' egress proxy)}
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
@@ -136,7 +138,10 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `Equip` (the kit, secrets resolved) is called only by `crewhttp`
   (`GET /crew/profile`, the agent's own crew credential) and `OpenSecrets`
   only by `agentsvc` (`secretCalls`), so no admin handler, event or MCP
-  tool can hand a secret back.
+  tool can hand a secret back. Hosting's openers are guarded the same way:
+  `Reveal` only from `hostingsvc`, `OpenWorkspace` only from `hostinghttp`
+  (the slot's own token) and `ModelKey` only from `hostinggateway` (it
+  forwards with the key, never answers it).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -290,6 +295,31 @@ test together with the reason. Add a rule when you add a pattern.
   MCP on loopback (harnesses take plain-HTTP MCP only there) and runs the
   connector (Claude Code in session mode `default`: its `auto` mode needs
   Anthropic's classifier). A refused token ends it cleanly (no restart).
+- Hosted network (`hosting/network.go`, migration 00018): an
+  environment's `models: {anthropic: ${SECRET}}` names an agent secret
+  (checked like repo credentials: must exist, can't be deleted while
+  named, needs `agents:write`). Its slots get `SEAPORT_GATEWAY`,
+  `ANTHROPIC_BASE_URL` (= `<agent URL>/gateway/anthropic`) and
+  `ANTHROPIC_API_KEY` = the slot token, so the key never enters the
+  container; the connector won't let the kit's env replace them
+  (`Config.Protect`). The gateway (`hostinggateway`, behind crew auth;
+  `x-api-key` counts as the bearer) takes slot tokens only, forwards
+  `/v1/messages[/count_tokens]`, `/v1/models*`, `/v1/files*` (else 404)
+  with the real key (`Commands.ModelKey`), drops the caller's
+  Authorization and Accept-Encoding, streams (`FlushInterval -1`) and
+  meters successful Messages answers (JSON usage, or the stream's
+  `message_start`/`message_delta`) into `model_usage` (per org, agent, UTC
+  day, provider, model; `GET /api/v1/agents/{id}/usage`); errors go out in
+  Anthropic's error shape. The egress proxy (`hostingegress`,
+  `SEAPORT_EGRESS_ADDR`; off by default) is the slots' only way out when
+  the runtime network is `internal` (the Docker adapter warns when it
+  isn't): slots get `HTTP(S)_PROXY` with `<slot>:<slot token>` and
+  `NO_PROXY` for the port; CONNECT and plain http reach only the
+  environment's egress plus repo hosts (`Spec.EgressHosts`, cached
+  `EgressCacheFor` per token), never private/loopback/link-local/CGNAT
+  addresses unless `SEAPORT_EGRESS_PRIVATE`; refusals are counted per slot
+  and host (`egress_denials`, at most once per `DenialEvery`;
+  `GET /api/v1/agents/{id}/hosting/egress`).
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a

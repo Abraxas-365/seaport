@@ -70,6 +70,10 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error)
 	cmd.Env = os.Environ()
 	if kit != nil {
 		for k, v := range kit.Env {
+			if slices.Contains(cfg.Protect, k) {
+				slog.Warn("the kit's env can't replace a variable the slot sets", "name", k)
+				continue
+			}
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
 	}

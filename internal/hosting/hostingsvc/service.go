@@ -105,8 +105,8 @@ func (s *Service) DeleteEnvironment(ctx context.Context, org identity.Organizati
 	return nil
 }
 
-// checkSecrets refuses a spec whose repo credentials name secrets the
-// agent doesn't have.
+// checkSecrets refuses a spec whose repo credentials or model keys name
+// secrets the agent doesn't have.
 func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
 	need := spec.Secrets()
 	if len(need) == 0 {
@@ -132,7 +132,7 @@ func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID,
 			return err
 		}
 		return errx.Business("agent " + a.Name + " has no secret " + strings.Join(missing, ", ") +
-			" (the environment's repo credentials name it): seaport agents secrets set " + a.Name + " " + missing[0])
+			" (the environment names it as a repo credential or model key): seaport agents secrets set " + a.Name + " " + missing[0])
 	}
 	return nil
 }

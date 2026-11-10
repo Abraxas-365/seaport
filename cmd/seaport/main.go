@@ -65,6 +65,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents slots [<agent>]        hosted agents and the state of their slots
   seaport agents start|stop <agent>[-<n>]   start or stop a hosted slot (1 by default;
                                         new work also wakes a stopped agent)
+  seaport agents usage <agent> [-days N]   model tokens it used through the port's gateway
+  seaport agents egress <agent>         hosts the egress proxy refused its slots
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents

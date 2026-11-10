@@ -96,6 +96,7 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
 		Mode: mode, Cwd: cfg.Workspace, Command: command, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
+		Protect:      protected(),
 	})
 	if errx.IsType(err, errx.TypeAuthorization) {
 		slog.Warn("the port refused this slot's token; stopping", "err", err)
@@ -106,6 +107,27 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 
 // relayed are the port's paths the harness reaches through the relay.
 var relayed = []string{"/mcp"}
+
+// slotSet are the variables the port sets on a slot for its network (the
+// model gateway and the egress proxy).
+var slotSet = []string{hosting.EnvGateway, "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY",
+	"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY", "no_proxy"}
+
+// protected are the slot's network variables the port set: the agent's
+// kit can't point the harness elsewhere (an ANTHROPIC_BASE_URL secret
+// would take its calls around the gateway).
+func protected() []string {
+	var out []string
+	for _, k := range slotSet {
+		if _, ok := os.LookupEnv(k); ok {
+			out = append(out, k)
+		}
+	}
+	if _, ok := os.LookupEnv(hosting.EnvGateway); ok {
+		out = append(out, "ANTHROPIC_AUTH_TOKEN") // would win over the slot's key
+	}
+	return out
+}
 
 // startRelay serves the port's MCP on loopback until ctx ends and answers
 // its base URL: harnesses take plain-HTTP MCP servers only on loopback,

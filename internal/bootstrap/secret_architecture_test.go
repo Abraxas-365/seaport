@@ -13,12 +13,15 @@ import (
 // handler, an event or the MCP tools calling either would show secrets to
 // someone else (the web never gets one back once written). Reveal opens
 // a hosted slot's repo credentials for OpenWorkspace, which only
-// hostinghttp serves (GET /crew/workspace, the slot's own token).
+// hostinghttp serves (GET /crew/workspace, the slot's own token), and its
+// model key for ModelKey, which only the gateway calls (it forwards the
+// slot's model calls with the key and never answers it back).
 var secretCalls = map[string]string{
 	"Equip":         "crew/adapters/crewhttp",
 	"OpenSecrets":   "agent/agentsvc",
 	"Reveal":        "hosting/hostingsvc",
 	"OpenWorkspace": "hosting/adapters/hostinghttp",
+	"ModelKey":      "hosting/adapters/hostinggateway",
 }
 
 func secretViolations(files []goFile) []string {

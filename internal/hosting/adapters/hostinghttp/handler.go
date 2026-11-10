@@ -39,6 +39,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.unhost))
 	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/start", httpx.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
 	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", httpx.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/egress", httpx.RequireFunc(permission.EnvironmentsRead, h.denials))
+	mux.Handle("GET /api/v1/agents/{id}/usage", httpx.RequireFunc(permission.AgentsRead, h.usage))
 }
 
 // Workspace is GET /crew/workspace (behind crew auth): a hosted slot's
@@ -70,10 +72,11 @@ func by(p httpx.Principal) string {
 }
 
 // credentials: a spec naming agent secrets directs them (the repo URL
-// gets the token), which is agents:write's to allow.
+// gets the token, the gateway spends the model key), which is
+// agents:write's to allow.
 func credentials(p httpx.Principal, spec hosting.Spec) error {
 	if len(spec.Secrets()) > 0 && !p.Can(permission.AgentsWrite) {
-		return errx.Forbidden("missing permission " + permission.AgentsWrite + " (the spec's repo credentials name agent secrets)")
+		return errx.Forbidden("missing permission " + permission.AgentsWrite + " (the spec's repo credentials or model keys name agent secrets)")
 	}
 	return nil
 }
@@ -398,4 +401,46 @@ func (h *Handler) stopSlot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return httpx.JSON(w, http.StatusAccepted, out)
+}
+
+// usage is GET /api/v1/agents/{id}/usage?days=N (default 30): the
+// agent's model use through the gateway.
+func (h *Handler) usage(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAgentID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	days := 30
+	if v := r.URL.Query().Get("days"); v != "" {
+		if days, err = strconv.Atoi(v); err != nil {
+			return errx.InvalidField("days", "days must be a number")
+		}
+	}
+	out, err := h.queries.Usage(r.Context(), org, id, hosting.UsageQuery{Days: days})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, map[string]any{"days": out})
+}
+
+// denials is GET /api/v1/agents/{id}/hosting/egress: the hosts the
+// egress proxy refused the agent's slots.
+func (h *Handler) denials(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAgentID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Denials(r.Context(), org, id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, map[string]any{"denials": out})
 }

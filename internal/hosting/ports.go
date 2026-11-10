@@ -47,6 +47,18 @@ type Commands interface {
 	// resolved (agent secrets): only for the slot's own token
 	// (hostinghttp, GET /crew/workspace; TestOnlyTheCrewEquips).
 	OpenWorkspace(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int) (Workspace, error)
+	// ModelKey is the provider key the gateway forwards a slot's model
+	// calls with (the environment's models, an agent secret): only for
+	// the slot's own token (hostinggateway; TestOnlyTheCrewEquips).
+	// NotFound when the environment names none.
+	ModelKey(ctx context.Context, organization identity.OrganizationID, input KeyRequest) (ModelKey, error)
+	// RecordUsage adds one model response's tokens to the agent's day.
+	RecordUsage(ctx context.Context, organization identity.OrganizationID, input Usage) error
+	// Egress is the hosts a slot may reach through the egress proxy (its
+	// environment's egress and repo hosts; NotFound when the slot is gone).
+	Egress(ctx context.Context, organization identity.OrganizationID, caller SlotCaller) ([]string, error)
+	// RecordDenial notes a host the egress proxy refused a slot.
+	RecordDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
 }
 
 type Queries interface {
@@ -62,6 +74,11 @@ type Queries interface {
 	// Build is a version's build with its log (version 0: the current
 	// one; NotFound when it was never built).
 	Build(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Build, error)
+	// Usage is the agent's model use per day and model, newest first.
+	Usage(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input UsageQuery) ([]UsageDay, error)
+	// Denials are the hosts the egress proxy refused the agent's slots,
+	// most recent first (at most MaxDenials).
+	Denials(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Denial, error)
 }
 
 // Runtime is the container engine hosted agents run on (hostingdocker).
@@ -163,4 +180,12 @@ type Repository interface {
 	Supervise(ctx context.Context) ([]Supervised, error)
 	// PortID is this deployment's id (system: LabelPort).
 	PortID(ctx context.Context) (string, error)
+
+	// AddUsage upserts one response's tokens into the agent's day (UTC).
+	AddUsage(ctx context.Context, organization identity.OrganizationID, input Usage) error
+	Usage(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, days int) ([]UsageDay, error)
+	// AddDenial counts a refused host for a slot (no error when the slot
+	// is gone).
+	AddDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
+	Denials(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, limit int) ([]Denial, error)
 }

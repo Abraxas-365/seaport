@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -122,9 +123,11 @@ type Spec struct {
 	Repos []Repo `json:"repos"`
 	// RepoConfig: trust (the harness reads the repos' own AGENTS.md,
 	// CLAUDE.md, .claude/, .rness/) or ignore.
-	RepoConfig string    `json:"repo_config"`
-	Network    Network   `json:"network"`
-	Resources  Resources `json:"resources"`
+	RepoConfig string `json:"repo_config"`
+	// Models are the model keys the port's gateway uses for the slots.
+	Models    Models    `json:"models"`
+	Network   Network   `json:"network"`
+	Resources Resources `json:"resources"`
 	// Workspace: persistent (kept across restarts) or ephemeral.
 	Workspace string `json:"workspace"`
 	// IdleStop stops a slot after this long without work ("30m", "2h";
@@ -145,6 +148,13 @@ type Repo struct {
 	Credential string `json:"credential"`
 	// OnStart runs in the repo after each clone or fetch (shell).
 	OnStart string `json:"on_start"`
+}
+
+// Models name the hosted agent's secrets holding model API keys, as
+// ${NAME}. With one set, the slots reach that provider through the port's
+// model gateway with their own token: the key never enters the container.
+type Models struct {
+	Anthropic string `json:"anthropic"`
 }
 
 // Network is what a slot may reach besides the port.
@@ -231,6 +241,9 @@ func (s Spec) Validate() error {
 	case "", RepoConfigTrust, RepoConfigIgnore:
 	default:
 		return errx.InvalidField("repo_config", "repo_config must be trust or ignore")
+	}
+	if s.Models.Anthropic != "" && !credentialRef.MatchString(s.Models.Anthropic) {
+		return errx.InvalidField("models.anthropic", "models.anthropic must name a secret of the agent, as ${NAME}")
 	}
 	if len(s.Network.Egress) > MaxEgress {
 		return errx.InvalidField("network.egress", "at most "+strconv.Itoa(MaxEgress)+" hosts")
@@ -386,7 +399,7 @@ func formatIdleStop(d time.Duration) string {
 // normalize equal.
 func Normalize(s Spec) Spec {
 	out := Spec{Description: text.Clean(s.Description), Harness: strings.TrimSpace(s.Harness),
-		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig,
+		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Models: s.Models,
 		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
 	if out.Setup != "" {
 		out.Setup += "\n"
@@ -431,14 +444,43 @@ func Normalize(s Spec) Spec {
 	return out
 }
 
-// Secrets are the agent secrets the spec's repo credentials name.
+// Secrets are the agent secrets the spec names: repo credentials and
+// model keys.
 func (s Spec) Secrets() []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, r := range s.Repos {
-		if n := r.CredentialName(); n != "" && !seen[n] {
+	add := func(n string) {
+		if n != "" && !seen[n] {
 			seen[n] = true
 			out = append(out, n)
+		}
+	}
+	for _, r := range s.Repos {
+		add(r.CredentialName())
+	}
+	add(s.Models.KeyName(ProviderAnthropic))
+	return out
+}
+
+// KeyName is the secret holding provider's key ("" if none).
+func (m Models) KeyName(provider string) string {
+	ref := ""
+	if provider == ProviderAnthropic {
+		ref = m.Anthropic
+	}
+	if v := credentialRef.FindStringSubmatch(ref); v != nil {
+		return v[1]
+	}
+	return ""
+}
+
+// EgressHosts are the hosts a slot may reach through the egress proxy:
+// the spec's egress plus its repos' hosts.
+func (s Spec) EgressHosts() []string {
+	out := slices.Clone(s.Network.Egress)
+	for _, r := range s.Repos {
+		if h := r.Host(); h != "" && !slices.Contains(out, h) {
+			out = append(out, h)
 		}
 	}
 	return out

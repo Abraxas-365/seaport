@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"sync"
 	"time"
 
@@ -28,10 +29,25 @@ type Slots struct {
 
 // slots runs a Service's slot starts and stops in the background.
 type slots struct {
-	cfg  Slots
-	mu   sync.Mutex
-	port string // LabelPort, read once
-	poke chan struct{}
+	cfg   Slots
+	mu    sync.Mutex
+	port  string // LabelPort, read once
+	poke  chan struct{}
+	proxy string // the egress proxy's URL ("": off)
+}
+
+// ProxyAt sets the egress proxy slots started from now on go through
+// (its URL as they reach it; set once at wiring, before Start).
+func (s *Service) ProxyAt(url string) {
+	s.slots.mu.Lock()
+	s.slots.proxy = url
+	s.slots.mu.Unlock()
+}
+
+func (s *slots) egressProxy() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.proxy
 }
 
 func (s *Service) runtime() hosting.Runtime { return s.builds.cfg.Runtime }
@@ -191,12 +207,7 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 	stopAlive()
 	err = s.runtime().Start(ctx, hosting.StartSlot{Slot: ref, Run: start.Run, Port: port, Name: name, Image: image,
 		Harness: env.Spec.Harness, Resources: env.Spec.Resources, Persistent: env.Spec.Workspace == hosting.WorkspacePersistent,
-		Env: map[string]string{
-			hosting.EnvURL:     s.slots.cfg.URL,
-			hosting.EnvToken:   issued.Value,
-			hosting.EnvSlot:    name,
-			hosting.EnvHarness: env.Spec.Harness,
-		}})
+		Env: s.slotEnv(env.Spec, name, issued.Value)})
 	if err != nil {
 		fail(failure(err, "the container could not start"), err, issued.ID)
 		return
@@ -210,6 +221,40 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		return
 	}
 	s.events.Publish(org, hosting.EventSlotsUpdated, h)
+}
+
+// slotEnv is a slot container's environment: the port, its token and
+// name, the model gateway (when the environment names a model key: the
+// harness's provider goes there with the slot token as its key) and the
+// egress proxy (the slot signs in to it with its token).
+func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]string {
+	env := map[string]string{
+		hosting.EnvURL:     s.slots.cfg.URL,
+		hosting.EnvToken:   token,
+		hosting.EnvSlot:    name,
+		hosting.EnvHarness: spec.Harness,
+	}
+	if spec.Models.KeyName(hosting.ProviderAnthropic) != "" {
+		gw := s.slots.cfg.URL + hosting.GatewayPath
+		env[hosting.EnvGateway] = gw
+		env["ANTHROPIC_BASE_URL"] = gw + "/" + hosting.ProviderAnthropic
+		env["ANTHROPIC_API_KEY"] = token
+	}
+	if p := s.slots.egressProxy(); p != "" {
+		if u, err := url.Parse(p); err == nil {
+			u.User = url.UserPassword(name, token)
+			proxy := u.String()
+			for _, k := range []string{"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"} {
+				env[k] = proxy
+			}
+			noProxy := "localhost,127.0.0.1,::1"
+			if pu, err := url.Parse(s.slots.cfg.URL); err == nil && pu.Hostname() != "" {
+				noProxy += "," + pu.Hostname()
+			}
+			env["NO_PROXY"], env["no_proxy"] = noProxy, noProxy
+		}
+	}
+	return env
 }
 
 // imageFor is the ready image of the environment's version, building it
