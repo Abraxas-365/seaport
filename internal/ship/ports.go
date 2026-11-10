@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -40,6 +41,11 @@ type Commands interface {
 	// ReleaseSession puts back every ship claimed by a connection
 	// (Claim.Session) that is gone, and says how many.
 	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
+	// ReleaseHeld routes a now-allowed direct conversation's ships held
+	// while it was pending (conversation.HoldPending, within
+	// ReleaseWindow) to the crew, as if they had just arrived, and says
+	// how many it queued (conversation.Gate).
+	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (int, error)
 	// ReleaseExpired requeues every delivery whose lease ended, in every
 	// organization (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (int, error)
@@ -82,6 +88,12 @@ type Repository interface {
 	Ack(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID, handled []identity.ShipID) (requeued int, err error)
 	Release(ctx context.Context, organization identity.OrganizationID, delivery identity.DeliveryID) error
 	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
+	// ReleaseHeld routes the conversation's ships held with
+	// conversation.HoldPending since since, oldest first (each sees the
+	// agent the one before went to), if the conversation is an allowed
+	// direct chat; the team is locked as in CreateInbound. It returns the
+	// ships it changed (queued, or held again with route's reason).
+	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, since time.Time, route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]Ship, error)
 	// ReleaseExpired spans every organization and reports the requeued
 	// ships of each (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)

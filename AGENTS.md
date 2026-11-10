@@ -105,7 +105,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting` `Commands`,
   `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
-  `Relay` and `crew` `Token*`, `Presence` ports takes
+  `Relay`, `Gate` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
   ones (gateway callbacks, lease sweep, crew token sign-in, crew presence
   touch/reap/signals, dock lease renew/claim/release-all and relay serve)
@@ -174,8 +174,16 @@ test together with the reason. Add a rule when you add a pattern.
   a per-dock lock (`conversation.DockLocker`, shared by every process). Adapters report normalized handles
   (`+<digits>`, JIDs) and `Addressed`; the engine knows no channel.
 - Ship status: inbound `held` (customs or routing, `hold_reason`) | `queued` → `claimed`
-  → `handled`; outbound `pending` → `sent|failed`. Allowing a conversation
-  does not deliver its held history (the agent can read it with `history`).
+  → `handled`; outbound `pending` → `sent|failed`. A direct chat that
+  becomes allowed (`redecide`: override, rule or policy) releases its ships
+  held with `conversation.HoldPending` within `ship.ReleaseWindow` (newest
+  `ship.MaxRelease`) through `conversation.Gate` (= `ship.Commands.ReleaseHeld`,
+  bound late): `shippg.ReleaseHeld` re-checks the chat `FOR SHARE`, locks
+  the ships and the team like `CreateInbound` and routes them oldest first.
+  `Receive` releases too when the chat turned allowed between customs and
+  its insert. `HoldDenied` ships, older ones and groups' stay held (whether
+  a group message addressed us isn't stored); the agent reads them with
+  `history`.
 - At most one delivery in flight per conversation (claim under
   `pg_advisory_xact_lock`), so an agent session never gets two prompts at once.
   For steering connectors (`hello.steer`) new ships of that conversation

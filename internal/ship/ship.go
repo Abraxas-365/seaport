@@ -46,6 +46,12 @@ const (
 	MaxSenderID = 256
 	// MaxHistory is the most ships History returns per page.
 	MaxHistory = 100
+	// ReleaseWindow: allowing a chat delivers what it sent while pending
+	// in this window (older messages stay held: answering them late would
+	// surprise more than help; the agent can read them with history).
+	ReleaseWindow = 24 * time.Hour
+	// MaxRelease bounds the ships one allow delivers (the newest).
+	MaxRelease = 50
 )
 
 // Ship is one message, inbound or outbound.

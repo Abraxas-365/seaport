@@ -118,7 +118,7 @@ function PendingQueue() {
           Esperando decisión <CountBadge tone="warning" count={pending.data?.pages[0]?.page.total ?? 0} />
         </span>
       }
-      description="Chats que escribieron y no tienen permiso todavía. Sus mensajes quedan retenidos."
+      description="Chats que escribieron y no tienen permiso todavía. Sus mensajes esperan aquí: al permitir el chat, el agente recibe los de las últimas 24 horas."
     >
       <Card className="gap-0 py-0">
         {pending.isPending ? (

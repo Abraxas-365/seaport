@@ -25,8 +25,7 @@ func TestReplicasShareTheCrew(t *testing.T) {
 
 	d := a.apiDock("t")
 	issued := a.issueAs(adminToken, a.agent(testAgent).ID, "replicas")
-	held := a.inject(d, "555", "r0", "hola") // held by customs until allowed
-	a.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil)
+	a.letIn(d)
 	first := a.inject(d, "555", "r1", "hola")
 
 	// The agent on b gets what arrived at a.
@@ -85,8 +84,7 @@ func TestStaleConnectionIsReaped(t *testing.T) {
 	b := joinPort(t, func(*config.Server) {}, bootstrap.Options{})
 	d := a.apiDock("t")
 	b.token = a.crewToken() // one token, both processes
-	held := a.inject(d, "666", "x0", "hola")
-	a.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil)
+	a.letIn(d)
 	s := a.inject(d, "666", "x1", "hola")
 
 	stalled := b.dialCrew(1)

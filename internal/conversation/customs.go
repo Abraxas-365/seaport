@@ -243,6 +243,15 @@ func (c Customs) Decide(kind Kind, access Access, handles []string) Status {
 	return StatusPending
 }
 
+// Hold reasons of a message in a conversation that isn't allowed. One
+// that arrives while the chat is pending waits for the owner's decision:
+// allowing a direct chat delivers it (Gate, within ship.ReleaseWindow).
+// One that arrives while the chat is denied stays held.
+const (
+	HoldPending = "conversation pending"
+	HoldDenied  = "conversation denied"
+)
+
 // Hold reasons of a message in an allowed conversation.
 const (
 	HoldNone         = ""

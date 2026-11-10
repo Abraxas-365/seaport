@@ -312,6 +312,82 @@ func (r *Repository) ReleaseSession(ctx context.Context, org identity.Organizati
 	return int(n), nil
 }
 
+func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationID, convID identity.ConversationID, since time.Time,
+	route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]ship.Ship, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, pgerr.Map(err, "begin release held")
+	}
+	defer func() { _ = tx.Rollback() }()
+	// The conversation must still be an allowed direct chat (FOR SHARE: a
+	// status change waits for this release, so a chat denied meanwhile
+	// releases nothing).
+	var conv struct {
+		Dock   identity.DockID     `db:"dock_id"`
+		Kind   conversation.Kind   `db:"kind"`
+		Status conversation.Status `db:"status"`
+	}
+	err = tx.GetContext(ctx, &conv, `SELECT dock_id, kind, status FROM conversations
+		WHERE organization_id = $1 AND id = $2 FOR SHARE`, org, convID)
+	if pgerr.IsNoRows(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, pgerr.Map(err, "find released conversation")
+	}
+	if conv.Status != conversation.StatusAllowed || conv.Kind != conversation.KindDirect {
+		return nil, nil
+	}
+	held := []ship.Ship{}
+	if err := tx.SelectContext(ctx, &held, `SELECT `+columns+` FROM ships
+		WHERE organization_id = $1 AND conversation_id = $2 AND direction = 'in' AND status = 'held'
+		  AND hold_reason = $3 AND created_at >= $4
+		ORDER BY created_at DESC, id DESC LIMIT $5 FOR UPDATE`,
+		org, convID, conversation.HoldPending, since, ship.MaxRelease); err != nil {
+		return nil, pgerr.Map(err, "held ships")
+	}
+	if len(held) == 0 {
+		return nil, nil
+	}
+	// As in CreateInbound: the team stays locked until commit.
+	team := []agent.Member{}
+	if err := tx.SelectContext(ctx, &team, `SELECT d.agent_id, a.name, d.is_default FROM dock_agents d
+		JOIN agents a ON a.organization_id = d.organization_id AND a.id = d.agent_id
+		WHERE d.organization_id = $1 AND d.dock_id = $2 ORDER BY d.created_at, a.name FOR SHARE OF d`,
+		org, conv.Dock); err != nil {
+		return nil, pgerr.Map(err, "dock team")
+	}
+	var previous identity.AgentID
+	err = tx.GetContext(ctx, &previous, `SELECT agent_id FROM ships
+		WHERE organization_id = $1 AND conversation_id = $2 AND agent_id IS NOT NULL
+		ORDER BY created_at DESC LIMIT 1`, org, convID)
+	if err != nil && !pgerr.IsNoRows(err) {
+		return nil, pgerr.Map(err, "previous agent")
+	}
+	out := make([]ship.Ship, 0, len(held))
+	for i := len(held) - 1; i >= 0; i-- { // oldest first
+		s := held[i]
+		picked, reason := route(team, s.Text, previous)
+		var updated ship.Ship
+		if picked.IsZero() {
+			err = tx.GetContext(ctx, &updated, `UPDATE ships SET hold_reason = $3
+				WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, s.ID, reason)
+		} else {
+			previous = picked
+			err = tx.GetContext(ctx, &updated, `UPDATE ships SET status = 'queued', agent_id = $3, hold_reason = ''
+				WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, s.ID, picked)
+		}
+		if err != nil {
+			return nil, pgerr.Map(err, "release held ship")
+		}
+		out = append(out, updated)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, pgerr.Map(err, "commit release held")
+	}
+	return out, nil
+}
+
 func (r *Repository) ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error) {
 	var rows []struct {
 		Organization identity.OrganizationID `db:"organization_id"`

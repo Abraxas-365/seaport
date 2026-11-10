@@ -226,6 +226,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
 			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
+	convs.Service.Bind(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},

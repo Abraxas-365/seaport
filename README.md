@@ -101,8 +101,10 @@ seaport auto <conversation-id>         # follow the rules again
 Order: your override → self chat → deny rules → allow rules → default. A deny
 rule matching a group member holds that member's messages in allowed groups
 (unless you allowed the conversation itself). Changing rules re-decides
-existing chats; held history is never delivered retroactively (the agent can
-read it with `history`).
+existing chats. When a pending direct chat becomes allowed (by you or a rule),
+what it sent while it waited is delivered to the agent, oldest first (the last
+24 hours, up to 50 messages); older messages, a denied chat's messages and a
+group's held messages stay held (the agent can read them with `history`).
 
 ### Agents
 

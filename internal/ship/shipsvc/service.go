@@ -102,6 +102,15 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 	if st.Status == ship.StatusQueued && st.Agent != nil {
 		s.notifier.Notify(org, *st.Agent)
 	}
+	if st.HoldReason == conversation.HoldPending {
+		// The owner may have allowed the chat between customs and the
+		// insert (its release didn't see this ship yet).
+		if now, err := s.convs.Find(ctx, org, conv.ID); err == nil && now.Allowed() {
+			if _, err := s.ReleaseHeld(ctx, org, conv.ID); err != nil {
+				slog.Error("deliver what waited at customs", "conversation", conv.ID, "err", err)
+			}
+		}
+	}
 	return st, true, nil
 }
 
@@ -203,6 +212,33 @@ func (s *Service) ReleaseSession(ctx context.Context, org identity.OrganizationI
 		s.notifier.Notify(org, identity.AgentID{})
 	}
 	return n, nil
+}
+
+func (s *Service) ReleaseHeld(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID) (int, error) {
+	if conv.IsZero() {
+		return 0, errx.InvalidField("conversation", "conversation is required")
+	}
+	changed, err := s.repo.ReleaseHeld(ctx, org, conv, s.now().Add(-ship.ReleaseWindow), agent.Route)
+	if err != nil {
+		return 0, errx.Wrap(err, "release held ships", errx.TypeInternal)
+	}
+	queued := 0
+	agents := map[identity.AgentID]bool{}
+	for _, st := range changed {
+		s.events.Publish(org, ship.EventUpdated, st)
+		if st.Status == ship.StatusQueued && st.Agent != nil {
+			queued++
+			agents[*st.Agent] = true
+		}
+	}
+	for a := range agents {
+		s.notifier.Notify(org, a)
+	}
+	if len(changed) > 0 {
+		slog.Info("released ships held while the conversation was pending", "organization", org,
+			"conversation", conv, "queued", queued, "held", len(changed)-queued)
+	}
+	return queued, nil
 }
 
 func (s *Service) ReleaseExpired(ctx context.Context, before time.Time) (int, error) {

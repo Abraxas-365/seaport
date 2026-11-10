@@ -63,6 +63,15 @@ type CustomsRepository interface {
 	CountRules(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (int, error)
 }
 
+// Gate lets through what waited at customs for the owner's decision:
+// when a direct chat becomes allowed, its messages held while it was
+// pending go on to the crew (ship.Commands.ReleaseHeld; bound late, the
+// ship service is built after this one). Groups are left alone: whether a
+// held group message addressed the account isn't stored.
+type Gate interface {
+	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (int, error)
+}
+
 // DockLocker serializes the customs decisions of one dock across
 // processes, so a status computed from old rules can't land after a rule
 // change re-decided the dock.

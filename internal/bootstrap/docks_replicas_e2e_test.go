@@ -297,6 +297,12 @@ func TestPortAcrossProcesses(t *testing.T) {
 	if code := b.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(), map[string]string{"access": "allow"}, nil); code != http.StatusOK {
 		t.Fatalf("allow: %d", code)
 	}
+	// Allowing delivers what waited at customs.
+	if f := agent.read(); f.Type != crew.FrameDelivery || f.Delivery.Ships[0].ID != held.ID {
+		t.Fatalf("released delivery: %+v", f)
+	} else {
+		agent.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
+	}
 
 	// converse: a message reaches the agent on c, which replies; the reply
 	// goes out through the process running the dock, and b sees it sent.

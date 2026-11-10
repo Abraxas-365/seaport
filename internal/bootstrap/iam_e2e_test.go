@@ -441,7 +441,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	tokA, tokB := p.issueAs(adminA, agentA.ID, "a"), p.issueAs(adminB, agentB.ID, "b")
 	crewB := p.dialCrewAs(tokB.Value, crew.Frame{Type: crew.FrameHello, Agent: "b", Concurrency: 2})
 	crewA := p.dialCrewAs(tokA.Value, crew.Frame{Type: crew.FrameHello, Agent: "a", Concurrency: 2})
-	// m1 stays held (allowing doesn't deliver history); m2 is delivered.
+	// m1 (released when the chat was allowed) and m2 go to org A's agent only.
 	if code := p.call(http.MethodPost, "/api/v1/docks/"+d.ID.String()+"/ships", adminA,
 		map[string]any{"chat_id": "111", "message_id": "m2", "sender_id": "111", "text": "sigues?"}, nil); code != http.StatusCreated {
 		t.Fatalf("inject m2: %d", code)

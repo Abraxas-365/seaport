@@ -29,6 +29,8 @@ export function ShipStatusIcon({ ship, className }: { ship: Ship; className?: st
 
 /** Why a ship was held (internal/conversation/customs.go, internal/agent/agent.go). */
 const holdLabel: Record<string, string> = {
+  "conversation pending": "esperando tu decisión en la aduana",
+  "conversation denied": "conversación bloqueada",
   "sender denied by a rule": "remitente bloqueado por una regla",
   "group message without a mention": "mensaje de grupo sin mención",
   "no agent is assigned to this dock": "ningún agente atiende este muelle",

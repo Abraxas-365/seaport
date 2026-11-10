@@ -11,7 +11,7 @@ import (
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
 // tenant domain's (dock, conversation, ship, crew, agent, hosting) Commands, Queries, CustomsCommands, CustomsQueries,
 // Messenger, Repository, CustomsRepository, Token*, Presence, DockLocker,
-// Owners and Relay port takes
+// Owners, Relay, Kits and Gate port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
@@ -23,7 +23,7 @@ var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
-	"Presence": true, "DockLocker": true, "Owners": true, "Relay": true, "Kits": true,
+	"Presence": true, "DockLocker": true, "Owners": true, "Relay": true, "Kits": true, "Gate": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.

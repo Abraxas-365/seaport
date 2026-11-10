@@ -22,6 +22,8 @@ type Service struct {
 
 	// locks serializes customs decisions per dock (in every process).
 	locks conversation.DockLocker
+	// gate delivers what waited while a chat was pending (Bind; nil: none).
+	gate conversation.Gate
 }
 
 func New(repo conversation.Repository, customs conversation.CustomsRepository, locks conversation.DockLocker, events event.Publisher) *Service {
@@ -30,6 +32,9 @@ func New(repo conversation.Repository, customs conversation.CustomsRepository, l
 	}
 	return &Service{repo: repo, customs: customs, locks: locks, events: events}
 }
+
+// Bind wires the gate (the ship service, built after this one).
+func (s *Service) Bind(gate conversation.Gate) { s.gate = gate }
 
 var (
 	_ conversation.Commands        = (*Service)(nil)
@@ -80,7 +85,10 @@ func (s *Service) Arrive(ctx context.Context, org identity.OrganizationID, input
 	}
 	out := conversation.Arrival{Conversation: conv}
 	if !conv.Allowed() {
-		out.Hold = "conversation " + string(conv.Status)
+		out.Hold = conversation.HoldDenied
+		if conv.Status == conversation.StatusPending {
+			out.Hold = conversation.HoldPending
+		}
 		return out, nil
 	}
 	out.Hold = customs.Admit(conv, senders, input.Addressed)
@@ -266,6 +274,13 @@ func (s *Service) redecide(ctx context.Context, org identity.OrganizationID, cus
 	slog.Info("customs status changed", "conversation", c.ID, "title", c.Title,
 		"from", c.Status, "to", status, "handles", strings.Join(c.Handles, ","))
 	s.events.Publish(org, conversation.EventUpdated, updated)
+	if updated.Allowed() && s.gate != nil {
+		// The status is stored: a failed release leaves those messages
+		// held (readable with history), it doesn't undo the decision.
+		if _, err := s.gate.ReleaseHeld(ctx, org, updated.ID); err != nil {
+			slog.Error("deliver what waited at customs", "conversation", updated.ID, "err", err)
+		}
+	}
 	return updated, nil
 }
 

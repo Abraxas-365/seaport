@@ -205,6 +205,14 @@ func (p *port) apiDock(name string) dock.Dock {
 	return d
 }
 
+// letIn lets every chat of the dock in (customs policy allow).
+func (p *port) letIn(d dock.Dock) {
+	p.t.Helper()
+	if code := p.admin(http.MethodPatch, "/api/v1/docks/"+d.ID.String()+"/customs/policy", map[string]string{"default": "allow"}, nil); code != http.StatusOK {
+		p.t.Fatalf("open dock: %d", code)
+	}
+}
+
 func (p *port) inject(d dock.Dock, chat, msgID, text string) ship.Ship {
 	p.t.Helper()
 	var s ship.Ship
@@ -360,11 +368,16 @@ func TestPortEndToEnd(t *testing.T) {
 	c := p.dialCrew(2)
 	c.quiet(300 * time.Millisecond)
 
-	// Allow it: new ships are delivered (the held one stays in history).
+	// Allow it: what waited at customs goes to the crew, then new ships.
 	var conv conversation.Conversation
 	if code := p.admin(http.MethodPatch, "/api/v1/conversations/"+held.Conversation.String(),
 		map[string]string{"access": "allow"}, &conv); code != http.StatusOK || !conv.Allowed() {
 		t.Fatalf("allow: %d %+v", code, conv)
+	}
+	if f := c.read(); f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].ID != held.ID {
+		t.Fatalf("released delivery: %+v", f)
+	} else {
+		c.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
 	}
 	p.inject(d, "111", "m2", "me ayudas con algo?")
 	p.inject(d, "111", "m3", "es urgente")
@@ -432,14 +445,14 @@ func TestPortEndToEnd(t *testing.T) {
 	var hist query.Paginated[ship.Ship]
 	p.admin(http.MethodGet, "/api/v1/conversations/"+conv.ID.String()+"/ships", nil, &hist)
 	if hist.Page.Total != 4 {
-		t.Fatalf("history total %d, want 4 (held, 2 handled, reply)", hist.Page.Total)
+		t.Fatalf("history total %d, want 4 (3 handled, reply)", hist.Page.Total)
 	}
 	statuses := map[ship.Status]int{}
 	for _, s := range hist.Items {
 		statuses[s.Status]++
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for statuses[ship.StatusHandled] != 2 && time.Now().Before(deadline) {
+	for statuses[ship.StatusHandled] != 3 && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 		p.admin(http.MethodGet, "/api/v1/conversations/"+conv.ID.String()+"/ships", nil, &hist)
 		statuses = map[ship.Status]int{}
@@ -447,7 +460,7 @@ func TestPortEndToEnd(t *testing.T) {
 			statuses[s.Status]++
 		}
 	}
-	if statuses[ship.StatusHeld] != 1 || statuses[ship.StatusHandled] != 2 || statuses[ship.StatusSent] != 1 {
+	if statuses[ship.StatusHeld] != 0 || statuses[ship.StatusHandled] != 3 || statuses[ship.StatusSent] != 1 {
 		t.Fatalf("statuses %v", statuses)
 	}
 }
@@ -456,8 +469,7 @@ func TestPortEndToEnd(t *testing.T) {
 func TestDeliveryReleasedOnDisconnect(t *testing.T) {
 	p := startPort(t)
 	d := p.apiDock("t")
-	s := p.inject(d, "333", "a1", "hola")
-	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
+	p.letIn(d)
 	p.inject(d, "333", "a2", "sigues ahí?")
 
 	first := p.dialCrew(1)
@@ -491,11 +503,11 @@ func TestDeliveryReleasedOnDisconnect(t *testing.T) {
 func TestSteerJoinsShipsToTheDeliveryInFlight(t *testing.T) {
 	p := startPort(t)
 	d := p.apiDock("t")
-	s := p.inject(d, "444", "s0", "hola")
-	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
+	p.letIn(d)
 
 	c := p.dialCrewWith(crew.Frame{Type: crew.FrameHello, Agent: "rness", Concurrency: 1, Steer: true})
 	first := p.inject(d, "444", "s1", "necesito un reporte")
+	s := first
 	f := c.read()
 	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].ID != first.ID {
 		t.Fatalf("delivery: %+v", f)
@@ -553,8 +565,7 @@ func TestSteerJoinsShipsToTheDeliveryInFlight(t *testing.T) {
 func TestNoSteerKeepsLaterShipsQueued(t *testing.T) {
 	p := startPort(t)
 	d := p.apiDock("t")
-	s := p.inject(d, "555", "q0", "hola")
-	p.admin(http.MethodPatch, "/api/v1/conversations/"+s.Conversation.String(), map[string]string{"access": "allow"}, nil)
+	p.letIn(d)
 	c := p.dialCrew(1)
 	p.inject(d, "555", "q1", "uno")
 	f := c.read()
@@ -668,7 +679,7 @@ func TestCustomsRules(t *testing.T) {
 		t.Fatalf("group mode on a direct chat: %d", code)
 	}
 
-	// Rule changes re-decide existing chats (held history stays held).
+	// Rule changes re-decide existing chats; what a denied chat sent stays held.
 	if code := p.admin(http.MethodDelete, "/api/v1/customs/rules/"+denySpam.ID.String(), nil, nil); code != http.StatusNoContent {
 		t.Fatalf("remove rule: %d", code)
 	}
@@ -684,12 +695,26 @@ func TestCustomsRules(t *testing.T) {
 	if st := p.conversation(spain.Conversation).Status; st != conversation.StatusAllowed {
 		t.Fatalf("spain chat allowed by owner: %s", st)
 	}
-	var hist query.Paginated[ship.Ship]
-	p.admin(http.MethodGet, "/api/v1/conversations/"+spain.Conversation.String()+"/ships", nil, &hist)
-	if len(hist.Items) != 1 || hist.Items[0].Status != ship.StatusHeld {
-		t.Fatalf("held history must stay held: %+v", hist.Items)
+	if hist := p.history(spam.Conversation); len(hist) != 1 || hist[0].Status != ship.StatusHeld || hist[0].HoldReason != conversation.HoldDenied {
+		t.Fatalf("a denied chat's message must stay held: %+v", hist)
+	}
+	// What the Spain chat sent while pending waited for the owner: allowing
+	// it delivers it.
+	if f := c1.read(); f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].ID != spain.ID {
+		t.Fatalf("released delivery: %+v", f)
+	} else {
+		c1.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
 	}
 	c1.quiet(300 * time.Millisecond)
+}
+
+func (p *port) history(conv identity.ConversationID) []ship.Ship {
+	p.t.Helper()
+	var hist query.Paginated[ship.Ship]
+	if code := p.admin(http.MethodGet, "/api/v1/conversations/"+conv.String()+"/ships", nil, &hist); code != http.StatusOK {
+		p.t.Fatalf("history: %d", code)
+	}
+	return hist.Items
 }
 
 type bearer struct{ token string }
