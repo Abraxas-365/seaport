@@ -59,6 +59,7 @@ import {
   StatusBadge,
   type ChoiceOption,
 } from "@/components/seaport"
+import { HostingCard, UsageCard } from "@/pages/agent-hosting"
 
 /** The agent profile rules (agent.SaveProfile.Validate). */
 const skillNamePattern = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -143,6 +144,8 @@ function AgentDetail({ agent }: { agent: LibraryAgent }) {
       </div>
       <div className="mx-auto max-w-4xl space-y-6 p-6">
         <ProfileEditor agent={agent} write={can(Perm.AgentsWrite)} />
+        <HostingCard agent={agent} />
+        <UsageCard agent={agent} />
         <SecretsCard agent={agent} write={can(Perm.AgentsWrite)} />
       </div>
     </div>

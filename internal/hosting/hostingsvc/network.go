@@ -2,6 +2,8 @@ package hostingsvc
 
 import (
 	"context"
+	"slices"
+	"strconv"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
@@ -101,4 +103,28 @@ func (s *Service) Denials(ctx context.Context, org identity.OrganizationID, agen
 		return nil, err
 	}
 	return s.repo.Denials(ctx, org, agentID, hosting.MaxDenials)
+}
+
+func (s *Service) SlotLog(ctx context.Context, org identity.OrganizationID, input hosting.LogQuery) (hosting.SlotLog, error) {
+	if err := input.Validate(); err != nil {
+		return hosting.SlotLog{}, err
+	}
+	// Another organization's agent, or a slot it doesn't have, is
+	// NotFound before the runtime is asked.
+	h, err := s.repo.Hosted(ctx, org, input.Agent)
+	if err != nil {
+		return hosting.SlotLog{}, err
+	}
+	if !slices.ContainsFunc(h.Slots, func(sl hosting.Slot) bool { return sl.Index == input.Index }) {
+		return hosting.SlotLog{}, errx.NotFound("the agent has no slot " + strconv.Itoa(input.Index))
+	}
+	rt := s.runtime()
+	if rt == nil {
+		return hosting.SlotLog{}, errx.Business("hosted agents are off on this port (SEAPORT_RUNTIME=off)")
+	}
+	log, err := rt.Logs(ctx, hosting.SlotRef{Organization: org, Agent: input.Agent, Index: input.Index}, input.Lines)
+	if err != nil {
+		return hosting.SlotLog{}, err
+	}
+	return hosting.SlotLog{Slot: input.Index, Log: log}, nil
 }

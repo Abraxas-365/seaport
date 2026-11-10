@@ -7,6 +7,7 @@ import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 
 import { keys } from "./query"
 import type {
+  Build,
   Conversation,
   CrewStatus,
   Dock,
@@ -136,6 +137,29 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
     qc.invalidateQueries({ queryKey: keys.crewTokens })
     qc.invalidateQueries({ queryKey: ["ships"] })
     qc.invalidateQueries({ queryKey: keys.inboxAll })
+    qc.invalidateQueries({ queryKey: keys.hosting }) // its hosting went with it
+    qc.invalidateQueries({ queryKey: keys.environments })
+  },
+  "environment.updated": (qc, env) => {
+    qc.setQueryData(keys.environment(env.id), env)
+    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
+    qc.invalidateQueries({ queryKey: keys.environmentVersions(env.id) })
+  },
+  "environment.deleted": (qc, { id }) => {
+    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
+    qc.removeQueries({ queryKey: ["environments", id] })
+    qc.removeQueries({ queryKey: ["build", id] })
+  },
+  // Events carry no log: a running build's query refetches for it.
+  "environment.build": (qc, b) => {
+    qc.setQueryData<Build | null>(keys.build(b.environment_id, b.version), (old) => ({ ...b, log: old?.log }))
+    qc.invalidateQueries({ queryKey: keys.build(b.environment_id, b.version) })
+  },
+  // Unhosting sends the agent with no environment and no slots.
+  "slot.updated": (qc, h) => {
+    qc.setQueryData(keys.hosted(h.agent_id), h.environment_id ? h : null)
+    qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
+    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
   },
 }
 

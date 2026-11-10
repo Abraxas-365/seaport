@@ -19,6 +19,15 @@ import type {
   LibraryAgent,
   AgentProfile,
   AgentSecret,
+  Build,
+  Denial,
+  EnvSpec,
+  EnvVersion,
+  Environment,
+  Hosted,
+  HostingStatus,
+  SlotLog,
+  UsageDay,
   ProfileInput,
   ProfileVersion,
   Paginated,
@@ -157,4 +166,29 @@ export const api = {
   createCrewToken: (agent_id: string, name: string, expires_at?: string) =>
     request<IssuedCrewToken>("POST", `${v1}/crew/tokens`, { agent_id, name, expires_at }),
   revokeCrewToken: (id: string) => request<void>("DELETE", `${v1}/crew/tokens/${id}`),
+
+  environments: () => request<Paginated<Environment>>("GET", `${v1}/environments${qs({ limit: 100 })}`),
+  environment: (id: string, version?: number) =>
+    request<Environment>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}`),
+  createEnvironment: (name: string, spec: Partial<EnvSpec>) =>
+    request<Environment>("POST", `${v1}/environments`, { name, spec }),
+  saveEnvironment: (id: string, base: number, spec: EnvSpec) =>
+    request<Environment>("PUT", `${v1}/environments/${id}`, { base, spec }),
+  deleteEnvironment: (id: string) => request<void>("DELETE", `${v1}/environments/${id}`),
+  environmentVersions: (id: string) => request<{ versions: EnvVersion[] }>("GET", `${v1}/environments/${id}/versions`),
+  build: (id: string, version?: number) =>
+    request<Build>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}/build`),
+  startBuild: (id: string, force = false) => request<Build>("POST", `${v1}/environments/${id}/build`, { force }),
+
+  hosting: () => request<HostingStatus>("GET", `${v1}/hosting`),
+  hosted: (agent: string) => request<Hosted>("GET", `${v1}/agents/${agent}/hosting`),
+  host: (agent: string, environment: string, slots: number) =>
+    request<Hosted>("PUT", `${v1}/agents/${agent}/hosting`, { environment, slots }),
+  unhost: (agent: string) => request<void>("DELETE", `${v1}/agents/${agent}/hosting`),
+  slotAction: (agent: string, slot: number, action: "start" | "stop") =>
+    request<Hosted>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/${action}`),
+  slotLog: (agent: string, slot: number, lines = 300) =>
+    request<SlotLog>("GET", `${v1}/agents/${agent}/hosting/slots/${slot}/logs${qs({ lines })}`),
+  egress: (agent: string) => request<{ denials: Denial[] }>("GET", `${v1}/agents/${agent}/hosting/egress`),
+  usage: (agent: string, days = 30) => request<{ days: UsageDay[] }>("GET", `${v1}/agents/${agent}/usage${qs({ days })}`),
 }

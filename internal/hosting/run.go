@@ -102,6 +102,37 @@ type RuntimeSlot struct {
 	Detail    string
 }
 
+// MaxLogLines bounds a slot log's tail (LogQuery.Lines).
+const MaxLogLines = 2000
+
+// LogQuery is the input of Queries.SlotLog.
+type LogQuery struct {
+	Agent identity.AgentID
+	Index int
+	// Lines is how many of the last lines (1..MaxLogLines).
+	Lines int
+}
+
+func (q LogQuery) Validate() error {
+	if q.Agent.IsZero() {
+		return errx.InvalidField("agent_id", "agent_id is required")
+	}
+	if q.Index < 1 || q.Index > MaxSlotsPerAgent {
+		return errx.InvalidField("slot", "slot must be between 1 and "+strconv.Itoa(MaxSlotsPerAgent))
+	}
+	if q.Lines < 1 || q.Lines > MaxLogLines {
+		return errx.InvalidField("lines", "lines must be between 1 and "+strconv.Itoa(MaxLogLines))
+	}
+	return nil
+}
+
+// SlotLog is the tail of a slot container's output (agent-run, the
+// connector and the harness's stderr), timestamped by the runtime.
+type SlotLog struct {
+	Slot int    `json:"slot"`
+	Log  string `json:"log"`
+}
+
 // SlotAction is the input of Commands.StartSlot and StopSlot.
 type SlotAction struct {
 	Agent identity.AgentID

@@ -1,6 +1,7 @@
 package hostingdocker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
@@ -226,3 +228,46 @@ func slotRef(labels map[string]string) (hosting.SlotRef, bool) {
 
 // String names the runtime in logs.
 func (r *Runtime) String() string { return fmt.Sprintf("docker (network %s)", r.cfg.Network) }
+
+// maxLogBytes bounds what Logs answers (its tail): lines can be long.
+const maxLogBytes = 1 << 20
+
+func (r *Runtime) Logs(ctx context.Context, ref hosting.SlotRef, lines int) (string, error) {
+	rc, err := r.api.ContainerLogs(ctx, containerName(ref), client.ContainerLogsOptions{
+		ShowStdout: true, ShowStderr: true, Timestamps: true, Tail: strconv.Itoa(lines)})
+	if cerrdefs.IsNotFound(err) {
+		return "", errx.NotFound("the slot has no container (it is stopped): start it to see its log")
+	}
+	if err != nil {
+		return "", errx.Wrap(err, "read the slot's log", errx.TypeExternal)
+	}
+	defer rc.Close()
+	// No TTY: stdout and stderr come multiplexed, frame by frame in order.
+	var out tail
+	if _, err := stdcopy.StdCopy(&out, &out, rc); err != nil {
+		return "", errx.Wrap(err, "read the slot's log", errx.TypeExternal)
+	}
+	return out.String(), nil
+}
+
+// tail keeps the last maxLogBytes written to it, from a line start.
+type tail struct{ b []byte }
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if over := len(t.b) - 2*maxLogBytes; over > 0 { // trim now and then, not per write
+		t.b = append(t.b[:0], t.b[len(t.b)-maxLogBytes:]...)
+	}
+	return len(p), nil
+}
+
+func (t *tail) String() string {
+	b := t.b
+	if len(b) > maxLogBytes {
+		b = b[len(b)-maxLogBytes:]
+		if i := bytes.IndexByte(b, '\n'); i >= 0 {
+			b = b[i+1:]
+		}
+	}
+	return string(b)
+}

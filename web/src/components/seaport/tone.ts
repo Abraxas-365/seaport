@@ -1,6 +1,6 @@
 // Tone: the one place status → color meaning lives (see index.css).
 
-import type { CustomsStatus, DockStatus, ShipStatus } from "@/lib/types"
+import type { BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState } from "@/lib/types"
 
 export type Tone = "neutral" | "brand" | "success" | "warning" | "danger" | "info"
 
@@ -93,5 +93,33 @@ export const shipLabel: Record<ShipStatus, string> = {
   handled: "Atendido",
   pending: "Enviando",
   sent: "Enviado",
+  failed: "Falló",
+}
+
+export const slotTone: Record<SlotState, Tone> = {
+  stopped: "neutral",
+  starting: "warning",
+  running: "success",
+  stopping: "warning",
+  failed: "danger",
+}
+
+export const slotLabel: Record<SlotState, string> = {
+  stopped: "Detenida",
+  starting: "Arrancando",
+  running: "En marcha",
+  stopping: "Deteniéndose",
+  failed: "Falló",
+}
+
+export const buildTone: Record<BuildState, Tone> = {
+  building: "warning",
+  ready: "success",
+  failed: "danger",
+}
+
+export const buildLabel: Record<BuildState, string> = {
+  building: "Construyendo",
+  ready: "Lista",
   failed: "Falló",
 }

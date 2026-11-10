@@ -10,7 +10,7 @@ import {
 } from "@tanstack/react-query"
 import { toast } from "sonner"
 
-import { api } from "./api"
+import { api, ApiError } from "./api"
 import { Perm, type Permission } from "./permissions.gen"
 import { keys } from "./query"
 import type {
@@ -19,6 +19,7 @@ import type {
   CustomsStatus,
   DefaultAccess,
   Effect,
+  EnvSpec,
   GroupMode,
   InboxItem,
   Paginated,
@@ -416,4 +417,185 @@ export function useNow(ms = 30_000) {
     return () => clearInterval(t)
   }, [ms])
   return now
+}
+
+// Hosting: environments, hosted agents and their slots.
+
+export function useEnvironments() {
+  const can = useCan()
+  return useQuery({ queryKey: keys.environments, queryFn: api.environments, enabled: can(Perm.EnvironmentsRead) })
+}
+
+/** An environment (version 0: the current one). */
+export function useEnvironment(id: string, version = 0) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.environment(id, version),
+    queryFn: () => api.environment(id, version),
+    enabled: !!id && can(Perm.EnvironmentsRead),
+  })
+}
+
+export function useEnvironmentVersions(id: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.environmentVersions(id),
+    queryFn: () => api.environmentVersions(id),
+    enabled: !!id && can(Perm.EnvironmentsRead),
+  })
+}
+
+/** A version's build; null when it was never built. While one runs it
+ * refetches (for its log; events carry none). */
+export function useBuild(id: string, version: number) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.build(id, version),
+    queryFn: () => api.build(id, version).catch(notFoundIsNull),
+    enabled: !!id && version > 0 && can(Perm.EnvironmentsRead),
+    refetchInterval: (q) => (q.state.data?.state === "building" ? 2000 : false),
+  })
+}
+
+function notFoundIsNull(err: unknown): null {
+  if (err instanceof ApiError && err.status === 404) return null
+  throw err
+}
+
+function useEnvironmentsChanged() {
+  const qc = useQueryClient()
+  return () => {
+    qc.invalidateQueries({ queryKey: keys.environments })
+    qc.invalidateQueries({ queryKey: keys.hosting })
+  }
+}
+
+export function useCreateEnvironment() {
+  const changed = useEnvironmentsChanged()
+  return useMutation({
+    mutationFn: ({ name, spec }: { name: string; spec: Partial<EnvSpec> }) => api.createEnvironment(name, spec),
+    onSuccess: changed,
+    onError: fail("No se pudo crear el entorno"),
+  })
+}
+
+export function useSaveEnvironment(id: string) {
+  const changed = useEnvironmentsChanged()
+  return useMutation({
+    mutationFn: ({ base, spec }: { base: number; spec: EnvSpec }) => api.saveEnvironment(id, base, spec),
+    onSuccess: (e, { base }) => {
+      changed()
+      if (e.version === base) toast.info("Sin cambios: el entorno ya era así")
+      else
+        toast.success(`Entorno v${e.version} guardado`, {
+          description: e.agents ? "Sus agentes reinician con él al quedar libres." : undefined,
+        })
+    },
+    onError: fail("No se pudo guardar el entorno"),
+  })
+}
+
+export function useDeleteEnvironment() {
+  const changed = useEnvironmentsChanged()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteEnvironment(id),
+    onSuccess: changed,
+    onError: fail("No se pudo eliminar el entorno"),
+  })
+}
+
+export function useStartBuild(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (force: boolean) => api.startBuild(id, force),
+    onSuccess: (b) => {
+      qc.setQueryData(keys.build(id, b.version), b)
+    },
+    onError: fail("No se pudo construir la imagen"),
+  })
+}
+
+/** Which agents are hosted, and whether this port runs any. */
+export function useHosting() {
+  const can = useCan()
+  return useQuery({ queryKey: keys.hosting, queryFn: api.hosting, enabled: can(Perm.EnvironmentsRead) })
+}
+
+/** An agent's hosting; null when it isn't hosted. */
+export function useHosted(agent: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.hosted(agent),
+    queryFn: () => api.hosted(agent).catch(notFoundIsNull),
+    enabled: can(Perm.EnvironmentsRead),
+  })
+}
+
+function useHostingChanged(agent: string) {
+  const qc = useQueryClient()
+  return (h?: unknown) => {
+    if (h) qc.setQueryData(keys.hosted(agent), h)
+    qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
+    qc.invalidateQueries({ queryKey: keys.environments })
+  }
+}
+
+export function useHost(agent: string) {
+  const changed = useHostingChanged(agent)
+  return useMutation({
+    mutationFn: ({ environment, slots }: { environment: string; slots: number }) =>
+      api.host(agent, environment, slots),
+    onSuccess: (h) => changed(h),
+    onError: fail("No se pudo alojar el agente"),
+  })
+}
+
+export function useUnhost(agent: string) {
+  const changed = useHostingChanged(agent)
+  return useMutation({
+    mutationFn: () => api.unhost(agent),
+    onSuccess: () => changed(null),
+    onError: fail("No se pudo dejar de alojar el agente"),
+  })
+}
+
+export function useSlotAction(agent: string) {
+  const changed = useHostingChanged(agent)
+  return useMutation({
+    mutationFn: ({ slot, action }: { slot: number; action: "start" | "stop" }) => api.slotAction(agent, slot, action),
+    onSuccess: (h) => changed(h),
+    onError: fail("No se pudo cambiar la instancia"),
+  })
+}
+
+/** A slot's log tail, refreshed every few seconds while open. */
+export function useSlotLog(agent: string, slot: number, open: boolean) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.slotLog(agent, slot),
+    queryFn: () => api.slotLog(agent, slot),
+    enabled: open && can(Perm.EnvironmentsWrite),
+    refetchInterval: open ? 3000 : false,
+    retry: false,
+  })
+}
+
+export function useEgress(agent: string, enabled: boolean) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.egress(agent),
+    queryFn: () => api.egress(agent),
+    enabled: enabled && can(Perm.EnvironmentsRead),
+    refetchInterval: 60_000,
+  })
+}
+
+export function useUsage(agent: string, days = 30) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.usage(agent, days),
+    queryFn: () => api.usage(agent, days),
+    enabled: can(Perm.AgentsRead),
+    refetchInterval: 60_000,
+  })
 }

@@ -287,5 +287,136 @@ export interface EventMap {
   "crew.changed": CrewStatus
   "agent.updated": LibraryAgent
   "agent.deleted": { id: ID }
+  "environment.updated": Environment
+  "environment.deleted": { id: ID }
+  "environment.build": Build
+  "slot.updated": Hosted
 }
 export type EventType = keyof EventMap
+
+// Hosting: agents the port runs itself (environments, slots, builds).
+
+export type Harness = "rness" | "claude-code"
+export type ResourceSize = "S" | "M" | "L"
+
+export interface EnvRepo {
+  /** https clone URL. */
+  url: string
+  /** Branch, tag or commit ("": the default branch). */
+  ref: string
+  /** Directory under /workspace ("": the repo's name). */
+  path: string
+  /** ${SECRET}: one of the hosted agent's secrets (a token). */
+  credential: string
+  /** Shell run in the clone on each start (deps). */
+  on_start: string
+}
+
+/** An environment's spec: where hosted agents run (complete once stored). */
+export interface EnvSpec {
+  description: string
+  harness: Harness
+  /** Base image ("": the harness's Seaport base). */
+  image: string
+  /** Debian packages (name or name=version). */
+  packages: string[]
+  /** bash run as root while building the image. */
+  setup: string
+  repos: EnvRepo[]
+  /** Whether the harness reads the repos' own config (AGENTS.md, .claude/…). */
+  repo_config: "trust" | "ignore"
+  models: { anthropic: string }
+  network: { egress: string[] }
+  resources: { size?: ResourceSize; cpus: number; memory_mb: number }
+  workspace: "persistent" | "ephemeral"
+  /** Go duration ("30m", "2h"); "0" never stops. */
+  idle_stop: string
+}
+
+export interface Environment {
+  id: ID
+  name: string
+  version: number
+  spec: EnvSpec
+  created_by: string
+  created_at: string
+  updated_at: string
+  /** Agents hosted on it. */
+  agents: number
+}
+
+export interface EnvVersion {
+  version: number
+  created_by: string
+  created_at: string
+}
+
+export type BuildState = "building" | "ready" | "failed"
+
+/** An environment version's image build. */
+export interface Build {
+  environment_id: ID
+  version: number
+  state: BuildState
+  base: string
+  image: string
+  detail: string
+  /** Its output's tail (not in events). */
+  log?: string
+  started_at: string
+  finished_at: string | null
+  updated_at: string
+}
+
+export type SlotState = "stopped" | "starting" | "running" | "stopping" | "failed"
+
+/** One stable instance of a hosted agent (<agent>-<index>). */
+export interface Slot {
+  index: number
+  state: SlotState
+  detail: string
+  image: string
+  /** 0: never started. */
+  environment_version: number
+  started_at: string | null
+  active_at: string | null
+  updated_at: string
+}
+
+/** A hosted agent: its environment and slots (none: unhosted). */
+export interface Hosted {
+  agent_id: ID
+  environment_id: ID
+  slots: Slot[]
+  updated_by: string
+  updated_at: string
+}
+
+export interface HostingStatus {
+  agents: Hosted[]
+  /** This port runs hosted agents (SEAPORT_RUNTIME isn't off). */
+  runtime: boolean
+}
+
+export interface SlotLog {
+  slot: number
+  log: string
+}
+
+export interface Denial {
+  slot: number
+  host: string
+  count: number
+  last_seen: string
+}
+
+export interface UsageDay {
+  day: string
+  provider: string
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
+}

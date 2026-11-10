@@ -98,6 +98,22 @@ func TestHostedSlots(t *testing.T) {
 		t.Fatalf("start running: %d %+v", code, h)
 	}
 
+	// Its log: the runtime's tail (300 lines by default); a slot the agent
+	// doesn't have is NotFound, a bad lines refused.
+	var sl hosting.SlotLog
+	if code := p.admin(http.MethodGet, hostPath+"/slots/1/logs", nil, &sl); code != http.StatusOK || sl.Slot != 1 || sl.Log != "slot 1: 300 lines\n" {
+		t.Fatalf("slot log: %d %+v", code, sl)
+	}
+	if code := p.admin(http.MethodGet, hostPath+"/slots/1/logs?lines=20", nil, &sl); code != http.StatusOK || sl.Log != "slot 1: 20 lines\n" {
+		t.Fatalf("slot log lines: %d %+v", code, sl)
+	}
+	if code := p.admin(http.MethodGet, hostPath+"/slots/3/logs", nil, nil); code != http.StatusNotFound {
+		t.Fatalf("log of a slot it doesn't have: %d", code)
+	}
+	if code := p.admin(http.MethodGet, hostPath+"/slots/1/logs?lines=0", nil, nil); code != http.StatusBadRequest {
+		t.Fatalf("log lines=0: %d", code)
+	}
+
 	// The slot token isn't listed with people's tokens; it reads the
 	// slot's workspace (credentials resolved) and works as the agent.
 	var tokens query.Paginated[crew.Token]
@@ -132,6 +148,9 @@ func TestHostedSlots(t *testing.T) {
 	}
 	if code := p.call(http.MethodGet, "/crew/workspace", slotToken, nil, nil); code != http.StatusUnauthorized {
 		t.Fatalf("revoked slot token: %d", code)
+	}
+	if code := p.admin(http.MethodGet, hostPath+"/slots/1/logs", nil, nil); code != http.StatusNotFound {
+		t.Fatalf("log of a stopped slot: %d", code)
 	}
 
 	// New work wakes the stopped agent (the image is already built).

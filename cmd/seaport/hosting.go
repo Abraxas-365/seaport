@@ -17,7 +17,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// hostCmd is `seaport agents host|unhost|slots|start|stop|usage|egress ...`.
+// hostCmd is `seaport agents host|unhost|slots|start|stop|logs|usage|egress ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
 	case "usage":
@@ -70,6 +70,25 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		}
 		_ = w.Flush()
 		fmt.Println("allow one: add it to the environment's network.egress (seaport env export|apply)")
+		return nil
+	case "logs":
+		if len(args) < 1 {
+			return errx.Validation("usage: seaport agents logs <agent>[-<slot>] [-lines N]")
+		}
+		fs := flag.NewFlagSet("agents logs", flag.ContinueOnError)
+		lines := fs.Int("lines", 300, "last lines (at most 2000)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		ag, idx, err := findSlot(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var out hosting.SlotLog
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/agents/%s/hosting/slots/%d/logs?lines=%d", ag.ID, idx, *lines), nil, &out); err != nil {
+			return err
+		}
+		fmt.Print(out.Log)
 		return nil
 	case "start", "stop":
 		if len(args) != 1 {

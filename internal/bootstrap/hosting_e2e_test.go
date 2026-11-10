@@ -109,9 +109,11 @@ func TestEnvironmentsAndHosting(t *testing.T) {
 		t.Fatalf("host reviewer: %d", code)
 	}
 	var all struct {
-		Agents []hosting.Hosted `json:"agents"`
+		Agents  []hosting.Hosted `json:"agents"`
+		Runtime bool             `json:"runtime"`
 	}
-	if code := p.admin(http.MethodGet, "/api/v1/hosting", nil, &all); code != http.StatusOK || len(all.Agents) != 2 {
+	// This port runs no hosted agents (no runtime): the web says so.
+	if code := p.admin(http.MethodGet, "/api/v1/hosting", nil, &all); code != http.StatusOK || len(all.Agents) != 2 || all.Runtime {
 		t.Fatalf("hosted agents: %d %+v", code, all)
 	}
 	var listed query.Paginated[hosting.Environment]

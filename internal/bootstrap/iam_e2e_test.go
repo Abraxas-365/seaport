@@ -512,6 +512,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/start", "POST /api/v1/agents/{id}/hosting/slots/{slot}/start", nil, permission.EnvironmentsWrite},
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/stop", "POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", nil, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/hosting/egress", "GET /api/v1/agents/{id}/hosting/egress", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/logs", "GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", nil, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/usage", "GET /api/v1/agents/{id}/usage", nil, permission.AgentsRead},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}

@@ -79,6 +79,10 @@ type Queries interface {
 	// Denials are the hosts the egress proxy refused the agent's slots,
 	// most recent first (at most MaxDenials).
 	Denials(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Denial, error)
+	// SlotLog is the tail of a slot's container output (NotFound when the
+	// agent isn't hosted, has no such slot, or the slot has no container:
+	// a stopped slot's went with it).
+	SlotLog(ctx context.Context, organization identity.OrganizationID, input LogQuery) (SlotLog, error)
 }
 
 // Runtime is the container engine hosted agents run on (hostingdocker).
@@ -105,6 +109,10 @@ type Runtime interface {
 	// Slots lists the slots of port (LabelPort) the runtime has a
 	// container or volumes of.
 	Slots(ctx context.Context, port string) ([]RuntimeSlot, error)
+	// Logs is the last lines of a slot container's output, stdout and
+	// stderr interleaved, each line timestamped (NotFound with no
+	// container).
+	Logs(ctx context.Context, slot SlotRef, lines int) (string, error)
 }
 
 // Credentials mint and revoke slot tokens (the crew's tokens).

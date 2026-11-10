@@ -15,9 +15,13 @@ import (
 type Handler struct {
 	commands hosting.Commands
 	queries  hosting.Queries
+	// runtime: this port runs hosted agents (SEAPORT_RUNTIME isn't off).
+	runtime bool
 }
 
-func New(c hosting.Commands, q hosting.Queries) *Handler { return &Handler{commands: c, queries: q} }
+func New(c hosting.Commands, q hosting.Queries, runtime bool) *Handler {
+	return &Handler{commands: c, queries: q, runtime: runtime}
+}
 
 // Register mounts the routes on mux (already behind admin auth). A spec
 // whose repo credentials name agent secrets directs them, so writing one,
@@ -40,6 +44,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/start", httpx.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
 	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", httpx.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
 	mux.Handle("GET /api/v1/agents/{id}/hosting/egress", httpx.RequireFunc(permission.EnvironmentsRead, h.denials))
+	// Logs: whatever the agent printed (a tool may echo an env secret), so
+	// only who may change where it runs reads them.
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", httpx.RequireFunc(permission.EnvironmentsWrite, h.slotLog))
 	mux.Handle("GET /api/v1/agents/{id}/usage", httpx.RequireFunc(permission.AgentsRead, h.usage))
 }
 
@@ -287,7 +294,7 @@ func (h *Handler) hostedAgents(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"agents": out})
+	return httpx.JSON(w, http.StatusOK, map[string]any{"agents": out, "runtime": h.runtime})
 }
 
 func (h *Handler) hosted(w http.ResponseWriter, r *http.Request) error {
@@ -401,6 +408,26 @@ func (h *Handler) stopSlot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return httpx.JSON(w, http.StatusAccepted, out)
+}
+
+// slotLog is GET /api/v1/agents/{id}/hosting/slots/{slot}/logs?lines=N
+// (default 300): the tail of the slot's container output.
+func (h *Handler) slotLog(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	q := hosting.LogQuery{Agent: in.Agent, Index: in.Index, Lines: 300}
+	if v := r.URL.Query().Get("lines"); v != "" {
+		if q.Lines, err = strconv.Atoi(v); err != nil {
+			return errx.InvalidField("lines", "lines must be a number")
+		}
+	}
+	out, err := h.queries.SlotLog(r.Context(), p.Organization, q)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, out)
 }
 
 // usage is GET /api/v1/agents/{id}/usage?days=N (default 30): the

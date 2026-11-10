@@ -1,7 +1,7 @@
 import * as React from "react"
-import { Ban, Check, CircleHelp, Moon, Sun } from "lucide-react"
+import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Dock, InboxItem, Ship } from "@/lib/types"
+import type { Agent, Build, Dock, InboxItem, Ship, Slot, UsageDay } from "@/lib/types"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   AgentCard,
   AgentChip,
+  BuildBadge,
   ChannelIcon,
   ChatAvatar,
   ChoiceCards,
@@ -23,14 +24,17 @@ import {
   DayDivider,
   DockCard,
   EmptyState,
+  LogView,
   NoAccess,
   PairingPanel,
   SeaportLogo,
   SeaportMark,
   SegmentedChoice,
   ShipBubble,
+  SlotRow,
   StatusBadge,
   StatusDot,
+  UsageChart,
   customsLabel,
   customsTone,
   dockLabel,
@@ -391,6 +395,50 @@ const sampleAgent: Agent = {
   ],
 }
 
+const sampleSlot = (over: Partial<Slot>): Slot => ({
+  index: 1,
+  state: "stopped",
+  detail: "",
+  image: "seaport-env-backend:v3-1a2b3c",
+  environment_version: 3,
+  started_at: null,
+  active_at: null,
+  updated_at: ago(42),
+  ...over,
+})
+
+const sampleSlots: Slot[] = [
+  sampleSlot({ index: 1, state: "running", started_at: ago(75), active_at: ago(3) }),
+  sampleSlot({ index: 2, state: "running", environment_version: 2, started_at: ago(300), active_at: ago(20) }),
+  sampleSlot({ index: 3, state: "starting", updated_at: ago(0) }),
+  sampleSlot({ index: 4, state: "failed", detail: "clone https://github.com/acme/app.git: authentication failed" }),
+  sampleSlot({ index: 5 }),
+]
+
+const sampleBuild = (over: Partial<Build>): Build => ({
+  environment_id: "e1",
+  version: 3,
+  state: "ready",
+  base: "ghcr.io/abraxas-365/seaport-rness:latest",
+  image: "seaport-env-backend:v3-1a2b3c",
+  detail: "",
+  started_at: ago(10),
+  finished_at: ago(8),
+  updated_at: ago(8),
+  ...over,
+})
+
+const sampleUsage: UsageDay[] = Array.from({ length: 18 }, (_, i) => ({
+  day: new Date(now - (i * 1.6 + (i % 3)) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
+  provider: "anthropic",
+  model: i % 4 === 0 ? "claude-haiku-4-5" : "claude-sonnet-4-5",
+  requests: 12 + ((i * 7) % 30),
+  input_tokens: 40_000 + ((i * 9_301) % 90_000),
+  output_tokens: 6_000 + ((i * 1_733) % 12_000),
+  cache_write_tokens: 8_000,
+  cache_read_tokens: 120_000 + ((i * 17_011) % 200_000),
+}))
+
 function Domain() {
   const [active, setActive] = React.useState("c-ana")
   return (
@@ -423,6 +471,45 @@ function Domain() {
           <AgentChip name="pm" online isDefault />
           <AgentChip name="reviewer" online={false} />
           <AgentChip name="soporte" />
+        </Specimen>
+        <Specimen label="SlotRow (instancias de un agente alojado; v2 → v3 = reinicia al quedar libre)" className="lg:col-span-2">
+          <ul className="divide-y rounded-lg border bg-card">
+            {sampleSlots.map((s) => (
+              <li key={s.index}>
+                <SlotRow
+                  name={`pm-${s.index}`}
+                  slot={s}
+                  current={3}
+                  now={now}
+                  actions={
+                    <>
+                      <Button variant="ghost" size="icon-sm" aria-label="Registro">
+                        <TerminalSquare />
+                      </Button>
+                      <Button variant="ghost" size="icon-sm" aria-label="Arrancar o detener">
+                        {s.state === "running" || s.state === "starting" ? <Square /> : <Play />}
+                      </Button>
+                    </>
+                  }
+                />
+              </li>
+            ))}
+          </ul>
+        </Specimen>
+        <Specimen label="BuildBadge (imagen de una versión del entorno)" className="flex flex-wrap items-center gap-2">
+          <BuildBadge build={null} />
+          <BuildBadge build={sampleBuild({ state: "building", finished_at: null })} />
+          <BuildBadge build={sampleBuild({})} />
+          <BuildBadge build={sampleBuild({ state: "failed", version: 2 })} />
+        </Specimen>
+        <Specimen label="LogView (build o instancia; sigue el final)">
+          <LogView
+            className="max-h-40"
+            text={"#5 [2/3] RUN apt-get install -y nodejs npm\n#5 DONE 21.4s\n#6 [3/3] RUN bash /opt/seaport/setup.sh\n#6 DONE 3.1s\nnaming to seaport-env-backend:v3-1a2b3c done"}
+          />
+        </Specimen>
+        <Specimen label="UsageChart (tokens por día por el gateway)" className="lg:col-span-2">
+          <UsageChart days={sampleUsage} />
         </Specimen>
         <Specimen label="PairingPanel" className="lg:col-span-2">
           <Card className="py-0">

@@ -71,6 +71,17 @@ func (f *fakeRuntime) Slots(context.Context, string) ([]hosting.RuntimeSlot, err
 	return out, nil
 }
 
+// Logs answers a line naming the slot and the lines asked for while it
+// has a container.
+func (f *fakeRuntime) Logs(_ context.Context, ref hosting.SlotRef, lines int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.slots[ref.Key()].Container {
+		return "", errx.NotFound("the slot has no container (it is stopped): start it to see its log")
+	}
+	return fmt.Sprintf("slot %d: %d lines\n", ref.Index, lines), nil
+}
+
 // exit makes a slot's container exit (the agent crashed).
 func (f *fakeRuntime) exit(ref hosting.SlotRef, detail string) {
 	f.mu.Lock()

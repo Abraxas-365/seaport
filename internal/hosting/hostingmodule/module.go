@@ -85,7 +85,7 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 	m.Service = hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
 		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
 		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod})
-	m.http = hostinghttp.New(m.Service, m.Service)
+	m.http = hostinghttp.New(m.Service, m.Service, runtime != nil)
 	gw, err := hostinggateway.New(m.Service, hostinggateway.Config{Anthropic: cfg.GatewayAnthropic})
 	if err != nil {
 		m.Close()
