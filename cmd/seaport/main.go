@@ -68,6 +68,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents logs <agent>[-<n>] [-lines N]   the tail of a running slot's output
   seaport agents usage <agent> [-days N]   model tokens it used through the port's gateway
   seaport agents egress <agent>         hosts the egress proxy refused its slots
+  seaport agents login <agent>[-<n>]    sign a Claude Code slot in to a subscription (experimental)
+  seaport agents account <agent>[-<n>]  how a running slot's harness is signed in
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents
@@ -127,6 +129,13 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 		return connector.Hosted(ctx, cfg)
+	case "agent-login":
+		// a hosted slot's subscription sign-in (the port runs it in the
+		// container and relays it).
+		return connector.Login(ctx, os.Stdin, os.Stdout)
+	case "agent-account":
+		// how a hosted slot's harness is signed in (JSON; the port asks).
+		return connector.AccountStatus(ctx, os.Stdout)
 	case "git-credential":
 		// git's credential helper inside a hosted slot (set up by agent-run).
 		op := ""

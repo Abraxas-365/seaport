@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import type { Build, Slot, UsageDay } from "@/lib/types"
+import type { Build, Slot, SlotAccount, UsageDay } from "@/lib/types"
 import { formatDuration, formatFull, formatRelative } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { Mono } from "./layout"
@@ -63,6 +63,38 @@ export function SlotRow({
         </p>
       )}
     </div>
+  )
+}
+
+const accountMethod: Record<string, string> = {
+  "claude.ai": "Claude",
+  oauth_token: "token OAuth",
+  api_key: "clave API",
+}
+
+/**
+ * How a slot's harness is signed in (subscription slots, experimental):
+ * undefined while it's being asked.
+ */
+export function AccountBadge({ account, className }: { account: SlotAccount | undefined; className?: string }) {
+  if (!account)
+    return (
+      <StatusBadge className={className} pulse>
+        Cuenta…
+      </StatusBadge>
+    )
+  if (!account.logged_in)
+    return (
+      <StatusBadge className={className} tone="warning" title="No toma mensajes hasta que se conecte a una cuenta">
+        Sin cuenta
+      </StatusBadge>
+    )
+  const how = accountMethod[account.method] ?? account.method
+  return (
+    <StatusBadge className={className} tone="success" title={`Conectada con ${how}`}>
+      {how}
+      {account.subscription ? ` · ${account.subscription}` : ""}
+    </StatusBadge>
   )
 }
 

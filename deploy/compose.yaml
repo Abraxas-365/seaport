@@ -3,6 +3,10 @@
 #   cp .env.example .env   # fill it in
 #   docker compose up -d --build
 # Only Caddy publishes ports; Seaport and Postgres stay on the internal network.
+# Hosted agents (optional): SEAPORT_RUNTIME=docker in .env and
+#   docker compose --profile hosting up -d --build
+# adds a Docker socket proxy (only the Engine calls Seaport makes); slots run
+# on the internal network `seaport-slots`, where they reach only Seaport.
 name: seaport-prod
 
 services:
@@ -62,10 +66,46 @@ services:
       SEAPORT_MAX_CREW_CONNECTIONS: ${SEAPORT_MAX_CREW_CONNECTIONS:-20}
       SEAPORT_API_RATE: ${SEAPORT_API_RATE:-20}
       SEAPORT_API_BURST: ${SEAPORT_API_BURST:-60}
+      # Hosted agents: off, or docker (with --profile hosting).
+      SEAPORT_RUNTIME: ${SEAPORT_RUNTIME:-off}
+      DOCKER_HOST: tcp://docker-proxy:2375
+      SEAPORT_RUNTIME_NETWORK: seaport-slots
+      # Slots reach the port (crew, MCP, model gateway) and its egress
+      # proxy by the service name on seaport-slots.
+      SEAPORT_AGENT_URL: http://seaport:8740
+      SEAPORT_EGRESS_ADDR: ${SEAPORT_EGRESS_ADDR:-:8741}
+      # Base images ("": ghcr.io/abraxas-365/seaport-<harness> of this release)
+      SEAPORT_IMAGE_RNESS: ${SEAPORT_IMAGE_RNESS:-}
+      SEAPORT_IMAGE_CLAUDE_CODE: ${SEAPORT_IMAGE_CLAUDE_CODE:-}
+      SEAPORT_MAX_SLOTS: ${SEAPORT_MAX_SLOTS:-10}
+      SEAPORT_HOST_MAX_CPUS: ${SEAPORT_HOST_MAX_CPUS:-4}
+      SEAPORT_HOST_MAX_MEMORY_MB: ${SEAPORT_HOST_MAX_MEMORY_MB:-8192}
     volumes:
       - seaport_data:/data
+    networks: [default, docker, slots]
     expose:
       - "8740"
+
+  # Hosted agents: the Docker Engine API, narrowed to what Seaport uses
+  # (containers, exec, images and builds, volumes, network inspect). Only
+  # Seaport reaches it (network `docker`); slots never do.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    profiles: [hosting]
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      EXEC: 1
+      IMAGES: 1
+      BUILD: 1
+      VOLUMES: 1
+      NETWORKS: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [docker]
 
   caddy:
     image: caddy:2-alpine
@@ -114,6 +154,16 @@ services:
           find /backups -name 'seaport-*.dump' -mmin +$$((BACKUP_KEEP_DAYS * 1440)) -delete
           sleep "$$BACKUP_EVERY_SECONDS"
         done
+
+networks:
+  default:
+  docker:
+    internal: true
+  # Slots' only network: internal (no route out), so the egress proxy is
+  # their way to the internet. Named, since Seaport names it to Docker.
+  slots:
+    name: seaport-slots
+    internal: true
 
 volumes:
   pgdata:

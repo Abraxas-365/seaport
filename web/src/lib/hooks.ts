@@ -580,6 +580,55 @@ export function useSlotLog(agent: string, slot: number, open: boolean) {
   })
 }
 
+/** A slot's account (signed in or not), while the slot runs. */
+export function useSlotAccount(agent: string, slot: number, enabled: boolean) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.slotAccount(agent, slot),
+    queryFn: () => api.slotAccount(agent, slot),
+    enabled: enabled && can(Perm.EnvironmentsRead),
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+/** The slot's sign-in, polled while it goes (the URL shows once waiting). */
+export function useSlotLogin(agent: string, slot: number, enabled: boolean) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.slotLogin(agent, slot),
+    queryFn: () => api.slotLogin(agent, slot),
+    enabled: enabled && can(Perm.EnvironmentsWrite),
+    refetchInterval: (q) => {
+      const s = q.state.data?.state
+      return s === "starting" || s === "waiting" || s === "verifying" ? 1000 : false
+    },
+    retry: false,
+  })
+}
+
+export function useStartLogin(agent: string, slot: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.startLogin(agent, slot),
+    onSuccess: (l) => {
+      // Over an older read in flight (the dialog opening), then poll it.
+      qc.setQueryData(keys.slotLogin(agent, slot), l)
+      qc.invalidateQueries({ queryKey: keys.slotLogin(agent, slot) })
+    },
+    onError: fail("No se pudo iniciar la conexión"),
+  })
+}
+
+export function useLoginCode(agent: string, slot: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (code: string) => api.loginCode(agent, slot, code),
+    onSuccess: (l) => qc.setQueryData(keys.slotLogin(agent, slot), l),
+    onError: fail("No se pudo enviar el código"),
+  })
+}
+
 export function useEgress(agent: string, enabled: boolean) {
   const can = useCan()
   return useQuery({

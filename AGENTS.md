@@ -320,6 +320,24 @@ test together with the reason. Add a rule when you add a pattern.
   addresses unless `SEAPORT_EGRESS_PRIVATE`; refusals are counted per slot
   and host (`egress_denials`, at most once per `DenialEvery`;
   `GET /api/v1/agents/{id}/hosting/egress`).
+- Subscription sign-in (experimental; `hosting/login.go`, migration
+  00019, `hostingsvc/logins.go`): a `claude-code` spec with no
+  `models.anthropic` (`Spec.SignsIn`) adds the subscription hosts to the
+  egress and `Workspace.SignIn`, so `agent-run` waits (taking no work)
+  until `claude auth status` says logged in, and restarts the harness on
+  each new sign-in mark. `StartLogin` (one live per slot in `slot_logins`,
+  keyed by the slot's run) runs `seaport agent-login` in the slot through
+  `Runtime.Exec` (uid 1000) in a background relay of the process that
+  started it: it takes only a Claude OAuth URL from the output
+  (`LoginURL`: https, Anthropic's hosts, `/oauth/authorize`), feeds the
+  code posted to `slot_logins` (`TakeLoginCode` clears it at once) to
+  claude's stdin, beats every `LoginBeat` (a sign-in with no beat for
+  `LoginStale` reads as failed) and ends within `LoginTimeout`. Tokens
+  stay in the slot's state volume (`~/.claude` and `~/.claude.json`
+  linked there); the port never sees them, and the code is not a secret
+  opener (single use, bound to the PKCE of that login). `Account` asks
+  the harness (`agent-account`). rness refuses (no headless sign-in);
+  the fallback is an env secret `CLAUDE_CODE_OAUTH_TOKEN`.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a

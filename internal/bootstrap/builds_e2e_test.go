@@ -1,11 +1,13 @@
 package bootstrap_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +29,63 @@ type fakeRuntime struct {
 	starts   []hosting.StartSlot
 	removed  []hosting.SlotRef
 	startErr error
+	// signedIn: slots whose (fake) harness signed in.
+	signedIn map[string]bool
+}
+
+// fakeLoginURL is what the fake harness's login prints to sign in at.
+const fakeLoginURL = "https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=s"
+
+// Exec plays the harness in a running container: the login prints its
+// URL, reads a code ("good-code" signs in, anything else fails) and the
+// account command answers whether it signed in.
+func (f *fakeRuntime) Exec(ctx context.Context, ref hosting.SlotRef, run string, cmd []string, stdin io.Reader, out io.Writer) (int, error) {
+	f.mu.Lock()
+	r := f.slots[ref.Key()]
+	f.mu.Unlock()
+	if !r.Container {
+		return 0, errx.NotFound("the slot has no container (it is stopped): start it first")
+	}
+	if !r.Running || (run != "" && r.Run != run) {
+		return 0, errx.Business("the slot's container isn't running")
+	}
+	switch {
+	case slices.Equal(cmd, hosting.LoginCommand):
+		fmt.Fprintf(out, "Opening browser to sign in…\nIf the browser didn't open, visit: %s\n", fakeLoginURL)
+		line := make(chan string, 1)
+		go func() {
+			b, _ := bufio.NewReader(stdin).ReadString('\n')
+			line <- strings.TrimSpace(b)
+		}()
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case code := <-line:
+			if code != "good-code" {
+				fmt.Fprintln(out, "Login failed: Request failed with status code 400")
+				return 1, nil
+			}
+		}
+		f.mu.Lock()
+		if f.signedIn == nil {
+			f.signedIn = map[string]bool{}
+		}
+		f.signedIn[ref.Key()] = true
+		f.mu.Unlock()
+		fmt.Fprintln(out, "Login successful.")
+		return 0, nil
+	case slices.Equal(cmd, hosting.AccountCommand):
+		f.mu.Lock()
+		in := f.signedIn[ref.Key()]
+		f.mu.Unlock()
+		if in {
+			fmt.Fprintln(out, `{"slot":0,"supported":true,"logged_in":true,"method":"claude.ai","subscription":"max"}`)
+		} else {
+			fmt.Fprintln(out, `{"slot":0,"supported":true,"logged_in":false,"method":"none"}`)
+		}
+		return 0, nil
+	}
+	return 127, nil
 }
 
 func (f *fakeRuntime) Start(_ context.Context, s hosting.StartSlot) error {

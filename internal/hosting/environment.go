@@ -475,12 +475,20 @@ func (m Models) KeyName(provider string) string {
 }
 
 // EgressHosts are the hosts a slot may reach through the egress proxy:
-// the spec's egress plus its repos' hosts.
+// the spec's egress plus its repos' hosts, and the provider's hosts when
+// its slots sign in to a subscription (SignsIn).
 func (s Spec) EgressHosts() []string {
 	out := slices.Clone(s.Network.Egress)
 	for _, r := range s.Repos {
 		if h := r.Host(); h != "" && !slices.Contains(out, h) {
 			out = append(out, h)
+		}
+	}
+	if s.SignsIn() {
+		for _, h := range subscriptionHosts {
+			if !slices.Contains(out, h) {
+				out = append(out, h)
+			}
 		}
 	}
 	return out

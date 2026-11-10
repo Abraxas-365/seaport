@@ -50,6 +50,8 @@ export const keys = {
   hosting: ["hosting"] as const,
   hosted: (agent: string) => ["hosting", agent] as const,
   slotLog: (agent: string, slot: number) => ["slot-log", agent, slot] as const,
+  slotLogin: (agent: string, slot: number) => ["slot-login", agent, slot] as const,
+  slotAccount: (agent: string, slot: number) => ["slot-account", agent, slot] as const,
   egress: (agent: string) => ["egress", agent] as const,
   usage: (agent: string, days: number) => ["usage", agent, days] as const,
 }

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link } from "react-router"
-import { Activity, Play, Server, ShieldAlert, Square, TerminalSquare, Unplug } from "lucide-react"
+import { Activity, ExternalLink, KeyRound, Play, Server, ShieldAlert, Square, TerminalSquare, Unplug } from "lucide-react"
 
 import {
   useCan,
@@ -9,9 +9,13 @@ import {
   useHost,
   useHosted,
   useHosting,
+  useLoginCode,
   useNow,
+  useSlotAccount,
   useSlotAction,
   useSlotLog,
+  useSlotLogin,
+  useStartLogin,
   useUnhost,
   useUsage,
 } from "@/lib/hooks"
@@ -21,11 +25,12 @@ import type { Environment, Hosted, LibraryAgent, Slot } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { ConfirmAction, ErrorState, LogView, Mono, SlotRow, StatusBadge, UsageChart } from "@/components/seaport"
+import { AccountBadge, ConfirmAction, ErrorState, LogView, Mono, SlotRow, StatusBadge, UsageChart } from "@/components/seaport"
 
 /** The agent's hosting: where the port runs it, its slots and their logs. */
 export function HostingCard({ agent }: { agent: LibraryAgent }) {
@@ -212,6 +217,8 @@ function Slots({
   const now = useNow(10_000)
   const action = useSlotAction(agent.id)
   const busy = (s: Slot) => action.isPending && action.variables?.slot === s.index
+  // Claude Code with no model key: each slot signs in to a subscription.
+  const signsIn = env?.spec.harness === "claude-code" && !env.spec.models.anthropic
   return (
     <ul className="divide-y rounded-lg border">
       {hosted.slots.map((s) => {
@@ -224,7 +231,10 @@ function Slots({
               current={env?.version}
               now={now}
               actions={
-                write && (
+                <>
+                  {signsIn && s.state === "running" && <SlotAccountBadge agent={agent} slot={s} />}
+                  {write && signsIn && s.state === "running" && runtime && <SignInDialog agent={agent} slot={s} />}
+                  {write && (
                   <>
                     <SlotLogDialog agent={agent} slot={s} />
                     {runtime && (
@@ -240,13 +250,128 @@ function Slots({
                       </Button>
                     )}
                   </>
-                )
+                  )}
+                </>
               }
             />
           </li>
         )
       })}
     </ul>
+  )
+}
+
+function SlotAccountBadge({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
+  const account = useSlotAccount(agent.id, slot.index, true)
+  if (account.isError) return null
+  return <AccountBadge account={account.data} />
+}
+
+const live = (state: string | undefined) => state === "starting" || state === "waiting" || state === "verifying"
+
+/**
+ * Signs a running Claude Code slot in to a Claude subscription
+ * (experimental): Claude Code's own login runs in the slot; the person
+ * opens its URL, signs in and pastes the code the page shows.
+ */
+function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
+  const [open, setOpen] = React.useState(false)
+  const [code, setCode] = React.useState("")
+  const name = `${agent.name}-${slot.index}`
+  const login = useSlotLogin(agent.id, slot.index, open)
+  const start = useStartLogin(agent.id, slot.index)
+  const send = useLoginCode(agent.id, slot.index)
+  const account = useSlotAccount(agent.id, slot.index, true)
+  const l = login.data
+  const state = l?.state
+  const refetchAccount = account.refetch
+  React.useEffect(() => {
+    if (state === "done") refetchAccount()
+  }, [state, refetchAccount])
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (o) {
+          setCode("")
+          if (!live(login.data?.state)) start.mutate()
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-sm" aria-label={`Conectar cuenta de ${name}`} title="Conectar cuenta">
+          <KeyRound />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Conectar {name} a una cuenta de Claude</DialogTitle>
+          <DialogDescription>
+            Experimental. La instancia usa la suscripción de esa cuenta (sus límites y condiciones); Seaport no guarda
+            tokens: quedan en el volumen de la instancia. También con <Mono>seaport agents login {name}</Mono>.
+          </DialogDescription>
+        </DialogHeader>
+        {start.isError ? (
+          <ErrorState error={start.error} onRetry={() => start.mutate()} />
+        ) : (!l || state === "starting" || start.isPending) ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Iniciando el login de Claude Code en la instancia…
+          </p>
+        ) : state === "waiting" ? (
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (code.trim()) send.mutate(code.trim())
+            }}
+          >
+            <ol className="list-decimal space-y-3 pl-5 text-sm">
+              <li>
+                <a
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4"
+                >
+                  Abre Claude e inicia sesión <ExternalLink className="size-3.5" />
+                </a>{" "}
+                con la cuenta que debe usar.
+              </li>
+              <li>Copia el código que muestra la página y pégalo aquí.</li>
+            </ol>
+            <Field>
+              <FieldLabel htmlFor={`code-${name}`}>Código</FieldLabel>
+              <Input
+                id={`code-${name}`}
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono"
+              />
+              <FieldDescription>Vale una sola vez y caduca en minutos.</FieldDescription>
+            </Field>
+            <Button type="submit" disabled={!code.trim() || send.isPending}>
+              {send.isPending && <Spinner />} Conectar
+            </Button>
+          </form>
+        ) : state === "verifying" ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Verificando el código…
+          </p>
+        ) : state === "done" ? (
+          <p className="text-sm">Conectada. El agente se reinicia con la cuenta en cuanto termine lo que esté haciendo.</p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-destructive">{l.detail || "No se pudo conectar."}</p>
+            <Button variant="outline" onClick={() => start.mutate()}>
+              Intentar de nuevo
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -17,9 +19,42 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// hostCmd is `seaport agents host|unhost|slots|start|stop|logs|usage|egress ...`.
+// hostCmd is `seaport agents host|unhost|slots|start|stop|logs|usage|egress|login|account ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
+	case "login":
+		if len(args) != 1 {
+			return errx.Validation("usage: seaport agents login <agent>[-<slot>]   (a running Claude Code slot; experimental)")
+		}
+		ag, idx, err := findSlot(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		return signIn(ctx, a, ag, idx)
+	case "account":
+		if len(args) != 1 {
+			return errx.Validation("usage: seaport agents account <agent>[-<slot>]")
+		}
+		ag, idx, err := findSlot(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var acc hosting.Account
+		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/agents/%s/hosting/slots/%d/account", ag.ID, idx), nil, &acc); err != nil {
+			return err
+		}
+		name := hosting.SlotName(ag.Name, idx)
+		switch {
+		case !acc.Supported:
+			fmt.Printf("%s: its harness uses the environment's model key (no sign-in)\n", name)
+		case acc.LoggedIn && acc.Subscription != "":
+			fmt.Printf("%s: signed in (%s, %s)\n", name, acc.Method, acc.Subscription)
+		case acc.LoggedIn:
+			fmt.Printf("%s: signed in (%s)\n", name, acc.Method)
+		default:
+			fmt.Printf("%s: not signed in; sign it in with: seaport agents login %s\n", name, name)
+		}
+		return nil
 	case "usage":
 		if len(args) < 1 {
 			return errx.Validation("usage: seaport agents usage <agent> [-days N]")
@@ -217,4 +252,53 @@ func findSlot(ctx context.Context, a *admin, name string) (agent.Agent, int, err
 		return ag, n, nil
 	}
 	return agent.Agent{}, 0, err
+}
+
+// signIn signs a slot in to its harness's subscription: it starts the
+// sign-in, shows the URL, reads the code from the terminal and waits for
+// the harness's answer.
+func signIn(ctx context.Context, a *admin, ag agent.Agent, idx int) error {
+	base := fmt.Sprintf("/api/v1/agents/%s/hosting/slots/%d/login", ag.ID, idx)
+	var l hosting.Login
+	if err := a.do(ctx, http.MethodPost, base, nil, &l); err != nil {
+		return err
+	}
+	wait := func(done func(hosting.Login) bool) error {
+		deadline := time.Now().Add(hosting.LoginTimeout)
+		for !done(l) {
+			if time.Now().After(deadline) {
+				return errx.External("the sign-in took too long; start it again")
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
+			if err := a.do(ctx, http.MethodGet, base, nil, &l); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := wait(func(l hosting.Login) bool { return l.State != hosting.LoginStarting }); err != nil {
+		return err
+	}
+	if l.State == hosting.LoginWaiting {
+		fmt.Printf("Sign in with the account %s should use (experimental: uses that subscription's limits):\n\n  %s\n\nthen paste the code the page shows: ", hosting.SlotName(ag.Name, idx), l.URL)
+		code, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			return errx.Validation("no code read")
+		}
+		if err := a.do(ctx, http.MethodPost, base+"/code", map[string]string{"code": strings.TrimSpace(code)}, &l); err != nil {
+			return err
+		}
+		if err := wait(func(l hosting.Login) bool { return !l.Live() }); err != nil {
+			return err
+		}
+	}
+	if l.State != hosting.LoginDone {
+		return errx.External("the sign-in failed: " + l.Detail)
+	}
+	fmt.Printf("%s is signed in; its agent restarts with the account once idle\n", hosting.SlotName(ag.Name, idx))
+	return nil
 }

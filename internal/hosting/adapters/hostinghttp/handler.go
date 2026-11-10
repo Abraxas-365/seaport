@@ -48,6 +48,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// only who may change where it runs reads them.
 	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", httpx.RequireFunc(permission.EnvironmentsWrite, h.slotLog))
 	mux.Handle("GET /api/v1/agents/{id}/usage", httpx.RequireFunc(permission.AgentsRead, h.usage))
+	// Subscription sign-in (experimental): signing a slot in decides whose
+	// account it spends, so it is environments:write's, like starting it.
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.startLogin))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.login))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", httpx.RequireFunc(permission.EnvironmentsWrite, h.loginCode))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/account", httpx.RequireFunc(permission.EnvironmentsRead, h.account))
 }
 
 // Workspace is GET /crew/workspace (behind crew auth): a hosted slot's
@@ -470,4 +476,66 @@ func (h *Handler) denials(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, map[string]any{"denials": out})
+}
+
+// startLogin is POST …/slots/{slot}/login: starts the slot's sign-in (or
+// answers the one going); poll GET for its URL.
+func (h *Handler) startLogin(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.commands.StartLogin(r.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusAccepted, out)
+}
+
+func (h *Handler) login(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Login(r.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, out)
+}
+
+type codeRequest struct {
+	Code string `json:"code"`
+}
+
+// loginCode is POST …/slots/{slot}/login/code {code}: the code the
+// sign-in page showed, for the waiting sign-in.
+func (h *Handler) loginCode(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	var req codeRequest
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	out, err := h.commands.SubmitLoginCode(r.Context(), p.Organization, hosting.LoginCode{Agent: in.Agent, Index: in.Index, Code: req.Code})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusAccepted, out)
+}
+
+// account is GET …/slots/{slot}/account: how the slot's harness is
+// signed in (asked of the harness).
+func (h *Handler) account(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Account(r.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, out)
 }

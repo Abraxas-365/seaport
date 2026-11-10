@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   AgentCard,
   AgentChip,
+  AccountBadge,
   BuildBadge,
   ChannelIcon,
   ChatAvatar,
@@ -495,6 +496,12 @@ function Domain() {
               </li>
             ))}
           </ul>
+        </Specimen>
+        <Specimen label="AccountBadge (cuenta de una instancia con suscripción; experimental)" className="flex flex-wrap items-center gap-2">
+          <AccountBadge account={undefined} />
+          <AccountBadge account={{ slot: 1, supported: true, logged_in: false, method: "none" }} />
+          <AccountBadge account={{ slot: 1, supported: true, logged_in: true, method: "claude.ai", subscription: "max" }} />
+          <AccountBadge account={{ slot: 1, supported: true, logged_in: true, method: "oauth_token" }} />
         </Specimen>
         <Specimen label="BuildBadge (imagen de una versión del entorno)" className="flex flex-wrap items-center gap-2">
           <BuildBadge build={null} />

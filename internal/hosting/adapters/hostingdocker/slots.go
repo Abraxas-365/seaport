@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -228,6 +229,53 @@ func slotRef(labels map[string]string) (hosting.SlotRef, bool) {
 
 // String names the runtime in logs.
 func (r *Runtime) String() string { return fmt.Sprintf("docker (network %s)", r.cfg.Network) }
+
+func (r *Runtime) Exec(ctx context.Context, ref hosting.SlotRef, run string, cmd []string, stdin io.Reader, out io.Writer) (int, error) {
+	name := containerName(ref)
+	got, err := r.api.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return 0, errx.NotFound("the slot has no container (it is stopped): start it first")
+	}
+	if err != nil {
+		return 0, errx.Wrap(err, "inspect the slot's container", errx.TypeExternal)
+	}
+	c := got.Container
+	if c.State == nil || !c.State.Running || (run != "" && (c.Config == nil || c.Config.Labels[hosting.LabelRun] != run)) {
+		return 0, errx.Business("the slot's container isn't running (it is starting or stopping): try again")
+	}
+	created, err := r.api.ExecCreate(ctx, name, client.ExecCreateOptions{User: "1000:1000", Cmd: cmd,
+		AttachStdin: stdin != nil, AttachStdout: true, AttachStderr: true}) // in the image's WORKDIR
+	if err != nil {
+		return 0, errx.Wrap(err, "run in the slot's container", errx.TypeExternal)
+	}
+	att, err := r.api.ExecAttach(ctx, created.ID, client.ExecAttachOptions{})
+	if err != nil {
+		return 0, errx.Wrap(err, "run in the slot's container", errx.TypeExternal)
+	}
+	defer att.Close()
+	go func() { // ctx ending ends the attach (the command goes with the container's stdin closing)
+		<-ctx.Done()
+		att.Close()
+	}()
+	if stdin != nil {
+		go func() {
+			_, _ = io.Copy(att.Conn, stdin)
+			_ = att.CloseWrite()
+		}()
+	}
+	// No TTY: stdout and stderr come multiplexed.
+	if _, err := stdcopy.StdCopy(out, out, att.Reader); err != nil && ctx.Err() == nil {
+		return 0, errx.Wrap(err, "read the command's output", errx.TypeExternal)
+	}
+	if ctx.Err() != nil {
+		return 0, errx.Wrap(ctx.Err(), "run in the slot's container", errx.TypeExternal)
+	}
+	ins, err := r.api.ExecInspect(context.WithoutCancel(ctx), created.ID, client.ExecInspectOptions{})
+	if err != nil {
+		return 0, errx.Wrap(err, "read the command's exit", errx.TypeExternal)
+	}
+	return ins.ExitCode, nil
+}
 
 // maxLogBytes bounds what Logs answers (its tail): lines can be long.
 const maxLogBytes = 1 << 20

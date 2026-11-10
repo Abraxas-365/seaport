@@ -79,39 +79,61 @@ func TestGitCredential(t *testing.T) {
 
 // The harness's state paths become links into the state volume (a file
 // the image ships seeds it once); a second start keeps what's there.
+// Claude Code's config dir is linked whole: the image's files are copied
+// in at each start, its sessions and sign-in kept.
 func TestLinkState(t *testing.T) {
+	write := func(p, v string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(v), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(p string) string {
+		raw, _ := os.ReadFile(p)
+		return string(raw)
+	}
 	cfg := HostedConfig{Harness: hosting.HarnessClaudeCode, Home: t.TempDir(), State: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(cfg.Home, ".claude.json"), []byte(`{"image":true}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(filepath.Join(cfg.Home, ".claude.json"), `{"image":true}`)
+	write(filepath.Join(cfg.Home, ".claude", "settings.json"), `{"v":1}`)
 	if err := linkState(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if raw, err := os.ReadFile(filepath.Join(cfg.State, "claude-code", "claude.json")); err != nil || string(raw) != `{"image":true}` {
-		t.Fatalf("seeded: %q %v", raw, err)
+	if got := read(filepath.Join(cfg.State, "claude-code", "claude.json")); got != `{"image":true}` {
+		t.Fatalf("seeded: %q", got)
 	}
-	if err := os.WriteFile(filepath.Join(cfg.Home, ".claude", "projects", "s.jsonl"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
+	if got := read(filepath.Join(cfg.Home, ".claude", "settings.json")); got != `{"v":1}` {
+		t.Fatalf("image settings: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.State, "claude-code", "projects", "s.jsonl")); err != nil {
-		t.Fatalf("session not in the state volume: %v", err)
+	// The harness writes its sessions and sign-in through the link.
+	write(filepath.Join(cfg.Home, ".claude", "projects", "s.jsonl"), "x")
+	write(filepath.Join(cfg.Home, ".claude", ".credentials.json"), `{"oauth":1}`)
+	if got := read(filepath.Join(cfg.State, "claude-code", "config", ".credentials.json")); got != `{"oauth":1}` {
+		t.Fatalf("sign-in not in the state volume: %q", got)
 	}
-	// A fresh home (the container restarted) with the image's file again.
+	// A fresh home (the container restarted) with the image's files again,
+	// a newer settings file and an image credentials file that must lose.
 	cfg.Home = t.TempDir()
-	if err := os.WriteFile(filepath.Join(cfg.Home, ".claude.json"), []byte(`{"image":true}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfg.State, "claude-code", "claude.json"), []byte(`{"signed":true}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(filepath.Join(cfg.Home, ".claude.json"), `{"image":true}`)
+	write(filepath.Join(cfg.Home, ".claude", "settings.json"), `{"v":2}`)
+	write(filepath.Join(cfg.Home, ".claude", ".credentials.json"), `{"image":1}`)
+	write(filepath.Join(cfg.State, "claude-code", "claude.json"), `{"signed":true}`)
 	if err := linkState(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if raw, _ := os.ReadFile(filepath.Join(cfg.Home, ".claude.json")); string(raw) != `{"signed":true}` {
-		t.Fatalf("state kept: %q", raw)
+	if got := read(filepath.Join(cfg.Home, ".claude.json")); got != `{"signed":true}` {
+		t.Fatalf("state kept: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Home, ".claude", "projects", "s.jsonl")); err != nil {
-		t.Fatalf("sessions after restart: %v", err)
+	if got := read(filepath.Join(cfg.Home, ".claude", "projects", "s.jsonl")); got != "x" {
+		t.Fatalf("sessions after restart: %q", got)
+	}
+	if got := read(filepath.Join(cfg.Home, ".claude", ".credentials.json")); got != `{"oauth":1}` {
+		t.Fatalf("sign-in after restart: %q", got)
+	}
+	if got := read(filepath.Join(cfg.Home, ".claude", "settings.json")); got != `{"v":2}` {
+		t.Fatalf("image settings after restart: %q", got)
 	}
 }
 

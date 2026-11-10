@@ -25,6 +25,11 @@ WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ s
 - **Connector** — `seaport connect -- <agent>` dials out to the port (no public
   address needed, like ngrok) and runs any [ACP](https://agentclientprotocol.com)
   agent, one agent session per conversation, resumed across restarts.
+- **Hosting** (optional) — or the port runs the agent itself: rness or Claude
+  Code in a hardened container per slot, started when messages arrive and
+  stopped when idle, with its repos, a model gateway (the API key never
+  enters the container) and an egress allowlist. See
+  [Hosted agents](#hosted-agents).
 
 One binary, several ways to run it — only the start-up config differs
 (`SEAPORT_AUTH`):
@@ -234,6 +239,102 @@ rate limit is a token bucket per caller (organization + user, API key or
 crew token; agents sharing a crew token share it), answering `429` with
 `Retry-After`.
 
+## Hosted agents
+
+Instead of running `seaport connect` yourself, the port can run an agent
+for you (`SEAPORT_RUNTIME=docker`, Docker on the Seaport host; one owner's
+agents in v1). An **environment** says where it runs; **hosting** the agent
+on it gives it **slots** (`<agent>-1`, `<agent>-2`, …), each a container
+started when the agent has work and stopped when it has none.
+
+```yaml
+# env.yaml — seaport env apply -f env.yaml (or the web app: Entornos)
+name: backend
+harness: rness              # rness | claude-code
+packages: [jq, ripgrep]     # apt, into a derived image
+setup: |                    # bash at build time (tools, baseline config)
+  npm i -g pnpm
+repos:
+  - url: https://github.com/acme/api.git
+    ref: main
+    credential: ${GITHUB_TOKEN}   # a secret of the hosted agent
+    on_start: pnpm i
+models:
+  anthropic: ${ANTHROPIC_API_KEY} # through the port's gateway
+network:
+  egress: [registry.npmjs.org]    # + the repos' hosts
+resources: {size: M}              # S 1 CPU/2 GB, M 2/4, L 4/8, or cpus + memory_mb
+idle_stop: 30m                    # 0: never
+```
+
+```bash
+printf %s "$GITHUB_TOKEN" | seaport agents secrets set pm GITHUB_TOKEN
+printf %s "$ANTHROPIC_API_KEY" | seaport agents secrets set pm ANTHROPIC_API_KEY
+seaport env apply -f env.yaml && seaport env build backend   # optional: the first start builds too
+seaport agents host pm backend -slots 2
+seaport agents slots pm          # stopped → starting → running → stopping
+seaport agents logs pm-1 ; seaport agents usage pm ; seaport agents egress pm
+```
+
+The web app has the same (Entornos; Alojamiento on the agent's page:
+slots, logs, model use, refused hosts).
+
+- **Environments** are versioned like profiles (an unchanged file makes no
+  version). Each version is built once into an image `FROM` Seaport's base
+  image of the harness (`ghcr.io/abraxas-365/seaport-rness` /
+  `seaport-claude-code`, the release's tag; `image:` takes your own image
+  built `FROM` one of them). Running slots move to a new version once idle.
+- **Slots** run hardened: read-only root, all capabilities dropped,
+  no-new-privileges, uid 1000, CPU/memory limits; `/workspace` (the repos,
+  kept across restarts unless `workspace: ephemeral`) and the harness's
+  sessions and sign-in live in per-slot volumes, so a woken slot resumes
+  its conversations. Each conversation gets a git worktree
+  (`seaport/<conversation>` branch). Git asks the port for repo
+  credentials each time; no token is written to disk. A slot signs in with
+  a crew token of its own, minted per run and revoked when it stops.
+- **Model gateway**: with `models.anthropic`, slots call Anthropic through
+  the port (`ANTHROPIC_BASE_URL`) with their slot token; the port forwards
+  with the real key and meters tokens per day and model.
+- **Egress**: with `SEAPORT_EGRESS_ADDR`, slots go out through the port's
+  proxy, which lets through only the environment's `network.egress` and
+  repo hosts (never private addresses) and records what it refused. It is
+  only a boundary when the slots' network is `internal`
+  (`docker network create --internal seaport-slots`,
+  `SEAPORT_RUNTIME_NETWORK=seaport-slots`, the Seaport container attached
+  to it too); the port warns at start otherwise. `deploy/` sets this up.
+- The profile (instructions, skills, MCP servers, secrets) applies as for
+  any connector; a saved change restarts the slot's harness once idle.
+
+**Claude subscriptions (experimental).** A `claude-code` environment with
+no `models.anthropic` signs each slot in to a Claude account instead: the
+slot waits, taking no messages, until someone runs **Conectar cuenta** on
+the agent's page (or `seaport agents login pm-1`). Claude Code's own login
+runs inside the slot; you open its URL, sign in and paste the code back.
+The tokens stay in that slot's state volume (Seaport never stores them);
+`seaport agents account pm-1` shows how it is signed in. The slot then uses
+that subscription's limits and terms (Anthropic's terms decide whether an
+agent like this may use a personal plan: check them), and its model calls
+don't go through the gateway (no usage metering). Alternative: run
+`claude setup-token` on your computer and save the token as the agent's env
+secret `CLAUDE_CODE_OAUTH_TOKEN` (`seaport agents secrets set pm
+CLAUDE_CODE_OAUTH_TOKEN -env`): every slot uses it. rness has no headless
+subscription sign-in yet; give it a model key.
+
+| Env | Default | |
+|---|---|---|
+| `SEAPORT_RUNTIME` | `off` | `docker` runs hosted agents on the engine at `DOCKER_HOST` (needs `token` or `iam` mode) |
+| `DOCKER_HOST` | local socket | the engine; better a socket proxy limited to containers, exec, images/build, volumes, networks (see `deploy/`) |
+| `SEAPORT_AGENT_URL` | `SEAPORT_PUBLIC_URL` | how slots reach the port (e.g. `http://seaport:8740` on a shared network) |
+| `SEAPORT_RUNTIME_NETWORK` | `bridge` | the slots' Docker network (make it `--internal` with the egress proxy) |
+| `SEAPORT_RUNTIME_HOST_GATEWAY` | `true` | add `host.docker.internal` to slots (a port on the host) |
+| `SEAPORT_IMAGE_RNESS` / `SEAPORT_IMAGE_CLAUDE_CODE` | release's `ghcr.io/abraxas-365/seaport-*` | base images |
+| `SEAPORT_EGRESS_ADDR` | — | listen address of the slots' egress proxy (e.g. `:8741`); off: no proxy |
+| `SEAPORT_EGRESS_URL` | agent URL's host + that port | how slots reach the proxy |
+| `SEAPORT_EGRESS_PRIVATE` | `false` | let allowed hosts resolve to private addresses (local testing) |
+| `SEAPORT_GATEWAY_ANTHROPIC_URL` | `https://api.anthropic.com` | where the model gateway forwards |
+| `SEAPORT_MAX_SLOTS` | `10` | slots per organization (0 = off) |
+| `SEAPORT_HOST_MAX_CPUS` / `SEAPORT_HOST_MAX_MEMORY_MB` | `4` / `8192` | most one slot may ask for (0 = off) |
+
 ## IAM mode
 
 `SEAPORT_AUTH=iam` hosts many organizations on one port, with people,
@@ -347,6 +448,14 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
   the release that has it (up to `e807f94`) once first: it moves linked
   WhatsApp devices out of whatsmeow's clear-text tables, which migration
   00012 then drops (it refuses while a linked dock is still only there).
+- Hosted agents: `SEAPORT_RUNTIME=docker` in `.env`, then
+  `docker compose --profile hosting up -d --build`. Seaport reaches Docker
+  through a socket proxy (`docker-proxy`, only the Engine calls it makes;
+  the socket itself is never mounted into Seaport), and slots run on the
+  internal network `seaport-slots`, where the only thing they reach is
+  Seaport (crew, MCP, model gateway, egress proxy on `:8741`). Mind what a
+  Docker socket means: whoever controls Seaport controls that engine, so
+  give hosting a server (or VM) of its own.
 - The image alone: `docker build -t seaport .` (distroless, non-root, ~24 MB,
   `seaport healthcheck` as the container health check).
 - Try it locally: `SEAPORT_DOMAIN=localhost` makes Caddy use its own CA

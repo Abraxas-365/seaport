@@ -26,7 +26,9 @@ import type {
   Environment,
   Hosted,
   HostingStatus,
+  SlotAccount,
   SlotLog,
+  SlotLogin,
   UsageDay,
   ProfileInput,
   ProfileVersion,
@@ -189,6 +191,13 @@ export const api = {
     request<Hosted>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/${action}`),
   slotLog: (agent: string, slot: number, lines = 300) =>
     request<SlotLog>("GET", `${v1}/agents/${agent}/hosting/slots/${slot}/logs${qs({ lines })}`),
+  startLogin: (agent: string, slot: number) =>
+    request<SlotLogin>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/login`),
+  slotLogin: (agent: string, slot: number) => request<SlotLogin>("GET", `${v1}/agents/${agent}/hosting/slots/${slot}/login`),
+  loginCode: (agent: string, slot: number, code: string) =>
+    request<SlotLogin>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/login/code`, { code }),
+  slotAccount: (agent: string, slot: number) =>
+    request<SlotAccount>("GET", `${v1}/agents/${agent}/hosting/slots/${slot}/account`),
   egress: (agent: string) => request<{ denials: Denial[] }>("GET", `${v1}/agents/${agent}/hosting/egress`),
   usage: (agent: string, days = 30) => request<{ days: UsageDay[] }>("GET", `${v1}/agents/${agent}/usage${qs({ days })}`),
 }

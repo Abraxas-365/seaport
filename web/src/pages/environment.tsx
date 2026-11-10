@@ -576,9 +576,11 @@ function SpecFields({
               className="font-mono"
             />
             <FieldDescription>
-              {keyOk
-                ? "Un secreto del agente. Pasa por el gateway del puerto: la clave nunca entra al contenedor y el uso queda medido."
-                : "Debe nombrar un secreto del agente, como ${NOMBRE}."}
+              {!keyOk
+                ? "Debe nombrar un secreto del agente, como ${NOMBRE}."
+                : !s.models.anthropic && s.harness === "claude-code"
+                  ? "Sin clave, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente; el proxy le abre api.anthropic.com y platform.claude.com."
+                  : "Un secreto del agente. Pasa por el gateway del puerto: la clave nunca entra al contenedor y el uso queda medido."}
             </FieldDescription>
           </Field>
         </div>

@@ -58,6 +58,9 @@ type Config struct {
 	// Protect names environment variables the kit's env may not replace (a
 	// hosted slot's gateway and proxy settings).
 	Protect []string
+	// Reload, when it fires, restarts the harness like a changed profile
+	// does (work in flight first): a hosted slot's harness signed in.
+	Reload <-chan struct{}
 }
 
 // Run fetches the agent's kit (profile and secrets), starts the harness
@@ -225,6 +228,17 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	draining, checking := false, false
 	// check fetches the kit and, when it isn't the one the agent runs,
 	// drains: no new deliveries, restart once the last one is acked.
+	// drain stops new deliveries and restarts once the last one is acked
+	// (jobsMu held; it unlocks).
+	drain := func() {
+		draining = true
+		idle := len(jobs) == 0
+		jobsMu.Unlock()
+		send(crew.Frame{Type: crew.FrameDrain})
+		if idle {
+			send(crew.Frame{Type: restartFrame})
+		}
+	}
 	check := func() {
 		jobsMu.Lock()
 		if draining || checking || !agent.Profiled() {
@@ -246,13 +260,23 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 				}
 				return
 			}
-			draining = true
-			idle := len(jobs) == 0
-			jobsMu.Unlock()
 			slog.Info("agent profile changed; finishing the work in flight before restarting", "version", kit.Version, "revision", revision(kit))
-			send(crew.Frame{Type: crew.FrameDrain})
-			if idle {
-				send(crew.Frame{Type: restartFrame})
+			drain()
+		}()
+	}
+	if cfg.Reload != nil {
+		// Not in wg: it ends with ctx (cancelled after wg.Wait).
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-cfg.Reload:
+				jobsMu.Lock()
+				if draining {
+					jobsMu.Unlock()
+					return
+				}
+				slog.Info("the agent signed in; finishing the work in flight before restarting it")
+				drain()
 			}
 		}()
 	}

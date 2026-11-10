@@ -514,6 +514,10 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag + "/hosting/egress", "GET /api/v1/agents/{id}/hosting/egress", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/logs", "GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", nil, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/usage", "GET /api/v1/agents/{id}/usage", nil, permission.AgentsRead},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "GET /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login/code", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", map[string]string{"code": "x"}, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/account", "GET /api/v1/agents/{id}/hosting/slots/{slot}/account", nil, permission.EnvironmentsRead},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.

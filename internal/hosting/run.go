@@ -200,6 +200,9 @@ type Workspace struct {
 	RepoConfig string          `json:"repo_config"`
 	Persistent bool            `json:"persistent"`
 	Repos      []WorkspaceRepo `json:"repos"`
+	// SignIn: the harness signs in to a subscription (Spec.SignsIn), so
+	// the slot waits for a sign-in before it takes work.
+	SignIn bool `json:"sign_in"`
 }
 
 // WorkspaceRepo is a repo to clone or fetch, its token resolved.

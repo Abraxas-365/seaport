@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -87,12 +88,20 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 			return err
 		}
 	}
+	var reload <-chan struct{}
+	if ws.SignIn {
+		if err := waitSignedIn(ctx, cfg); err != nil {
+			return nil // ctx ended
+		}
+		reload = watchSignIns(ctx, cfg)
+	}
 	relay, err := startRelay(ctx, cfg.Server)
 	if err != nil {
 		return err
 	}
 	trees := &worktrees{root: cfg.Workspace, repos: ws.Repos}
 	err = Run(ctx, Config{
+		Reload: reload,
 		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
 		Mode: mode, Cwd: cfg.Workspace, Command: command, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
@@ -229,22 +238,31 @@ func fetchWorkspace(ctx context.Context, cfg HostedConfig) (hosting.Workspace, e
 type statePath struct {
 	home, state string
 	dir         bool
+	// seed: copy the image's files of the dir in at each start, but the
+	// top-level names in keep.
+	seed bool
+	keep []string
 }
 
 var harnessState = map[string][]statePath{
 	hosting.HarnessRness: {
-		{".rness/sessions", "rness/sessions", true},
-		{".rness/credentials.json", "rness/credentials.json", false},
+		{home: ".rness/sessions", state: "rness/sessions", dir: true},
+		{home: ".rness/credentials.json", state: "rness/credentials.json"},
 	},
+	// Claude Code's whole config dir: it replaces (or refuses) a linked
+	// credentials file but writes through a linked dir, so a sign-out
+	// really signs out. What the image ships there is copied in at each
+	// start, its sessions and sign-in kept.
 	hosting.HarnessClaudeCode: {
-		{".claude/projects", "claude-code/projects", true},
-		{".claude/.credentials.json", "claude-code/credentials.json", false},
-		{".claude.json", "claude-code/claude.json", false},
+		{home: ".claude", state: "claude-code/config", dir: true, seed: true,
+			keep: []string{"projects", ".credentials.json"}},
+		{home: ".claude.json", state: "claude-code/claude.json"},
 	},
 }
 
 // linkState links the harness's sessions and sign-in into the state
-// volume: a file the image ships is copied there on first use.
+// volume: a file the image ships is copied there on first use, a seeded
+// dir's files at every start (but keep).
 func linkState(cfg HostedConfig) error {
 	for _, p := range harnessState[cfg.Harness] {
 		home, state := filepath.Join(cfg.Home, p.home), filepath.Join(cfg.State, p.state)
@@ -257,6 +275,11 @@ func linkState(cfg HostedConfig) error {
 		if p.dir {
 			if err := os.MkdirAll(state, 0o700); err != nil {
 				return errx.Wrap(err, "prepare the state volume", errx.TypeInternal)
+			}
+			if p.seed {
+				if err := seedDir(home, state, p.keep); err != nil {
+					return err
+				}
 			}
 		} else if _, err := os.Stat(state); os.IsNotExist(err) {
 			if raw, rerr := os.ReadFile(home); rerr == nil {
@@ -273,6 +296,47 @@ func linkState(cfg HostedConfig) error {
 		}
 	}
 	return os.MkdirAll(filepath.Join(cfg.State, "connector"), 0o700)
+}
+
+// seedDir copies the regular files under from (the image's) into to,
+// replacing what's there, except the top-level names in keep (the
+// harness's own: sessions, sign-in). from missing or already a link is no
+// error.
+func seedDir(from, to string, keep []string) error {
+	if fi, err := os.Lstat(from); err != nil || !fi.IsDir() {
+		return nil
+	}
+	err := filepath.WalkDir(from, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(from, p)
+		if rel == "." {
+			return nil
+		}
+		if top, _, _ := strings.Cut(rel, string(filepath.Separator)); slices.Contains(keep, top) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		dst := filepath.Join(to, rel)
+		switch {
+		case d.IsDir():
+			return os.MkdirAll(dst, 0o700)
+		case d.Type().IsRegular():
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(dst, raw, 0o600)
+		}
+		return nil // links and the like aren't copied
+	})
+	if err != nil {
+		return errx.Wrap(err, "seed the state volume", errx.TypeInternal)
+	}
+	return nil
 }
 
 // configureGit makes this binary git's credential helper for the repos

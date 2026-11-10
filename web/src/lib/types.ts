@@ -403,6 +403,32 @@ export interface SlotLog {
   log: string
 }
 
+export type LoginState = "starting" | "waiting" | "verifying" | "done" | "failed"
+
+/** A slot's latest subscription sign-in (experimental). */
+export interface SlotLogin {
+  id: string
+  slot: number
+  state: LoginState
+  /** Where the person signs in (once waiting). */
+  url: string
+  detail: string
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
+/** How a running slot's harness is signed in (asked of the harness). */
+export interface SlotAccount {
+  slot: number
+  /** The harness can sign in from Seaport (Claude Code). */
+  supported: boolean
+  logged_in: boolean
+  /** claude.ai (subscription), oauth_token, api_key, none. */
+  method: string
+  subscription?: string
+}
+
 export interface Denial {
   slot: number
   host: string

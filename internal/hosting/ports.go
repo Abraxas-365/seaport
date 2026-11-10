@@ -59,6 +59,17 @@ type Commands interface {
 	Egress(ctx context.Context, organization identity.OrganizationID, caller SlotCaller) ([]string, error)
 	// RecordDenial notes a host the egress proxy refused a slot.
 	RecordDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
+
+	// StartLogin starts signing a running slot's harness in to the
+	// person's subscription (experimental; Claude Code only, Business
+	// otherwise): the harness's login runs in the slot's container,
+	// relayed by this process, and the answer is the sign-in (poll Login
+	// for its URL). One already going for the slot's run is answered as
+	// it is.
+	StartLogin(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Login, error)
+	// SubmitLoginCode hands the code the sign-in page showed to the
+	// waiting sign-in (any process; Conflict when none waits).
+	SubmitLoginCode(ctx context.Context, organization identity.OrganizationID, input LoginCode) (Login, error)
 }
 
 type Queries interface {
@@ -83,6 +94,12 @@ type Queries interface {
 	// agent isn't hosted, has no such slot, or the slot has no container:
 	// a stopped slot's went with it).
 	SlotLog(ctx context.Context, organization identity.OrganizationID, input LogQuery) (SlotLog, error)
+	// Login is the slot's latest sign-in (NotFound when it never had one;
+	// a stale live one reads as failed).
+	Login(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Login, error)
+	// Account is how the slot's harness is signed in, asked of the harness
+	// in its container (Business when the slot isn't running).
+	Account(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Account, error)
 }
 
 // Runtime is the container engine hosted agents run on (hostingdocker).
@@ -113,6 +130,11 @@ type Runtime interface {
 	// stderr interleaved, each line timestamped (NotFound with no
 	// container).
 	Logs(ctx context.Context, slot SlotRef, lines int) (string, error)
+	// Exec runs cmd in a slot's running container (of run, when set) as
+	// uid 1000, stdin fed from stdin (nil: none), stdout and stderr to
+	// out, until it exits or ctx ends, and answers its exit code
+	// (NotFound with no container; Business when it isn't running run).
+	Exec(ctx context.Context, slot SlotRef, run string, cmd []string, stdin io.Reader, out io.Writer) (int, error)
 }
 
 // Credentials mint and revoke slot tokens (the crew's tokens).
@@ -196,4 +218,20 @@ type Repository interface {
 	// is gone).
 	AddDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
 	Denials(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, limit int) ([]Denial, error)
+
+	// BeginLogin starts sign-in id of a running slot (its run): claimed =
+	// false and that one when one is live for the run and fresh (reported
+	// within LoginStale). Business when the slot isn't running.
+	BeginLogin(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, id, by string) (login Login, claimed bool, err error)
+	// LoginProgress updates live sign-in id (empty fields stay; done or
+	// failed drop a code not taken) and keeps it fresh; Conflict once it
+	// is over or replaced.
+	LoginProgress(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, id string, update LoginUpdate) (Login, error)
+	// TakeLoginCode takes the code submitted to waiting sign-in id (""
+	// when none yet), clearing it and making it verifying.
+	TakeLoginCode(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, id string) (string, error)
+	// SubmitLoginCode stores a code for the slot's fresh waiting sign-in
+	// (Conflict when none waits or one was submitted).
+	SubmitLoginCode(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, code string) (Login, error)
+	Login(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int) (Login, error)
 }
