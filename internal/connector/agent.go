@@ -2,6 +2,8 @@ package connector
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -35,13 +37,14 @@ type Agent struct {
 
 	mu       sync.Mutex
 	mcpURL   string
-	sessions map[string]acp.SessionId // conversation id → agent session (persisted)
+	sessions map[string]savedSession  // conversation id → agent session (persisted)
 	open     map[string]acp.SessionId // opened on this connection
 	opening  map[string]*sync.Mutex
 	answers  map[acp.SessionId]*strings.Builder
-	// briefed: sessions opened by this process whose next prompt must
-	// carry the profile's instructions (agents without systemPrompt).
-	briefed map[acp.SessionId]bool
+	// briefs: sessions whose next prompt must carry the profile's
+	// instructions (agents without systemPrompt) or the news that they
+	// changed; kept until a turn with it succeeds.
+	briefs map[acp.SessionId]brief
 	// failures counts turns failed in a row (the release backoff).
 	failures int
 }
@@ -89,9 +92,9 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error)
 		return nil, errx.Wrap(err, "start agent "+cfg.Command[0], errx.TypeValidation)
 	}
 	a := &Agent{cfg: cfg, kit: kit, cmd: cmd, done: make(chan struct{}), wire: &wire{},
-		sessions: map[string]acp.SessionId{}, open: map[string]acp.SessionId{},
+		sessions: map[string]savedSession{}, open: map[string]acp.SessionId{},
 		opening: map[string]*sync.Mutex{}, answers: map[acp.SessionId]*strings.Builder{},
-		briefed: map[acp.SessionId]bool{}}
+		briefs: map[acp.SessionId]brief{}}
 	a.approve = cfg.Approve
 	if kit != nil {
 		a.wire.prompt = strings.TrimSpace(kit.Instructions)
@@ -188,9 +191,9 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	buf := &strings.Builder{}
 	a.mu.Lock()
 	a.answers[sid] = buf
-	if a.briefed[sid] {
-		delete(a.briefed, sid)
-		text = briefing(a.wire.prompt) + text
+	brief, briefed := a.briefs[sid]
+	if briefed {
+		text = brief.text + text
 	}
 	a.mu.Unlock()
 	defer func() {
@@ -207,6 +210,9 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	}
 	if resp.StopReason == acp.StopReasonCancelled || resp.StopReason == acp.StopReasonRefusal {
 		return "", errx.External("agent turn ended: " + string(resp.StopReason))
+	}
+	if briefed {
+		a.briefDone(sid, brief)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -253,11 +259,36 @@ func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text st
 	return resp.Steered, nil
 }
 
+// brief is what a session's next prompt carries before the message: the
+// profile's instructions, or the news that they changed; hash names the
+// instructions it hands over.
+type brief struct{ text, hash string }
+
 // briefing carries the profile's instructions in a prompt, for agents
 // that don't take a system prompt.
 func briefing(instructions string) string {
 	return "[seaport] Your instructions (agent profile). Follow them in this conversation:\n\n" +
 		instructions + "\n\n---\n\n"
+}
+
+// changedBriefing tells a resumed session its instructions changed since
+// it last saw them (a system prompt sent on resume doesn't outweigh the
+// conversation's history: the agent keeps following the old ones).
+func changedBriefing(instructions string) string {
+	if instructions == "" {
+		return "[seaport] Your agent profile no longer has instructions: disregard the ones given earlier in this conversation.\n\n---\n\n"
+	}
+	return "[seaport] Your instructions (agent profile) changed since earlier in this conversation. From now on follow these, not the earlier ones:\n\n" +
+		instructions + "\n\n---\n\n"
+}
+
+// instructionsHash names a version of the instructions ("" for none).
+func instructionsHash(instructions string) string {
+	if instructions == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(instructions))
+	return hex.EncodeToString(sum[:8])
 }
 
 // mcpServers are seaport's MCP (tools and skills; it names the agent, so
@@ -327,33 +358,95 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 		switch {
 		case a.caps.SessionCapabilities.Resume != nil:
 			var r acp.ResumeSessionResponse
-			r, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved, Cwd: cwd, McpServers: servers})
+			r, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved.ID, Cwd: cwd, McpServers: servers, Meta: a.cfg.SessionMeta})
 			options, modes = r.ConfigOptions, r.Modes
 		case a.caps.LoadSession:
 			var r acp.LoadSessionResponse
-			r, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved, Cwd: cwd, McpServers: servers})
+			r, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved.ID, Cwd: cwd, McpServers: servers, Meta: a.cfg.SessionMeta})
 			options, modes = r.ConfigOptions, r.Modes
 		default:
 			err = errx.Business("agent can't resume sessions")
 		}
 		if err == nil {
-			a.remember(key, saved, false)
-			a.setMode(ctx, saved, modes)
-			a.configure(ctx, saved, options)
-			slog.Info("agent session resumed", "conversation", key, "session", saved)
-			return saved, nil
+			a.remember(key, savedSession{ID: saved.ID, Instructions: saved.Instructions}, false)
+			a.setMode(ctx, saved.ID, modes)
+			a.configure(ctx, saved.ID, options)
+			a.planBrief(saved.ID, saved.Instructions)
+			slog.Info("agent session resumed", "conversation", key, "session", saved.ID)
+			return saved.ID, nil
 		}
 		slog.Warn("could not resume agent session; starting a new one", "conversation", key, "err", err)
 	}
-	resp, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: servers})
+	resp, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: servers, Meta: a.cfg.SessionMeta})
 	if err != nil {
 		return "", errx.Wrap(err, "agent new session", errx.TypeExternal)
 	}
-	a.remember(key, resp.SessionId, true)
+	fresh := savedSession{ID: resp.SessionId}
+	if a.kit != nil && (a.wire.prompt == "" || a.wire.Supported()) {
+		// the system prompt (or nothing) hands the instructions over
+		h := instructionsHash(a.wire.prompt)
+		fresh.Instructions = &h
+	}
+	a.remember(key, fresh, true)
 	a.setMode(ctx, resp.SessionId, resp.Modes)
 	a.configure(ctx, resp.SessionId, resp.ConfigOptions)
+	if fresh.Instructions == nil && a.kit != nil {
+		a.mu.Lock()
+		a.briefs[resp.SessionId] = brief{text: briefing(a.wire.prompt), hash: instructionsHash(a.wire.prompt)}
+		a.mu.Unlock()
+	}
 	slog.Info("agent session created", "conversation", key, "session", resp.SessionId)
 	return resp.SessionId, nil
+}
+
+// planBrief decides what a resumed session's next prompt carries, from
+// the instructions it last saw (seen; nil: unknown, e.g. a sessions file
+// of an older connector): nothing when they're current, the news when
+// they changed, all of them when it had none or may not have seen them.
+func (a *Agent) planBrief(sid acp.SessionId, seen *string) {
+	if a.kit == nil {
+		return
+	}
+	cur := instructionsHash(a.wire.prompt)
+	var b brief
+	switch {
+	case seen != nil && *seen == cur:
+		return
+	case seen != nil && *seen != "":
+		b = brief{text: changedBriefing(a.wire.prompt), hash: cur}
+	case cur != "":
+		// it had none, or may never have seen them (a system prompt sent
+		// on resume doesn't outweigh the history)
+		b = brief{text: briefing(a.wire.prompt), hash: cur}
+	default:
+		a.briefDone(sid, brief{hash: cur})
+		return
+	}
+	a.mu.Lock()
+	a.briefs[sid] = b
+	a.mu.Unlock()
+}
+
+// briefDone records that the session has seen the instructions b hands
+// over (a turn carrying it succeeded), so it isn't sent again.
+func (a *Agent) briefDone(sid acp.SessionId, b brief) {
+	a.mu.Lock()
+	if cur, ok := a.briefs[sid]; ok && cur == b {
+		delete(a.briefs, sid)
+	}
+	changed := false
+	for k, s := range a.sessions {
+		if s.ID == sid {
+			h := b.hash
+			s.Instructions = &h
+			a.sessions[k] = s
+			changed = true
+		}
+	}
+	a.mu.Unlock()
+	if changed {
+		a.saveSessions()
+	}
 }
 
 // setMode puts a session this process opened in Config.Mode when the
@@ -375,18 +468,11 @@ func (a *Agent) setMode(ctx context.Context, sid acp.SessionId, modes *acp.Sessi
 	slog.Warn("the agent doesn't offer the session mode", "mode", want)
 }
 
-// configure applies the profile to a session this process opened: model
-// and effort among its config options, and the instructions with its next
-// prompt when the agent doesn't take a system prompt (resumed sessions
-// too: the profile may have changed since).
+// configure applies the profile's model and effort to a session this
+// process opened, among its config options.
 func (a *Agent) configure(ctx context.Context, sid acp.SessionId, options []acp.SessionConfigOption) {
 	if a.kit == nil {
 		return
-	}
-	if a.wire.prompt != "" && !a.wire.Supported() {
-		a.mu.Lock()
-		a.briefed[sid] = true
-		a.mu.Unlock()
 	}
 	for _, want := range []struct {
 		value    string
@@ -441,10 +527,10 @@ func pickOption(options []acp.SessionConfigOption, category acp.SessionConfigOpt
 	return nil, "", false
 }
 
-func (a *Agent) remember(key string, sid acp.SessionId, save bool) {
+func (a *Agent) remember(key string, s savedSession, save bool) {
 	a.mu.Lock()
-	a.open[key] = sid
-	a.sessions[key] = sid
+	a.open[key] = s.ID
+	a.sessions[key] = s
 	a.mu.Unlock()
 	if save {
 		a.saveSessions()
@@ -462,7 +548,25 @@ func (a *Agent) sessionsKey() string {
 	return key
 }
 
-type sessionsFile map[string]map[string]acp.SessionId
+// savedSession is a conversation's agent session and the instructions it
+// has seen (instructionsHash; nil: unknown). Older connectors saved the
+// bare session id, which still reads.
+type savedSession struct {
+	ID           acp.SessionId `json:"id"`
+	Instructions *string       `json:"instructions,omitempty"`
+}
+
+func (s *savedSession) UnmarshalJSON(b []byte) error {
+	var id string
+	if json.Unmarshal(b, &id) == nil {
+		*s = savedSession{ID: acp.SessionId(id)}
+		return nil
+	}
+	type plain savedSession
+	return json.Unmarshal(b, (*plain)(s))
+}
+
+type sessionsFile map[string]map[string]savedSession
 
 func (a *Agent) loadSessions() {
 	if a.cfg.SessionsFile == "" {
@@ -476,9 +580,9 @@ func (a *Agent) loadSessions() {
 	if json.Unmarshal(raw, &f) != nil {
 		return
 	}
-	for conv, sid := range f[a.sessionsKey()] {
-		if _, ok := mustConversation(conv); ok {
-			a.sessions[conv] = sid
+	for conv, s := range f[a.sessionsKey()] {
+		if _, ok := mustConversation(conv); ok && s.ID != "" {
+			a.sessions[conv] = s
 		}
 	}
 }
@@ -492,7 +596,7 @@ func (a *Agent) saveSessions() {
 		_ = json.Unmarshal(raw, &f)
 	}
 	a.mu.Lock()
-	cur := map[string]acp.SessionId{}
+	cur := map[string]savedSession{}
 	for k, v := range a.sessions {
 		cur[k] = v
 	}

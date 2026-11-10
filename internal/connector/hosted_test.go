@@ -137,6 +137,76 @@ func TestLinkState(t *testing.T) {
 	}
 }
 
+// repo_config ignore keeps the repos' configuration from the harness:
+// rness reads no instruction files, Claude Code only user settings.
+func TestHarnessFollowsRepoConfig(t *testing.T) {
+	for _, c := range []struct {
+		harness, repoConfig, command, meta string
+	}{
+		{hosting.HarnessRness, hosting.RepoConfigTrust, "rness --acp", "null"},
+		{hosting.HarnessRness, hosting.RepoConfigIgnore, "rness --acp --instructions none", "null"},
+		{hosting.HarnessClaudeCode, hosting.RepoConfigTrust, "claude-agent-acp", "null"},
+		{hosting.HarnessClaudeCode, hosting.RepoConfigIgnore, "claude-agent-acp",
+			`{"claudeCode":{"options":{"settingSources":["user"]}}}`},
+	} {
+		h, err := harnessFor(c.harness, c.repoConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta, _ := json.Marshal(h.meta)
+		if got := strings.Join(h.command, " "); got != c.command || string(meta) != c.meta {
+			t.Errorf("%s %s: %q %s", c.harness, c.repoConfig, got, meta)
+		}
+		if c.harness == hosting.HarnessClaudeCode && h.mode != "default" {
+			t.Errorf("claude mode = %q", h.mode)
+		}
+	}
+	if _, err := harnessFor("codex", ""); err == nil {
+		t.Fatal("unknown harness accepted")
+	}
+}
+
+// Claude Code's managed settings pin the slot's network variables (the
+// kit's or a settings file's ANTHROPIC_BASE_URL would go around the
+// gateway) and blank the key overrides.
+func TestPinClaudeSettings(t *testing.T) {
+	t.Setenv(hosting.EnvGateway, "http://port/gateway")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://port/gateway/anthropic")
+	t.Setenv("ANTHROPIC_API_KEY", "sp_crew_slot")
+	t.Setenv("HTTPS_PROXY", "http://pm-1:sp_crew_slot@port:8742")
+	dir := filepath.Join(t.TempDir(), "claude-code")
+	if err := pinClaudeSettings(dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "managed-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Env          map[string]string `json:"env"`
+		APIKeyHelper *string           `json:"apiKeyHelper"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		hosting.EnvGateway: "http://port/gateway", "ANTHROPIC_BASE_URL": "http://port/gateway/anthropic",
+		"ANTHROPIC_API_KEY": "sp_crew_slot", "HTTPS_PROXY": "http://pm-1:sp_crew_slot@port:8742",
+		"ANTHROPIC_AUTH_TOKEN": "",
+	}
+	for k, v := range want {
+		if g, ok := got.Env[k]; !ok || g != v {
+			t.Errorf("env %s = %q (%v), want %q", k, g, ok, v)
+		}
+	}
+	if got.APIKeyHelper == nil || *got.APIKeyHelper != "" {
+		t.Errorf("apiKeyHelper = %v, want blank", got.APIKeyHelper)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "managed-settings.json")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, %v", fi.Mode(), err)
+	}
+}
+
 // Repos are cloned once and fetched afterwards (the agent's work stays);
 // each conversation gets a worktree of its own.
 func TestReposAndWorktrees(t *testing.T) {

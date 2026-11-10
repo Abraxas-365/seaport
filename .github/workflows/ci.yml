@@ -110,5 +110,13 @@ jobs:
           test "$(docker run --rm --entrypoint seaport "$IMAGE" version)" = "${{ github.sha }}"
           case "$HARNESS" in
             rness) docker run --rm --entrypoint rness "$IMAGE" --version ;;
-            claude-code) docker run --rm --entrypoint claude "$IMAGE" --version ;;
+            claude-code)
+              docker run --rm --entrypoint claude "$IMAGE" --version
+              # managed settings (connector.ClaudeManaged)
+              test "$(docker run --rm --entrypoint readlink "$IMAGE" /etc/claude-code)" = /tmp/seaport/claude-code
+              ;;
           esac
+      # The harness answers ACP as a slot runs it (hosted env, no network):
+      # initialize and a new session with a model option.
+      - name: acp
+        run: python3 images/acp-smoke.py seaport-${{ matrix.target }}:ci ${{ matrix.target }}

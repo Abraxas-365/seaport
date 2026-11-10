@@ -93,6 +93,12 @@ LABEL io.seaport.harness="rness" \
 
 FROM base AS claude-code
 COPY --from=claude-download /out/ /opt/seaport/bin/
+# Managed settings (read over every other settings source): agent-run
+# writes them at start in the slot's tmpfs, pinning the slot's gateway,
+# key and proxy (connector.ClaudeManaged).
+USER 0:0
+RUN ln -s /tmp/seaport/claude-code /etc/claude-code
+USER 1000:1000
 # No auto-update, telemetry or error reports: the image pins the version and
 # a slot reaches only the port and its environment's egress hosts.
 ENV SEAPORT_HARNESS=claude-code \

@@ -239,7 +239,12 @@ test together with the reason. Add a rule when you add a pattern.
   connection; the crew status marks it `outdated` when it isn't the
   agent's current version. Instructions go as ACP `systemPrompt` (append)
   when the agent advertises `sessionCapabilities.systemPrompt`, else with
-  each session's first prompt; skills are served by the MCP `skill` tool
+  each session's first prompt. `sessions.json` records per conversation the
+  hash of the instructions its session saw (`savedSession`; bare ids of
+  older files read as unknown): a resumed session whose instructions
+  changed (or are unknown) gets them again with its next prompt, since a
+  system prompt on resume doesn't outweigh the history; a brief is marked
+  seen only after a turn carrying it succeeds. Skills are served by the MCP `skill` tool
   (per request, from the current profile), never written to the agent's
   machine.
 - Hosting (`hosting`, migration 00015): an organization's environments
@@ -313,7 +318,14 @@ test together with the reason. Add a rule when you add a pattern.
   `ANTHROPIC_BASE_URL` (= `<agent URL>/gateway/anthropic`) and
   `ANTHROPIC_API_KEY` = the slot token, so the key never enters the
   container; the connector won't let the kit's env replace them
-  (`Config.Protect`). The gateway (`hostinggateway`, behind crew auth;
+  (`Config.Protect`), and for Claude Code `agent-run` writes them as
+  managed settings (`connector.pinClaudeSettings`, in
+  `connector.ClaudeManaged` on the slot's tmpfs, which the base image
+  links from `/etc/claude-code`; plus a blank `apiKeyHelper` and
+  `ANTHROPIC_AUTH_TOKEN`), so no `settings.json` overrides them. The
+  spec's `repo_config: ignore` keeps the repos' configuration out
+  (`connector.harnessFor`: rness `--instructions none`, Claude Code
+  `settingSources: ["user"]` in the session `_meta`). The gateway (`hostinggateway`, behind crew auth;
   `x-api-key` counts as the bearer) takes slot tokens only, forwards
   `/v1/messages[/count_tokens]`, `/v1/models*`, `/v1/files*` (else 404)
   with the real key (`Commands.ModelKey`), drops the caller's

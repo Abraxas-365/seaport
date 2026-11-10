@@ -276,13 +276,15 @@ started when the agent has work and stopped when it has none.
 name: backend
 harness: rness              # rness | claude-code
 packages: [jq, ripgrep]     # apt, into a derived image
-setup: |                    # bash at build time (tools, baseline config)
-  npm i -g pnpm
+setup: |                    # bash as root at build time (tools, baseline config;
+  npm i -g pnpm             #   never secrets: it is stored and in the image)
 repos:
   - url: https://github.com/acme/api.git
     ref: main
     credential: ${GITHUB_TOKEN}   # a secret of the hosted agent
     on_start: pnpm i
+repo_config: trust          # ignore: the harness skips the repos' AGENTS.md,
+                            #   CLAUDE.md and .claude/ settings
 models:
   anthropic: ${ANTHROPIC_API_KEY} # through the port's gateway
 network:
@@ -327,7 +329,12 @@ slots, logs, model use, refused hosts).
   `SEAPORT_RUNTIME_NETWORK=seaport-slots`, the Seaport container attached
   to it too); the port warns at start otherwise. `deploy/` sets this up.
 - The profile (instructions, skills, MCP servers, secrets) applies as for
-  any connector; a saved change restarts the slot's harness once idle.
+  any connector; a saved change restarts the slot's harness once idle, and
+  conversations already under way are told their instructions changed.
+- The slot's network settings win over configuration: neither the
+  profile's env nor a settings file (Claude Code's `settings.json`, from
+  the image or a trusted repo) can point the harness around the gateway
+  or the proxy (Claude Code gets them as managed settings).
 
 **Claude subscriptions (experimental).** A `claude-code` environment with
 no `models.anthropic` signs each slot in to a Claude account instead: the

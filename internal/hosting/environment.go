@@ -118,11 +118,13 @@ type Spec struct {
 	// Packages are Debian packages installed into a derived image.
 	Packages []string `json:"packages"`
 	// Setup is a shell script run while building the derived image, as
-	// the agent user (uid 1000, HOME=/home/agent): tools, baseline config.
+	// root (HOME=/home/agent, handed back to uid 1000 afterwards): tools,
+	// baseline config. It is stored and baked into the image: no secrets.
 	Setup string `json:"setup"`
 	Repos []Repo `json:"repos"`
 	// RepoConfig: trust (the harness reads the repos' own AGENTS.md,
-	// CLAUDE.md, .claude/, .rness/) or ignore.
+	// CLAUDE.md, .claude/ settings) or ignore (connector.harnessFor: rness
+	// without instruction files, Claude Code with user settings only).
 	RepoConfig string `json:"repo_config"`
 	// Models are the model keys the port's gateway uses for the slots.
 	Models    Models    `json:"models"`

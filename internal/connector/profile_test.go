@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/coder/websocket"
 )
@@ -242,5 +245,104 @@ func TestPermissionAllowsPortTools(t *testing.T) {
 		if got := ask(c.approve, c.title); string(got) != c.want {
 			t.Errorf("approve=%s %s: %s, want %s", c.approve, c.title, got, c.want)
 		}
+	}
+}
+
+// A resumed session gets the instructions again only when they changed
+// since it saw them (a system prompt on resume doesn't override what the
+// conversation already holds: Claude Code kept following the old ones),
+// or all of them when it may never have seen them.
+func TestResumedSessionsLearnChangedInstructions(t *testing.T) {
+	v1, v2 := instructionsHash("sign v1"), instructionsHash("sign v2")
+	none := ""
+	for _, c := range []struct {
+		name      string
+		prompt    string
+		supported bool
+		seen      *string
+		want      string // "" none, "full", "changed"
+	}{
+		{"same, system prompt", "sign v2", true, &v2, ""},
+		{"changed, system prompt", "sign v2", true, &v1, "changed"},
+		{"changed, no system prompt", "sign v2", false, &v1, "changed"},
+		{"same, no system prompt", "sign v2", false, &v2, ""},
+		{"unknown, system prompt", "sign v2", true, nil, "full"},
+		{"unknown, no system prompt", "sign v2", false, nil, "full"},
+		{"unknown, none", "", true, nil, ""},
+		{"had none", "sign v2", true, &none, "full"},
+		{"cleared", "", true, &v1, "changed"},
+		{"still none", "", false, &none, ""},
+	} {
+		a := &Agent{kit: &agent.Kit{Name: "pm"}, wire: &wire{prompt: c.prompt, supported: c.supported},
+			sessions: map[string]savedSession{"c": {ID: "s", Instructions: c.seen}}, briefs: map[acp.SessionId]brief{}}
+		a.planBrief("s", c.seen)
+		b, ok := a.briefs["s"]
+		got := ""
+		switch {
+		case ok && strings.Contains(b.text, "changed since"), ok && strings.Contains(b.text, "no longer has"):
+			got = "changed"
+		case ok:
+			got = "full"
+		}
+		if got != c.want {
+			t.Errorf("%s: brief = %q (%q), want %s", c.name, got, b.text, c.want)
+		}
+		if ok && (b.hash != instructionsHash(c.prompt) || (c.prompt != "" && !strings.Contains(b.text, c.prompt))) {
+			t.Errorf("%s: brief %+v doesn't hand over the current instructions", c.name, b)
+		}
+		if !ok && c.prompt != "" {
+			if s := a.sessions["c"]; s.Instructions == nil || *s.Instructions != instructionsHash(c.prompt) {
+				t.Errorf("%s: no brief but the session isn't marked current: %+v", c.name, s.Instructions)
+			}
+		}
+	}
+}
+
+// A brief stays until a turn carrying it succeeds; then the session is
+// marked as having seen those instructions, on disk too. A newer brief
+// planned meanwhile isn't dropped by an older turn's success.
+func TestBriefIsKeptUntilATurnSucceeds(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sessions.json")
+	a := &Agent{cfg: Config{Server: "http://p", Cwd: "/w", Command: []string{"rness"}, SessionsFile: file},
+		kit: &agent.Kit{Name: "pm"}, wire: &wire{prompt: "sign v2"},
+		sessions: map[string]savedSession{}, open: map[string]acp.SessionId{}, briefs: map[acp.SessionId]brief{}}
+	conv := identity.NewConversationID().String()
+	a.remember(conv, savedSession{ID: "s"}, true)
+	a.planBrief("s", nil)
+	first := a.briefs["s"]
+	if first.text == "" {
+		t.Fatal("no brief for an agent without system prompt")
+	}
+	newer := brief{text: "newer", hash: "h2"}
+	a.briefs["s"] = newer
+	a.briefDone("s", first) // the older turn succeeded
+	if a.briefs["s"] != newer {
+		t.Fatalf("an older turn dropped the newer brief: %+v", a.briefs["s"])
+	}
+	a.briefDone("s", newer)
+	if _, ok := a.briefs["s"]; ok {
+		t.Fatal("brief kept after its turn succeeded")
+	}
+	b := &Agent{cfg: a.cfg, kit: a.kit, sessions: map[string]savedSession{}}
+	b.loadSessions()
+	if s := b.sessions[conv]; s.ID != "s" || s.Instructions == nil || *s.Instructions != "h2" {
+		t.Fatalf("saved = %+v", s)
+	}
+}
+
+// Sessions files of older connectors (bare session ids) still load, with
+// the instructions they saw unknown.
+func TestOldSessionsFileLoads(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sessions.json")
+	conv := identity.NewConversationID().String()
+	a := &Agent{cfg: Config{Server: "http://p", Cwd: "/w", Command: []string{"rness"}, SessionsFile: file},
+		kit: &agent.Kit{Name: "pm"}, sessions: map[string]savedSession{}}
+	raw, _ := json.Marshal(map[string]map[string]string{a.sessionsKey(): {conv: "old-session"}})
+	if err := os.WriteFile(file, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a.loadSessions()
+	if s := a.sessions[conv]; s.ID != "old-session" || s.Instructions != nil {
+		t.Fatalf("loaded %+v", s)
 	}
 }

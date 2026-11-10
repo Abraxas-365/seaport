@@ -34,6 +34,9 @@ type HostedConfig struct {
 	Home, Workspace, State string
 	// Self is this binary (git's credential helper).
 	Self string
+	// ClaudeManaged is where Claude Code's managed settings go
+	// (ClaudeManaged; tests move it).
+	ClaudeManaged string
 }
 
 // HostedFromEnv reads a slot container's environment.
@@ -46,6 +49,7 @@ func HostedFromEnv() (HostedConfig, error) {
 		Server: strings.TrimRight(os.Getenv(hosting.EnvURL), "/"), Token: os.Getenv(hosting.EnvToken),
 		Slot: os.Getenv(hosting.EnvSlot), Harness: os.Getenv(hosting.EnvHarness),
 		Home: os.Getenv("HOME"), Workspace: hosting.WorkspaceDir, State: hosting.StateDir, Self: self,
+		ClaudeManaged: ClaudeManaged,
 	}
 	if cfg.Server == "" || cfg.Token == "" {
 		return cfg, errx.Validation("agent-run runs in a hosted slot: " + hosting.EnvURL + " and " + hosting.EnvToken + " are required")
@@ -73,12 +77,17 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 	if ws.Harness != "" {
 		cfg.Harness = ws.Harness
 	}
-	command, mode, err := harnessCommand(cfg.Harness)
+	h, err := harnessFor(cfg.Harness, ws.RepoConfig)
 	if err != nil {
 		return err
 	}
 	if err := linkState(cfg); err != nil {
 		return err
+	}
+	if cfg.Harness == hosting.HarnessClaudeCode && cfg.ClaudeManaged != "" {
+		if err := pinClaudeSettings(cfg.ClaudeManaged); err != nil {
+			return err
+		}
 	}
 	if err := configureGit(ctx, cfg, ws); err != nil {
 		return err
@@ -103,7 +112,7 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 	err = Run(ctx, Config{
 		Reload: reload,
 		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
-		Mode: mode, Cwd: cfg.Workspace, Command: command, Workdir: trees.dir, MCPURL: relay + "/mcp",
+		Mode: h.mode, Cwd: cfg.Workspace, Command: h.command, SessionMeta: h.meta, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
 		Protect:      protected(),
 	})
@@ -138,6 +147,43 @@ func protected() []string {
 	return out
 }
 
+// ClaudeManaged is where agent-run writes Claude Code's managed settings:
+// the base image links /etc/claude-code (the managed settings dir, read
+// over every other settings source) here, since the root fs is read-only
+// and /tmp is the slot's tmpfs.
+const ClaudeManaged = "/tmp/seaport/claude-code"
+
+// pinClaudeSettings writes Claude Code's managed settings with the slot's
+// network variables, so no settings file (the image's, a trusted repo's,
+// or one written by mistake) points it around the gateway or the egress
+// proxy: managed env wins over user and project env, and an empty
+// apiKeyHelper and ANTHROPIC_AUTH_TOKEN keep the slot's key in use. The
+// harness runs as the same user, so this guards configuration, not a
+// hostile agent (it holds the slot token anyway; the gateway and the
+// egress proxy are the boundary).
+func pinClaudeSettings(dir string) error {
+	env := map[string]string{}
+	for _, k := range protected() {
+		env[k] = os.Getenv(k)
+	}
+	settings := map[string]any{"env": env}
+	if _, ok := os.LookupEnv(hosting.EnvGateway); ok {
+		settings["apiKeyHelper"] = ""
+	}
+	raw, _ := json.MarshalIndent(settings, "", "  ")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return errx.Wrap(err, "prepare Claude Code's managed settings", errx.TypeInternal)
+	}
+	tmp := filepath.Join(dir, ".managed-settings.json.tmp")
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return errx.Wrap(err, "write Claude Code's managed settings", errx.TypeInternal)
+	}
+	if err := os.Rename(tmp, filepath.Join(dir, "managed-settings.json")); err != nil {
+		return errx.Wrap(err, "write Claude Code's managed settings", errx.TypeInternal)
+	}
+	return nil
+}
+
 // startRelay serves the port's MCP on loopback until ctx ends and answers
 // its base URL: harnesses take plain-HTTP MCP servers only on loopback,
 // and the port may be reached over plain HTTP on the host's network.
@@ -168,19 +214,44 @@ func startRelay(ctx context.Context, server string) (string, error) {
 	return "http://" + ln.Addr().String(), nil
 }
 
-// harnessCommand is the harness's ACP command and the session mode the
-// connector puts it in.
-func harnessCommand(harness string) ([]string, string, error) {
-	switch harness {
+// harness is how agent-run runs a harness: its ACP command, the session
+// mode the connector puts it in and the _meta of its session requests.
+type harness struct {
+	command []string
+	mode    string
+	meta    map[string]any
+}
+
+// harnessFor is the harness's run for the environment's repo_config:
+// with ignore, the harness reads its own configuration (the image's home)
+// but not the repos' (AGENTS.md, CLAUDE.md, .claude/ settings, commands
+// and agents).
+func harnessFor(name, repoConfig string) (harness, error) {
+	ignore := repoConfig == hosting.RepoConfigIgnore
+	switch name {
 	case hosting.HarnessRness:
-		return []string{"rness", "--acp"}, "", nil
+		h := harness{command: []string{"rness", "--acp"}}
+		if ignore {
+			// rness reads no project config but the instruction files
+			// (its project skill dirs stay: no flag turns them off)
+			h.command = append(h.command, "--instructions", "none")
+		}
+		return h, nil
 	case hosting.HarnessClaudeCode:
 		// Its default mode (auto) asks Anthropic's classifier, which the
 		// gateway doesn't serve: "default" asks permission instead (the
 		// profile's approve answers).
-		return []string{"claude-agent-acp"}, "default", nil
+		h := harness{command: []string{"claude-agent-acp"}, mode: "default"}
+		if ignore {
+			// user only: no project or local settings, CLAUDE.md, skills,
+			// commands or agents of the repo (managed settings still apply)
+			h.meta = map[string]any{"claudeCode": map[string]any{
+				"options": map[string]any{"settingSources": []string{"user"}},
+			}}
+		}
+		return h, nil
 	}
-	return nil, "", errx.Validation("unknown harness " + harness)
+	return harness{}, errx.Validation("unknown harness " + name)
 }
 
 func fetchWorkspaceRetrying(ctx context.Context, cfg HostedConfig) (hosting.Workspace, error) {
