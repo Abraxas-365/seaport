@@ -17,6 +17,8 @@ import (
 const columns = `id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status,
 	agent_id, hold_reason, delivery_id, claimed_until, error, sent_at, created_at`
 
+const attachmentColumns = `organization_id, id, ship_id, position, kind, mime, size, name, sha256, blob_key`
+
 // claimLock serializes the claims of one organization so two connectors
 // never get the same conversation (the "nothing in flight" check needs
 // it). The second key is hashtext(organization).
@@ -36,7 +38,7 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 var _ ship.Repository = (*Repository)(nil)
 
 func (r *Repository) CreateInbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, conv conversation.Conversation,
-	in ship.Inbound, hold string, route ship.Router) (ship.Ship, bool, error) {
+	in ship.Inbound, attachments []ship.Attachment, hold string, route ship.Router) (ship.Ship, bool, error) {
 	var s ship.Ship
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -80,12 +82,30 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 		id, org, conv.ID, in.ExternalID, in.SenderID, in.SenderName, in.Text, status, target, hold, in.SentAt)
 	if pgerr.IsNoRows(err) {
 		_ = tx.Rollback()
-		err = r.db.GetContext(ctx, &s, `SELECT `+columns+` FROM ships
-			WHERE organization_id = $1 AND conversation_id = $2 AND external_id = $3`, org, conv.ID, in.ExternalID)
-		return s, false, pgerr.MapWith(err, "find duplicate ship", messages)
+		s, found, err := r.FindExternal(ctx, org, conv.ID, in.ExternalID)
+		if err == nil && !found {
+			err = pgerr.MapWith(pgerr.ErrNoRows, "find duplicate ship", messages)
+		}
+		return s, false, err
 	}
 	if err != nil {
 		return s, false, pgerr.MapWith(err, "create inbound ship", messages)
+	}
+	for i, a := range attachments {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO ship_attachments
+			(organization_id, id, ship_id, position, kind, mime, size, name, sha256, blob_key)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			org, a.ID, id, i, a.Kind, a.MIME, a.Size, a.Name, a.SHA256, a.Key); err != nil {
+			return s, false, pgerr.Map(err, "store attachment")
+		}
+		a.Organization, a.Ship, a.Position = org, id, i
+		s.Attachments = append(s.Attachments, a)
+	}
+	if len(attachments) > 0 {
+		// Their blobs are in use now: out of the trash.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM blob_trash WHERE blob_key = ANY($1::text[])`, keysOf(attachments)); err != nil {
+			return s, false, pgerr.Map(err, "keep attachment blobs")
+		}
 	}
 	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
 }
@@ -205,6 +225,9 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, age
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "claim ships")
 	}
+	if err := r.attach(ctx, tx, org, ships); err != nil {
+		return conv, nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return conv, nil, pgerr.Map(err, "commit claim")
 	}
@@ -246,6 +269,9 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org, open.Agent, open.Session)
 	if err != nil {
 		return conv, nil, pgerr.Map(err, "join ships")
+	}
+	if err := r.attach(ctx, tx, org, ships); err != nil {
+		return conv, nil, err
 	}
 	if len(ships) > 0 {
 		// One lease for the whole delivery.
@@ -382,6 +408,9 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 		}
 		out = append(out, updated)
 	}
+	if err := r.attach(ctx, tx, org, out); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, pgerr.Map(err, "commit release held")
 	}
@@ -417,7 +446,10 @@ func (r *Repository) History(ctx context.Context, org identity.OrganizationID, c
 	}
 	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM ships WHERE organization_id = $1 AND conversation_id = $2
 		ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT $3 OFFSET $4`, org, conv, page.Limit, page.Offset)
-	return out, pgerr.Map(err, "list ships")
+	if err != nil {
+		return out, pgerr.Map(err, "list ships")
+	}
+	return out, r.attach(ctx, r.db, org, out.Items)
 }
 
 func (r *Repository) Summaries(ctx context.Context, org identity.OrganizationID, convs []identity.ConversationID) (map[identity.ConversationID]ship.Summary, error) {
@@ -455,12 +487,96 @@ func (r *Repository) Summaries(ctx context.Context, org identity.OrganizationID,
 			ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT 1) l`, ids, org); err != nil {
 		return nil, pgerr.Map(err, "last ships")
 	}
+	if err := r.attach(ctx, r.db, org, last); err != nil {
+		return nil, err
+	}
 	for i := range last {
 		s := out[last[i].Conversation]
 		s.Last = &last[i]
 		out[last[i].Conversation] = s
 	}
 	return out, nil
+}
+
+// attach fills the ships' attachments (one query for all of them).
+func (r *Repository) FindExternal(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, externalID string) (ship.Ship, bool, error) {
+	var s ship.Ship
+	err := r.db.GetContext(ctx, &s, `SELECT `+columns+` FROM ships
+		WHERE organization_id = $1 AND conversation_id = $2 AND external_id = $3`, org, conv, externalID)
+	if pgerr.IsNoRows(err) {
+		return s, false, nil
+	}
+	if err != nil {
+		return s, false, pgerr.MapWith(err, "find ship by channel id", messages)
+	}
+	one := []ship.Ship{s}
+	if err := r.attach(ctx, r.db, org, one); err != nil {
+		return s, false, err
+	}
+	return one[0], true, nil
+}
+
+func (r *Repository) attach(ctx context.Context, q sqlx.QueryerContext, org identity.OrganizationID, ships []ship.Ship) error {
+	if len(ships) == 0 {
+		return nil
+	}
+	ids := make([]string, len(ships))
+	at := make(map[identity.ShipID]int, len(ships))
+	for i, s := range ships {
+		ids[i], at[s.ID] = s.ID.String(), i
+	}
+	rows := []ship.Attachment{}
+	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT `+attachmentColumns+` FROM ship_attachments
+		WHERE organization_id = $1 AND ship_id = ANY($2::uuid[]) ORDER BY ship_id, position`, org, ids); err != nil {
+		return pgerr.Map(err, "ship attachments")
+	}
+	for _, a := range rows {
+		if i, ok := at[a.Ship]; ok {
+			ships[i].Attachments = append(ships[i].Attachments, a)
+		}
+	}
+	return nil
+}
+
+func keysOf(attachments []ship.Attachment) []string {
+	out := make([]string, len(attachments))
+	for i, a := range attachments {
+		out[i] = a.Key
+	}
+	return out
+}
+
+func (r *Repository) Attachment(ctx context.Context, org identity.OrganizationID, id identity.AttachmentID) (ship.Attachment, identity.ConversationID, error) {
+	var row struct {
+		ship.Attachment
+		Conversation identity.ConversationID `db:"conversation_id"`
+	}
+	err := r.db.GetContext(ctx, &row, `SELECT a.organization_id, a.id, a.ship_id, a.position, a.kind, a.mime, a.size, a.name,
+			a.sha256, a.blob_key, s.conversation_id
+		FROM ship_attachments a JOIN ships s ON s.organization_id = a.organization_id AND s.id = a.ship_id
+		WHERE a.organization_id = $1 AND a.id = $2`, org, id)
+	return row.Attachment, row.Conversation, pgerr.MapWith(err, "find attachment", pgerr.Messages{NotFound: "attachment not found"})
+}
+
+func (r *Repository) StageBlobs(ctx context.Context, org identity.OrganizationID, keys []string, due time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO blob_trash (blob_key, organization_id, due_at)
+		SELECT k, $1, $3 FROM unnest($2::text[]) AS k
+		ON CONFLICT (blob_key) DO UPDATE SET due_at = excluded.due_at`, org, keys, due)
+	return pgerr.Map(err, "stage blobs")
+}
+
+func (r *Repository) DueTrash(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	keys := []string{}
+	err := r.db.SelectContext(ctx, &keys, `SELECT blob_key FROM blob_trash WHERE due_at <= $1
+		ORDER BY due_at LIMIT $2`, now, limit)
+	return keys, pgerr.Map(err, "due blobs")
+}
+
+// DropTrash forgets deleted blobs; a key staged again meanwhile (due
+// later than now) stays.
+func (r *Repository) DropTrash(ctx context.Context, keys []string, now time.Time) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM blob_trash WHERE blob_key = ANY($1::text[]) AND due_at <= $2`, keys, now)
+	return pgerr.Map(err, "drop deleted blobs")
 }
 
 // execDelivery runs an update over a delivery's claimed ships; zero rows

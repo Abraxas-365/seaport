@@ -6,6 +6,7 @@ package dockwa
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -32,6 +33,11 @@ const (
 	minSendGap = 1200 * time.Millisecond
 	// handlerTimeout bounds the work done for one WhatsApp event.
 	handlerTimeout = 30 * time.Second
+	// downloadTimeout bounds an image download (within handlerTimeout).
+	downloadTimeout = 20 * time.Second
+	// encryptionOverhead: WhatsApp's encrypted media is the file plus up
+	// to one AES block of padding and a 10-byte MAC.
+	encryptionOverhead = 16 + 10
 	// linkTimeout bounds a QR pairing session.
 	linkTimeout = 3 * time.Minute
 )
@@ -471,7 +477,16 @@ func (s *session) inbound(ctx context.Context, e *events.Message) (ship.Inbound,
 		return ship.Inbound{}, false
 	}
 	body := messageText(e.Message)
-	if body == "" {
+	var media []ship.Media
+	if img := e.Message.GetImageMessage(); img != nil {
+		// WhatsApp's media URLs expire: the image is downloaded now.
+		var m *ship.Media
+		m, body = imageMedia(img, s.client.DownloadToFile)
+		if m != nil {
+			media = append(media, *m)
+		}
+	}
+	if body == "" && len(media) == 0 {
 		return ship.Inbound{}, false
 	}
 	in := ship.Inbound{
@@ -484,6 +499,7 @@ func (s *session) inbound(ctx context.Context, e *events.Message) (ship.Inbound,
 		SenderName: info.PushName,
 		Text:       body,
 		SentAt:     info.Timestamp,
+		Media:      media,
 	}
 	sender := []types.JID{info.Sender.ToNonAD(), info.SenderAlt.ToNonAD()}
 	in.SenderHandles = s.handles(ctx, sender...)
@@ -579,6 +595,39 @@ func (s *session) groupTitle(ctx context.Context, chat types.JID) string {
 	s.titles[chat] = title
 	s.mu.Unlock()
 	return title
+}
+
+// imageMedia turns an image message into its caption and the image,
+// fetched only when the port keeps it (WhatsApp's URLs expire, so within
+// the arrival; never for a denied sender or a redelivery), or no image
+// and the caption with a note when it is declared too large. The download
+// is bounded by ship.MaxImage whatever size the sender declared.
+func imageMedia(img *waE2E.ImageMessage,
+	download func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error) (*ship.Media, string) {
+	caption := img.GetCaption()
+	if img.GetFileLength() > ship.MaxImage {
+		note := ship.MediaNote(ship.AttachmentImage, "too large to keep")
+		if caption == "" {
+			return nil, note
+		}
+		return nil, caption + "\n" + note
+	}
+	fetch := func(ctx context.Context) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+		defer cancel()
+		// The encrypted file is the image plus its padding and MAC.
+		f := newMemFile(ship.MaxImage + encryptionOverhead)
+		if err := download(ctx, img, f); errors.Is(err, errFileFull) {
+			return nil, ship.ErrMediaTooLarge
+		} else if err != nil {
+			return nil, err
+		}
+		if len(f.Bytes()) > ship.MaxImage {
+			return nil, ship.ErrMediaTooLarge
+		}
+		return f.Bytes(), nil
+	}
+	return &ship.Media{Kind: ship.AttachmentImage, Fetch: fetch}, caption
 }
 
 // messageText extracts the text of a message (captions included); media

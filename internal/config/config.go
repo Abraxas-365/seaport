@@ -79,8 +79,14 @@ type Server struct {
 	// SecretKeyFile (SEAPORT_SECRET_KEY_FILE, default
 	// <user config dir>/seaport/secret.key; /data/secret.key in the image).
 	SecretKeyFile string
-	IAMKit        IAMKit
-	LogLevel      string // SEAPORT_LOG_LEVEL, default info
+	// BlobURL (SEAPORT_BLOB_URL) is where message media are kept, sealed
+	// with the secret key: file:///dir (one node), s3://bucket?region=…
+	// (credentials from AWS_*), mem:// (tests), or off. Default: a blobs
+	// directory next to SecretKeyFile (/data/blobs in the image); "" with
+	// neither keeps no media (a note says one came).
+	BlobURL  string
+	IAMKit   IAMKit
+	LogLevel string // SEAPORT_LOG_LEVEL, default info
 	// Outbound limits per dock (0 disables one): SEAPORT_SEND_PER_MINUTE
 	// (20), SEAPORT_SEND_PER_HOUR (300), SEAPORT_SEND_PER_CHAT_MINUTE (8).
 	SendPerMinute, SendPerHour, SendPerChatMinute int
@@ -157,6 +163,7 @@ func LoadServer() (Server, error) {
 		AdminToken:    os.Getenv("SEAPORT_ADMIN_TOKEN"),
 		SecretKey:     os.Getenv("SEAPORT_SECRET_KEY"),
 		SecretKeyFile: strings.TrimSpace(os.Getenv("SEAPORT_SECRET_KEY_FILE")),
+		BlobURL:       strings.TrimSpace(os.Getenv("SEAPORT_BLOB_URL")),
 		IAMKit: IAMKit{
 			URL:         strings.TrimRight(os.Getenv("IAMKIT_URL"), "/"),
 			PublicURL:   strings.TrimRight(os.Getenv("IAMKIT_PUBLIC_URL"), "/"),
@@ -219,7 +226,22 @@ func LoadServer() (Server, error) {
 			c.SecretKeyFile = filepath.Join(dir, "seaport", "secret.key")
 		}
 	}
+	switch {
+	case c.BlobURL == BlobOff:
+		c.BlobURL = ""
+	case c.BlobURL == "" && c.SecretKeyFile != "":
+		c.BlobURL = LocalBlobURL(filepath.Join(filepath.Dir(c.SecretKeyFile), "blobs"))
+	}
 	return c, c.Validate()
+}
+
+// BlobOff (SEAPORT_BLOB_URL=off) keeps no message media.
+const BlobOff = "off"
+
+// LocalBlobURL is a file:// bucket in dir (created; temporary files next
+// to the objects, so the final rename stays on one filesystem).
+func LocalBlobURL(dir string) string {
+	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(dir), RawQuery: "create_dir=1&no_tmp_dir=1"}).String()
 }
 
 // Validate checks the settings the chosen auth mode needs.

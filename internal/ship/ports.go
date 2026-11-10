@@ -51,6 +51,9 @@ type Commands interface {
 	ReleaseExpired(ctx context.Context, before time.Time) (int, error)
 	// Send delivers a reply to an allowed conversation.
 	Send(ctx context.Context, organization identity.OrganizationID, input Outbound) (Ship, error)
+	// SweepTrash deletes the blobs whose attachment is gone (or never
+	// came), in every organization (system: sweeper), and says how many.
+	SweepTrash(ctx context.Context, now time.Time) (int, error)
 }
 
 type Queries interface {
@@ -58,6 +61,9 @@ type Queries interface {
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	// Inbox lists conversations (newest activity first) with previews.
 	Inbox(ctx context.Context, organization identity.OrganizationID, filter conversation.Filter, page query.Pagination) (query.Paginated[InboxItem], error)
+	// OpenAttachment reads an attachment's bytes (unsealed); an agent
+	// reads only those of conversations on its docks (else NotFound).
+	OpenAttachment(ctx context.Context, organization identity.OrganizationID, input OpenAttachment) (AttachmentFile, error)
 }
 
 // Notifier wakes the crew of an organization when ships are waiting
@@ -73,7 +79,13 @@ type Repository interface {
 	// picks its agent from the dock's team, read in the same transaction
 	// and locked against unassigning, so a ship is never queued for an
 	// agent that just left the dock (no agent: held with route's reason).
-	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation conversation.Conversation, input Inbound, hold string, route Router) (s Ship, created bool, err error)
+	// Its attachments (blobs already stored) are inserted with it and
+	// their keys leave the trash; a duplicate stores none of them.
+	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation conversation.Conversation, input Inbound, attachments []Attachment, hold string, route Router) (s Ship, created bool, err error)
+	// FindExternal finds the conversation's ship with that channel message
+	// id (in or out: our own sends come back as echoes), so a redelivery's
+	// media isn't fetched again.
+	FindExternal(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, externalID string) (s Ship, found bool, err error)
 	// CreateOutbound stores a reply only if admit accepts the dock's and the
 	// conversation's recent outbound counts; counting and inserting are
 	// atomic per dock, so concurrent replies can't overshoot a limit.
@@ -99,4 +111,15 @@ type Repository interface {
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	Summaries(ctx context.Context, organization identity.OrganizationID, conversations []identity.ConversationID) (map[identity.ConversationID]Summary, error)
+	// Attachment finds an attachment and its ship's conversation.
+	Attachment(ctx context.Context, organization identity.OrganizationID, id identity.AttachmentID) (Attachment, identity.ConversationID, error)
+	// StageBlobs puts keys in the trash, due at due, before their blobs
+	// are written: a blob whose row never comes is deleted then.
+	StageBlobs(ctx context.Context, organization identity.OrganizationID, keys []string, due time.Time) error
+	// DueTrash lists blobs due for deletion, of every organization
+	// (system: sweeper).
+	DueTrash(ctx context.Context, now time.Time, limit int) ([]string, error)
+	// DropTrash forgets deleted blobs (system: sweeper; keys staged again
+	// since stay).
+	DropTrash(ctx context.Context, keys []string, now time.Time) error
 }

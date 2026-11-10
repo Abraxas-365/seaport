@@ -107,6 +107,7 @@ type (
 	crewTokenTag    struct{}
 	agentTag        struct{}
 	environmentTag  struct{}
+	attachmentTag   struct{}
 )
 
 func tagName[T any]() string {
@@ -130,6 +131,8 @@ func tagName[T any]() string {
 		return "agent_id"
 	case environmentTag:
 		return "environment_id"
+	case attachmentTag:
+		return "attachment_id"
 	default:
 		return "id"
 	}
@@ -203,3 +206,9 @@ func NewEnvironmentID() EnvironmentID { return NewID[environmentTag]() }
 func ParseEnvironmentID(raw string) (EnvironmentID, error) {
 	return ParseID[environmentTag](raw)
 }
+
+// AttachmentID identifies a file that came with a ship (an image...).
+type AttachmentID = ID[attachmentTag]
+
+func NewAttachmentID() AttachmentID                      { return NewID[attachmentTag]() }
+func ParseAttachmentID(raw string) (AttachmentID, error) { return ParseID[attachmentTag](raw) }

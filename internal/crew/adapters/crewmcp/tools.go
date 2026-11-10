@@ -85,6 +85,10 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 		Description: "Read the latest messages of a conversation, newest first (inbound and outbound).",
 	}, t.history)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "attachment",
+		Description: "Look at a file attached to a message (an image), by the attachment id that history lists.",
+	}, t.attachment)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "conversations",
 		Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
 	}, t.conversations)
@@ -175,11 +179,21 @@ type HistoryIn struct {
 }
 
 type Message struct {
-	Direction string    `json:"direction"`
-	From      string    `json:"from"`
-	Text      string    `json:"text"`
-	SentAt    time.Time `json:"sent_at"`
-	Status    string    `json:"status"`
+	Direction   string           `json:"direction"`
+	From        string           `json:"from"`
+	Text        string           `json:"text"`
+	SentAt      time.Time        `json:"sent_at"`
+	Status      string           `json:"status"`
+	Attachments []AttachmentInfo `json:"attachments,omitempty"`
+}
+
+// AttachmentInfo names a message's file; the attachment tool shows it.
+type AttachmentInfo struct {
+	ID   string `json:"attachment_id"`
+	Kind string `json:"kind"`
+	MIME string `json:"mime"`
+	Size int64  `json:"size"`
+	Name string `json:"name,omitempty"`
 }
 
 type HistoryOut struct {
@@ -211,10 +225,36 @@ func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn
 		} else if from == "" {
 			from = s.SenderID
 		}
-		out.Messages = append(out.Messages, Message{Direction: string(s.Direction), From: from,
-			Text: s.Text, SentAt: s.SentAt, Status: string(s.Status)})
+		m := Message{Direction: string(s.Direction), From: from, Text: s.Text, SentAt: s.SentAt, Status: string(s.Status)}
+		for _, a := range s.Attachments {
+			m.Attachments = append(m.Attachments, AttachmentInfo{ID: a.ID.String(), Kind: string(a.Kind),
+				MIME: a.MIME, Size: a.Size, Name: a.Name})
+		}
+		out.Messages = append(out.Messages, m)
 	}
 	return nil, out, nil
+}
+
+type AttachmentIn struct {
+	AttachmentID string `json:"attachment_id" jsonschema:"an attachment_id listed by history"`
+}
+
+// attachment answers the file as MCP image content (the agent's docks
+// only: OpenAttachment checks them).
+func (t tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, in AttachmentIn) (*mcp.CallToolResult, any, error) {
+	org, agentID, err := caller(ctx)
+	if err != nil {
+		return failure(err), nil, nil
+	}
+	id, err := identity.ParseAttachmentID(strings.TrimSpace(in.AttachmentID))
+	if err != nil {
+		return failure(err), nil, nil
+	}
+	f, err := t.d.History.OpenAttachment(ctx, org, ship.OpenAttachment{ID: id, Agent: agentID})
+	if err != nil {
+		return failure(err), nil, nil
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.ImageContent{Data: f.Data, MIMEType: f.MIME}}}, nil, nil
 }
 
 type ConversationsIn struct{}

@@ -59,6 +59,8 @@ cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx seal   foundation (import no domain)
   pglisten pglock     Postgres LISTEN connections / session advisory locks (foundation)
+  blob (+adapters/    object storage port (immutable Put, tenant keys, image
+   gocloudblob)       sniffing) + its gocloud adapter: file://, s3://, mem:// (foundation)
   permission          permission catalog generated from iam/permissions.json (foundation)
   event (+eventsse,   event bus over a Log (eventpg: Postgres table + LISTEN/
    eventpg)           NOTIFY) + SSE stream (foundation; payloads are domain
@@ -124,7 +126,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
   pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
-  the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`
+  the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`,
+  `gocloud.dev` → `blob/adapters/gocloudblob`
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -346,6 +349,37 @@ test together with the reason. Add a rule when you add a pattern.
   opener (single use, bound to the PKCE of that login). `Account` asks
   the harness (`agent-account`). rness refuses (no headless sign-in);
   the fallback is an env secret `CLAUDE_CODE_OAUTH_TOKEN`.
+- Message media (`ship/attachment.go`, migration 00020,
+  `shipsvc/media.go`): a message is text plus attachments (images only so
+  far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel
+  gives the bytes (`Media.Data`) or a `Media.Fetch` the service calls
+  within the arrival (`dockwa`: WhatsApp's URLs expire; the download goes
+  to a `memFile` capped at `ship.MaxImage` plus the encryption overhead,
+  whatever size the sender declared). `Receive` fetches nothing for a
+  redelivery (`FindExternal` first) or a denied chat/sender
+  (`shipsvc.refused`: anyone can message a dock; a note instead), then
+  sniffs the type from the bytes (`blob.ImageType`, `ship.ImageTypes`), seals them (`internal/seal`,
+  info `seaport media v1`, purpose `attachment/<org>/<id>`) and puts them
+  in the blob store (`SEAPORT_BLOB_URL`, opened once in `bootstrap`; off
+  without a secret key) under `blob.TenantKey(org, "attachments", id)`
+  *before* the ship's transaction; what can't be kept becomes a
+  `ship.MediaNote` in the text, never a lost message. Each key is staged
+  in `blob_trash` (due after `ship.TrashGrace`) before its Put, and
+  `CreateInbound` removes it from the trash in the insert's transaction,
+  so a crash or a duplicate leaves a blob the sweeper deletes; deleting an
+  attachment row (cascades from dock, conversation, ship) puts its key back
+  in the trash by trigger, due now. `SweepTrash` runs with the claim
+  sweeper (`config.SweepInterval`). Rows are the index (the bucket is
+  never listed). Reads: `ship.Queries.OpenAttachment` (an agent only for
+  conversations on its docks, else NotFound), served by
+  `GET /crew/attachments/{id}` (crew), `GET /api/v1/attachments/{id}`
+  (`ships:read`) and the MCP `attachment` tool, with `httpx.File`
+  (sniffed type, `nosniff`, sandbox CSP, `no-store`). Ships carry attachment metadata
+  (`Ship.Attachments`, filled by `shippg.attach` wherever ships are read);
+  the connector fetches the images of a delivery or steer and sends them as
+  ACP image blocks only when the agent advertises
+  `promptCapabilities.image` (rness refuses them otherwise), up to
+  `maxPromptImages`, naming the rest in the text.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
@@ -523,8 +557,8 @@ test together with the reason. Add a rule when you add a pattern.
   `bootstrap.MigrateTo`). A dock's `address` is its device JID.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
-  link into place) — never while `wa_devices` or `agent_secrets` has rows (a new key can't open
-  them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  link into place) — never while `wa_devices`, `agent_secrets` or
+  `ship_attachments` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so

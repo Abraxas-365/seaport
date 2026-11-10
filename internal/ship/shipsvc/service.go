@@ -36,6 +36,8 @@ type Deps struct {
 	Now    func() time.Time
 	// Limits cap outbound messages (zero value: ship.DefaultLimits).
 	Limits *ship.Limits
+	// Media keeps message media (zero value: off, media become notes).
+	Media Media
 }
 
 type Service struct {
@@ -50,9 +52,10 @@ type Service struct {
 	agents    agent.Queries
 	now       func() time.Time
 	limits    ship.Limits
+	media     media
 }
 
-func New(d Deps) *Service {
+func New(d Deps) (*Service, error) {
 	now := d.Now
 	if now == nil {
 		now = time.Now
@@ -65,8 +68,12 @@ func New(d Deps) *Service {
 	if d.Limits != nil {
 		limits = *d.Limits
 	}
+	m, err := newMedia(d.Media)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
-		events: events, agents: d.Agents, now: now, limits: limits}
+		events: events, agents: d.Agents, now: now, limits: limits, media: m}, nil
 }
 
 var (
@@ -85,10 +92,24 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		return ship.Ship{}, false, errx.Wrap(err, "customs", errx.TypeInternal)
 	}
 	conv := arrival.Conversation
+	said := input.Text // routing reads what the sender wrote, not our notes
 	route := func(team []agent.Member, previous identity.AgentID) (identity.AgentID, string) {
-		return agent.Route(team, input.Text, previous)
+		return agent.Route(team, said, previous)
 	}
-	st, created, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv, input, arrival.Hold, route)
+	if len(input.Media) > 0 {
+		// A redelivery's media isn't downloaded and stored again.
+		if st, found, err := s.repo.FindExternal(ctx, org, conv.ID, input.ExternalID); err != nil {
+			return ship.Ship{}, false, errx.Wrap(err, "find duplicate ship", errx.TypeInternal)
+		} else if found {
+			return st, false, nil
+		}
+	}
+	attachments, body, err := s.keep(ctx, org, input, arrival.Hold)
+	if err != nil {
+		return ship.Ship{}, false, err
+	}
+	input.Text = body
+	st, created, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv, input, attachments, arrival.Hold, route)
 	if err != nil {
 		return ship.Ship{}, false, errx.Wrap(err, "store inbound ship", errx.TypeInternal)
 	}

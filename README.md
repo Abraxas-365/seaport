@@ -106,6 +106,27 @@ what it sent while it waited is delivered to the agent, oldest first (the last
 24 hours, up to 50 messages); older messages, a denied chat's messages and a
 group's held messages stay held (the agent can read them with `history`).
 
+### Images
+
+Images people send (WhatsApp photos; `images` on an `api` dock) arrive
+with their message: the caption is its text, the image an attachment.
+Seaport downloads each one at arrival (WhatsApp's links expire), checks
+from its bytes that it is a JPEG, PNG, WebP or GIF of at most 3.75 MiB,
+and keeps it sealed with the secret key in blob storage
+(`SEAPORT_BLOB_URL`: a local directory by default, S3 or a compatible
+store by URL). Anything else (a larger image, another format, a failed
+download, media storage off, a sender customs denied) still arrives,
+with a note in its text such as `[image received; too large to keep]`;
+videos, audio and documents are notes for now.
+
+The connector shows the images to the agent with the prompt when the
+agent takes images (ACP `promptCapabilities.image`: Claude Code; rness
+when its model takes images), up to 8 per prompt; otherwise the prompt
+only names them. The MCP `history` tool lists each message's
+attachments and the `attachment` tool shows one. The web app shows them
+in the conversation. Deleting a dock, conversation or message deletes its
+images (a sweeper removes their blobs within a minute).
+
 ### Agents
 
 Create agents, put them on docks, then connect each one with a crew token of
@@ -210,8 +231,9 @@ new prompt, never lost.
 | `SEAPORT_ADMIN_TOKEN` | — | token mode: CLI and `/api/v1` (≥16 chars). CLI in iam mode: an IAMKit organization API key |
 | `SEAPORT_CREW_TOKEN` | — | `seaport connect`: the crew token to use (it names the agent) |
 | `SEAPORT_AGENT` | — | `seaport connect` with `SEAPORT_AUTH=none`: the agent to work as (`-agent`) |
-| `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys and agent secrets at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again, setting every agent secret again (and signs everyone out) |
+| `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys, agent secrets and message images at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again, setting every agent secret again, losing every image (and signs everyone out) |
 | `SEAPORT_SECRET_KEY_FILE` | `<config dir>/seaport/secret.key` | where the generated key lives (`/data/secret.key` in the image: mount a volume) |
+| `SEAPORT_BLOB_URL` | `blobs/` next to the key file | where message images are kept (sealed): `file:///dir` (one server), `s3://bucket?region=…` (credentials from `AWS_*`; S3-compatible stores with `&endpoint=…&use_path_style=true`), `off`. Several processes need a shared store (S3), not a local directory |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
 | `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
@@ -437,7 +459,8 @@ SEAPORT_URL=https://$SEAPORT_DOMAIN SEAPORT_CREW_TOKEN=sp_crew_… seaport conne
   The proxy runs `token` or `iam` mode (`none` refuses proxied requests).
 - Backups: `pg_dump -Fc` into `deploy/backups` every `BACKUP_EVERY_SECONDS`
   (1 day), kept `BACKUP_KEEP_DAYS` (14), mode 0600 owned by `BACKUP_UID`
-  (root by default). The WhatsApp keys and agent secrets in them (and, in iam mode, the IAMKit
+  (root by default). Images live in blob storage, not in the dumps:
+  back up `/data/blobs` (or the bucket) too. The WhatsApp keys and agent secrets in them (and, in iam mode, the IAMKit
   tokens of browser sessions) are sealed with `SEAPORT_SECRET_KEY`, which is
   not in the dumps: keep a copy of the key apart from them (from `.env`, or
   `docker compose cp seaport:/data/secret.key .` when it was generated) — a
@@ -473,7 +496,9 @@ Several Seaport processes (replicas behind one load balancer, or a rolling
 deploy) can serve one Postgres; any process answers any request, no sticky
 sessions. Give them all the same configuration, and in particular the same
 `SEAPORT_SECRET_KEY` (and admin token in token mode): set the key
-explicitly instead of letting each process generate its own file.
+explicitly instead of letting each process generate its own file. Point
+`SEAPORT_BLOB_URL` at one shared store (S3 or compatible): with local
+directories each process sees only the images it received.
 
 Agents may connect to any process: connections are recorded in
 Postgres, so the crew status and the agent quota count every process, a
@@ -516,13 +541,15 @@ In iam mode each route needs its permission (`iam/permissions.json`):
 | `GET /api/v1/crew` | connected agents and their deliveries in flight |
 | `GET /api/v1/inbox[?status=&dock_id=]` | conversations by last activity, each with `last_ship` (null without `ships:read`), `held`, `queued`, `in_flight` |
 | `GET/POST /api/v1/docks`, `GET/PATCH/DELETE /api/v1/docks/{id}`, `POST …/relink`, `POST …/unlink` | docks (QR in `qr_code` while linking); PATCH `{"name"}`; unlink logs the number out and keeps history; DELETE unlinks and deletes its conversations, ships and customs |
-| `POST /api/v1/docks/{id}/ships` | inject an inbound message into an `api` dock |
+| `POST /api/v1/docks/{id}/ships` | inject an inbound message into an `api` dock; `images: [{"data": base64, "name"?}]` (the body stays within 1 MiB) |
+| `GET /api/v1/attachments/{id}` | an image of a message (`ships:read`) |
 | `GET /api/v1/conversations[?status=allowed\|pending\|denied&dock_id=]`, `GET/PATCH /api/v1/conversations/{id}` | chats; PATCH `{"access":"auto\|allow\|deny","group_mode":"mentions\|all\|","title":…}` |
 | `GET /api/v1/docks/{id}/customs`, `PATCH …/customs/policy` `{"default","group_mode"}`, `POST …/customs/rules` `{"effect","pattern"}`, `DELETE /api/v1/customs/rules/{id}` | customs |
 | `GET/POST /api/v1/conversations/{id}/ships` | history; send as the agent |
 | `GET /crew/ws` | crew WebSocket (`internal/crew/protocol.go`) |
 | `GET /crew/profile[?agent=]` | crew credential: its agent's kit (profile with secrets resolved, `env`, `revision`); `?agent=` only in `none` mode |
-| `POST /mcp` | MCP tools: `reply`, `history`, `conversations`, and `skill` when the agent's profile has skills |
+| `GET /crew/attachments/{id}` | crew credential: an image of a message of its agent's docks (else 404) |
+| `POST /mcp` | MCP tools: `reply`, `history`, `conversations`, `attachment`, and `skill` when the agent's profile has skills |
 | `GET /healthz` | public liveness: `{"status","version"}`, nothing about any organization |
 
 ### Events

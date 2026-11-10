@@ -48,6 +48,11 @@ services:
       # there). Unset: generated into the seaport_data volume on first start.
       # Keep a copy apart from the database backups either way.
       SEAPORT_SECRET_KEY: ${SEAPORT_SECRET_KEY:-}
+      # Message images, sealed: /data/blobs in the seaport_data volume by
+      # default; s3://bucket?region=... (AWS_* credentials) to share them.
+      SEAPORT_BLOB_URL: ${SEAPORT_BLOB_URL:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       # iam mode (scripts/iamkit-provision.sh writes the IAMKIT_* values)
       IAMKIT_URL: ${IAMKIT_URL:-}
       IAMKIT_PUBLIC_URL: ${IAMKIT_PUBLIC_URL:-}

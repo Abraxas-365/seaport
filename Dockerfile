@@ -27,9 +27,10 @@ RUN mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/seaport /usr/local/bin/seaport
-# /data keeps the generated SEAPORT_SECRET_KEY (when it is not set): mount a
-# volume there, or the key and every linked WhatsApp dock die with the
-# container.
+# /data keeps the generated SEAPORT_SECRET_KEY (when it is not set) and
+# message images (/data/blobs, unless SEAPORT_BLOB_URL says otherwise):
+# mount a volume there, or the key, every linked WhatsApp dock and every
+# image die with the container.
 COPY --from=build --chown=nonroot:nonroot --chmod=700 /out/data /data
 ENV SEAPORT_SECRET_KEY_FILE=/data/secret.key
 # Inside a container the port must listen on all interfaces; publish it only

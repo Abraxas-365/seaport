@@ -96,7 +96,11 @@ export function hueOf(s: string) {
 export function shipPreview(s: Ship | null) {
   if (!s) return ""
   const who = s.direction === "out" ? "Agente: " : ""
-  return who + s.text.replace(/\s+/g, " ")
+  const text = s.text.replace(/\s+/g, " ")
+  const files = s.attachments?.length ?? 0
+  if (files === 0) return who + text
+  const photo = files === 1 ? "📷 Foto" : `📷 ${files} fotos`
+  return who + (text ? `${photo} · ${text}` : photo)
 }
 
 export function plural(n: number, one: string, many: string) {

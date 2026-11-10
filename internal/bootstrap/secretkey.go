@@ -17,8 +17,8 @@ import (
 )
 
 // SecretKey is SEAPORT_SECRET_KEY, or else the key in cfg.SecretKeyFile,
-// generated there (0600) on first start. It seals the WhatsApp store and
-// agent secrets, so a new key is never generated while sealed values exist:
+// generated there (0600) on first start. It seals the WhatsApp store,
+// agent secrets and message media, so a new key is never generated while sealed values exist:
 // that would lose them (every dock linked again, every secret set again).
 func SecretKey(ctx context.Context, cfg config.Server, db *sqlx.DB) (string, error) {
 	if cfg.SecretKey != "" {
@@ -33,11 +33,11 @@ func SecretKey(ctx context.Context, cfg config.Server, db *sqlx.DB) (string, err
 		return key, err
 	}
 	var sealed bool
-	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets)`); err != nil {
+	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets) OR EXISTS (SELECT 1 FROM ship_attachments)`); err != nil {
 		return "", errx.Wrap(err, "check sealed values", errx.TypeInternal)
 	}
 	if sealed {
-		return "", errx.Validation("the WhatsApp store or the agent secrets hold values sealed with a key that is not here: restore " + path +
+		return "", errx.Validation("the WhatsApp store, the agent secrets or message media hold values sealed with a key that is not here: restore " + path +
 			" (or set SEAPORT_SECRET_KEY to that key); a new key can't open them")
 	}
 	return generateKeyFile(path)

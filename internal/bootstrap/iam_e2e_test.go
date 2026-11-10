@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -473,6 +474,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"PATCH", "/api/v1/conversations/" + cv, "PATCH /api/v1/conversations/{id}", map[string]string{"access": "deny"}, permission.ConversationsWrite},
 		{"GET", "/api/v1/conversations/" + cv + "/ships", "GET /api/v1/conversations/{id}/ships", nil, permission.ShipsRead},
 		{"POST", "/api/v1/conversations/" + cv + "/ships", "POST /api/v1/conversations/{id}/ships", map[string]string{"text": "hi"}, permission.ShipsWrite},
+		{"GET", "/api/v1/attachments/" + identity.NewAttachmentID().String(), "GET /api/v1/attachments/{id}", nil, permission.ShipsRead},
 		{"GET", "/api/v1/docks/" + dk + "/customs", "GET /api/v1/docks/{id}/customs", nil, permission.CustomsRead},
 		{"PATCH", "/api/v1/docks/" + dk + "/customs/policy", "PATCH /api/v1/docks/{id}/customs/policy", map[string]string{"default": "allow"}, permission.CustomsWrite},
 		{"POST", "/api/v1/docks/" + dk + "/customs/rules", "POST /api/v1/docks/{id}/customs/rules", map[string]string{"effect": "allow", "pattern": "+1*"}, permission.CustomsWrite},

@@ -70,6 +70,21 @@ func JSON(w http.ResponseWriter, status int, body any) error {
 	return nil
 }
 
+// File answers 200 with stored bytes of a sniffed type (message media):
+// never cached (decrypted media stays off disks), sniffed again or run by
+// the browser.
+func File(w http.ResponseWriter, contentType string, data []byte) error {
+	h := w.Header()
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "private, no-store")
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+	return nil
+}
+
 // Created answers 201 with Location = request path + "/" + rel.
 func Created(w http.ResponseWriter, r *http.Request, rel string, body any) error {
 	w.Header().Set("Location", strings.TrimRight(r.URL.Path, "/")+"/"+strings.TrimLeft(rel, "/"))

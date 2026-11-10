@@ -545,6 +545,15 @@ function Conversation() {
           <ShipBubble ship={sampleShip({ text: "Mensaje en grupo sin mención", status: "held", sender_name: "Pedro", sent_at: ago(6) })} showSender />
           <ShipBubble ship={sampleShip({ direction: "out", status: "failed", error: "not connected", text: "Esto no salió", sent_at: ago(2) })} />
           <ShipBubble ship={sampleShip({ text: "Perfecto, resérvame una 🙌", status: "claimed", sent_at: ago(1) })} />
+          {/* An image attachment (no bytes behind it here: it shows the unavailable state). */}
+          <ShipBubble
+            ship={sampleShip({
+              text: "Así llegó la caja",
+              status: "handled",
+              sent_at: ago(1),
+              attachments: [{ id: "00000000-0000-0000-0000-000000000000", kind: "image", mime: "image/jpeg", size: 245_000, sha256: "" }],
+            })}
+          />
         </div>
         <Composer onSend={() => new Promise((r) => setTimeout(r, 600))} />
       </Card>

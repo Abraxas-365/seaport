@@ -66,6 +66,18 @@ export interface Ship {
   error?: string
   sent_at: string
   created_at: string
+  /** Files that came with it (inbound images), in order. */
+  attachments?: Attachment[]
+}
+
+/** A file that came with a ship; its bytes are at attachmentURL(id). */
+export interface Attachment {
+  id: ID
+  kind: "image"
+  mime: string
+  size: number
+  name?: string
+  sha256: string
 }
 
 export interface InboxItem extends Conversation {

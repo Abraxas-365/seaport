@@ -20,6 +20,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent/agentmodule"
 	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
 	"github.com/Abraxas-365/seaport/internal/auth/authmodule"
+	"github.com/Abraxas-365/seaport/internal/blob/adapters/gocloudblob"
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
@@ -58,7 +59,10 @@ type App struct {
 	hosted  *hostingmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
 	signIn *authmodule.Module
-	cfg    config.Server
+	// blobs keeps message media (nil: off).
+	blobs *gocloudblob.Store
+	sweep time.Duration
+	cfg   config.Server
 	// done ends long-lived streams (SSE) on shutdown.
 	done     chan struct{}
 	stopOnce func()
@@ -78,6 +82,8 @@ type Options struct {
 	Runtime hosting.Runtime
 	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
 	SupervisePeriod time.Duration
+	// SweepInterval overrides config.SweepInterval (tests).
+	SweepInterval time.Duration
 	// EgressLookup resolves the egress proxy's hosts (tests).
 	EgressLookup func(ctx context.Context, host string) ([]netip.Addr, error)
 	// Authenticator overrides the one of cfg.Auth (tests with several
@@ -169,6 +175,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if lease == 0 {
 		lease = config.ClaimLease
 	}
+	sweep := opts.SweepInterval
+	if sweep <= 0 {
+		sweep = config.SweepInterval
+	}
 	dockLease := opts.DockLease
 	if dockLease == 0 {
 		dockLease = config.DockLease
@@ -221,10 +231,33 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// New work wakes the agent's connections and, for a hosted agent with
 	// no slot up, the slot supervisor (bound once hosting is built).
 	notify := &fanout{first: crew.Hub}
-	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
+	// Message media: sealed with the secret key, so none without one.
+	var blobs *gocloudblob.Store
+	if cfg.BlobURL != "" && secretKey != "" {
+		if blobs, err = gocloudblob.Open(ctx, cfg.BlobURL); err != nil {
+			docks.Close()
+			bus.Close()
+			closeDBs()
+			return nil, err
+		}
+	}
+	shipDeps := shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: notify, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
-			OrganizationPerHour: cfg.SendOrgPerHour}})
+			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey}
+	if blobs != nil {
+		shipDeps.Blobs = blobs
+	} else {
+		slog.Warn("message media are off (no SEAPORT_BLOB_URL or no secret key): media arrive as notes")
+	}
+	ships, err := shipmodule.New(shipDeps)
+	if err != nil {
+		closeBlobs(blobs)
+		docks.Close()
+		bus.Close()
+		closeDBs()
+		return nil, err
+	}
 	docks.BindReceiver(ships.Service)
 	convs.Service.Bind(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
@@ -243,6 +276,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	}
 	hosted, err := hostingmodule.New(ctx, db, agents.Service, hostCfg, bus)
 	if err != nil {
+		closeBlobs(blobs)
 		docks.Close()
 		bus.Close()
 		closeDBs()
@@ -257,6 +291,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if auth == nil {
 		if cfg.Auth == config.AuthIAM {
 			if signIn, err = authmodule.New(db, cfg, crew.Resolver); err != nil {
+				closeBlobs(blobs)
 				hosted.Close()
 				docks.Close()
 				bus.Close()
@@ -302,6 +337,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
 	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
 	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
+	root.Handle("GET /crew/attachments/{id}", auth.Crew(limit.Wrap(crew.Attachment())))
 	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
 	// The model gateway: hosted slots call their provider with their slot
 	// token (as x-api-key or bearer); not rate limited per request (one
@@ -319,7 +355,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	})
 
 	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
-		done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
+		blobs: blobs, sweep: sweep, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
 // newProcessID names this process among those serving one database:
@@ -416,7 +452,7 @@ func (a *App) Start(ctx context.Context) {
 		go a.signIn.Sweep(ctx)
 	}
 	go func() {
-		t := time.NewTicker(config.SweepInterval)
+		t := time.NewTicker(a.sweep)
 		defer t.Stop()
 		for {
 			select {
@@ -428,6 +464,9 @@ func (a *App) Start(ctx context.Context) {
 				}
 				if _, err := a.bus.Sweep(ctx, time.Now().Add(-config.EventRetention)); err != nil {
 					slog.Error("sweep old events", "err", err)
+				}
+				if _, err := a.ships.Service.SweepTrash(ctx, time.Now()); err != nil {
+					slog.Error("sweep unused media", "err", err)
 				}
 			}
 		}
@@ -444,8 +483,15 @@ func (a *App) Close() {
 	a.docks.Close()
 	a.hosted.Close() // builds record their end (database and bus still open)
 	a.bus.Close()
+	closeBlobs(a.blobs)
 	_ = a.lockDB.Close()
 	_ = a.db.Close()
+}
+
+func closeBlobs(b *gocloudblob.Store) {
+	if b != nil {
+		_ = b.Close()
+	}
 }
 
 // Serve runs the HTTP server until ctx ends.

@@ -91,6 +91,11 @@ function qs(params: Record<string, string | number | undefined>) {
 
 const v1 = "/api/v1"
 
+/** Where an attachment's bytes are (the session cookie authenticates <img>). */
+export function attachmentURL(id: string) {
+  return `${v1}/attachments/${encodeURIComponent(id)}`
+}
+
 export const api = {
   health: () => request<Health>("GET", "/healthz"),
 

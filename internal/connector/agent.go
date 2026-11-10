@@ -180,7 +180,7 @@ func (a *Agent) SetMCPURL(u string) {
 
 // Prompt runs one turn on the conversation's session and returns the
 // agent's final text.
-func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text string) (string, error) {
+func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text string, images []image) (string, error) {
 	sid, err := a.sessionFor(ctx, conv)
 	if err != nil {
 		return "", err
@@ -198,7 +198,7 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 		delete(a.answers, sid)
 		a.mu.Unlock()
 	}()
-	resp, err := a.conn.Prompt(ctx, acp.PromptRequest{SessionId: sid, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+	resp, err := a.conn.Prompt(ctx, acp.PromptRequest{SessionId: sid, Prompt: blocks(text, images)})
 	if err != nil {
 		if ctx.Err() != nil {
 			_ = a.conn.Cancel(context.WithoutCancel(ctx), acp.CancelNotification{SessionId: sid})
@@ -212,6 +212,10 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	defer a.mu.Unlock()
 	return buf.String(), nil
 }
+
+// TakesImages reports whether the agent takes images in prompts
+// (promptCapabilities.image; rness refuses them otherwise).
+func (a *Agent) TakesImages() bool { return a.caps.PromptCapabilities.Image }
 
 // steerMethod is rness's ACP extension that adds input to the turn an
 // in-flight session/prompt is running (advertised as
@@ -227,7 +231,7 @@ func (a *Agent) CanSteer() bool {
 
 // Steer hands text to the turn running on the conversation's session.
 // false means no turn is running there (the input was not taken).
-func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text string) (bool, error) {
+func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text string, images []image) (bool, error) {
 	a.mu.Lock()
 	sid, ok := a.open[conv.String()]
 	a.mu.Unlock()
@@ -235,7 +239,7 @@ func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text st
 		return false, nil
 	}
 	raw, err := a.conn.CallExtension(ctx, steerMethod, map[string]any{
-		"sessionId": sid, "prompt": []acp.ContentBlock{acp.TextBlock(text)},
+		"sessionId": sid, "prompt": blocks(text, images),
 	})
 	if err != nil {
 		return false, errx.Wrap(err, "agent steer", errx.TypeExternal)

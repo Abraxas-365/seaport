@@ -315,7 +315,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
-				j.steerLoop(ctx, agent)
+				j.steerLoop(ctx, cfg, agent)
 			}()
 			go func() {
 				defer wg.Done()
@@ -390,7 +390,7 @@ func (j *job) offer(d ship.Delivery) {
 // steerLoop hands steers to the running turn in arrival order until the
 // job ends. A steer the agent takes counts as handled; one it can't (the
 // turn just ended) stays out of the ack and the port queues it again.
-func (j *job) steerLoop(ctx context.Context, agent *Agent) {
+func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -398,13 +398,15 @@ func (j *job) steerLoop(ctx context.Context, agent *Agent) {
 		case <-j.stop:
 			return
 		case d := <-j.steers:
+			// Fetched before mu, so an ack never waits on downloads.
+			images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
 			j.mu.Lock()
 			if j.done {
 				j.mu.Unlock()
 				return
 			}
 			// Holding mu: the ack waits for this steer's outcome.
-			steered, err := agent.Steer(ctx, j.d.Conversation.ID, SteerPrompt(d))
+			steered, err := agent.Steer(ctx, j.d.Conversation.ID, SteerPrompt(d, ok), images)
 			if err != nil {
 				slog.Warn("steer failed; ships stay for the next turn", "delivery", d.ID, "err", err)
 			}
@@ -437,7 +439,8 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	id := d.ID
 	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "title", d.Conversation.Title)
 	log.Info("delivery received", "ships", len(d.Ships))
-	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply))
+	images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
+	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply, ok), images)
 	handled := j.finish()
 	if err != nil {
 		// Turns failing in a row (the agent can't open sessions, its model
@@ -460,27 +463,30 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	log.Info("delivery handled", "ships", len(handled))
 }
 
-// SteerPrompt renders ships that arrived while the agent was working.
-func SteerPrompt(d ship.Delivery) string {
+// SteerPrompt renders ships that arrived while the agent was working
+// (ok: the attachments that go with it as images).
+func SteerPrompt(d ship.Delivery, ok shown) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
-	writeShips(&b, d.Ships)
+	writeShips(&b, d.Ships, ok)
 	b.WriteString("\nTake them into account; reply to the conversation as before.")
 	return b.String()
 }
 
-func writeShips(b *strings.Builder, ships []ship.Ship) {
+func writeShips(b *strings.Builder, ships []ship.Ship, ok shown) {
 	for _, s := range ships {
 		from := s.SenderName
 		if from == "" {
 			from = s.SenderID
 		}
 		fmt.Fprintf(b, "[%s] %s: %s\n", s.SentAt.Local().Format("2006-01-02 15:04"), from, s.Text)
+		writeAttachments(b, s, ok)
 	}
 }
 
-// Prompt renders a delivery as the agent's prompt.
-func Prompt(d ship.Delivery, autoReply bool) string {
+// Prompt renders a delivery as the agent's prompt (ok: the attachments
+// that go with it as images).
+func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	c := d.Conversation
 	var b strings.Builder
 	fmt.Fprintf(&b, "[seaport] New %s message(s)\n", c.Channel)
@@ -490,7 +496,7 @@ func Prompt(d ship.Delivery, autoReply bool) string {
 		title = c.ExternalID
 	}
 	fmt.Fprintf(&b, "conversation: %s (%s)\n\n", title, c.Kind)
-	writeShips(&b, d.Ships)
+	writeShips(&b, d.Ships, ok)
 	b.WriteString("\n")
 	if autoReply {
 		b.WriteString("Your final answer will be sent to this conversation as a message. " +

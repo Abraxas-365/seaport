@@ -75,6 +75,8 @@ type Ship struct {
 	Error        string               `db:"error" json:"error,omitempty"`
 	SentAt       time.Time            `db:"sent_at" json:"sent_at"`
 	CreatedAt    time.Time            `db:"created_at" json:"created_at"`
+	// Attachments: the files that came with it, in order (metadata only).
+	Attachments []Attachment `db:"-" json:"attachments,omitempty"`
 }
 
 // Summary is the inbox preview of one conversation's ships.
@@ -112,6 +114,9 @@ type Inbound struct {
 	// Addressed: the message mentions the account or replies to it
 	// (groups in mentions mode only wake the crew then).
 	Addressed bool
+	// Media: files that came with the message (images), downloaded at
+	// arrival; Text is then the caption (may be empty).
+	Media []Media
 }
 
 func (in Inbound) Validate() error {
@@ -127,8 +132,21 @@ func (in Inbound) Validate() error {
 	if err := text.Optional("sender_name", in.SenderName, text.MaxName); err != nil {
 		return err
 	}
-	if err := text.Required("text", in.Text, text.MaxMessage); err != nil {
+	// Media may come without a caption.
+	if len(in.Media) > 0 {
+		if err := text.Optional("text", in.Text, text.MaxMessage); err != nil {
+			return err
+		}
+	} else if err := text.Required("text", in.Text, text.MaxMessage); err != nil {
 		return err
+	}
+	if len(in.Media) > MaxAttachments {
+		return errx.InvalidField("media", "too many attachments (max "+strconv.Itoa(MaxAttachments)+")")
+	}
+	for _, m := range in.Media {
+		if err := m.Validate(); err != nil {
+			return err
+		}
 	}
 	if in.SentAt.IsZero() {
 		return errx.InvalidField("sent_at", "sent_at is required")

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/blob"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -27,6 +28,9 @@ type Deps struct {
 	Events    event.Publisher
 	Limits    ship.Limits
 	Agents    agent.Queries
+	// Blobs and SecretKey keep message media sealed (either missing: off).
+	Blobs     blob.Store
+	SecretKey string
 }
 
 type Module struct {
@@ -34,10 +38,14 @@ type Module struct {
 	http    *shiphttp.Handler
 }
 
-func New(d Deps) *Module {
-	svc := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
-		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents})
-	return &Module{Service: svc, http: shiphttp.New(svc, svc, d.Docks)}
+func New(d Deps) (*Module, error) {
+	svc, err := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
+		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents,
+		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}})
+	if err != nil {
+		return nil, err
+	}
+	return &Module{Service: svc, http: shiphttp.New(svc, svc, d.Docks)}, nil
 }
 
 func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }

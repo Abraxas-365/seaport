@@ -4,6 +4,7 @@ import { formatFull, formatTime } from "@/lib/format"
 import type { Ship } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ShipAttachments } from "./ship-attachments"
 import { shipLabel } from "./tone"
 
 /** Delivery state of a ship, as a tiny icon (WhatsApp-like ticks). */
@@ -82,7 +83,8 @@ export function ShipBubble({
         {showSender && !out && ship.sender_name && (
           <div className="mb-0.5 text-xs font-semibold text-primary">{ship.sender_name}</div>
         )}
-        <p className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{ship.text}</p>
+        {ship.attachments && ship.attachments.length > 0 && <ShipAttachments attachments={ship.attachments} />}
+        {ship.text && <p className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{ship.text}</p>}
         <Tooltip>
           <TooltipTrigger asChild>
             <div

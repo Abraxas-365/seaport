@@ -31,6 +31,24 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
 	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
 	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
+	mux.Handle("GET /api/v1/attachments/{id}", httpx.RequireFunc(permission.ShipsRead, h.attachment))
+}
+
+// attachment serves a ship's attachment (an image shown in its bubble).
+func (h *Handler) attachment(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAttachmentID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	f, err := h.queries.OpenAttachment(r.Context(), org, ship.OpenAttachment{ID: id})
+	if err != nil {
+		return err
+	}
+	return httpx.File(w, f.MIME, f.Data)
 }
 
 func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
@@ -128,6 +146,13 @@ type receiveRequest struct {
 	SenderHandles []string `json:"sender_handles"`
 	// Addressed: the message mentions the account (groups in mentions mode).
 	Addressed bool `json:"addressed"`
+	// Images come base64-encoded (the whole body stays within 1 MiB).
+	Images []receiveImage `json:"images"`
+}
+
+type receiveImage struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
 }
 
 type receiveResponse struct {
@@ -163,11 +188,15 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 	if req.SentAt != nil {
 		sentAt = *req.SentAt
 	}
-	s, created, err := h.commands.Receive(r.Context(), org, ship.Inbound{
+	in := ship.Inbound{
 		Dock: d.ID, Channel: d.Channel, ChatID: req.ChatID, ChatKind: req.ChatKind, ChatTitle: req.ChatTitle,
 		ExternalID: req.MessageID, SenderID: req.SenderID, SenderName: req.SenderName, Text: req.Text, SentAt: sentAt,
 		ChatHandles: req.ChatHandles, SenderHandles: req.SenderHandles, Addressed: req.Addressed,
-	})
+	}
+	for _, img := range req.Images {
+		in.Media = append(in.Media, ship.Media{Kind: ship.AttachmentImage, Name: img.Name, Data: img.Data})
+	}
+	s, created, err := h.commands.Receive(r.Context(), org, in)
 	if err != nil {
 		return err
 	}
