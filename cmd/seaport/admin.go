@@ -38,29 +38,50 @@ func newAdmin() (*admin, error) {
 }
 
 func (a *admin) do(ctx context.Context, method, path string, body, out any) error {
-	var rd io.Reader
+	var raw []byte
+	ct := ""
 	if body != nil {
-		raw, _ := json.Marshal(body)
-		rd = bytes.NewReader(raw)
+		raw, _ = json.Marshal(body)
+		ct = "application/json"
+	}
+	resp, err := a.send(ctx, method, path, ct, raw)
+	if err != nil {
+		return err
+	}
+	if out != nil {
+		if err := json.Unmarshal(resp, out); err != nil {
+			return errx.Wrap(err, "decode response", errx.TypeInternal)
+		}
+	}
+	return nil
+}
+
+// send makes one request with a raw body of type contentType (none when
+// "") and answers the response body (at most 32 MiB), the port's error
+// message as a typed error.
+func (a *admin) send(ctx context.Context, method, path, contentType string, body []byte) ([]byte, error) {
+	var rd io.Reader
+	if contentType != "" {
+		rd = bytes.NewReader(body)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, a.base+path, rd)
 	if err != nil {
-		return errx.Wrap(err, "build request", errx.TypeInternal)
+		return nil, errx.Wrap(err, "build request", errx.TypeInternal)
 	}
 	if a.token != "" {
 		req.Header.Set("Authorization", "Bearer "+a.token)
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := a.http.Do(req)
 	if err != nil {
-		return errx.External("cannot reach the port at " + a.base + ": " + err.Error())
+		return nil, errx.External("cannot reach the port at " + a.base + ": " + err.Error())
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if resp.StatusCode == http.StatusUnauthorized && a.token == "" {
-		return errx.Unauthorized("the port requires SEAPORT_ADMIN_TOKEN (token mode: the admin token; iam mode: an IAMKit API key ik_key_… of your organization)")
+		return nil, errx.Unauthorized("the port requires SEAPORT_ADMIN_TOKEN (token mode: the admin token; iam mode: an IAMKit API key ik_key_… of your organization)")
 	}
 	if resp.StatusCode >= 300 {
 		var e struct {
@@ -69,16 +90,11 @@ func (a *admin) do(ctx context.Context, method, path string, body, out any) erro
 			} `json:"error"`
 		}
 		if json.Unmarshal(raw, &e) == nil && e.Error.Message != "" {
-			return errx.FromStatus(resp.StatusCode, e.Error.Message)
+			return nil, errx.FromStatus(resp.StatusCode, e.Error.Message)
 		}
-		return errx.FromStatus(resp.StatusCode, resp.Status)
+		return nil, errx.FromStatus(resp.StatusCode, resp.Status)
 	}
-	if out != nil {
-		if err := json.Unmarshal(raw, out); err != nil {
-			return errx.Wrap(err, "decode response", errx.TypeInternal)
-		}
-	}
-	return nil
+	return raw, nil
 }
 
 func dockAdd(ctx context.Context, args []string) error {

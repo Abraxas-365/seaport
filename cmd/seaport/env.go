@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 	"time"
@@ -164,6 +165,18 @@ func env(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		// home: a dir (relative to the file) is uploaded first
+		if f.Home != "" && !hosting.ValidHomeDigest(f.Home) {
+			dir := expandHome(f.Home)
+			if !filepath.IsAbs(dir) && *file != "-" {
+				dir = filepath.Join(filepath.Dir(*file), dir)
+			}
+			h, err := pushHome(ctx, a, f.Harness, dir, false, os.Stdout)
+			if err != nil {
+				return err
+			}
+			f.Home = h.Digest
+		}
 		return applyEnv(ctx, a, f)
 	case "export", "show":
 		fs := flag.NewFlagSet("env export", flag.ContinueOnError)
@@ -212,6 +225,8 @@ func env(ctx context.Context, args []string) error {
 			return err
 		}
 		return buildEnv(ctx, a, args[0], *version, *force, *wait)
+	case "home":
+		return envHome(ctx, a, args)
 	case "delete":
 		fs := flag.NewFlagSet("env delete", flag.ContinueOnError)
 		yes := fs.Bool("yes", false, "confirm")

@@ -46,6 +46,8 @@ var systemWide = map[string]string{
 	"ship.Commands.SweepTrash":        "blob sweeper deletes unused media of every organization",
 	"ship.Repository.DueTrash":        "blob sweeper deletes unused media of every organization",
 	"ship.Repository.DropTrash":       "blob sweeper forgets the blobs it deleted (keyed by blob key)",
+	"hosting.Commands.SweepHomes":     "home sweeper deletes the unused harness homes of every organization",
+	"hosting.Repository.StaleHomes":   "home sweeper lists the unused harness homes of every organization",
 	"crew.Presence.Touch":             "a process keeps its own connections alive (keyed by process)",
 	"crew.Presence.Reap":              "any process reaps a dead process's connections, of every organization",
 	"crew.Presence.Signal":            "a cross-process signal; the signal names its organization",

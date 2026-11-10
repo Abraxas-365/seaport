@@ -88,7 +88,7 @@ func (r *Runtime) Build(ctx context.Context, req hosting.BuildRequest, log io.Wr
 	if err := r.base(ctx, req, log); err != nil {
 		return "", err
 	}
-	if len(req.Spec.Packages) == 0 && req.Spec.Setup == "" {
+	if len(req.Spec.Packages) == 0 && req.Spec.Setup == "" && req.Spec.Home == "" {
 		fmt.Fprintf(log, "no packages or setup: the environment runs on %s\n", req.Base)
 	}
 	ctxTar, err := buildContext(req)
@@ -180,7 +180,8 @@ func (r *Runtime) pull(ctx context.Context, ref string, log io.Writer) error {
 	return nil
 }
 
-// buildContext is the tar with the derived Dockerfile and the setup script.
+// buildContext is the tar with the derived Dockerfile, the setup script
+// and the home's files (under hosting.HomeContext/<harness home>/).
 func buildContext(req hosting.BuildRequest) (io.Reader, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
@@ -196,10 +197,44 @@ func buildContext(req hosting.BuildRequest) (io.Reader, error) {
 			return nil, errx.Wrap(err, "build context", errx.TypeInternal)
 		}
 	}
+	if req.Spec.Home != "" {
+		if err := homeContext(tw, req); err != nil {
+			return nil, err
+		}
+	}
 	if err := tw.Close(); err != nil {
 		return nil, errx.Wrap(err, "build context", errx.TypeInternal)
 	}
 	return &buf, nil
+}
+
+// homeContext copies the home's normalized tar (hosting.ReadHome: regular
+// files, relative paths) under hosting.HomeContext/<harness home>/.
+func homeContext(tw *tar.Writer, req hosting.BuildRequest) error {
+	root := hosting.HomeRoot(req.Spec.Harness)
+	if root == "" || len(req.Home) == 0 {
+		return errx.Internal("the build has no home")
+	}
+	tr := tar.NewReader(bytes.NewReader(req.Home))
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return errx.Wrap(err, "build context: home", errx.TypeInternal)
+		}
+		if h.Typeflag != tar.TypeReg || hosting.HomePath(req.Spec.Harness, h.Name) != nil {
+			return errx.Internal("build context: the home holds " + h.Name)
+		}
+		h.Name = hosting.HomeContext + "/" + root + "/" + h.Name
+		if err := tw.WriteHeader(h); err != nil {
+			return errx.Wrap(err, "build context: home", errx.TypeInternal)
+		}
+		if _, err := io.Copy(tw, tr); err != nil {
+			return errx.Wrap(err, "build context: home", errx.TypeInternal)
+		}
+	}
 }
 
 // stream copies a build's JSON messages to log and answers the image id

@@ -2,6 +2,7 @@ package connector
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -316,8 +317,10 @@ type statePath struct {
 }
 
 var harnessState = map[string][]statePath{
+	// rness keeps its memory vault (the memory plugin) across restarts too.
 	hosting.HarnessRness: {
 		{home: ".rness/sessions", state: "rness/sessions", dir: true},
+		{home: ".rness/memory", state: "rness/memory", dir: true},
 		{home: ".rness/credentials.json", state: "rness/credentials.json"},
 	},
 	// Claude Code's whole config dir: it replaces (or refuses) a linked
@@ -369,14 +372,22 @@ func linkState(cfg HostedConfig) error {
 	return os.MkdirAll(filepath.Join(cfg.State, "connector"), 0o700)
 }
 
+// seededFile lists, in a seeded dir of the state volume, the files the
+// last seed copied in (one relative path per line), so a file the image
+// no longer ships (removed from the environment's home) is deleted.
+const seededFile = ".seaport-seeded"
+
 // seedDir copies the regular files under from (the image's) into to,
-// replacing what's there, except the top-level names in keep (the
-// harness's own: sessions, sign-in). from missing or already a link is no
+// replacing what's there (executables stay executable), except the
+// top-level names in keep (the harness's own: sessions, sign-in), and
+// deletes the files an earlier seed copied that from no longer has; what
+// the harness wrote itself stays. from missing or already a link is no
 // error.
 func seedDir(from, to string, keep []string) error {
 	if fi, err := os.Lstat(from); err != nil || !fi.IsDir() {
 		return nil
 	}
+	var seeded []string
 	err := filepath.WalkDir(from, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -385,7 +396,7 @@ func seedDir(from, to string, keep []string) error {
 		if rel == "." {
 			return nil
 		}
-		if top, _, _ := strings.Cut(rel, string(filepath.Separator)); slices.Contains(keep, top) {
+		if top, _, _ := strings.Cut(rel, string(filepath.Separator)); slices.Contains(keep, top) || top == seededFile {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -396,18 +407,77 @@ func seedDir(from, to string, keep []string) error {
 		case d.IsDir():
 			return os.MkdirAll(dst, 0o700)
 		case d.Type().IsRegular():
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
 			raw, err := os.ReadFile(p)
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(dst, raw, 0o600)
+			mode := os.FileMode(0o600)
+			if info.Mode()&0o111 != 0 {
+				mode = 0o700
+			}
+			seeded = append(seeded, filepath.ToSlash(rel))
+			if same(dst, raw, mode) { // most starts: nothing to write
+				return nil
+			}
+			_ = os.Remove(dst) // a link or a file of another mode
+			if err := os.WriteFile(dst, raw, mode); err != nil {
+				return err
+			}
 		}
 		return nil // links and the like aren't copied
 	})
 	if err != nil {
 		return errx.Wrap(err, "seed the state volume", errx.TypeInternal)
 	}
+	list := filepath.Join(to, seededFile)
+	if old, err := os.ReadFile(list); err == nil {
+		for _, rel := range strings.Split(string(old), "\n") {
+			if rel == "" || slices.Contains(seeded, rel) || !filepath.IsLocal(filepath.FromSlash(rel)) {
+				continue
+			}
+			if top, _, _ := strings.Cut(rel, "/"); slices.Contains(keep, top) {
+				continue
+			}
+			p := filepath.Join(to, filepath.FromSlash(rel))
+			if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+				_ = os.Remove(p)
+				pruneEmpty(filepath.Dir(p), to)
+			}
+		}
+	}
+	body := strings.Join(seeded, "\n")
+	if err := os.WriteFile(list+".tmp", []byte(body), 0o600); err != nil {
+		return errx.Wrap(err, "seed the state volume", errx.TypeInternal)
+	}
+	if err := os.Rename(list+".tmp", list); err != nil {
+		return errx.Wrap(err, "seed the state volume", errx.TypeInternal)
+	}
 	return nil
+}
+
+// same tells whether p is a regular file of mode holding raw.
+func same(p string, raw []byte, mode os.FileMode) bool {
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm() != mode || fi.Size() != int64(len(raw)) {
+		return false
+	}
+	have, err := os.ReadFile(p)
+	return err == nil && bytes.Equal(have, raw)
+}
+
+// pruneEmpty removes dir and its parents up to (not including) root while
+// they are empty.
+func pruneEmpty(dir, root string) {
+	for dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)) {
+		if os.Remove(dir) != nil { // not empty
+			return
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // configureGit makes this binary git's credential helper for the repos

@@ -145,6 +145,12 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `Reveal` only from `hostingsvc`, `OpenWorkspace` only from `hostinghttp`
   (the slot's own token) and `ModelKey` only from `hostinggateway` (it
   forwards with the key, never answers it).
+- Blob store (`blob_architecture_test.go`, `TestOnlyOwnersReachBlobs`):
+  only `blob` itself, its adapter, `bootstrap` (opens it), and the
+  services/modules that own sealed blobs (`ship/shipsvc`,
+  `hosting/hostingsvc` and their modules) import `internal/blob`
+  (`blobOwners`); everyone else reads through the owner's checked queries
+  (`OpenAttachment`, `HomeFile`/`HomeArchive`).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -392,6 +398,39 @@ test together with the reason. Add a rule when you add a pattern.
   ACP image blocks only when the agent advertises
   `promptCapabilities.image` (rness refuses them otherwise), up to
   `maxPromptImages`, naming the rest in the text.
+- Harness homes (`hosting/home.go`, migration 00021,
+  `hostingsvc/homes.go`): an environment's `home: sha256:…` names an
+  uploaded `~/.claude` or `~/.rness` (`POST /api/v1/homes?harness=…`, raw
+  tar/tar.gz up to `MaxHomeUpload`, `httpx.ReadBody`; `seaport env home
+  push|show|pull`, or `home: ./dir` in `env apply`). `ReadHome` allows only
+  the harness's config paths (`HomePath`: Claude `CLAUDE.md`,
+  `settings.json`, `keybindings.json`, `agents/ commands/ skills/ hooks/
+  output-styles/`, `statusline*`; rness `init.lua`, `hooks.json`, `lua/
+  plugins/ skills/`, never `lua/seaport.lua`), regular files only, within
+  `MaxHomeFiles`/`MaxHomeFile`/`MaxHomeBytes`, and refuses secret-looking
+  strings (`ScanSecrets`: secrets go as the agent's env secrets, files read
+  the environment); sessions, sign-in, memory and Claude's `plugins/` are
+  never uploaded. It normalizes to a sorted tar (uid/gid 1000, 0644/0755,
+  mtime 0) whose SHA-256 with the harness is the digest, so the same files
+  make the same home. The tar is sealed (info `seaport homes v1`, purpose
+  `home/<org>/<digest>`) in the blob store, staged in `blob_trash` before
+  the Put like media; `hosting_homes` (at most `MaxHomes`, counted under
+  `hostingLock`) is the index, and deleting a row puts its blob back in
+  the trash by trigger. `environment_versions.home` references it (FK);
+  saving a version naming a home touches it under `hostingLock`, and
+  `SweepHomes` (claim sweeper, before `SweepTrash`) deletes homes no
+  version names, untouched for `HomeGrace`, under the same lock. Applied at
+  build time: `runBuild` opens the home into `BuildRequest.Home`, the
+  Dockerfile (whose `# home <digest>` line changes the tag) copies it over
+  `/home/agent` after setup and runs `seaport home-setup`
+  (`connector.HomeSetup`: rness keeps `require("seaport")` first in
+  `init.lua`; Claude Code adds the marketplaces `settings.json` declares
+  in `extraKnownMarketplaces` (github or https git only) and installs the
+  plugins `enabledPlugins` turns on). At start `agent-run` seeds the
+  state volume from the image (`seedDir`: changed files replaced, files a
+  previous home shipped and this one doesn't deleted, via
+  `.seaport-seeded`; the harness's own files stay); rness `memory/` lives
+  in the state volume.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
@@ -569,8 +608,8 @@ test together with the reason. Add a rule when you add a pattern.
   `bootstrap.MigrateTo`). A dock's `address` is its device JID.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
-  link into place) — never while `wa_devices`, `agent_secrets` or
-  `ship_attachments` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  link into place) — never while `wa_devices`, `agent_secrets`,
+  `ship_attachments` or `hosting_homes` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so

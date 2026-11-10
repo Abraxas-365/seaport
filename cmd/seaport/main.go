@@ -23,6 +23,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/connector"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 )
 
 const usage = `seaport - a port where messages arrive and agents work them
@@ -59,6 +60,11 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport env export <env> [-version N] print it as YAML (the format of apply)
   seaport env versions <env>
   seaport env build <env> [-force]      build its image (needs SEAPORT_RUNTIME=docker); follows the log
+  seaport env home push <env> [dir] [-dry-run]   upload a harness home (default ~/.claude or ~/.rness:
+                                        instructions, settings, agents, skills, hooks; never sessions,
+                                        sign-in or memory) and save a version naming it
+  seaport env home show <env>           the files of its home
+  seaport env home pull <env> <dir>     download its home
   seaport env delete <env> -yes         only when no agent runs on it
   seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
   seaport agents unhost <agent>
@@ -136,6 +142,10 @@ func run(ctx context.Context, args []string) error {
 	case "agent-account":
 		// how a hosted slot's harness is signed in (JSON; the port asks).
 		return connector.AccountStatus(ctx, os.Stdout)
+	case "home-setup":
+		// finishes an environment's harness home while its image is built
+		// (hosting.Dockerfile): Seaport's lines kept, plugins installed.
+		return connector.HomeSetup(ctx, os.Getenv(hosting.EnvHarness), os.Getenv("HOME"), os.Stdout)
 	case "git-credential":
 		// git's credential helper inside a hosted slot (set up by agent-run).
 		op := ""

@@ -3,6 +3,7 @@ package hosting
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -34,6 +35,14 @@ type Commands interface {
 	// input.Force (a failed or stale one is built again). Business error
 	// while the runtime is off.
 	StartBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input BuildEnvironment) (Build, error)
+	// UploadHome validates a harness home (ReadHome) and stores it sealed
+	// (Business when blob storage is off); the same files again answer the
+	// home already there. A spec names it by its Digest.
+	UploadHome(ctx context.Context, organization identity.OrganizationID, input UploadHome) (Home, error)
+	// SweepHomes deletes homes no environment version names, uploaded or
+	// named more than HomeGrace before now, in every organization (system:
+	// sweeper; their blobs go to the trash), and says how many.
+	SweepHomes(ctx context.Context, now time.Time) (int, error)
 	// StartSlot starts a stopped or failed slot in the background (it
 	// builds the environment's current version first when needed;
 	// slot.updated events follow) and answers the hosting. A slot already
@@ -97,6 +106,12 @@ type Queries interface {
 	// Login is the slot's latest sign-in (NotFound when it never had one;
 	// a stale live one reads as failed).
 	Login(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Login, error)
+	// Home is an uploaded home's manifest (NotFound when unknown).
+	Home(ctx context.Context, organization identity.OrganizationID, digest string) (Home, error)
+	// HomeFile is one file of a home.
+	HomeFile(ctx context.Context, organization identity.OrganizationID, digest, path string) ([]byte, error)
+	// HomeArchive is a home's normalized tar (seaport env home pull).
+	HomeArchive(ctx context.Context, organization identity.OrganizationID, digest string) ([]byte, error)
 	// Account is how the slot's harness is signed in, asked of the harness
 	// in its container (Business when the slot isn't running).
 	Account(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Account, error)
@@ -218,6 +233,21 @@ type Repository interface {
 	// is gone).
 	AddDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
 	Denials(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, limit int) ([]Denial, error)
+
+	// AddHome records an uploaded home (its blob already stored): created
+	// = false and the one there when its digest is known (touched). At
+	// most limit homes per organization (QuotaExceeded).
+	AddHome(ctx context.Context, organization identity.OrganizationID, home Home, limit int) (stored Home, created bool, err error)
+	// StageHomeBlob puts a home's blob key in the trash, due at due,
+	// before the blob is written (AddHome takes it out).
+	StageHomeBlob(ctx context.Context, organization identity.OrganizationID, key string, due time.Time) error
+	Home(ctx context.Context, organization identity.OrganizationID, digest string) (Home, error)
+	// StaleHomes lists homes of every organization that no environment
+	// version names, last touched before before (system: sweeper).
+	StaleHomes(ctx context.Context, before time.Time, limit int) ([]Home, error)
+	// DeleteHome deletes a home if still unnamed and untouched since
+	// before (its blob goes to the trash by trigger).
+	DeleteHome(ctx context.Context, organization identity.OrganizationID, digest string, before time.Time) error
 
 	// BeginLogin starts sign-in id of a running slot (its run): claimed =
 	// false and that one when one is live for the run and fresh (reported

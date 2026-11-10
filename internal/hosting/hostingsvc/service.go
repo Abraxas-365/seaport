@@ -23,14 +23,38 @@ type Service struct {
 	events event.Publisher
 	builds *builds
 	slots  *slots
+	homes  homes
 }
 
-func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder, run Slots) *Service {
+func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder, run Slots, home Homes) (*Service, error) {
 	if events == nil {
 		events = event.Nop{}
 	}
+	h, err := newHomes(home)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{repo: repo, agents: agents, limits: limits, events: events, builds: newBuilds(builder),
-		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}}
+		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}, homes: h}, nil
+}
+
+// checkHome: the home a spec names must be the organization's, for its
+// harness (the repository re-checks it exists as it stores the version).
+func (s *Service) checkHome(ctx context.Context, org identity.OrganizationID, spec hosting.Spec) error {
+	if spec.Home == "" {
+		return nil
+	}
+	h, err := s.repo.Home(ctx, org, spec.Home)
+	if errx.IsType(err, errx.TypeNotFound) {
+		return errx.InvalidField("home", "home "+spec.Home+" was never uploaded (seaport env home push)")
+	}
+	if err != nil {
+		return errx.Wrap(err, "find home", errx.TypeInternal)
+	}
+	if h.Harness != spec.Harness {
+		return errx.InvalidField("home", "home "+spec.Home+" is a "+h.Harness+" home; the environment's harness is "+spec.Harness)
+	}
+	return nil
 }
 
 var (
@@ -47,6 +71,9 @@ func (s *Service) CreateEnvironment(ctx context.Context, org identity.Organizati
 		return hosting.Environment{}, err
 	}
 	input.CreatedBy = text.Clean(input.CreatedBy)
+	if err := s.checkHome(ctx, org, input.Spec); err != nil {
+		return hosting.Environment{}, err
+	}
 	e, err := s.repo.CreateEnvironment(ctx, org, identity.NewEnvironmentID(), input, hosting.MaxEnvironments)
 	if err != nil {
 		return hosting.Environment{}, errx.Wrap(err, "create environment", errx.TypeInternal)
@@ -73,6 +100,9 @@ func (s *Service) SaveEnvironment(ctx context.Context, org identity.Organization
 	}
 	if current.Version == input.Base && reflect.DeepEqual(current.Spec, input.Spec) {
 		return current, nil // nothing changed: no new version
+	}
+	if err := s.checkHome(ctx, org, input.Spec); err != nil {
+		return hosting.Environment{}, err
 	}
 	// The agents already on it must have the secrets it now names.
 	hosted, err := s.repo.HostedAgents(ctx, org)

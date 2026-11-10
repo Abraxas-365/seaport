@@ -87,8 +87,12 @@ func (r *Repository) CreateEnvironment(ctx context.Context, org identity.Organiz
 		VALUES ($1, $2, $3, 1, $4)`, id, org, in.Name, in.CreatedBy); err != nil {
 		return hosting.Environment{}, pgerr.MapWith(err, "create environment", messages)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO environment_versions (organization_id, environment_id, version, spec, created_by)
-		VALUES ($1, $2, 1, $3, $4)`, org, id, spec, in.CreatedBy); err != nil {
+	home, err := nameHome(ctx, tx, org, in.Spec)
+	if err != nil {
+		return hosting.Environment{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO environment_versions (organization_id, environment_id, version, spec, created_by, home)
+		VALUES ($1, $2, 1, $3, $4, $5)`, org, id, spec, in.CreatedBy, home); err != nil {
 		return hosting.Environment{}, pgerr.Map(err, "create environment version")
 	}
 	e, err := environment(ctx, tx, org, id, 0)
@@ -108,6 +112,11 @@ func (r *Repository) SaveEnvironment(ctx context.Context, org identity.Organizat
 		return hosting.Environment{}, pgerr.Map(err, "begin save environment")
 	}
 	defer func() { _ = tx.Rollback() }()
+	if in.Spec.Home != "" { // before the row lock, like Host: the sweep can't delete the home meanwhile
+		if err := lock(ctx, tx, org); err != nil {
+			return hosting.Environment{}, err
+		}
+	}
 	var current int
 	if err := tx.GetContext(ctx, &current, `SELECT version FROM environments
 		WHERE organization_id = $1 AND id = $2 FOR UPDATE`, org, id); err != nil {
@@ -118,8 +127,12 @@ func (r *Repository) SaveEnvironment(ctx context.Context, org identity.Organizat
 			" is current, the edit started from " + strconv.Itoa(in.Base) + "); reload and apply again")
 	}
 	next := current + 1
-	if _, err := tx.ExecContext(ctx, `INSERT INTO environment_versions (organization_id, environment_id, version, spec, created_by)
-		VALUES ($1, $2, $3, $4, $5)`, org, id, next, spec, in.CreatedBy); err != nil {
+	home, err := nameHome(ctx, tx, org, in.Spec)
+	if err != nil {
+		return hosting.Environment{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO environment_versions (organization_id, environment_id, version, spec, created_by, home)
+		VALUES ($1, $2, $3, $4, $5, $6)`, org, id, next, spec, in.CreatedBy, home); err != nil {
 		return hosting.Environment{}, pgerr.Map(err, "save environment version")
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE environments SET version = $3, updated_at = now()

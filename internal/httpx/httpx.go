@@ -16,6 +16,7 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -191,6 +192,26 @@ func DecodeJSON(r *http.Request, into any) error {
 		return errx.Validation("request body must contain a single JSON value")
 	}
 	return nil
+}
+
+// ReadBody reads a raw request body (an upload) of one of the given
+// content types, at most max bytes.
+func ReadBody(r *http.Request, max int64, contentTypes ...string) ([]byte, error) {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if !slices.Contains(contentTypes, mt) {
+		return nil, errx.UnsupportedMediaType("Content-Type must be " + strings.Join(contentTypes, " or "))
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
+	if err != nil {
+		return nil, errx.Validation("could not read request body")
+	}
+	if int64(len(body)) > max {
+		return nil, errx.PayloadTooLarge("request body is too large (max " + strconv.FormatInt(max>>20, 10) + " MiB)")
+	}
+	if len(body) == 0 {
+		return nil, errx.Validation("request body is required")
+	}
+	return body, nil
 }
 
 func jsonError(err error) error {

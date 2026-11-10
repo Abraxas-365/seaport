@@ -458,6 +458,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	}
 	dk, cv, ag, env := d.ID.String(), conv, agentA.ID.String(), envA.ID.String()
 	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
+	home := "sha256:" + strings.Repeat("a", 64)
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
 	routes := []adminRoute{
 		{"GET", "/api/v1/docks", "GET /api/v1/docks", nil, permission.DocksRead},
@@ -507,6 +508,10 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"POST", "/api/v1/environments/" + env + "/build", "POST /api/v1/environments/{id}/build", nil, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/environments/" + env + "/build", "GET /api/v1/environments/{id}/build", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/environments/" + env + "/versions/1/build", "GET /api/v1/environments/{id}/versions/{version}/build", nil, permission.EnvironmentsRead},
+		{"POST", "/api/v1/homes?harness=rness", "POST /api/v1/homes", nil, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/homes/" + home, "GET /api/v1/homes/{digest}", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/homes/" + home + "/archive", "GET /api/v1/homes/{digest}/archive", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/homes/" + home + "/files/init.lua", "GET /api/v1/homes/{digest}/files/{path...}", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/hosting", "GET /api/v1/hosting", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsRead},
 		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]string{"environment": env}, permission.EnvironmentsWrite},

@@ -67,6 +67,9 @@ type BuildRequest struct {
 	// Force builds again even when the tag exists, pulling the base anew
 	// (a moving tag such as :latest).
 	Force bool
+	// Home is the normalized tar of Spec.Home (ReadHome), baked into the
+	// home (HomeContext in the build context).
+	Home []byte
 }
 
 // BuildEnvironment is the input of Commands.StartBuild.
@@ -95,16 +98,32 @@ func (r BuildRequest) Tag() string {
 // SetupFile is the setup script's name in the build context.
 const SetupFile = "setup.sh"
 
+// HomeContext is the dir of the build context holding the home's files,
+// under the harness's HomeRoot (copied over /home/agent).
+const HomeContext = "home"
+
 // Dockerfile derives an environment's image from base: packages (apt, as
 // root), then the setup script (bash, as root, with HOME=/home/agent; the
-// home is handed back to uid 1000 after it), then back to the agent user.
-// The script is SetupFile in the build context when spec.Setup is set.
+// home is handed back to uid 1000 after it), then back to the agent user,
+// then the harness home (spec.Home, over whatever setup wrote) and
+// `seaport home-setup` (connector.HomeSetup: the plugins it enables,
+// Seaport's lines kept). The script is SetupFile in the build context when
+// spec.Setup is set, the home HomeContext.
 func Dockerfile(spec Spec, base string) string {
 	var b strings.Builder
 	b.WriteString("FROM " + base + "\n")
-	if len(spec.Packages) == 0 && spec.Setup == "" {
-		return b.String()
+	if len(spec.Packages) > 0 || spec.Setup != "" {
+		writeRootSteps(&b, spec)
 	}
+	if spec.Home != "" {
+		b.WriteString("# home " + spec.Home + "\n")
+		b.WriteString("COPY --chown=1000:1000 " + HomeContext + "/ /home/agent/\n")
+		b.WriteString("RUN /opt/seaport/bin/seaport home-setup\n")
+	}
+	return b.String()
+}
+
+func writeRootSteps(b *strings.Builder, spec Spec) {
 	b.WriteString("USER root\n")
 	if len(spec.Packages) > 0 {
 		b.WriteString("RUN apt-get update \\\n && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " +
@@ -116,5 +135,4 @@ func Dockerfile(spec Spec, base string) string {
 			" \\\n && rm /opt/seaport/" + SetupFile + " \\\n && chown -R 1000:1000 /home/agent\n")
 	}
 	b.WriteString("USER 1000:1000\n")
-	return b.String()
 }

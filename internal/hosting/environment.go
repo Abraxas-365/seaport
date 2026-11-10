@@ -126,6 +126,10 @@ type Spec struct {
 	// CLAUDE.md, .claude/ settings) or ignore (connector.harnessFor: rness
 	// without instruction files, Claude Code with user settings only).
 	RepoConfig string `json:"repo_config"`
+	// Home names the harness config baked into the image (its ~/.claude or
+	// ~/.rness: instructions, settings, agents, skills, plugins): a home
+	// uploaded to this environment, as sha256:<digest> ("": none).
+	Home string `json:"home"`
 	// Models are the model keys the port's gateway uses for the slots.
 	Models    Models    `json:"models"`
 	Network   Network   `json:"network"`
@@ -243,6 +247,9 @@ func (s Spec) Validate() error {
 	case "", RepoConfigTrust, RepoConfigIgnore:
 	default:
 		return errx.InvalidField("repo_config", "repo_config must be trust or ignore")
+	}
+	if s.Home != "" && !homeDigest.MatchString(s.Home) {
+		return errx.InvalidField("home", "home must name an uploaded home as sha256:<digest> (seaport env home push)")
 	}
 	if s.Models.Anthropic != "" && !credentialRef.MatchString(s.Models.Anthropic) {
 		return errx.InvalidField("models.anthropic", "models.anthropic must name a secret of the agent, as ${NAME}")
@@ -401,7 +408,7 @@ func formatIdleStop(d time.Duration) string {
 // normalize equal.
 func Normalize(s Spec) Spec {
 	out := Spec{Description: text.Clean(s.Description), Harness: strings.TrimSpace(s.Harness),
-		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Models: s.Models,
+		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home, Models: s.Models,
 		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
 	if out.Setup != "" {
 		out.Setup += "\n"

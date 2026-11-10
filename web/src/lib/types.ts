@@ -337,6 +337,8 @@ export interface EnvSpec {
   repos: EnvRepo[]
   /** Whether the harness reads the repos' own config (AGENTS.md, .claude/…). */
   repo_config: "trust" | "ignore"
+  /** Harness config baked into the image (sha256:…, `seaport env home push`); "" none. */
+  home: string
   models: { anthropic: string }
   network: { egress: string[] }
   resources: { size?: ResourceSize; cpus: number; memory_mb: number }

@@ -124,6 +124,15 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 	ctx, cancel := context.WithTimeout(s.builds.ctx, s.builds.cfg.Timeout)
 	defer cancel()
 	log := &buildLog{}
+	if req.Home == nil {
+		home, err := s.buildHome(ctx, req.Organization, req.Spec)
+		if err != nil {
+			slog.Warn("environment build: home", "environment", req.Environment, "version", req.Version, "err", err)
+			s.finishBuild(req, "", "the environment's home: "+buildFailure(ctx, err), log)
+			return
+		}
+		req.Home = home
+	}
 	done := make(chan struct{})
 	go func() {
 		t := time.NewTicker(hosting.BuildStale / 6)
@@ -148,7 +157,12 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 		detail = buildFailure(ctx, err)
 		slog.Warn("environment build failed", "environment", req.Environment, "version", req.Version, "err", err)
 	}
-	// Record the end even when shutting down (its own short deadline).
+	s.finishBuild(req, image, detail, log)
+}
+
+// finishBuild records a build's end, even when shutting down (its own
+// short deadline).
+func (s *Service) finishBuild(req hosting.BuildRequest, image, detail string, log *buildLog) {
 	end, endCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer endCancel()
 	b, ferr := s.repo.FinishBuild(end, req.Organization, req.Environment, req.Version, image, detail, log.String())

@@ -265,7 +265,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
 		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod,
-		GatewayAnthropic: cfg.GatewayAnthropicURL}
+		GatewayAnthropic: cfg.GatewayAnthropicURL, SecretKey: secretKey}
+	if blobs != nil {
+		hostCfg.Blobs = blobs
+	}
 	if cfg.Auth != config.AuthNone { // slots sign in with tokens: none in open mode
 		hostCfg.Credentials, hostCfg.Kits, hostCfg.AgentURL = crew.Tokens, agents.Service, cfg.AgentURL
 		if hostCfg.AgentURL == "" {
@@ -465,8 +468,12 @@ func (a *App) Start(ctx context.Context) {
 				if _, err := a.bus.Sweep(ctx, time.Now().Add(-config.EventRetention)); err != nil {
 					slog.Error("sweep old events", "err", err)
 				}
+				// homes first: their blobs go to the trash, due now
+				if _, err := a.hosted.Service.SweepHomes(ctx, time.Now()); err != nil {
+					slog.Error("sweep unused homes", "err", err)
+				}
 				if _, err := a.ships.Service.SweepTrash(ctx, time.Now()); err != nil {
-					slog.Error("sweep unused media", "err", err)
+					slog.Error("sweep unused blobs", "err", err)
 				}
 			}
 		}

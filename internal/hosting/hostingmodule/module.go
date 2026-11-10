@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/blob"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/hosting"
@@ -68,6 +69,10 @@ type Config struct {
 	EgressPrivate         bool
 	EgressLookup          func(ctx context.Context, host string) ([]netip.Addr, error)
 	Tokens                httpx.CrewResolver
+	// Blobs and SecretKey keep harness homes sealed (either missing:
+	// uploads refused).
+	Blobs     blob.Store
+	SecretKey string
 }
 
 // New builds the hosting module over the agent library (its secrets'
@@ -82,9 +87,17 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 		}
 		m.docker, runtime = d, d
 	}
-	m.Service = hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
+	svc, err := hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
 		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
-		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod})
+		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod},
+		hostingsvc.Homes{Blobs: cfg.Blobs, SecretKey: cfg.SecretKey})
+	if err != nil {
+		if m.docker != nil {
+			_ = m.docker.Close()
+		}
+		return nil, err
+	}
+	m.Service = svc
 	m.http = hostinghttp.New(m.Service, m.Service, runtime != nil)
 	gw, err := hostinggateway.New(m.Service, hostinggateway.Config{Anthropic: cfg.GatewayAnthropic})
 	if err != nil {

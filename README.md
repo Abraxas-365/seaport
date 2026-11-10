@@ -233,7 +233,7 @@ new prompt, never lost.
 | `SEAPORT_AGENT` | — | `seaport connect` with `SEAPORT_AUTH=none`: the agent to work as (`-agent`) |
 | `SEAPORT_SECRET_KEY` | generated | seals the WhatsApp keys, agent secrets and message images at rest, and in iam mode (required there) browser sessions' IAMKit tokens. Random, ≥32 chars (`openssl rand -base64 32`). Unset: read from `SEAPORT_SECRET_KEY_FILE`, generated there (0600) on first start. Losing it means linking every WhatsApp dock again, setting every agent secret again, losing every image (and signs everyone out) |
 | `SEAPORT_SECRET_KEY_FILE` | `<config dir>/seaport/secret.key` | where the generated key lives (`/data/secret.key` in the image: mount a volume) |
-| `SEAPORT_BLOB_URL` | `blobs/` next to the key file | where message images are kept (sealed): `file:///dir` (one server), `s3://bucket?region=…` (credentials from `AWS_*`; S3-compatible stores with `&endpoint=…&use_path_style=true`), `off`. Several processes need a shared store (S3), not a local directory |
+| `SEAPORT_BLOB_URL` | `blobs/` next to the key file | where message images and harness homes are kept (sealed): `file:///dir` (one server), `s3://bucket?region=…` (credentials from `AWS_*`; S3-compatible stores with `&endpoint=…&use_path_style=true`), `off`. Several processes need a shared store (S3), not a local directory |
 | `IAMKIT_*` | — | iam mode, written by `scripts/iamkit-provision.sh` (see [IAM mode](#iam-mode)) |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | listen address |
 | `SEAPORT_PUBLIC_URL` | `http://$SEAPORT_ADDR` | how agents reach `/mcp` (use https off-loopback) |
@@ -285,6 +285,7 @@ repos:
     on_start: pnpm i
 repo_config: trust          # ignore: the harness skips the repos' AGENTS.md,
                             #   CLAUDE.md and .claude/ settings
+home: ./rness-home          # your harness config, uploaded by apply (below)
 models:
   anthropic: ${ANTHROPIC_API_KEY} # through the port's gateway
 network:
@@ -328,6 +329,22 @@ slots, logs, model use, refused hosts).
   (`docker network create --internal seaport-slots`,
   `SEAPORT_RUNTIME_NETWORK=seaport-slots`, the Seaport container attached
   to it too); the port warns at start otherwise. `deploy/` sets this up.
+- **Harness home**: `home:` bakes your own harness config into the image,
+  over the base's: for Claude Code `CLAUDE.md`, `settings.json`,
+  `agents/`, `commands/`, `skills/`, `hooks/`, `output-styles/`; for rness
+  `init.lua`, `hooks.json`, `lua/`, `plugins/`, `skills/`.
+  `seaport env home push backend [~/.claude]` uploads a dir (leaving out
+  sessions, sign-in, history, memory, caches) and saves a version naming
+  it; `env home show|pull` read it back. Uploads with secret-looking
+  strings are refused: give the agent an env secret and read it from the
+  environment (`"${GITHUB_TOKEN}"`). Claude Code plugins are installed at
+  build from `settings.json`'s `enabledPlugins` (and the marketplaces in
+  `extraKnownMarketplaces`), so the build needs those hosts; rness keeps
+  Seaport's `require("seaport")` first in `init.lua`. An uploaded file
+  replaces the base's whole: an `init.lua` must still declare the
+  providers (`require("providers")`), or the slot fails with `unknown
+  provider 'anthropic'`. A home is at most
+  20 MiB; homes no version names are deleted after a day.
 - The profile (instructions, skills, MCP servers, secrets) applies as for
   any connector; a saved change restarts the slot's harness once idle, and
   conversations already under way are told their instructions changed.
