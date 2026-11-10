@@ -37,6 +37,28 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hosted))
 	mux.Handle("PUT /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.host))
 	mux.Handle("DELETE /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.unhost))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/start", httpx.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", httpx.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
+}
+
+// Workspace is GET /crew/workspace (behind crew auth): a hosted slot's
+// plan for /workspace, its repo credentials resolved. Only a slot token
+// gets it, and only its own slot's (TestOnlyTheCrewEquips).
+func (h *Handler) Workspace() http.Handler {
+	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		p, err := httpx.Caller(r)
+		if err != nil {
+			return err
+		}
+		if p.Slot == 0 || p.Agent.IsZero() {
+			return errx.Forbidden("only a hosted slot's own token can read its workspace")
+		}
+		out, err := h.commands.OpenWorkspace(r.Context(), p.Organization, p.Agent, p.Slot)
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(w, http.StatusOK, out)
+	})
 }
 
 // by names the caller in created_by / updated_by.
@@ -336,4 +358,44 @@ func (h *Handler) unhost(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func (h *Handler) slotAction(r *http.Request) (httpx.Principal, hosting.SlotAction, error) {
+	p, err := httpx.Caller(r)
+	if err != nil {
+		return p, hosting.SlotAction{}, err
+	}
+	id, err := identity.ParseAgentID(r.PathValue("id"))
+	if err != nil {
+		return p, hosting.SlotAction{}, err
+	}
+	idx, err := strconv.Atoi(r.PathValue("slot"))
+	if err != nil {
+		return p, hosting.SlotAction{}, errx.InvalidField("slot", "slot must be a number")
+	}
+	return p, hosting.SlotAction{Agent: id, Index: idx, By: by(p)}, nil
+}
+
+func (h *Handler) startSlot(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.commands.StartSlot(r.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusAccepted, out)
+}
+
+func (h *Handler) stopSlot(w http.ResponseWriter, r *http.Request) error {
+	p, in, err := h.slotAction(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.commands.StopSlot(r.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusAccepted, out)
 }

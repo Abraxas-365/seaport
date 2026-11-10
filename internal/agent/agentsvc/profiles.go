@@ -129,6 +129,26 @@ func (s *Service) Equip(ctx context.Context, org identity.OrganizationID, id ide
 	return assemble(a, p, secrets)
 }
 
+func (s *Service) Reveal(ctx context.Context, org identity.OrganizationID, id identity.AgentID, names []string) (map[string]string, error) {
+	if id.IsZero() {
+		return nil, errx.InvalidField("agent_id", "agent_id is required")
+	}
+	out := map[string]string{}
+	if len(names) == 0 {
+		return out, nil
+	}
+	secrets, err := s.repo.OpenSecrets(ctx, org, id)
+	if err != nil {
+		return nil, errx.Wrap(err, "open secrets", errx.TypeInternal)
+	}
+	for _, sv := range secrets {
+		if slices.Contains(names, sv.Name) {
+			out[sv.Name] = sv.Value
+		}
+	}
+	return out, nil
+}
+
 // assemble builds an agent's kit from its profile and opened secrets.
 func assemble(a agent.Agent, p agent.Profile, secrets []agent.SecretValue) (agent.Kit, error) {
 	values := make(map[string]string, len(secrets))

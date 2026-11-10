@@ -260,6 +260,36 @@ test together with the reason. Add a rule when you add a pattern.
   (`MaxBuildLog`) every `BuildStale/6`, and records its end even on
   shutdown (`App.Close` → `hosted.Close` cancels and waits, before the
   bus closes). `environment.build` events carry no log.
+- Slot runs (`hosting/run.go`, migration 00017; `hostingsvc/slots.go`,
+  `supervisor.go`): a slot is stopped → starting → running → stopping →
+  stopped (or failed). `BeginStart` claims a stopped/failed slot under
+  `FOR UPDATE` and gives the run an id (`agent_slots.run`); every later
+  write of the starter matches that run, so one that lost the slot (stale
+  start, `StartStale`) changes nothing. A start builds the environment's
+  image if needed, mints the run's crew token (`crew_tokens.slot` = the
+  index; 30 days, not counted against `crew.MaxTokens`, not listed with
+  people's tokens) and runs the container (`hostingdocker`: read-only
+  root, caps dropped, no-new-privileges, uid 1000, throwaway home volume,
+  `<slot>-state` and `<slot>-ws` volumes, labeled `io.seaport.port` =
+  `port_identity`, so ports sharing an engine leave each other's slots
+  alone). Stop and failure revoke the token (its connections close).
+  Every process runs the supervisor (`SupervisePeriod`, and on
+  `ship.Notifier` through `bootstrap.fanout`): it wakes a hosted agent with
+  queued ships and no slot up (lowest stopped slot, else a failed one
+  after 5 min; one at a time per agent), fails a running slot whose
+  container is gone or exited, restarts an idle outdated one, stops one
+  idle past `idle_stop`, ends stale starts/stops, and removes runtime
+  slots with no row after two rounds; each step is a conditional
+  transition (`BeginStop(run)` only stops that run). Inside, `seaport
+  agent-run` (`connector.Hosted`) reads `GET /crew/workspace` (slot tokens
+  only; repo credentials resolved by `Kits.Reveal`, see `secretCalls`),
+  links the harness's sessions/sign-in into the state volume, clones or
+  fetches the repos (git asks `seaport git-credential`, which asks the port
+  each time: no token on disk), gives each conversation a worktree
+  (`wt/<conversation>`, branch `seaport/<conversation>`), relays the port's
+  MCP on loopback (harnesses take plain-HTTP MCP only there) and runs the
+  connector (Claude Code in session mode `default`: its `auto` mode needs
+  Anthropic's classifier). A refused token ends it cleanly (no restart).
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a

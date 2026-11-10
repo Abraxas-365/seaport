@@ -63,6 +63,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
   seaport agents unhost <agent>
   seaport agents slots [<agent>]        hosted agents and the state of their slots
+  seaport agents start|stop <agent>[-<n>]   start or stop a hosted slot (1 by default;
+                                        new work also wakes a stopped agent)
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once
   seaport crew tokens revoke <token-id> revoke and disconnect its agents
@@ -114,6 +116,21 @@ func run(ctx context.Context, args []string) error {
 		return serve(ctx)
 	case "connect":
 		return connect(ctx, rest)
+	case "agent-run":
+		// A hosted slot's entrypoint (Seaport's base images).
+		setupLogging("info")
+		cfg, err := connector.HostedFromEnv()
+		if err != nil {
+			return err
+		}
+		return connector.Hosted(ctx, cfg)
+	case "git-credential":
+		// git's credential helper inside a hosted slot (set up by agent-run).
+		op := ""
+		if len(rest) > 0 {
+			op = rest[0]
+		}
+		return connector.GitCredential(ctx, op, os.Stdin, os.Stdout)
 	case "healthcheck":
 		return healthcheck(ctx)
 	case "version":

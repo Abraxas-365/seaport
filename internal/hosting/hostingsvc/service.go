@@ -22,13 +22,15 @@ type Service struct {
 	limits hosting.Limits
 	events event.Publisher
 	builds *builds
+	slots  *slots
 }
 
-func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder) *Service {
+func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder, run Slots) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Service{repo: repo, agents: agents, limits: limits, events: events, builds: newBuilds(builder)}
+	return &Service{repo: repo, agents: agents, limits: limits, events: events, builds: newBuilds(builder),
+		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}}
 }
 
 var (

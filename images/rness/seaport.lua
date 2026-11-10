@@ -2,9 +2,23 @@
 -- model gateway, with the slot's instance token as its key. Loaded first by
 -- ~/.rness/init.lua (require("seaport")); a custom image that replaces
 -- init.lua must keep that line.
+if (os.getenv("SEAPORT_SLOT") or "") == "" then
+  return -- not hosted (a local run of the image): the providers stay as declared
+end
+
+-- rness has no default model and `seaport agent-run` passes no -m: new
+-- sessions start on this profile, and the agent's Seaport profile (model,
+-- effort) is applied to each session afterwards. SEAPORT_MODEL overrides
+-- the model (an Anthropic model the flavor declares).
+rness.profiles.declare("seaport", {
+  provider = "anthropic",
+  model = os.getenv("SEAPORT_MODEL") or "claude-sonnet-5-5",
+})
+rness.default_profile = "seaport"
+
 local gateway = os.getenv("SEAPORT_GATEWAY")
 if gateway == nil or gateway == "" then
-  return -- not hosted (a local run of the image): the providers stay as declared
+  return
 end
 gateway = gateway:gsub("/+$", "")
 

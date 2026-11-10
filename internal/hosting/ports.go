@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 )
@@ -33,6 +34,19 @@ type Commands interface {
 	// input.Force (a failed or stale one is built again). Business error
 	// while the runtime is off.
 	StartBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input BuildEnvironment) (Build, error)
+	// StartSlot starts a stopped or failed slot in the background (it
+	// builds the environment's current version first when needed;
+	// slot.updated events follow) and answers the hosting. A slot already
+	// starting or running is answered as it is. Business error while the
+	// runtime is off.
+	StartSlot(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Hosted, error)
+	// StopSlot stops a slot in the background (its agent gets
+	// StopTimeout to finish) and answers the hosting.
+	StopSlot(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Hosted, error)
+	// OpenWorkspace is a running slot's workspace plan, repo credentials
+	// resolved (agent secrets): only for the slot's own token
+	// (hostinghttp, GET /crew/workspace; TestOnlyTheCrewEquips).
+	OpenWorkspace(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int) (Workspace, error)
 }
 
 type Queries interface {
@@ -59,6 +73,27 @@ type Runtime interface {
 	// id. It pulls a missing base and refuses one that isn't Seaport's base
 	// for the spec's harness (LabelBase, LabelHarness).
 	Build(ctx context.Context, req BuildRequest, log io.Writer) (string, error)
+	// Start runs a slot's container (replacing a leftover one) with
+	// Seaport's fixed rules: uid 1000, read-only root, no capabilities,
+	// no new privileges, resource limits; its state volume (and workspace
+	// volume when persistent) created on first use.
+	Start(ctx context.Context, slot StartSlot) error
+	// Stop stops a slot's container (StopTimeout, then killed) and
+	// removes it; its volumes stay. With run set, only a container of
+	// that run. A slot with no container is no error.
+	Stop(ctx context.Context, slot SlotRef, run string) error
+	// Remove removes whatever the runtime has of a slot: its container
+	// and its volumes (state and workspace).
+	Remove(ctx context.Context, slot SlotRef) error
+	// Slots lists the slots of port (LabelPort) the runtime has a
+	// container or volumes of.
+	Slots(ctx context.Context, port string) ([]RuntimeSlot, error)
+}
+
+// Credentials mint and revoke slot tokens (the crew's tokens).
+type Credentials interface {
+	Create(ctx context.Context, organization identity.OrganizationID, input crew.CreateToken) (crew.Issued, error)
+	Revoke(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID) error
 }
 
 type Repository interface {
@@ -100,4 +135,32 @@ type Repository interface {
 	// with detail (image empty).
 	FinishBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int, image, detail, log string) (Build, error)
 	Build(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Build, error)
+
+	// BeginStart makes the caller a slot's starter: stopped or failed (or
+	// starting but stale: no progress for StartStale) → starting, in one
+	// statement, so only one process starts it. With wake, only when no
+	// other slot of the agent is starting or running. Answers what the
+	// start needs and claimed = false when another caller has it.
+	BeginStart(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, wake bool) (start SlotStart, claimed bool, err error)
+	// StartProgress records a start's progress (detail; the run's token
+	// when not zero) and keeps it fresh; Conflict once the slot is no
+	// longer starting run (stopped meanwhile).
+	StartProgress(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, run, detail string, token identity.CrewTokenID) error
+	// StartDone: starting run → running it (Conflict once the slot is no
+	// longer starting run).
+	StartDone(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, run string, started SlotRun) (Hosted, error)
+	// BeginStop: starting, running, failed or stopping → stopping, its run
+	// forgotten (claimed = false when it is already stopped). With run
+	// set, only a slot running that run (the supervisor's idle stop).
+	BeginStop(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, run string) (hosted Hosted, claimed bool, err error)
+	// EndRun ends a slot's run when its state is one of end.From (and,
+	// with end.StaleFor, unchanged for that long): state end.State with
+	// end.Detail, its token forgotten and answered (to revoke).
+	EndRun(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, end EndRun) (hosted Hosted, token identity.CrewTokenID, ended bool, err error)
+	// Supervise marks the running slots of agents with work active and
+	// lists every slot of every organization with its agent's work
+	// (system: the supervisor).
+	Supervise(ctx context.Context) ([]Supervised, error)
+	// PortID is this deployment's id (system: LabelPort).
+	PortID(ctx context.Context) (string, error)
 }

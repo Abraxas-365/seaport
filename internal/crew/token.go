@@ -40,6 +40,10 @@ type Token struct {
 	AgentName string           `db:"agent_name" json:"agent_name"`
 	// Hint is the start of the value ("sp_crew_AbCd"), to tell tokens apart.
 	Hint string `db:"hint" json:"hint"`
+	// Slot is the index of the agent's hosted slot it was minted for (0:
+	// a token a person created). Slot tokens live as long as the slot's
+	// run.
+	Slot int `db:"slot" json:"slot,omitempty"`
 	// CreatedBy is who created it (the admin's name, else its subject).
 	CreatedBy  string     `db:"created_by" json:"created_by"`
 	CreatedAt  time.Time  `db:"created_at" json:"created_at"`
@@ -71,6 +75,10 @@ type CreateToken struct {
 	ExpiresAt *time.Time
 	// CreatedBy is filled from the caller (not client input).
 	CreatedBy string
+	// Slot mints the token of a hosted slot's run (its index; hosting,
+	// never client input): it doesn't count against MaxTokens and isn't
+	// listed.
+	Slot int
 }
 
 func (c CreateToken) Validate() error {
@@ -88,6 +96,9 @@ func (c CreateToken) Validate() error {
 		if c.ExpiresAt.After(now.Add(MaxTokenLifetime)) {
 			return errx.InvalidField("expires_at", "expires_at must be within 5 years")
 		}
+	}
+	if c.Slot < 0 {
+		return errx.InvalidField("slot", "slot must be positive")
 	}
 	return text.Optional("created_by", c.CreatedBy, text.MaxName)
 }

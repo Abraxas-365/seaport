@@ -509,6 +509,8 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsRead},
 		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]string{"environment": env}, permission.EnvironmentsWrite},
 		{"DELETE", "/api/v1/agents/" + ag + "/hosting", "DELETE /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/start", "POST /api/v1/agents/{id}/hosting/slots/{slot}/start", nil, permission.EnvironmentsWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/stop", "POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", nil, permission.EnvironmentsWrite},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.

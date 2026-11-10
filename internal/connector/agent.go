@@ -42,6 +42,23 @@ type Agent struct {
 	// briefed: sessions opened by this process whose next prompt must
 	// carry the profile's instructions (agents without systemPrompt).
 	briefed map[acp.SessionId]bool
+	// failures counts turns failed in a row (the release backoff).
+	failures int
+}
+
+// failed records a failed turn and answers how long to wait before
+// releasing its delivery: 1 s, doubling, at most 30 s.
+func (a *Agent) failed() time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures++
+	return min(time.Second<<min(a.failures-1, 5), 30*time.Second)
+}
+
+func (a *Agent) succeeded() {
+	a.mu.Lock()
+	a.failures = 0
+	a.mu.Unlock()
 }
 
 // StartAgent spawns the agent command with the kit (its secrets in the
@@ -287,37 +304,67 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 	a.mu.Unlock()
 
 	servers := a.mcpServers()
+	cwd := a.cfg.Cwd
+	if a.cfg.Workdir != nil {
+		dir, err := a.cfg.Workdir(ctx, conv)
+		if err != nil {
+			return "", errx.Wrap(err, "conversation working directory", errx.TypeInternal)
+		}
+		cwd = dir
+	}
 	if hasSaved {
 		var err error
 		var options []acp.SessionConfigOption
+		var modes *acp.SessionModeState
 		switch {
 		case a.caps.SessionCapabilities.Resume != nil:
 			var r acp.ResumeSessionResponse
-			r, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
-			options = r.ConfigOptions
+			r, err = a.conn.ResumeSession(ctx, acp.ResumeSessionRequest{SessionId: saved, Cwd: cwd, McpServers: servers})
+			options, modes = r.ConfigOptions, r.Modes
 		case a.caps.LoadSession:
 			var r acp.LoadSessionResponse
-			r, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved, Cwd: a.cfg.Cwd, McpServers: servers})
-			options = r.ConfigOptions
+			r, err = a.conn.LoadSession(ctx, acp.LoadSessionRequest{SessionId: saved, Cwd: cwd, McpServers: servers})
+			options, modes = r.ConfigOptions, r.Modes
 		default:
 			err = errx.Business("agent can't resume sessions")
 		}
 		if err == nil {
 			a.remember(key, saved, false)
+			a.setMode(ctx, saved, modes)
 			a.configure(ctx, saved, options)
 			slog.Info("agent session resumed", "conversation", key, "session", saved)
 			return saved, nil
 		}
 		slog.Warn("could not resume agent session; starting a new one", "conversation", key, "err", err)
 	}
-	resp, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: a.cfg.Cwd, McpServers: servers})
+	resp, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: servers})
 	if err != nil {
 		return "", errx.Wrap(err, "agent new session", errx.TypeExternal)
 	}
 	a.remember(key, resp.SessionId, true)
+	a.setMode(ctx, resp.SessionId, resp.Modes)
 	a.configure(ctx, resp.SessionId, resp.ConfigOptions)
 	slog.Info("agent session created", "conversation", key, "session", resp.SessionId)
 	return resp.SessionId, nil
+}
+
+// setMode puts a session this process opened in Config.Mode when the
+// agent offers that mode and isn't in it (Claude Code's default mode,
+// auto, asks Anthropic's classifier, which a gateway doesn't serve).
+func (a *Agent) setMode(ctx context.Context, sid acp.SessionId, modes *acp.SessionModeState) {
+	want := acp.SessionModeId(a.cfg.Mode)
+	if want == "" || modes == nil || modes.CurrentModeId == want {
+		return
+	}
+	for _, m := range modes.AvailableModes {
+		if m.Id == want {
+			if _, err := a.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{SessionId: sid, ModeId: want}); err != nil {
+				slog.Warn("could not set the agent's session mode", "mode", want, "err", err)
+			}
+			return
+		}
+	}
+	slog.Warn("the agent doesn't offer the session mode", "mode", want)
 }
 
 // configure applies the profile to a session this process opened: model

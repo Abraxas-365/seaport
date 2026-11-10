@@ -31,6 +31,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/hosting/hostingmodule"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
 	"github.com/Abraxas-365/seaport/migrations"
@@ -74,6 +75,8 @@ type Options struct {
 	Gateways []dock.Gateway
 	// Runtime runs hosted agents instead of cfg.Runtime's (tests).
 	Runtime hosting.Runtime
+	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
+	SupervisePeriod time.Duration
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
@@ -212,21 +215,33 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		closeDBs()
 		return nil, err
 	}
+	// New work wakes the agent's connections and, for a hosted agent with
+	// no slot up, the slot supervisor (bound once hosting is built).
+	notify := &fanout{first: crew.Hub}
 	ships := shipmodule.New(shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
-		Messenger: docks.Service, Notifier: crew.Hub, Events: bus, Agents: agents.Service,
+		Messenger: docks.Service, Notifier: notify, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
 			OrganizationPerHour: cfg.SendOrgPerHour}})
 	docks.BindReceiver(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
-	hosted, err := hostingmodule.New(ctx, db, agents.Service, hostingmodule.Config{
+	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
-		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg)}, bus)
+		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
+		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod}
+	if cfg.Auth != config.AuthNone { // slots sign in with tokens: none in open mode
+		hostCfg.Credentials, hostCfg.Kits, hostCfg.AgentURL = crew.Tokens, agents.Service, cfg.AgentURL
+		if hostCfg.AgentURL == "" {
+			hostCfg.AgentURL = cfg.PublicURL
+		}
+	}
+	hosted, err := hostingmodule.New(ctx, db, agents.Service, hostCfg, bus)
 	if err != nil {
 		docks.Close()
 		bus.Close()
 		closeDBs()
 		return nil, err
 	}
+	notify.bind(hosted)
 
 	done := make(chan struct{})
 	var once sync.Once
@@ -280,6 +295,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
 	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
 	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
+	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
 	ui := httpx.SPA(web.Dist())
@@ -320,6 +336,38 @@ func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authe
 	}
 }
 
+// hostGateway maps host.docker.internal to the host (Linux engines don't
+// by themselves), so a slot reaches a port on the same machine.
+func hostGateway(cfg config.Server) []string {
+	if !cfg.RuntimeHostGateway {
+		return nil
+	}
+	return []string{"host.docker.internal:host-gateway"}
+}
+
+// fanout notifies the crew hub, then (once bound) the slot supervisor.
+type fanout struct {
+	first ship.Notifier
+	mu    sync.RWMutex
+	then  ship.Notifier
+}
+
+func (f *fanout) bind(n ship.Notifier) {
+	f.mu.Lock()
+	f.then = n
+	f.mu.Unlock()
+}
+
+func (f *fanout) Notify(org identity.OrganizationID, agent identity.AgentID) {
+	f.first.Notify(org, agent)
+	f.mu.RLock()
+	then := f.then
+	f.mu.RUnlock()
+	if then != nil {
+		then.Notify(org, agent)
+	}
+}
+
 // baseImages are the harnesses' base images: SEAPORT_IMAGE_*, else the
 // ones published with this version.
 func baseImages(cfg config.Server) map[string]string {
@@ -352,6 +400,7 @@ func publicConfig(cfg config.Server) http.Handler {
 func (a *App) Start(ctx context.Context) {
 	a.crew.Hub.Start(ctx)
 	a.docks.Start(ctx)
+	a.hosted.Start(ctx)
 	if a.signIn != nil {
 		go a.signIn.Sweep(ctx)
 	}

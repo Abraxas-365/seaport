@@ -33,8 +33,13 @@ type Deps struct {
 // Handler returns the MCP endpoint. Each request gets a server of its own
 // (stateless): its skill tool lists the calling agent's current skills.
 func Handler(d Deps) http.Handler {
+	// The SDK's DNS-rebinding check (loopback address + foreign Host →
+	// 403) is Seaport's own already: httpx.Open checks Host in none mode,
+	// and the other modes need a bearer a rebound page can't send. It would
+	// refuse hosted slots, which reach a port on the host as
+	// host.docker.internal (through loopback on Docker Desktop).
 	h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server(r.Context(), d) },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true})
 	return withAgent(d.Agents, h)
 }
 

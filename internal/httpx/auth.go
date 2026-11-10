@@ -47,6 +47,9 @@ type Principal struct {
 	// zero in open mode, where the connector names it in its hello.
 	Agent     identity.AgentID
 	AgentName string
+	// Slot is the hosted slot a slot token runs (its index; 0 for any
+	// other credential).
+	Slot int
 }
 
 // Can reports whether the principal holds the permission.

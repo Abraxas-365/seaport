@@ -47,6 +47,8 @@ var systemWide = map[string]string{
 	"crew.Presence.Reap":              "any process reaps a dead process's connections, of every organization",
 	"crew.Presence.Signal":            "a cross-process signal; the signal names its organization",
 	"crew.Presence.Listen":            "a process listens to the signals of every organization",
+	"hosting.Repository.Supervise":    "the slot supervisor wakes, stops and reconciles the slots of every organization",
+	"hosting.Repository.PortID":       "the deployment's own id (labels its containers), not a tenant's",
 }
 
 func tenantViolations(files []goFile) []string {

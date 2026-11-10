@@ -15,7 +15,7 @@ import (
 )
 
 // columns are read from crew_tokens t joined with agents a.
-const columns = `t.id, t.organization_id, t.name, t.agent_id, a.name AS agent_name, t.hint, t.created_by,
+const columns = `t.id, t.organization_id, t.name, t.agent_id, a.name AS agent_name, t.hint, t.slot, t.created_by,
 	t.created_at, t.expires_at, t.last_used_at`
 
 const from = ` FROM crew_tokens t JOIN agents a ON a.organization_id = t.organization_id AND a.id = t.agent_id `
@@ -42,12 +42,13 @@ func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, tokenLock, org); err != nil {
 		return t, pgerr.Map(err, "lock crew tokens")
 	}
+	// Slot tokens are not counted: the slots are bounded on their own.
 	var n int
-	if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM crew_tokens WHERE organization_id = $1
+	if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM crew_tokens WHERE organization_id = $1 AND slot = 0
 		AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`, org); err != nil {
 		return t, pgerr.Map(err, "count active crew tokens")
 	}
-	if n >= limit {
+	if in.Slot == 0 && n >= limit {
 		return t, errx.QuotaExceeded("crew_tokens", limit, "an organization can have at most "+strconv.Itoa(limit)+" crew tokens; revoke one first")
 	}
 	// The agent row is locked FOR SHARE: a concurrent delete (which
@@ -61,8 +62,8 @@ func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id
 	if err != nil {
 		return t, pgerr.Map(err, "find agent")
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO crew_tokens (id, organization_id, name, agent_id, token_hash, hint, created_by, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, id, org, in.Name, in.Agent, hash, hint, in.CreatedBy, in.ExpiresAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO crew_tokens (id, organization_id, name, agent_id, token_hash, hint, created_by, expires_at, slot)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, id, org, in.Name, in.Agent, hash, hint, in.CreatedBy, in.ExpiresAt, in.Slot); err != nil {
 		return t, pgerr.MapWith(err, "create crew token", messages)
 	}
 	if err := tx.GetContext(ctx, &t, `SELECT `+columns+from+`WHERE t.organization_id = $1 AND t.id = $2`, org, id); err != nil {
@@ -77,7 +78,8 @@ func (r *Repository) List(ctx context.Context, org identity.OrganizationID, f cr
 	if f.Agent != nil {
 		agent = *f.Agent
 	}
-	const where = `WHERE t.organization_id = $1 AND t.revoked_at IS NULL AND ($2::uuid IS NULL OR t.agent_id = $2)`
+	// Slot tokens belong to the slots' runs, not to people: not listed.
+	const where = `WHERE t.organization_id = $1 AND t.revoked_at IS NULL AND t.slot = 0 AND ($2::uuid IS NULL OR t.agent_id = $2)`
 	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*)`+from+where, org, agent); err != nil {
 		return out, pgerr.Map(err, "count crew tokens")
 	}

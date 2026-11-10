@@ -60,6 +60,10 @@ type Revoker interface {
 type Kits interface {
 	// Equip is the agent's current kit (Kit.Revision names it).
 	Equip(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Kit, error)
+	// Reveal opens the named secrets of the agent (name → value; a name
+	// it doesn't have is missing from the answer): a hosted slot's repo
+	// credentials (hostingsvc.OpenWorkspace; TestOnlyTheCrewEquips).
+	Reveal(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, names []string) (map[string]string, error)
 }
 
 type Repository interface {

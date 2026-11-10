@@ -1,0 +1,402 @@
+package connector
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/hosting"
+	"github.com/Abraxas-365/seaport/internal/identity"
+)
+
+// HostedConfig is a hosted slot's run (`seaport agent-run`, the base
+// images' entrypoint): everything comes from the container's environment
+// (hosting.Env*) and the port.
+type HostedConfig struct {
+	Server, Token, Slot, Harness string
+	// Home, Workspace and State are the container's paths (tests move
+	// them).
+	Home, Workspace, State string
+	// Self is this binary (git's credential helper).
+	Self string
+}
+
+// HostedFromEnv reads a slot container's environment.
+func HostedFromEnv() (HostedConfig, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return HostedConfig{}, errx.Wrap(err, "find the seaport binary", errx.TypeInternal)
+	}
+	cfg := HostedConfig{
+		Server: strings.TrimRight(os.Getenv(hosting.EnvURL), "/"), Token: os.Getenv(hosting.EnvToken),
+		Slot: os.Getenv(hosting.EnvSlot), Harness: os.Getenv(hosting.EnvHarness),
+		Home: os.Getenv("HOME"), Workspace: hosting.WorkspaceDir, State: hosting.StateDir, Self: self,
+	}
+	if cfg.Server == "" || cfg.Token == "" {
+		return cfg, errx.Validation("agent-run runs in a hosted slot: " + hosting.EnvURL + " and " + hosting.EnvToken + " are required")
+	}
+	if cfg.Home == "" {
+		cfg.Home = "/home/agent"
+	}
+	return cfg, nil
+}
+
+// Hosted runs a hosted slot until ctx ends: it reads the slot's workspace
+// plan from the port, links the harness's state into the state volume,
+// clones or fetches the repos, then works as the agent (Run) with each
+// conversation in a worktree of its own. A refused token (the slot was
+// stopped) ends it without error, so the container isn't restarted.
+func Hosted(ctx context.Context, cfg HostedConfig) error {
+	ws, err := fetchWorkspaceRetrying(ctx, cfg)
+	if err != nil {
+		if errx.IsType(err, errx.TypeAuthorization) {
+			slog.Warn("the port refused this slot's token; stopping", "err", err)
+			return nil
+		}
+		return err
+	}
+	if ws.Harness != "" {
+		cfg.Harness = ws.Harness
+	}
+	command, mode, err := harnessCommand(cfg.Harness)
+	if err != nil {
+		return err
+	}
+	if err := linkState(cfg); err != nil {
+		return err
+	}
+	if err := configureGit(ctx, cfg, ws); err != nil {
+		return err
+	}
+	for _, r := range ws.Repos {
+		if err := prepareRepo(ctx, cfg, r); err != nil {
+			return err
+		}
+	}
+	relay, err := startRelay(ctx, cfg.Server)
+	if err != nil {
+		return err
+	}
+	trees := &worktrees{root: cfg.Workspace, repos: ws.Repos}
+	err = Run(ctx, Config{
+		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
+		Mode: mode, Cwd: cfg.Workspace, Command: command, Workdir: trees.dir, MCPURL: relay + "/mcp",
+		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
+	})
+	if errx.IsType(err, errx.TypeAuthorization) {
+		slog.Warn("the port refused this slot's token; stopping", "err", err)
+		return nil
+	}
+	return err
+}
+
+// relayed are the port's paths the harness reaches through the relay.
+var relayed = []string{"/mcp"}
+
+// startRelay serves the port's MCP on loopback until ctx ends and answers
+// its base URL: harnesses take plain-HTTP MCP servers only on loopback,
+// and the port may be reached over plain HTTP on the host's network.
+func startRelay(ctx context.Context, server string) (string, error) {
+	target, err := url.Parse(server)
+	if err != nil {
+		return "", errx.Wrap(err, "port URL", errx.TypeValidation)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", errx.Wrap(err, "start the MCP relay", errx.TypeInternal)
+	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite:       func(r *httputil.ProxyRequest) { r.SetURL(target); r.Out.Host = target.Host },
+		FlushInterval: -1, // streamed MCP responses
+	}
+	mux := http.NewServeMux()
+	for _, p := range relayed {
+		mux.Handle(p, proxy)
+		mux.Handle(p+"/", proxy)
+	}
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	return "http://" + ln.Addr().String(), nil
+}
+
+// harnessCommand is the harness's ACP command and the session mode the
+// connector puts it in.
+func harnessCommand(harness string) ([]string, string, error) {
+	switch harness {
+	case hosting.HarnessRness:
+		return []string{"rness", "--acp"}, "", nil
+	case hosting.HarnessClaudeCode:
+		// Its default mode (auto) asks Anthropic's classifier, which the
+		// gateway doesn't serve: "default" asks permission instead (the
+		// profile's approve answers).
+		return []string{"claude-agent-acp"}, "default", nil
+	}
+	return nil, "", errx.Validation("unknown harness " + harness)
+}
+
+func fetchWorkspaceRetrying(ctx context.Context, cfg HostedConfig) (hosting.Workspace, error) {
+	backoff := time.Second
+	for {
+		ws, err := fetchWorkspace(ctx, cfg)
+		if err == nil || errx.IsType(err, errx.TypeAuthorization) || ctx.Err() != nil {
+			return ws, err
+		}
+		slog.Warn("could not read the slot's workspace, retrying", "err", err, "in", backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ws, ctx.Err()
+		}
+		backoff = min(backoff*2, 30*time.Second)
+	}
+}
+
+// fetchWorkspace reads GET /crew/workspace (repo credentials resolved:
+// only this slot's token gets them).
+func fetchWorkspace(ctx context.Context, cfg HostedConfig) (hosting.Workspace, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Server+"/crew/workspace", nil)
+	if err != nil {
+		return hosting.Workspace{}, errx.Wrap(err, "workspace request", errx.TypeValidation)
+	}
+	req.Header = authHeader(cfg.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return hosting.Workspace{}, errx.Wrap(err, "read the slot's workspace", errx.TypeExternal)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return hosting.Workspace{}, errx.Wrap(err, "read the slot's workspace", errx.TypeExternal)
+	}
+	switch {
+	case resp.StatusCode == http.StatusOK:
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound:
+		return hosting.Workspace{}, errx.Unauthorized("the port refused the slot's workspace: " + portMessage(body, resp.Status))
+	default:
+		return hosting.Workspace{}, errx.External("read the slot's workspace: " + portMessage(body, resp.Status))
+	}
+	var ws hosting.Workspace
+	if err := json.Unmarshal(body, &ws); err != nil {
+		return ws, errx.Wrap(err, "decode the slot's workspace", errx.TypeExternal)
+	}
+	return ws, nil
+}
+
+// statePath is a path of the home kept in the state volume across
+// restarts (the home itself is thrown away at stop).
+type statePath struct {
+	home, state string
+	dir         bool
+}
+
+var harnessState = map[string][]statePath{
+	hosting.HarnessRness: {
+		{".rness/sessions", "rness/sessions", true},
+		{".rness/credentials.json", "rness/credentials.json", false},
+	},
+	hosting.HarnessClaudeCode: {
+		{".claude/projects", "claude-code/projects", true},
+		{".claude/.credentials.json", "claude-code/credentials.json", false},
+		{".claude.json", "claude-code/claude.json", false},
+	},
+}
+
+// linkState links the harness's sessions and sign-in into the state
+// volume: a file the image ships is copied there on first use.
+func linkState(cfg HostedConfig) error {
+	for _, p := range harnessState[cfg.Harness] {
+		home, state := filepath.Join(cfg.Home, p.home), filepath.Join(cfg.State, p.state)
+		if err := os.MkdirAll(filepath.Dir(home), 0o755); err != nil {
+			return errx.Wrap(err, "prepare the home", errx.TypeInternal)
+		}
+		if err := os.MkdirAll(filepath.Dir(state), 0o700); err != nil {
+			return errx.Wrap(err, "prepare the state volume", errx.TypeInternal)
+		}
+		if p.dir {
+			if err := os.MkdirAll(state, 0o700); err != nil {
+				return errx.Wrap(err, "prepare the state volume", errx.TypeInternal)
+			}
+		} else if _, err := os.Stat(state); os.IsNotExist(err) {
+			if raw, rerr := os.ReadFile(home); rerr == nil {
+				if err := os.WriteFile(state, raw, 0o600); err != nil {
+					return errx.Wrap(err, "seed the state volume", errx.TypeInternal)
+				}
+			}
+		}
+		if err := os.RemoveAll(home); err != nil {
+			return errx.Wrap(err, "prepare the home", errx.TypeInternal)
+		}
+		if err := os.Symlink(state, home); err != nil {
+			return errx.Wrap(err, "link the slot's state", errx.TypeInternal)
+		}
+	}
+	return os.MkdirAll(filepath.Join(cfg.State, "connector"), 0o700)
+}
+
+// configureGit makes this binary git's credential helper for the repos
+// with a credential (it asks the port each time: no token on disk) and
+// names the slot as the commit author.
+func configureGit(ctx context.Context, cfg HostedConfig, ws hosting.Workspace) error {
+	set := func(args ...string) error {
+		return git(ctx, cfg.Home, nil, append([]string{"config", "--global"}, args...)...)
+	}
+	if err := set("user.name", ws.Slot); err != nil {
+		return err
+	}
+	if err := set("user.email", ws.Slot+"@agents.seaport.invalid"); err != nil {
+		return err
+	}
+	if err := set("init.defaultBranch", "main"); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, r := range ws.Repos {
+		u, err := url.Parse(r.URL)
+		if err != nil || r.Token == "" || seen[u.Host] {
+			continue
+		}
+		seen[u.Host] = true
+		prefix := "credential.https://" + u.Host
+		if err := set(prefix+".helper", "!"+shellQuote(cfg.Self)+" git-credential"); err != nil {
+			return err
+		}
+		if err := set(prefix+".useHttpPath", "true"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// prepareRepo clones a repo into the workspace, or fetches it when the
+// (persistent) workspace has it already, leaving the agent's work as it
+// is; then runs its on_start.
+func prepareRepo(ctx context.Context, cfg HostedConfig, r hosting.WorkspaceRepo) error {
+	dir := filepath.Join(cfg.Workspace, r.Path)
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if err := git(ctx, dir, nil, "fetch", "--prune", "origin"); err != nil {
+			slog.Warn("could not fetch a repo; working on what the workspace has", "repo", r.URL, "err", err)
+		}
+	} else {
+		args := []string{"clone"}
+		if r.Ref != "" {
+			args = append(args, "--branch", r.Ref)
+		}
+		if err := git(ctx, cfg.Workspace, nil, append(args, "--", r.URL, dir)...); err != nil {
+			return errx.Wrap(err, "clone "+r.URL, errx.TypeExternal)
+		}
+	}
+	if strings.TrimSpace(r.OnStart) == "" {
+		return nil
+	}
+	cmd := exec.CommandContext(ctx, "bash", "-lc", r.OnStart)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, os.Stderr, os.Stderr
+	if err := cmd.Run(); err != nil {
+		slog.Warn("a repo's on_start failed; going on", "repo", r.URL, "err", err)
+	}
+	return nil
+}
+
+// git runs git in dir, its output to stderr (the container's log).
+func git(ctx context.Context, dir string, env []string, args ...string) error {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, os.Stderr, os.Stderr
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
+	if err := cmd.Run(); err != nil {
+		return errx.Wrap(err, "git "+args[0], errx.TypeExternal)
+	}
+	return nil
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// worktrees gives each conversation its own checkout of the slot's repos
+// (<workspace>/wt/<conversation>/<path>, branch seaport/<conversation>),
+// so conversations worked at once don't edit one tree. Without repos
+// every conversation works in the workspace itself.
+type worktrees struct {
+	root  string
+	repos []hosting.WorkspaceRepo
+	mu    sync.Mutex // git locks a repo's worktree list
+}
+
+func (w *worktrees) dir(ctx context.Context, conv identity.ConversationID) (string, error) {
+	if len(w.repos) == 0 {
+		return w.root, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	dir := filepath.Join(w.root, "wt", conv.String())
+	for _, r := range w.repos {
+		tree := filepath.Join(dir, r.Path)
+		if _, err := os.Stat(filepath.Join(tree, ".git")); err == nil {
+			continue
+		}
+		repo := filepath.Join(w.root, r.Path)
+		_ = git(ctx, repo, nil, "worktree", "prune")
+		if err := git(ctx, repo, nil, "worktree", "add", "-B", "seaport/"+conv.String(), tree); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// GitCredential answers git's credential helper protocol (`seaport
+// git-credential get`, set up by Hosted): the token of the slot's repo
+// matching the request, read from the port now.
+func GitCredential(ctx context.Context, op string, in io.Reader, out io.Writer) error {
+	if op != "get" {
+		return nil // store/erase: nothing is kept
+	}
+	req := map[string]string{}
+	sc := bufio.NewScanner(in)
+	for sc.Scan() {
+		k, v, ok := strings.Cut(sc.Text(), "=")
+		if ok {
+			req[k] = v
+		}
+	}
+	if req["protocol"] != "https" {
+		return nil
+	}
+	cfg, err := HostedFromEnv()
+	if err != nil {
+		return err
+	}
+	ws, err := fetchWorkspace(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	want := strings.TrimSuffix(strings.Trim(req["path"], "/"), ".git")
+	for _, r := range ws.Repos {
+		u, err := url.Parse(r.URL)
+		if err != nil || r.Token == "" || !strings.EqualFold(u.Host, req["host"]) {
+			continue
+		}
+		if want != "" && strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git") != want {
+			continue
+		}
+		_, err = fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", r.Token)
+		return err
+	}
+	return nil
+}

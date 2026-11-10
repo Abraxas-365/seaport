@@ -1,5 +1,5 @@
 // Package hostingdocker is the Docker runtime of hosted agents: it builds
-// environment images and (M3) runs slots, through the Docker Engine API at
+// environment images and runs slots (slots.go), through the Docker Engine API at
 // DOCKER_HOST (in production a docker-socket proxy that allows only what
 // Seaport needs). The Docker SDK stays in this package.
 package hostingdocker
@@ -24,14 +24,28 @@ import (
 
 type Runtime struct {
 	api *client.Client
+	cfg Config
 }
 
 var _ hosting.Runtime = (*Runtime)(nil)
 
+// Config says how slot containers are wired.
+type Config struct {
+	// Network is the Docker network slot containers join (default
+	// "bridge").
+	Network string
+	// ExtraHosts are added to their /etc/hosts ("host.docker.internal:
+	// host-gateway" lets them reach a port on the host).
+	ExtraHosts []string
+}
+
 // New connects to the engine named by the environment (DOCKER_HOST,
 // DOCKER_TLS_VERIFY, DOCKER_CERT_PATH, DOCKER_API_VERSION) and checks it
 // answers.
-func New(ctx context.Context) (*Runtime, error) {
+func New(ctx context.Context, cfg Config) (*Runtime, error) {
+	if cfg.Network == "" {
+		cfg.Network = "bridge"
+	}
 	api, err := client.New(client.FromEnv)
 	if err != nil {
 		return nil, errx.Wrap(err, "docker client", errx.TypeInternal)
@@ -42,7 +56,7 @@ func New(ctx context.Context) (*Runtime, error) {
 		_ = api.Close()
 		return nil, errx.Wrap(err, "SEAPORT_RUNTIME=docker but the Docker engine (DOCKER_HOST) does not answer", errx.TypeInternal)
 	}
-	return &Runtime{api: api}, nil
+	return &Runtime{api: api, cfg: cfg}, nil
 }
 
 func (r *Runtime) Close() error { return r.api.Close() }

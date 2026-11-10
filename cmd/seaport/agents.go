@@ -61,7 +61,7 @@ func agents(ctx context.Context, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", ag.ID, ag.Name, profile, strings.Join(docks, ", "), ag.Description)
 		}
 		return w.Flush()
-	case "host", "unhost", "slots":
+	case "host", "unhost", "slots", "start", "stop":
 		return hostCmd(ctx, a, sub, args)
 	case "add":
 		if len(args) == 0 {

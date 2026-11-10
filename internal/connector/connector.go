@@ -40,9 +40,20 @@ type Config struct {
 	// working on the conversation: "steer" (default) hands them to the
 	// running turn when the agent supports it (rness); "queue" sends them
 	// as the next prompt after the turn ends.
-	Deliver      string
-	Cwd          string
-	Command      []string
+	Deliver string
+	// Mode is the ACP session mode to put each session in, when the agent
+	// offers it ("": the agent's own default).
+	Mode    string
+	Cwd     string
+	Command []string
+	// Workdir, when set, gives each conversation's session its working
+	// directory (a hosted slot's worktree); else every session works in
+	// Cwd.
+	Workdir func(context.Context, identity.ConversationID) (string, error)
+	// MCPURL replaces the port's MCP address from the welcome (its public
+	// URL), for agents that reach the port by another address (a hosted
+	// slot: SEAPORT_URL).
+	MCPURL       string
 	SessionsFile string
 }
 
@@ -256,8 +267,12 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 		}
 		switch f.Type {
 		case crew.FrameWelcome:
-			agent.SetMCPURL(f.MCPURL)
-			slog.Info("connected to port", "server", cfg.Server, "mcp", f.MCPURL)
+			mcpURL := f.MCPURL
+			if cfg.MCPURL != "" {
+				mcpURL = cfg.MCPURL
+			}
+			agent.SetMCPURL(mcpURL)
+			slog.Info("connected to port", "server", cfg.Server, "mcp", mcpURL)
 			check() // a change while disconnected sent no signal
 		case crew.FrameProfile:
 			check()
@@ -398,10 +413,18 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply))
 	handled := j.finish()
 	if err != nil {
-		log.Error("agent turn failed; releasing", "err", err)
+		// Turns failing in a row (the agent can't open sessions, its model
+		// refuses...) wait longer each time before the ships come back.
+		pause := agent.failed()
+		log.Error("agent turn failed; releasing", "err", err, "in", pause)
+		select {
+		case <-time.After(pause):
+		case <-ctx.Done():
+		}
 		send(crew.Frame{Type: crew.FrameRelease, DeliveryID: &id})
 		return
 	}
+	agent.succeeded()
 	if cfg.AutoReply && strings.TrimSpace(answer) != "" {
 		conv := d.Conversation.ID
 		send(crew.Frame{Type: crew.FrameReply, ConversationID: &conv, Text: strings.TrimSpace(answer)})

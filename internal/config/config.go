@@ -105,6 +105,13 @@ type Server struct {
 	// them): SEAPORT_IMAGE_RNESS, SEAPORT_IMAGE_CLAUDE_CODE; default the
 	// published ones at this release's version (ghcr.io/abraxas-365/…).
 	ImageRness, ImageClaudeCode string
+	// How slot containers reach the port: SEAPORT_AGENT_URL (default
+	// SEAPORT_PUBLIC_URL; on one host e.g.
+	// http://host.docker.internal:8740), on the Docker network
+	// SEAPORT_RUNTIME_NETWORK (default bridge); SEAPORT_RUNTIME_HOST_GATEWAY
+	// (default true) maps host.docker.internal to the host on Linux.
+	AgentURL, RuntimeNetwork string
+	RuntimeHostGateway       bool
 }
 
 // Runtime is where hosted agents run (SEAPORT_RUNTIME).
@@ -152,8 +159,11 @@ func LoadServer() (Server, error) {
 		LogLevel: env("SEAPORT_LOG_LEVEL", "info"),
 		Runtime:  Runtime(env("SEAPORT_RUNTIME", string(RuntimeOff))),
 		// empty: bootstrap fills BaseImage(harness, Version)
-		ImageRness:      strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
-		ImageClaudeCode: strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
+		ImageRness:         strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
+		ImageClaudeCode:    strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
+		AgentURL:           strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
+		RuntimeNetwork:     env("SEAPORT_RUNTIME_NETWORK", "bridge"),
+		RuntimeHostGateway: os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
 	}
 	if c.IAMKit.PublicURL == "" {
 		c.IAMKit.PublicURL = c.IAMKit.URL
@@ -186,6 +196,9 @@ func LoadServer() (Server, error) {
 	if c.PublicURL == "" {
 		c.PublicURL = "http://" + c.Addr
 	}
+	if c.AgentURL == "" {
+		c.AgentURL = c.PublicURL
+	}
 	if c.SecretKeyFile == "" {
 		if dir, err := os.UserConfigDir(); err == nil {
 			c.SecretKeyFile = filepath.Join(dir, "seaport", "secret.key")
@@ -203,6 +216,10 @@ func (c Server) Validate() error {
 	case "", RuntimeOff, RuntimeDocker:
 	default:
 		return errx.Validation("SEAPORT_RUNTIME must be off or docker")
+	}
+	if c.Runtime == RuntimeDocker && c.Auth == AuthNone {
+		// hosted agents sign in with slot tokens: there are none in open mode
+		return errx.Validation("SEAPORT_RUNTIME=docker needs SEAPORT_AUTH=token or iam (hosted agents sign in with tokens)")
 	}
 	switch c.Auth {
 	case AuthNone:

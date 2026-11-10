@@ -6,17 +6,39 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// hostCmd is `seaport agents host|unhost|slots ...`.
+// hostCmd is `seaport agents host|unhost|slots|start|stop ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
+	case "start", "stop":
+		if len(args) != 1 {
+			return errx.Validation("usage: seaport agents " + sub + " <agent>[-<slot>]   (slot 1 by default)")
+		}
+		ag, idx, err := findSlot(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var h hosting.Hosted
+		if err := a.do(ctx, http.MethodPost, fmt.Sprintf("/api/v1/agents/%s/hosting/slots/%d/%s", ag.ID, idx, sub), nil, &h); err != nil {
+			return err
+		}
+		for _, s := range h.Slots {
+			if s.Index == idx {
+				fmt.Printf("%s: %s %s\n", hosting.SlotName(ag.Name, idx), s.State, s.Detail)
+			}
+		}
+		fmt.Println("follow it with: seaport agents slots " + ag.Name)
+		return nil
 	case "host":
 		if len(args) < 2 {
 			return errx.Validation("usage: seaport agents host <agent> <env> [-slots N]")
@@ -104,4 +126,25 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		}
 	}
 	return w.Flush()
+}
+
+// findSlot resolves "<agent>" (slot 1) or "<agent>-<n>": an agent named
+// like a slot wins (names may end in -<digits>).
+func findSlot(ctx context.Context, a *admin, name string) (agent.Agent, int, error) {
+	ag, err := findAgent(ctx, a, name)
+	if err == nil {
+		return ag, 1, nil
+	}
+	i := strings.LastIndex(name, "-")
+	if i <= 0 {
+		return agent.Agent{}, 0, err
+	}
+	n, perr := strconv.Atoi(name[i+1:])
+	if perr != nil {
+		return agent.Agent{}, 0, err
+	}
+	if ag, aerr := findAgent(ctx, a, name[:i]); aerr == nil {
+		return ag, n, nil
+	}
+	return agent.Agent{}, 0, err
 }

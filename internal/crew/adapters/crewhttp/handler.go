@@ -107,7 +107,7 @@ func (res Resolver) ResolveCrew(ctx context.Context, value string) (httpx.Princi
 		return httpx.Principal{}, err
 	}
 	p := httpx.Principal{Organization: t.Organization, Role: httpx.RoleCrew, Subject: "crew:" + t.Name,
-		Credential: t.ID.String(), Agent: t.Agent, AgentName: t.AgentName}
+		Credential: t.ID.String(), Agent: t.Agent, AgentName: t.AgentName, Slot: t.Slot}
 	if t.ExpiresAt != nil {
 		p.Expires = *t.ExpiresAt
 	}

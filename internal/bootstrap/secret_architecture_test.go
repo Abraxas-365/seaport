@@ -11,10 +11,14 @@ import (
 // served to the agent's own crew credential by crewhttp (GET
 // /crew/profile); OpenSecrets is how agentsvc builds that kit. An admin
 // handler, an event or the MCP tools calling either would show secrets to
-// someone else (the web never gets one back once written).
+// someone else (the web never gets one back once written). Reveal opens
+// a hosted slot's repo credentials for OpenWorkspace, which only
+// hostinghttp serves (GET /crew/workspace, the slot's own token).
 var secretCalls = map[string]string{
-	"Equip":       "crew/adapters/crewhttp",
-	"OpenSecrets": "agent/agentsvc",
+	"Equip":         "crew/adapters/crewhttp",
+	"OpenSecrets":   "agent/agentsvc",
+	"Reveal":        "hosting/hostingsvc",
+	"OpenWorkspace": "hosting/adapters/hostinghttp",
 }
 
 func secretViolations(files []goFile) []string {

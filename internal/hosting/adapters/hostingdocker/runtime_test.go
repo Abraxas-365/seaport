@@ -21,7 +21,7 @@ import (
 // dockerRuntime connects to the local engine, or skips (fails in CI).
 func dockerRuntime(t *testing.T) *Runtime {
 	t.Helper()
-	r, err := New(context.Background())
+	r, err := New(context.Background(), Config{})
 	if err != nil {
 		if os.Getenv("CI") != "" {
 			t.Fatalf("docker: %v", err)

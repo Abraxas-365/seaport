@@ -17,11 +17,79 @@ import (
 )
 
 // fakeRuntime builds by waiting for the test: each build reads its
-// outcome from results (an image id, or "fail:<message>").
+// outcome from results (an image id, or "fail:<message>"). Slots are
+// containers in memory (starts recorded; startErr fails the next start).
 type fakeRuntime struct {
 	mu       sync.Mutex
 	requests []hosting.BuildRequest
 	results  chan string
+	slots    map[string]hosting.RuntimeSlot
+	starts   []hosting.StartSlot
+	removed  []hosting.SlotRef
+	startErr error
+}
+
+func (f *fakeRuntime) Start(_ context.Context, s hosting.StartSlot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.startErr; err != nil {
+		f.startErr = nil
+		return err
+	}
+	if f.slots == nil {
+		f.slots = map[string]hosting.RuntimeSlot{}
+	}
+	f.starts = append(f.starts, s)
+	f.slots[s.Slot.Key()] = hosting.RuntimeSlot{Slot: s.Slot, Container: true, Run: s.Run, Running: true}
+	return nil
+}
+
+func (f *fakeRuntime) Stop(_ context.Context, ref hosting.SlotRef, run string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.slots[ref.Key()]; ok && (run == "" || r.Run == run) {
+		f.slots[ref.Key()] = hosting.RuntimeSlot{Slot: ref} // volumes stay
+	}
+	return nil
+}
+
+func (f *fakeRuntime) Remove(_ context.Context, ref hosting.SlotRef) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.slots, ref.Key())
+	f.removed = append(f.removed, ref)
+	return nil
+}
+
+func (f *fakeRuntime) Slots(context.Context, string) ([]hosting.RuntimeSlot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]hosting.RuntimeSlot, 0, len(f.slots))
+	for _, r := range f.slots {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// exit makes a slot's container exit (the agent crashed).
+func (f *fakeRuntime) exit(ref hosting.SlotRef, detail string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.slots[ref.Key()]
+	r.Running, r.Detail = false, detail
+	f.slots[ref.Key()] = r
+}
+
+func (f *fakeRuntime) running(ref hosting.SlotRef) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.slots[ref.Key()].Running
+}
+
+func (f *fakeRuntime) lastStart() hosting.StartSlot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.starts[len(f.starts)-1]
 }
 
 func (f *fakeRuntime) Build(ctx context.Context, req hosting.BuildRequest, log io.Writer) (string, error) {
