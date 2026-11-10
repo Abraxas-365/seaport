@@ -526,15 +526,24 @@ func (c *client) SessionUpdate(_ context.Context, n acp.SessionNotification) err
 	return nil
 }
 
+// portTool says a permission request is for one of the port's own tools
+// (the "seaport" MCP server the connector gives every session): reply,
+// history, skill… are how the agent works, and the port checks them
+// itself, so they are allowed whatever approve says (Claude Code asks for
+// MCP tools too: rejecting reply loses the answer).
+func portTool(title string) bool {
+	return strings.HasPrefix(title, "mcp__seaport__")
+}
+
 func (c *client) RequestPermission(_ context.Context, p acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	want := map[bool][]acp.PermissionOptionKind{
-		true:  {acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways},
-		false: {acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways},
-	}[c.a.approve == agent.ApproveAllow]
 	title := ""
 	if p.ToolCall.Title != nil {
 		title = *p.ToolCall.Title
 	}
+	want := map[bool][]acp.PermissionOptionKind{
+		true:  {acp.PermissionOptionKindAllowOnce, acp.PermissionOptionKindAllowAlways},
+		false: {acp.PermissionOptionKindRejectOnce, acp.PermissionOptionKindRejectAlways},
+	}[c.a.approve == agent.ApproveAllow || portTool(title)]
 	for _, kind := range want {
 		for _, o := range p.Options {
 			if o.Kind == kind {

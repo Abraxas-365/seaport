@@ -214,3 +214,33 @@ func TestChangedProfileRestartsWhenIdle(t *testing.T) {
 		t.Fatalf("frames = %v, want hello,drain", got)
 	}
 }
+
+// The port's own tools are always allowed (Claude Code asks for MCP tools
+// too, and a rejected reply loses the answer); others follow approve.
+func TestPermissionAllowsPortTools(t *testing.T) {
+	opts := []acp.PermissionOption{
+		{OptionId: "allow", Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow"},
+		{OptionId: "reject", Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject"},
+	}
+	ask := func(approve, title string) acp.PermissionOptionId {
+		c := &client{a: &Agent{approve: approve}}
+		res, err := c.RequestPermission(context.Background(), acp.RequestPermissionRequest{
+			ToolCall: acp.ToolCallUpdate{Title: &title}, Options: opts,
+		})
+		if err != nil || res.Outcome.Selected == nil {
+			t.Fatalf("%s %s: %+v %v", approve, title, res, err)
+		}
+		return res.Outcome.Selected.OptionId
+	}
+	for _, c := range []struct{ approve, title, want string }{
+		{agent.ApproveReject, "mcp__seaport__reply", "allow"},
+		{agent.ApproveReject, "mcp__seaport__history", "allow"},
+		{agent.ApproveReject, "Bash", "reject"},
+		{agent.ApproveReject, "mcp__other__reply", "reject"},
+		{agent.ApproveAllow, "Bash", "allow"},
+	} {
+		if got := ask(c.approve, c.title); string(got) != c.want {
+			t.Errorf("approve=%s %s: %s, want %s", c.approve, c.title, got, c.want)
+		}
+	}
+}
