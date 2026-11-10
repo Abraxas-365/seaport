@@ -24,7 +24,9 @@ import {
   CountBadge,
   DayDivider,
   DockCard,
+  DiffView,
   EmptyState,
+  HomeTree,
   LogView,
   NoAccess,
   PairingPanel,
@@ -42,8 +44,10 @@ import {
   dockTone,
   shipLabel,
   shipTone,
+  type HomeChange,
   type Tone,
 } from "@/components/seaport"
+import { diffLines } from "@/lib/homes"
 
 /**
  * The living catalog of Seaport's design system: tokens, primitives and
@@ -429,6 +433,26 @@ const sampleBuild = (over: Partial<Build>): Build => ({
   ...over,
 })
 
+const sampleHomeFiles = [
+  { path: "CLAUDE.md", size: 1840 },
+  { path: "settings.json", size: 612 },
+  { path: "statusline.sh", size: 210 },
+  { path: "agents/reviewer.md", size: 940 },
+  { path: "skills/release/SKILL.md", size: 2310 },
+  { path: "skills/release/checklist.md", size: 480 },
+]
+
+const sampleHomeChanges = new Map<string, HomeChange>([
+  ["CLAUDE.md", "changed"],
+  ["agents/reviewer.md", "added"],
+  ["commands/deploy.md", "removed"],
+])
+
+const sampleDiff = diffLines(
+  "# Proyecto\n\nResponde en español.\nUsa pnpm.\nNo toques migrations/.\nCorre los tests antes de terminar.\n",
+  "# Proyecto\n\nResponde en español, breve.\nUsa pnpm.\nNo toques migrations/.\nCorre los tests antes de terminar.\nAbre un PR en borrador.\n",
+) ?? []
+
 const sampleUsage: UsageDay[] = Array.from({ length: 18 }, (_, i) => ({
   day: new Date(now - (i * 1.6 + (i % 3)) * 86_400_000).toISOString().slice(0, 10) + "T00:00:00Z",
   provider: "anthropic",
@@ -514,6 +538,14 @@ function Domain() {
             className="max-h-40"
             text={"#5 [2/3] RUN apt-get install -y nodejs npm\n#5 DONE 21.4s\n#6 [3/3] RUN bash /opt/seaport/setup.sh\n#6 DONE 3.1s\nnaming to seaport-env-backend:v3-1a2b3c done"}
           />
+        </Specimen>
+        <Specimen label="HomeTree (configuración del harness; cambios vs otra versión)">
+          <div className="rounded-lg border p-1.5">
+            <HomeTree files={sampleHomeFiles} changes={sampleHomeChanges} selected="CLAUDE.md" />
+          </div>
+        </Specimen>
+        <Specimen label="DiffView (líneas; lo que no cambia se pliega)">
+          <DiffView lines={sampleDiff} context={1} />
         </Specimen>
         <Specimen label="UsageChart (tokens por día por el gateway)" className="lg:col-span-2">
           <UsageChart days={sampleUsage} />

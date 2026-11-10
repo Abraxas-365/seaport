@@ -123,3 +123,18 @@ export const buildLabel: Record<BuildState, string> = {
   ready: "Lista",
   failed: "Falló",
 }
+
+/** How a home's file differs from the version it's compared with. */
+export type HomeChange = "added" | "changed" | "removed"
+
+export const homeChangeTone: Record<HomeChange, Tone> = {
+  added: "success",
+  changed: "warning",
+  removed: "danger",
+}
+
+export const homeChangeLabel: Record<HomeChange, string> = {
+  added: "Nuevo",
+  changed: "Cambiado",
+  removed: "Quitado",
+}

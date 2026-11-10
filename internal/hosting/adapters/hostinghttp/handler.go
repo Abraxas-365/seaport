@@ -38,6 +38,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/environments/{id}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
 	mux.Handle("GET /api/v1/environments/{id}/versions/{version}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
 	mux.Handle("POST /api/v1/homes", httpx.RequireFunc(permission.EnvironmentsWrite, h.uploadHome))
+	mux.Handle("GET /api/v1/homes/rules", httpx.RequireFunc(permission.EnvironmentsRead, h.homeRules))
 	mux.Handle("GET /api/v1/homes/{digest}", httpx.RequireFunc(permission.EnvironmentsRead, h.home))
 	mux.Handle("GET /api/v1/homes/{digest}/archive", httpx.RequireFunc(permission.EnvironmentsRead, h.homeArchive))
 	mux.Handle("GET /api/v1/homes/{digest}/files/{path...}", httpx.RequireFunc(permission.EnvironmentsRead, h.homeFile))

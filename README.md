@@ -335,7 +335,11 @@ slots, logs, model use, refused hosts).
   `init.lua`, `hooks.json`, `lua/`, `plugins/`, `skills/`.
   `seaport env home push backend [~/.claude]` uploads a dir (leaving out
   sessions, sign-in, history, memory, caches) and saves a version naming
-  it; `env home show|pull` read it back. Uploads with secret-looking
+  it; `env home show|pull` read it back. On the web, the environment's
+  "Configuración del harness" section takes a dropped folder (a `~`
+  holding `.claude/` works) or a .zip/.tar.gz, shows what goes in and what
+  is left out, and lets you view, edit and diff its files against the
+  previous version before saving. Uploads with secret-looking
   strings are refused: give the agent an env secret and read it from the
   environment (`"${GITHUB_TOKEN}"`). Claude Code plugins are installed at
   build from `settings.json`'s `enabledPlugins` (and the marketplaces in

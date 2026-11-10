@@ -21,6 +21,7 @@ import type {
   Effect,
   EnvSpec,
   GroupMode,
+  Harness,
   InboxItem,
   Paginated,
   ProfileInput,
@@ -460,6 +461,49 @@ export function useBuild(id: string, version: number) {
 function notFoundIsNull(err: unknown): null {
   if (err instanceof ApiError && err.status === 404) return null
   throw err
+}
+
+// Harness homes: uploaded config (immutable, by digest).
+
+export function useHomeRules() {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.homeRules,
+    queryFn: api.homeRules,
+    enabled: can(Perm.EnvironmentsRead),
+    staleTime: Infinity,
+  })
+}
+
+/** A home's manifest; immutable, so never stale. */
+export function useHome(digest: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.home(digest),
+    queryFn: () => api.home(digest),
+    enabled: !!digest && can(Perm.EnvironmentsRead),
+    staleTime: Infinity,
+  })
+}
+
+/** One file of a home as text. */
+export function useHomeFile(digest: string, path: string, enabled = true) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.homeFile(digest, path),
+    queryFn: () => api.homeFile(digest, path),
+    enabled: enabled && !!digest && !!path && can(Perm.EnvironmentsRead),
+    staleTime: Infinity,
+  })
+}
+
+export function useUploadHome() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ harness, tgz }: { harness: Harness; tgz: Uint8Array }) => api.uploadHome(harness, tgz),
+    onSuccess: (h) => qc.setQueryData(keys.home(h.digest), h),
+    onError: fail("No se pudo subir la configuración"),
+  })
 }
 
 function useEnvironmentsChanged() {

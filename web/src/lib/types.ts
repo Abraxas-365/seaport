@@ -359,6 +359,39 @@ export interface Environment {
   agents: number
 }
 
+export interface HomeFile {
+  /** Relative to the harness's root (~/.claude, ~/.rness). */
+  path: string
+  size: number
+  sha256: string
+  exec?: boolean
+}
+
+/** An uploaded harness config, named by digest. */
+export interface Home {
+  digest: string
+  harness: Harness
+  files: HomeFile[]
+  size: number
+  created_by: string
+  created_at: string
+}
+
+/** What a harness's home may hold (GET /homes/rules). */
+export interface HomeRules {
+  root: string
+  dirs: string[]
+  files: string[]
+  file_prefixes: string[]
+  reserved: string[]
+  secrets: { what: string; pattern: string }[]
+  max_files: number
+  max_file: number
+  max_bytes: number
+  max_upload: number
+  max_depth: number
+}
+
 export interface EnvVersion {
   version: number
   created_by: string

@@ -106,3 +106,16 @@ export function shipPreview(s: Ship | null) {
 export function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`
 }
+
+/** 1536 → "1,5 KB" (binary units, Spanish decimals). */
+export function formatBytes(n: number) {
+  if (n < 1024) return `${n} B`
+  const units = ["KB", "MB", "GB"]
+  let v = n / 1024
+  let u = 0
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024
+    u++
+  }
+  return `${v.toLocaleString("es", { maximumFractionDigits: v < 10 ? 1 : 0 })} ${units[u]}`
+}

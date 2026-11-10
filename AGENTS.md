@@ -402,7 +402,14 @@ test together with the reason. Add a rule when you add a pattern.
   `hostingsvc/homes.go`): an environment's `home: sha256:…` names an
   uploaded `~/.claude` or `~/.rness` (`POST /api/v1/homes?harness=…`, raw
   tar/tar.gz up to `MaxHomeUpload`, `httpx.ReadBody`; `seaport env home
-  push|show|pull`, or `home: ./dir` in `env apply`). `ReadHome` allows only
+  push|show|pull`, or `home: ./dir` in `env apply`; the web's
+  "Configuración del harness" section, `web/src/pages/environment-home.tsx`).
+  The web filters and checks a dropped folder or .zip/.tar.gz in the
+  browser with the server's own rules (`GET /api/v1/homes/rules` =
+  `hosting.HomeRulesOf`: paths, limits, `SecretPattern`s in RE2 syntax JS
+  also parses), lists what it left out, then uploads a tar.gz the server
+  checks again strictly (no lenient mode); edits re-upload the whole home.
+  `ReadHome` allows only
   the harness's config paths (`HomePath`: Claude `CLAUDE.md`,
   `settings.json`, `keybindings.json`, `agents/ commands/ skills/ hooks/
   output-styles/`, `statusline*`; rness `init.lua`, `hooks.json`, `lua/

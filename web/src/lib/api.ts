@@ -24,6 +24,9 @@ import type {
   EnvSpec,
   EnvVersion,
   Environment,
+  Harness,
+  Home,
+  HomeRules,
   Hosted,
   HostingStatus,
   SlotAccount,
@@ -80,6 +83,50 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(res.status, e?.message ?? res.statusText, e?.code, e?.request_id, retryAfter)
   }
   return data as T
+}
+
+/** Uploads a raw body (an archive); answers JSON like request. */
+async function upload<T>(path: string, contentType: string, body: Uint8Array): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": contentType },
+    body: body as BodyInit,
+  })
+  const text = await res.text()
+  let data: { error?: { message?: string; code?: string; request_id?: string } } | undefined
+  try {
+    data = text ? JSON.parse(text) : undefined
+  } catch {
+    data = undefined
+  }
+  if (!res.ok) {
+    const e = data?.error
+    if (res.status === 401) onUnauthorized()
+    const retryAfter = Number(res.headers.get("Retry-After")) || undefined
+    throw new ApiError(res.status, e?.message ?? res.statusText, e?.code, e?.request_id, retryAfter)
+  }
+  return data as T
+}
+
+/** Reads a binary body (a home's tar). */
+async function requestBytes(path: string): Promise<Uint8Array> {
+  const res = await requestRaw(path)
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+async function requestRaw(path: string): Promise<Response> {
+  const res = await fetch(path, { credentials: "same-origin" })
+  if (res.ok) return res
+  const text = await res.text()
+  let e: { message?: string; code?: string; request_id?: string } | undefined
+  try {
+    e = JSON.parse(text)?.error
+  } catch {
+    e = undefined
+  }
+  if (res.status === 401) onUnauthorized()
+  throw new ApiError(res.status, e?.message ?? res.statusText, e?.code, e?.request_id)
 }
 
 function qs(params: Record<string, string | number | undefined>) {
@@ -186,6 +233,19 @@ export const api = {
   build: (id: string, version?: number) =>
     request<Build>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}/build`),
   startBuild: (id: string, force = false) => request<Build>("POST", `${v1}/environments/${id}/build`, { force }),
+
+  homeRules: () => request<Record<Harness, HomeRules>>("GET", `${v1}/homes/rules`),
+  home: (digest: string) => request<Home>("GET", `${v1}/homes/${digest}`),
+  homeFile: (digest: string, path: string) =>
+    requestRaw(`${v1}/homes/${digest}/files/${path.split("/").map(encodeURIComponent).join("/")}`).then((r) =>
+      r.headers.get("Content-Type")?.startsWith("text/") ? r.text() : null,
+    ),
+  /** Where a home's tar is (the session cookie authenticates a download link). */
+  homeArchiveURL: (digest: string) => `${v1}/homes/${digest}/archive`,
+  homeArchive: (digest: string) => requestBytes(`${v1}/homes/${digest}/archive`),
+  /** A tar.gz of the home's files (the web picks them with homeRules first). */
+  uploadHome: (harness: Harness, tgz: Uint8Array) =>
+    upload<Home>(`${v1}/homes${qs({ harness })}`, "application/gzip", tgz),
 
   hosting: () => request<HostingStatus>("GET", `${v1}/hosting`),
   hosted: (agent: string) => request<Hosted>("GET", `${v1}/agents/${agent}/hosting`),

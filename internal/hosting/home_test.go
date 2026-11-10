@@ -188,3 +188,47 @@ func TestHomeDigestNamesTheHarness(t *testing.T) {
 		t.Fatalf("%v %v %s %s", err1, err2, r.Digest, c.Digest)
 	}
 }
+
+// HomeRulesOf says what HomePath accepts: every name it lists is allowed.
+func TestHomeRules(t *testing.T) {
+	rules := HomeRulesOf()
+	if len(rules) != 2 {
+		t.Fatalf("%+v", rules)
+	}
+	for harness, r := range rules {
+		if r.Root != HomeRoot(harness) || len(r.Dirs) == 0 || len(r.Files) == 0 || r.MaxBytes != MaxHomeBytes {
+			t.Fatalf("%s: %+v", harness, r)
+		}
+		for _, d := range r.Dirs {
+			if err := HomePath(harness, d+"/x.md"); err != nil {
+				t.Errorf("%s dir %s: %v", harness, d, err)
+			}
+		}
+		for _, f := range r.Files {
+			if err := HomePath(harness, f); err != nil {
+				t.Errorf("%s file %s: %v", harness, f, err)
+			}
+		}
+		for _, p := range r.FilePrefixes {
+			if err := HomePath(harness, p+".sh"); err != nil {
+				t.Errorf("%s prefix %s: %v", harness, p, err)
+			}
+		}
+		for _, p := range r.Reserved {
+			if err := HomePath(harness, p); err == nil {
+				t.Errorf("%s reserved %s accepted", harness, p)
+			}
+		}
+		if len(r.Secrets) != len(secretPatterns) {
+			t.Fatalf("%s secrets: %+v", harness, r.Secrets)
+		}
+		// JavaScript-compatible: no RE2-only syntax (flags, \z, \A, \Q…\E, [[:class:]], \p).
+		for _, s := range r.Secrets {
+			for _, bad := range []string{"(?", `\z`, `\A`, `\Q`, "[[:", `\p`} {
+				if strings.Contains(s.Pattern, bad) {
+					t.Errorf("%s: %q uses %q", s.What, s.Pattern, bad)
+				}
+			}
+		}
+	}
+}

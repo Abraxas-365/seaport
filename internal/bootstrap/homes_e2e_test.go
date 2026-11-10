@@ -101,6 +101,11 @@ func TestHarnessHomes(t *testing.T) {
 			t.Errorf("%s: %d, want %d", name, code, c.want)
 		}
 	}
+	var rules map[string]hosting.HomeRules
+	if code := p.admin(http.MethodGet, "/api/v1/homes/rules", nil, &rules); code != http.StatusOK ||
+		rules["rness"].Root != ".rness" || len(rules["claude-code"].Dirs) == 0 {
+		t.Fatalf("rules: %d %+v", code, rules)
+	}
 
 	// Reads: the manifest, a file, the archive.
 	var got hosting.Home

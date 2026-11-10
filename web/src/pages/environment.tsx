@@ -5,6 +5,7 @@ import {
   Boxes,
   Copy,
   FileCode2,
+  FolderCog,
   GitBranch,
   Globe,
   Hammer,
@@ -64,6 +65,7 @@ import {
   StatusBadge,
 } from "@/components/seaport"
 import { RuntimeOff, harnessLabel } from "@/pages/environments"
+import { HomeSection } from "@/pages/environment-home"
 
 const credentialPattern = /^\$\{[A-Z_][A-Z0-9_]{0,63}\}$/
 const idleStopPattern = /^(0|never|(\d+h)?(\d+m)?)$/
@@ -316,6 +318,16 @@ function SpecEditor({ env, write }: { env: Environment; write: boolean }) {
   const stale = env.version !== base
   const conflict = save.error instanceof ApiError && save.error.status === 409
   const set = (patch: Partial<EnvSpec>) => setDraft((d) => ({ ...d, ...patch }))
+  // The home diffs with: the saved version while the draft changes it, else
+  // the version before the one shown.
+  const draftHome = viewing === 0 && draft.home !== baseline.home
+  const prevVersion = draftHome ? 0 : (viewing || base) - 1
+  const prev = useEnvironment(prevVersion > 0 ? env.id : "", prevVersion)
+  const homeCompare: { home?: string; label?: string } = draftHome
+    ? { home: baseline.home, label: `la v${base} guardada` }
+    : prevVersion > 0 && prev.data
+      ? { home: prev.data.spec.home, label: `la v${prevVersion}` }
+      : {}
 
   return (
     <Card>
@@ -368,7 +380,11 @@ function SpecEditor({ env, write }: { env: Environment; write: boolean }) {
             )}
           </div>
         )}
-        {!shown ? <Skeleton className="h-64 rounded-xl" /> : <SpecFields spec={shown} readOnly={readOnly} set={set} />}
+        {!shown ? (
+          <Skeleton className="h-64 rounded-xl" />
+        ) : (
+          <SpecFields spec={shown} readOnly={readOnly} set={set} homeCompare={homeCompare} />
+        )}
         {write && viewing === 0 && (
           <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
             {(stale || conflict) && (
@@ -439,10 +455,12 @@ function SpecFields({
   spec: s,
   readOnly,
   set,
+  homeCompare,
 }: {
   spec: EnvSpec
   readOnly: boolean
   set: (patch: Partial<EnvSpec>) => void
+  homeCompare: { home?: string; label?: string }
 }) {
   const keyOk = !s.models.anthropic || credentialPattern.test(s.models.anthropic)
   const idleOk = idleStopPattern.test(s.idle_stop.trim())
@@ -518,6 +536,27 @@ function SpecFields({
             <FieldDescription>bash como root al construir; el home vuelve al usuario del agente.</FieldDescription>
           </Field>
         </div>
+      </Section>
+
+      <Section
+        icon={FolderCog}
+        title="Configuración del harness"
+        description={
+          <>
+            Tu <Mono>~/{s.harness === "rness" ? ".rness" : ".claude"}</Mono> (instrucciones, ajustes, agentes, skills,
+            hooks) horneado en la imagen. Los secretos no van aquí: dalos como secretos env del agente y léelos del
+            entorno.
+          </>
+        }
+      >
+        <HomeSection
+          harness={s.harness}
+          home={s.home}
+          compare={homeCompare.home}
+          compareLabel={homeCompare.label}
+          readOnly={readOnly}
+          onChange={(home) => set({ home })}
+        />
       </Section>
 
       <Section

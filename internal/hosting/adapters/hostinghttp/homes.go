@@ -28,6 +28,12 @@ func (h *Handler) uploadHome(w http.ResponseWriter, r *http.Request) error {
 	return httpx.Created(w, r, home.Digest, home)
 }
 
+// homeRules answers what each harness's home may hold, so a client picks
+// a dropped folder's files before uploading.
+func (h *Handler) homeRules(w http.ResponseWriter, _ *http.Request) error {
+	return httpx.JSON(w, http.StatusOK, hosting.HomeRulesOf())
+}
+
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) error {
 	org, err := httpx.Organization(r)
 	if err != nil {

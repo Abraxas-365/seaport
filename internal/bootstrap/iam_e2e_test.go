@@ -509,6 +509,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/environments/" + env + "/build", "GET /api/v1/environments/{id}/build", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/environments/" + env + "/versions/1/build", "GET /api/v1/environments/{id}/versions/{version}/build", nil, permission.EnvironmentsRead},
 		{"POST", "/api/v1/homes?harness=rness", "POST /api/v1/homes", nil, permission.EnvironmentsWrite},
+		{"GET", "/api/v1/homes/rules", "GET /api/v1/homes/rules", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/homes/" + home, "GET /api/v1/homes/{digest}", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/homes/" + home + "/archive", "GET /api/v1/homes/{digest}/archive", nil, permission.EnvironmentsRead},
 		{"GET", "/api/v1/homes/" + home + "/files/init.lua", "GET /api/v1/homes/{digest}/files/{path...}", nil, permission.EnvironmentsRead},

@@ -98,6 +98,61 @@ func HomeDir(harness, rel string) bool {
 	return homeTop[harness][parts[0]]
 }
 
+// HomeRules is what a client needs to pick a harness home's files before
+// uploading (the web filters a dropped folder with it; the port still
+// checks every path with HomePath).
+type HomeRules struct {
+	// Root is the dir of /home/agent the home is (".claude", ".rness").
+	Root string `json:"root"`
+	// Dirs and Files are the top-level names a home may hold;
+	// FilePrefixes, top-level files by prefix (statusline scripts).
+	Dirs         []string `json:"dirs"`
+	Files        []string `json:"files"`
+	FilePrefixes []string `json:"file_prefixes"`
+	// Reserved are paths Seaport owns (never uploaded).
+	Reserved []string `json:"reserved"`
+	// Secrets are the patterns ScanSecrets refuses (RE2 that JavaScript
+	// reads the same), so a client warns before uploading.
+	Secrets []SecretPattern `json:"secrets"`
+	// Limits of a home (bytes) and of one upload.
+	MaxFiles  int `json:"max_files"`
+	MaxFile   int `json:"max_file"`
+	MaxBytes  int `json:"max_bytes"`
+	MaxUpload int `json:"max_upload"`
+	MaxDepth  int `json:"max_depth"`
+}
+
+// HomeRulesOf answers each harness's HomeRules.
+func HomeRulesOf() map[string]HomeRules {
+	out := map[string]HomeRules{}
+	for harness, tops := range homeTop {
+		r := HomeRules{Root: HomeRoot(harness), Dirs: []string{}, Files: []string{}, FilePrefixes: []string{},
+			Reserved: []string{}, Secrets: make([]SecretPattern, 0, len(secretPatterns)), MaxFiles: MaxHomeFiles,
+			MaxFile: MaxHomeFile, MaxBytes: MaxHomeBytes, MaxUpload: MaxHomeUpload, MaxDepth: MaxHomeDepth}
+		for _, p := range secretPatterns {
+			r.Secrets = append(r.Secrets, SecretPattern{What: p.what, Pattern: p.re.String()})
+		}
+		for name, dir := range tops {
+			if dir {
+				r.Dirs = append(r.Dirs, name)
+			} else {
+				r.Files = append(r.Files, name)
+			}
+		}
+		if harness == HarnessClaudeCode {
+			r.FilePrefixes = append(r.FilePrefixes, "statusline") // homeTopFile
+		}
+		for p := range homeReserved[harness] {
+			r.Reserved = append(r.Reserved, p)
+		}
+		slices.Sort(r.Dirs)
+		slices.Sort(r.Files)
+		slices.Sort(r.Reserved)
+		out[harness] = r
+	}
+	return out
+}
+
 // homeReserved are paths Seaport owns in a harness's home.
 var homeReserved = map[string]map[string]string{
 	HarnessRness: {"lua/seaport.lua": "Seaport's (it routes models through the port's gateway)"},
@@ -357,8 +412,15 @@ func HomeFileData(tarball []byte, name string) ([]byte, error) {
 	}
 }
 
+// SecretPattern is one of ScanSecrets' patterns, for clients.
+type SecretPattern struct {
+	What    string `json:"what"`
+	Pattern string `json:"pattern"`
+}
+
 // secretPatterns are strings that look like credentials (high confidence:
-// fixed prefixes of providers' key formats).
+// fixed prefixes of providers' key formats). Clients get them through
+// HomeRules, so keep them to syntax RE2 and JavaScript share.
 var secretPatterns = []struct {
 	what string
 	re   *regexp.Regexp
