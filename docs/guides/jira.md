@@ -58,7 +58,8 @@ Seaport forwards a comment only when it **mentions the account** (a mention pick
 | Symptom | Likely cause |
 | :--- | :--- |
 | Linking says Jira refused the credentials | Wrong email or token, a token created by another account, or the account has no access to the site. Check with `curl -u bot@example.com:<token> https://example.atlassian.net/rest/api/3/myself`. |
-| Linking says the site isn't allowed | The host isn't in `SEAPORT_JIRA_HOSTS` (default `*.atlassian.net`). |
+| Linking says the site isn't allowed | The host isn't in `SEAPORT_JIRA_HOSTS` (default `*.atlassian.net`), or it uses a port other than 443 (list it as `host:port`). |
+| Replies fail with "no longer allowed" | The site was removed from `SEAPORT_JIRA_HOSTS` after linking; Seaport sends no credentials to it. Allow it again. |
 | The page warns that Jira can't reach the address | `SEAPORT_PUBLIC_URL` is plain `http` or loopback. |
 | Webhook deliveries answer `401` | The secret differs from the dock's (it was rotated?) or the body was altered by a proxy. |
 | Deliveries answer `202 ignored` | The comment mentions neither the account nor a team agent, the author is an app, or the event isn't `comment_created` / `jira:issue_created`. |

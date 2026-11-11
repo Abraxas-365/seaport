@@ -178,6 +178,8 @@ export const api = {
   slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
   slackCreate: (id: string, body: { config_token: string; name?: string }) =>
     request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/create`, body),
+  slackInstall: (id: string) =>
+    request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/install`),
   slackConnect: (id: string, body: { signing_secret: string; bot_token: string }) =>
     request<SlackInfo>("POST", `${v1}/docks/${id}/slack/connect`, body),
 

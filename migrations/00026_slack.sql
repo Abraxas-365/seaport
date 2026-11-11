@@ -45,4 +45,4 @@ DROP TABLE slack_threads;
 DROP TABLE slack_apps;
 DELETE FROM docks WHERE channel = 'slack';
 ALTER TABLE docks DROP CONSTRAINT docks_channel_check;
-ALTER TABLE docks ADD CONSTRAINT docks_channel_check CHECK (channel IN ('whatsapp', 'api', 'github'));
+ALTER TABLE docks ADD CONSTRAINT docks_channel_check CHECK (channel IN ('whatsapp', 'api', 'github', 'jira'));

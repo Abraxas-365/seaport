@@ -112,55 +112,80 @@ type lookups struct {
 	fetch func(url string) func(context.Context) ([]byte, error)
 }
 
-// parse turns an event into an arrival, or ok=false for what carries no
-// message for the crew: other events, bots' messages (our own bot's
-// included, so a reply never loops), empty texts, and messages that call
-// neither the app nor an agent of the dock's team outside a thread
-// Seaport answers in. DMs are always for the crew.
-func parse(env envelope, d identity.DockID, a App, team []agent.Member, lk lookups) (arrival, bool, error) {
+// routing is the cheap part of an event's reading: whether it is for the
+// crew, decided from the payload and the dock's own tables (no call to
+// Slack), so the Events API can be answered at once.
+type routing struct {
+	direct, botMentioned bool
+	// raw is the text without the bot's own mention.
+	raw string
+	// root is the thread root (the message itself when it has none).
+	root string
+}
+
+// route decides whether an event carries a message for the crew: other
+// events, bots' messages (our own bot's included, so a reply never loops),
+// and messages that call neither the app nor an agent of the dock's team
+// outside a thread Seaport answers in are not. DMs are always for the crew.
+func route(env envelope, a App, team []agent.Member, known func(channel, ts string) (bool, error)) (routing, bool, error) {
 	ev := env.Event
 	if env.Type != "event_callback" || ev.Channel == "" || ev.TS == "" || ev.Hidden {
-		return arrival{}, false, nil
+		return routing{}, false, nil
 	}
 	mention := ev.Type == "app_mention"
 	if ev.Type != "message" && !mention {
-		return arrival{}, false, nil
+		return routing{}, false, nil
 	}
 	if !plain(ev.Subtype) || ev.BotID != "" || ev.User == "" || ev.User == a.BotUserID {
-		return arrival{}, false, nil
+		return routing{}, false, nil
 	}
 	if ev.Type == "message" && ev.ChannelType == "" {
-		return arrival{}, false, nil
+		return routing{}, false, nil
 	}
-	direct := ev.ChannelType == "im"
-	raw := ev.Text
-	botMentioned := false
+	rt := routing{direct: ev.ChannelType == "im", raw: ev.Text}
 	if a.BotUserID != "" {
 		own := ownMention(a.BotUserID)
-		if own.MatchString(raw) {
-			botMentioned = true
-			raw = strings.TrimSpace(own.ReplaceAllString(raw, ""))
+		if own.MatchString(rt.raw) {
+			rt.botMentioned = true
+			rt.raw = strings.TrimSpace(own.ReplaceAllString(rt.raw, ""))
 		}
 	}
-	_, agentCalled := agent.Mentioned(team, angle.ReplaceAllString(raw, " "))
-	called := botMentioned || agentCalled
+	_, agentCalled := agent.Mentioned(team, angle.ReplaceAllString(rt.raw, " "))
+	called := rt.botMentioned || agentCalled
 
-	root := ev.ThreadTS
-	if root == "" {
-		root = ev.TS
+	rt.root = ev.ThreadTS
+	if rt.root == "" {
+		rt.root = ev.TS
 	}
 	followUp := false
-	if !direct && !mention && !called && ev.ThreadTS != "" {
-		known, err := lk.known(ev.Channel, ev.ThreadTS)
+	if !rt.direct && !mention && !called && ev.ThreadTS != "" {
+		k, err := known(ev.Channel, ev.ThreadTS)
 		if err != nil {
-			return arrival{}, false, err
+			return routing{}, false, err
 		}
-		followUp = known
+		followUp = k
 	}
-	if !direct && !mention && !called && !followUp {
-		return arrival{}, false, nil
+	if !rt.direct && !mention && !called && !followUp {
+		return routing{}, false, nil
 	}
+	return rt, true, nil
+}
 
+// parse turns an event into an arrival, or ok=false for what carries no
+// message for the crew (see route, and empty texts).
+func parse(env envelope, d identity.DockID, a App, team []agent.Member, lk lookups) (arrival, bool, error) {
+	rt, ok, err := route(env, a, team, lk.known)
+	if err != nil || !ok {
+		return arrival{}, false, err
+	}
+	return build(env, d, rt, lk)
+}
+
+// build reads the message of an event route accepted; it asks Slack for
+// names (lk.dir), so it is slow.
+func build(env envelope, d identity.DockID, rt routing, lk lookups) (arrival, bool, error) {
+	ev := env.Event
+	direct, raw, botMentioned, root := rt.direct, rt.raw, rt.botMentioned, rt.root
 	body := ToMarkdown(raw, func(kind byte, id, label string) string {
 		if kind == 'U' {
 			if label != "" {

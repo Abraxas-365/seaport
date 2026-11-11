@@ -1018,11 +1018,22 @@ function SlackDockCard({ dock, write }: { dock: Dock; write: boolean }) {
             <p className="text-sm text-muted-foreground">Este muelle aún no tiene una Slack App conectada.</p>
           ) : (
             <>
-              {app && sl.install_url && (
-                <Button asChild>
-                  <a href={sl.install_url}>
-                    <Plus /> Instalar la App
-                  </a>
+              {app?.managed && (
+                <Button
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    try {
+                      // The install link is minted on click (it can replace the bot token).
+                      const r = await api.slackInstall(dock.id)
+                      window.location.href = r.install_url
+                    } catch (err) {
+                      toast.error("No se pudo iniciar la instalación", { description: (err as Error).message })
+                      setBusy(false)
+                    }
+                  }}
+                >
+                  {busy ? <Spinner /> : <Plus />} Instalar la App
                 </Button>
               )}
               {!app && (

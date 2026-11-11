@@ -99,7 +99,7 @@ WhatsApp docks have no variables of their own. They use `DATABASE_URL` (the seal
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
-| `SEAPORT_JIRA_HOSTS` | `*.atlassian.net` | Comma-separated allow-list of the Jira sites a dock may name. An entry is an exact host (`jira.example.com`, or `host:port`) or `*.domain` for every subdomain. Seaport sends the account's credentials only to these hosts; a dock naming another one is refused (`400`). |
+| `SEAPORT_JIRA_HOSTS` | `*.atlassian.net` | Comma-separated allow-list of the Jira sites a dock may name. An entry is an exact host (`jira.example.com`) or `*.domain` for every subdomain; both match only the https default port (none written, or `443`). A site on another port needs its own exact `host:port` entry. Seaport sends the account's credentials only to these hosts, checking the list again before each request, so a host removed later gets none (the request fails with `403`); a dock naming another one is refused (`400`). |
 
 ## Outbound limits
 

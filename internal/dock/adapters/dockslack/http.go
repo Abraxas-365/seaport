@@ -55,6 +55,7 @@ func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g,
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/docks/{id}/slack", httpx.RequireFunc(permission.DocksRead, h.info))
 	mux.Handle("POST /api/v1/docks/{id}/slack/create", httpx.RequireFunc(permission.DocksWrite, h.create))
+	mux.Handle("POST /api/v1/docks/{id}/slack/install", httpx.RequireFunc(permission.DocksWrite, h.install))
 	mux.Handle("POST /api/v1/docks/{id}/slack/connect", httpx.RequireFunc(permission.DocksWrite, h.connect))
 }
 
@@ -87,13 +88,15 @@ func (h *Handler) slackDock(r *http.Request) (dock.Dock, error) {
 
 // AppInfo is a Slack dock's App as the admin API shows it (no secret).
 type AppInfo struct {
-	AppID     string    `json:"app_id"`
-	Name      string    `json:"name"`
-	TeamID    string    `json:"team_id"`
-	TeamName  string    `json:"team_name"`
-	TeamURL   string    `json:"team_url"`
-	BotUserID string    `json:"bot_user_id"`
-	Installed bool      `json:"installed"`
+	AppID     string `json:"app_id"`
+	Name      string `json:"name"`
+	TeamID    string `json:"team_id"`
+	TeamName  string `json:"team_name"`
+	TeamURL   string `json:"team_url"`
+	BotUserID string `json:"bot_user_id"`
+	Installed bool   `json:"installed"`
+	// Managed: Seaport created the app (it can start its install).
+	Managed   bool      `json:"managed"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -108,8 +111,6 @@ type Info struct {
 	EventsURL   string `json:"events_url"`
 	RedirectURL string `json:"redirect_url"`
 	Reachable   bool   `json:"reachable"`
-	// InstallURL (re)installs an app Seaport created (a fresh state).
-	InstallURL string `json:"install_url,omitempty"`
 }
 
 func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
@@ -127,10 +128,7 @@ func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	out.App = &AppInfo{AppID: a.AppID, Name: a.Name, TeamID: a.TeamID, TeamName: a.TeamName, TeamURL: a.TeamURL,
-		BotUserID: a.BotUserID, Installed: a.Installed(), CreatedAt: a.CreatedAt}
-	if a.ClientID != "" {
-		out.InstallURL = h.g.installURL(a, d)
-	}
+		BotUserID: a.BotUserID, Installed: a.Installed(), Managed: a.ClientID != "" && a.clientSecret != "", CreatedAt: a.CreatedAt}
 	return httpx.JSON(w, http.StatusOK, out)
 }
 
@@ -190,6 +188,27 @@ func (g *Gateway) manifest(d identity.DockID, name string) json.RawMessage {
 	return raw
 }
 
+// install answers the URL that (re)installs an app Seaport created. Each
+// call seals a fresh state, and finishing the install replaces the bot
+// token: a write, so it is minted here (docks:write), never by info.
+func (h *Handler) install(w http.ResponseWriter, r *http.Request) error {
+	d, err := h.slackDock(r)
+	if err != nil {
+		return err
+	}
+	a, err := h.g.store.App(r.Context(), d.ID)
+	if errx.IsType(err, errx.TypeNotFound) {
+		return errx.Business("this dock has no Slack App yet: create or connect one first")
+	}
+	if err != nil {
+		return err
+	}
+	if a.ClientID == "" || a.clientSecret == "" {
+		return errx.Business("this dock's app was not created by Seaport: paste its tokens instead")
+	}
+	return httpx.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
+}
+
 type createRequest struct {
 	// ConfigToken is the user's app configuration token (xoxe.xoxp-…): used
 	// for this call only, never stored.
@@ -198,7 +217,7 @@ type createRequest struct {
 	Name string `json:"name"`
 }
 
-// Created is where the web sends the browser to install the new app.
+// Created is where the web sends the browser to install the app.
 type Created struct {
 	InstallURL string `json:"install_url"`
 }
@@ -237,6 +256,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	h.g.client.forget(d.ID)
+	// The new app has no bot token yet: a dock that was linked with the
+	// old one is linking again until this one is installed.
+	if links, _, _ := h.g.bound(); links != nil {
+		if err := links.SetStatus(r.Context(), d.ID, dock.StatusLinking); err != nil {
+			return err
+		}
+	}
 	a, err := h.g.store.App(r.Context(), d.ID)
 	if err != nil {
 		return err
@@ -454,34 +480,56 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	dir := directoryOf{g: h.g, dock: a.Dock, token: a.botToken, ctx: r.Context()}
-	at, ok, err := parse(env, a.Dock, a, team, lookups{
-		dir: dir,
-		known: func(channel, ts string) (bool, error) {
-			return h.g.store.KnownThread(r.Context(), a.Dock, channel, ts)
-		},
-		fetch: func(u string) func(ctx context.Context) ([]byte, error) {
-			return func(ctx context.Context) ([]byte, error) { return h.g.client.download(ctx, a.botToken, u) }
-		},
-	})
+	known := func(channel, ts string) (bool, error) {
+		return h.g.store.KnownThread(r.Context(), a.Dock, channel, ts)
+	}
+	rt, ok, err := route(env, a, team, known)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
-	st, created, err := receiver.Receive(r.Context(), a.Organization, at.in)
+	// Slack wants an answer within 3 s and retries otherwise: names, images
+	// and the ship are taken in the background (a retry is a duplicate the
+	// ship's external id drops).
+	go h.forward(a, env, rt, receiver)
+	return httpx.JSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+}
+
+// forwardTimeout bounds the background work of one event.
+const forwardTimeout = 30 * time.Second
+
+// forward reads a routed event (asking Slack for names and images) and
+// hands it to the ship domain, on a context of its own.
+func (h *Handler) forward(a App, env envelope, rt routing, receiver Receiver) {
+	ctx, cancel := context.WithTimeout(context.Background(), forwardTimeout)
+	defer cancel()
+	at, ok, err := build(env, a.Dock, rt, lookups{
+		dir: directoryOf{g: h.g, dock: a.Dock, token: a.botToken, ctx: ctx},
+		fetch: func(u string) func(ctx context.Context) ([]byte, error) {
+			return func(ctx context.Context) ([]byte, error) { return h.g.client.download(ctx, a.botToken, u) }
+		},
+	})
+	if err != nil || !ok {
+		if err != nil {
+			slog.Error("read slack message", "dock", a.Dock, "err", err)
+		}
+		return
+	}
+	st, created, err := receiver.Receive(ctx, a.Organization, at.in)
 	if err != nil {
 		slog.Error("receive slack message", "dock", a.Dock, "chat", at.in.ChatID, "err", err)
-		return err
+		return
 	}
-	if at.thread != "" {
-		if err := h.g.store.RememberThread(r.Context(), a.Organization, a.Dock, at.channel, at.thread); err != nil {
-			return err
+	// A message customs or routing holds is not a conversation Seaport
+	// answers in: its thread is remembered once something is queued.
+	if at.thread != "" && st.Status != ship.StatusHeld {
+		if err := h.g.store.RememberThread(ctx, a.Organization, a.Dock, at.channel, at.thread); err != nil {
+			slog.Error("remember slack thread", "dock", a.Dock, "err", err)
 		}
 	}
 	if created && st.Status == ship.StatusQueued {
 		h.g.seen(a, at)
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"status": "received", "ship_id": st.ID, "created": created})
 }

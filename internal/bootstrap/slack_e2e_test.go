@@ -228,7 +228,7 @@ type slInfo struct {
 	Manifest    json.RawMessage `json:"manifest"`
 	EventsURL   string          `json:"events_url"`
 	RedirectURL string          `json:"redirect_url"`
-	InstallURL  string          `json:"install_url"`
+	InstallURL  string          `json:"install_url"` // never answered by GET
 }
 
 func newSlackPort(t *testing.T, sl *fakeSlack) *port {
@@ -279,6 +279,10 @@ func TestSlackDockLinkedByPastedTokens(t *testing.T) {
 		t.Fatalf("slack info of an api dock: %d", code)
 	}
 
+	// No app yet: nothing to install.
+	if code := p.admin(http.MethodPost, path+"/install", nil, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("install without an app: %d", code)
+	}
 	// The request URL is verified before any secret is known.
 	if code, out := p.slackEvent(d, "anything", time.Now(), false, map[string]string{"type": "url_verification", "challenge": "c-1"}); code != http.StatusOK || out["challenge"] != "c-1" {
 		t.Fatalf("url_verification before connect: %d %v", code, out)
@@ -306,6 +310,10 @@ func TestSlackDockLinkedByPastedTokens(t *testing.T) {
 	}
 	if info.InstallURL != "" {
 		t.Fatalf("a pasted app has no install url: %s", info.InstallURL)
+	}
+	// Seaport can't install an app it didn't create.
+	if code := p.admin(http.MethodPost, path+"/install", nil, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("install of a pasted app: %d", code)
 	}
 	p.admin(http.MethodGet, "/api/v1/docks/"+d.ID.String(), nil, &d)
 	if d.Status != dock.StatusLinked || !strings.Contains(d.Address, "Test Team") || !strings.Contains(d.Address, "example.slack.com") {
@@ -348,8 +356,20 @@ func TestSlackDockCreatedFromManifest(t *testing.T) {
 	var info slInfo
 	p.admin(http.MethodGet, path, nil, &info)
 	p.admin(http.MethodGet, "/api/v1/docks/"+d.ID.String(), nil, &d)
-	if info.App == nil || info.App.Installed || info.App.AppID != "A0TEST" || d.Status != dock.StatusLinking || info.InstallURL == "" {
+	if info.App == nil || info.App.Installed || info.App.AppID != "A0TEST" || d.Status != dock.StatusLinking || info.InstallURL != "" {
 		t.Fatalf("created app: %s %+v", d.Status, info)
+	}
+	// GET never mints an install link; POST .../install does, a fresh state each time.
+	var raw json.RawMessage
+	if p.admin(http.MethodGet, path, nil, &raw); strings.Contains(string(raw), "install_url") || strings.Contains(string(raw), "state=") {
+		t.Fatalf("info answers an install url: %s", raw)
+	}
+	var again struct {
+		InstallURL string `json:"install_url"`
+	}
+	if code := p.admin(http.MethodPost, path+"/install", nil, &again); code != http.StatusOK ||
+		!strings.HasPrefix(again.InstallURL, sl.srv.URL+"/oauth/v2/authorize?") || again.InstallURL == created.InstallURL {
+		t.Fatalf("install: %d %s", code, again.InstallURL)
 	}
 	if raw, _ := json.Marshal(info); strings.Contains(string(raw), slClientSec) || strings.Contains(string(raw), slConfigToken) {
 		t.Fatal("slack info leaks a secret")
@@ -379,8 +399,18 @@ func TestSlackDockCreatedFromManifest(t *testing.T) {
 	p.admin(http.MethodGet, "/api/v1/docks/"+d.ID.String(), nil, &d)
 	p.admin(http.MethodGet, path, nil, &info)
 	if d.Status != dock.StatusLinked || !strings.Contains(d.Address, "Test Team") || info.App == nil || !info.App.Installed ||
-		info.App.BotUserID != "U0BOT" || info.InstallURL == "" {
+		info.App.BotUserID != "U0BOT" {
 		t.Fatalf("installed: %s %q %+v", d.Status, d.Address, info)
+	}
+	// Creating another app over the installed one drops the old token: the
+	// dock is linking again until the new one is installed.
+	if code := p.admin(http.MethodPost, path+"/create", map[string]string{"config_token": slConfigToken}, nil); code != http.StatusOK {
+		t.Fatalf("create again: %d", code)
+	}
+	p.admin(http.MethodGet, "/api/v1/docks/"+d.ID.String(), nil, &d)
+	p.admin(http.MethodGet, path, nil, &info)
+	if d.Status != dock.StatusLinking || info.App == nil || info.App.Installed {
+		t.Fatalf("re-created app: %s %+v", d.Status, info)
 	}
 	// The same events work with the created app's signing secret.
 	if code, out := p.slackEvent(d, slSigning, time.Now(), false, map[string]string{"type": "url_verification", "challenge": "c-2"}); code != http.StatusOK || out["challenge"] != "c-2" {
@@ -433,16 +463,17 @@ func TestSlackDock(t *testing.T) {
 	}
 
 	// A mention: Slack sends app_mention and message.channels for one message.
+	// The answer comes at once; the message is stored in the background.
 	code, out := p.slackEvent(d, slSigning, now, false, mention)
-	if code != http.StatusOK || out["status"] != "received" || out["created"] != true {
+	if code != http.StatusOK || out["status"] != "accepted" {
 		t.Fatalf("mention: %d %v", code, out)
 	}
 	if code, again := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0SUP", "1700000000.000100", "", "<@U0BOT> please review <https://example.com/pr/7|PR 7>", nil)); code != http.StatusOK ||
-		again["created"] != false || again["ship_id"] != out["ship_id"] {
+		again["status"] != "accepted" {
 		t.Fatalf("the same message as a message event: %d %v", code, again)
 	}
 	// A retry is the same ship too.
-	if code, again := p.slackEvent(d, slSigning, now, true, mention); code != http.StatusOK || again["created"] != false || again["ship_id"] != out["ship_id"] {
+	if code, again := p.slackEvent(d, slSigning, now, true, mention); code != http.StatusOK || again["status"] != "accepted" {
 		t.Fatalf("retry: %d %v", code, again)
 	}
 
@@ -463,6 +494,13 @@ func TestSlackDock(t *testing.T) {
 		defer sl.mu.Unlock()
 		return len(sl.reactions) == 1 && sl.reactions[0] == "C0SUP/1700000000.000100:eyes"
 	})
+
+	// The three events (mention, message, retry) made one ship.
+	var hist query.Paginated[ship.Ship]
+	p.admin(http.MethodGet, "/api/v1/conversations/"+convs.Items[0].ID.String()+"/ships", nil, &hist)
+	if hist.Page.Total != 1 {
+		t.Fatalf("one message sent three times made %d ships", hist.Page.Total)
+	}
 
 	// The agent replies: a markdown block in the thread.
 	session := mcpSession(t, p, p.crewToken())
@@ -502,7 +540,7 @@ func TestSlackDock(t *testing.T) {
 
 	// A follow-up in the thread needs no mention; the same channel without
 	// the thread stays ignored.
-	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0SUP", "1700000200.000100", "1700000000.000100", "and the tests?", nil)); code != http.StatusOK || out["status"] != "received" || out["created"] != true {
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0SUP", "1700000200.000100", "1700000000.000100", "and the tests?", nil)); code != http.StatusOK || out["status"] != "accepted" {
 		t.Fatalf("follow-up: %d %v", code, out)
 	}
 	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0SUP", "1700000300.000100", "", "unrelated chatter", nil)); code != http.StatusOK || out["status"] != "ignored" {
@@ -516,7 +554,7 @@ func TestSlackDock(t *testing.T) {
 
 	// A DM is its own direct conversation, addressed without a mention, and
 	// replies go to the DM (no thread).
-	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "D0ANA", "1700000400.000100", "", "hello there", map[string]any{"channel_type": "im"})); code != http.StatusOK || out["status"] != "received" {
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "D0ANA", "1700000400.000100", "", "hello there", map[string]any{"channel_type": "im"})); code != http.StatusOK || out["status"] != "accepted" {
 		t.Fatalf("dm: %d %v", code, out)
 	}
 	f = c.read()
@@ -547,7 +585,7 @@ func TestSlackDock(t *testing.T) {
 	files := map[string]any{"subtype": "file_share", "files": []map[string]string{
 		{"name": "pic.png", "mimetype": "image/png", "url_private": sl.srv.URL + "/files/pic.png"},
 		{"name": "notes.pdf", "mimetype": "application/pdf", "url_private": sl.srv.URL + "/files/notes.pdf"}}}
-	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("app_mention", "C0SUP", "1700000500.000100", "1700000000.000100", "<@U0BOT> see attached", files)); code != http.StatusOK || out["status"] != "received" {
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("app_mention", "C0SUP", "1700000500.000100", "1700000000.000100", "<@U0BOT> see attached", files)); code != http.StatusOK || out["status"] != "accepted" {
 		t.Fatalf("files: %d %v", code, out)
 	}
 	f = c.read()
@@ -591,5 +629,40 @@ func TestSlackDock(t *testing.T) {
 	var info slInfo
 	if p.admin(http.MethodGet, path, nil, &info); info.App != nil {
 		t.Fatalf("app kept after unlink: %+v", info.App)
+	}
+}
+
+// A message customs holds is not a thread Seaport answers in: its
+// follow-ups stay ignored until something is let through.
+func TestSlackHeldMessageDoesNotOpenAThread(t *testing.T) {
+	sl := newFakeSlack(t)
+	p := newSlackPort(t, sl)
+	d := p.slackDock("Support")
+	path := "/api/v1/docks/" + d.ID.String() + "/slack"
+	if code := p.admin(http.MethodPost, path+"/connect", map[string]string{"signing_secret": slSigning, "bot_token": slBotToken}, nil); code != http.StatusOK {
+		t.Fatalf("connect: %d", code)
+	}
+	p.assignAs(adminToken, d.ID, p.agent(testAgent).ID, true)
+	now := time.Now()
+
+	mention := slMessage("app_mention", "C0SUP", "1700000000.000100", "", "<@U0BOT> hello", nil)
+	if code, out := p.slackEvent(d, slSigning, now, false, mention); code != http.StatusOK || out["status"] != "accepted" {
+		t.Fatalf("mention: %d %v", code, out)
+	}
+	var convs query.Paginated[conversation.Conversation]
+	waitFor(t, func() bool {
+		p.admin(http.MethodGet, "/api/v1/conversations?dock_id="+d.ID.String(), nil, &convs)
+		return len(convs.Items) == 1
+	})
+	var hist query.Paginated[ship.Ship]
+	waitFor(t, func() bool {
+		p.admin(http.MethodGet, "/api/v1/conversations/"+convs.Items[0].ID.String()+"/ships", nil, &hist)
+		return len(hist.Items) == 1
+	})
+	if hist.Items[0].Status != ship.StatusHeld {
+		t.Fatalf("customs should hold the message: %s", hist.Items[0].Status)
+	}
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0SUP", "1700000100.000100", "1700000000.000100", "anyone?", nil)); code != http.StatusOK || out["status"] != "ignored" {
+		t.Fatalf("follow-up in a held thread: %d %v", code, out)
 	}
 }

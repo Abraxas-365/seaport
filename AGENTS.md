@@ -724,7 +724,10 @@ test together with the reason. Add a rule when you add a pattern.
   connected two ways. Flow A: `POST /api/v1/docks/{id}/slack/create` trades
   the user's configuration token (used once, never stored) for the app
   (`apps.manifest.create` from `Gateway.manifest`) and answers the OAuth v2
-  install URL, whose sealed state (1 h, kind install; purpose
+  install URL (`GET` never mints one: `POST …/slack/install`, `docks:write`,
+  does, since completing it replaces the bot token; a new `create` over an
+  installed app puts the dock back to linking), whose sealed state (1 h,
+  kind install; purpose
   `slack-flow-state`) binds the redirect `GET /slack/oauth/callback` to the
   dock; the callback runs `oauth.v2.access` (basic auth = client id/secret).
   Flow B: `POST …/slack/connect` takes the signing secret and `xoxb-` token
@@ -736,14 +739,21 @@ test together with the reason. Add a rule when you add a pattern.
   installed. Not exclusive: any process takes events and sends. `POST
   /slack/events/{dock}` answers `url_verification` even before an app is
   known, then checks the v0 HMAC (5 min window) with that dock's signing
-  secret and answers fast: only messages that mention the bot or an agent
+  secret and answers fast (`accepted`/`ignored`, `route`: no call to Slack):
+  only messages that mention the bot or an agent
   of the team (`dockgithub`-style `Teams`, bound late), follow-ups in a
   recorded thread, and DMs (direct, always addressed) are forwarded, never
-  bots' (the app's own included: no loops); thread = conversation
+  bots' (the app's own included: no loops); what is accepted is read
+  (users.info/conversations.info, images: `build`) and received in a
+  background goroutine with its own 30 s context, and its thread is
+  remembered only if customs didn't hold the ship; thread = conversation
   `<channel>/<thread_ts>` (DM: `<channel>`), ship ids `msg-<channel>-<ts>`;
   Slack's retries and the app_mention + message pair of one message are
   one ship by external id. mrkdwn is converted to Markdown, image files
-  are fetched with the bot token within `ship.MaxImage`. `Send` posts a
+  are fetched with the bot token within `ship.MaxImage`, only from Slack's
+  own https hosts (`*.slack.com`) or the configured API host
+  (`client.fileHost`: events are signed with a secret the tenant may know,
+  so their URLs are not trusted); the client follows no redirects off those hosts. `Send` posts a
   `markdown` block (≤ 12 000 characters, longer replies split) with the
   text as fallback; files go through `files.getUploadURLExternal`/
   `completeUploadExternal`; Slack refusals (`ok:false`) are typed errors.

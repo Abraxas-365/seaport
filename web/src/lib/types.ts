@@ -76,6 +76,8 @@ export interface SlackApp {
   bot_user_id: string
   /** false: created, not installed yet (or the token was revoked). */
   installed: boolean
+  /** true: Seaport created the app, so it can start its install. */
+  managed: boolean
   created_at: string
 }
 
@@ -87,8 +89,6 @@ export interface SlackInfo {
   redirect_url: string
   /** false: Slack can't reach this port (plain http or loopback). */
   reachable: boolean
-  /** Install (again) an app Seaport created. */
-  install_url?: string
 }
 
 /** The form the web posts to GitHub to register the App. */

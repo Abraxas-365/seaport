@@ -41,7 +41,33 @@ const cacheFor = time.Hour
 const maxCache = 5000
 
 func newClient(api string) *client {
-	return &client{api: strings.TrimRight(api, "/"), http: &http.Client{Timeout: 30 * time.Second}, cache: map[string]cached{}}
+	return &client{api: strings.TrimRight(api, "/"), cache: map[string]cached{}, http: &http.Client{
+		Timeout: 30 * time.Second,
+		// API calls and uploads never follow a redirect: the answer is the
+		// redirect itself (an error), so a bearer token never leaves for
+		// another host. download follows only to allowed hosts.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}
+}
+
+// fileHost says whether a private file URL may be fetched with the bot
+// token: https on Slack's own hosts (slack.com and its subdomains, e.g.
+// files.slack.com), or the host of the configured API URL (a fake in
+// tests, possibly plain http on loopback). Events are signed with a
+// secret the tenant may know (flow B), so their URLs are not trusted.
+func (c *client) fileHost(u *url.URL) bool {
+	if u == nil || u.User != nil || u.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if api, err := url.Parse(c.api); err == nil && api.Host != "" &&
+		u.Scheme == api.Scheme && strings.EqualFold(u.Host, api.Host) {
+		return true
+	}
+	if u.Scheme != "https" || (u.Port() != "" && u.Port() != "443") {
+		return false
+	}
+	return host == "slack.com" || strings.HasSuffix(host, ".slack.com")
 }
 
 // apiError is Slack's error code ("channel_not_found", "invalid_auth"...).
@@ -276,13 +302,24 @@ type fileUpload struct {
 // download reads a private file with the bot token, at most ship.MaxImage
 // bytes (ship.ErrMediaTooLarge past it, without reading on).
 func (c *client) download(ctx context.Context, token, fileURL string) ([]byte, error) {
+	target, err := url.Parse(fileURL)
+	if err != nil || !c.fileHost(target) {
+		return nil, errx.Business("not a Slack file URL")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return nil, errx.Wrap(err, "slack file request", errx.TypeExternal)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "seaport")
-	res, err := c.http.Do(req)
+	dl := *c.http
+	dl.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 3 || !c.fileHost(next.URL) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	res, err := dl.Do(req)
 	if err != nil {
 		return nil, errx.Wrap(err, "download slack file", errx.TypeExternal)
 	}

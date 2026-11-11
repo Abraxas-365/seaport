@@ -245,18 +245,28 @@ func loopback(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// allowed: host (or host:port) is listed, exactly or as a subdomain of a
-// "*.domain" entry.
+// allowed: the site's host and port are listed. An entry without a port
+// ("jira.example.com") or a "*.domain" wildcard matches the https default
+// port only (none written, or 443); a port is allowed by listing
+// "host:port" exactly.
 func allowed(hosts []string, hostport, host string) bool {
+	port := ""
+	if _, p, err := net.SplitHostPort(hostport); err == nil {
+		port = p
+	}
+	defaultPort := port == "" || port == "443"
 	for _, h := range hosts {
 		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" {
+			continue
+		}
 		if suffix, ok := strings.CutPrefix(h, "*."); ok {
-			if strings.HasSuffix(host, "."+suffix) && len(host) > len(suffix)+1 && !strings.Contains(strings.TrimSuffix(host, "."+suffix), "..") {
+			if defaultPort && strings.HasSuffix(host, "."+suffix) && len(host) > len(suffix)+1 && !strings.Contains(strings.TrimSuffix(host, "."+suffix), "..") {
 				return true
 			}
 			continue
 		}
-		if h != "" && (h == hostport || h == host) {
+		if h == hostport || (defaultPort && h == host) {
 			return true
 		}
 	}

@@ -18,10 +18,15 @@ import (
 // service account's email and API token, three endpoints).
 type client struct {
 	http *http.Client
+	// allow checks a site against the allow-list as it is now; every
+	// request that carries credentials goes through it, so a host the
+	// operator has since removed (or a stored row that never passed) gets
+	// none.
+	allow func(site string) error
 }
 
-func newClient() *client {
-	return &client{http: &http.Client{
+func newClient(allow func(site string) error) *client {
+	return &client{allow: allow, http: &http.Client{
 		Timeout: 30 * time.Second,
 		// Never follow a redirect: the credentials go to the site that was
 		// checked against the allow-list, and to no other.
@@ -49,6 +54,11 @@ const maxAnswer = 1 << 20
 // do calls the site's API and decodes a JSON answer into out (nil:
 // ignored).
 func (c *client) do(ctx context.Context, base, email, token, method, path string, body, out any) error {
+	if c.allow != nil {
+		if err := c.allow(base); err != nil {
+			return err
+		}
+	}
 	var rd io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)

@@ -6,6 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -303,5 +306,77 @@ func TestSplitChat(t *testing.T) {
 		if (want[2] == "ok") != ok || ch != want[0] || ts != want[1] {
 			t.Errorf("splitChat(%q) = %q %q %v", in, ch, ts, ok)
 		}
+	}
+}
+
+func TestFileHosts(t *testing.T) {
+	c := newClient("http://127.0.0.1:4545/api")
+	for raw, want := range map[string]bool{
+		"https://files.slack.com/files-pri/T1-F1/a.png": true,
+		"https://Files.Slack.com/a.png":                 true,
+		"https://acme.slack.com/a.png":                  true,
+		"https://slack.com/a.png":                       true,
+		"https://files.slack.com:443/a.png":             true,
+		"http://files.slack.com/a.png":                  false,
+		"https://files.slack.com:8443/a.png":            false,
+		"https://evilslack.com/a.png":                   false,
+		"https://slack.com.evil.example/a.png":          false,
+		"https://user@files.slack.com/a.png":            false,
+		"https://169.254.169.254/latest":                false,
+		"http://127.0.0.1:9999/a.png":                   false,
+		"https://127.0.0.1:4545/a.png":                  false,
+		"http://127.0.0.1:4545/files/a.png":             true,
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.fileHost(u); got != want {
+			t.Errorf("%s: got %v, want %v", raw, got, want)
+		}
+	}
+}
+
+func TestDownloadNeverSendsTheTokenElsewhere(t *testing.T) {
+	var elsewhereAuth string
+	elsewhereHits := 0
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		elsewhereHits++
+		elsewhereAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("secret"))
+	}))
+	defer elsewhere.Close()
+	var auth string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		switch r.URL.Path {
+		case "/files/a.png":
+			_, _ = w.Write([]byte("png"))
+		case "/api/x", "/files/redirect":
+			http.Redirect(w, r, elsewhere.URL+"/x", http.StatusFound)
+		case "/files/inside":
+			http.Redirect(w, r, "/files/a.png", http.StatusFound)
+		}
+	}))
+	defer api.Close()
+	c := newClient(api.URL + "/api")
+
+	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/a.png"); err != nil || string(data) != "png" || auth != "Bearer xoxb-test" {
+		t.Fatalf("configured host: %q %v (auth %q)", data, err, auth)
+	}
+	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/inside"); err != nil || string(data) != "png" {
+		t.Fatalf("redirect inside the host: %q %v", data, err)
+	}
+	// A URL naming another host is refused before any request.
+	if _, err := c.download(context.Background(), "xoxb-test", elsewhere.URL+"/a.png"); err == nil || elsewhereHits != 0 {
+		t.Fatalf("foreign host: err=%v hits=%d", err, elsewhereHits)
+	}
+	// So is a redirect to one: no request reaches it, no token with it.
+	if _, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/redirect"); err == nil || elsewhereHits != 0 || elsewhereAuth != "" {
+		t.Fatalf("redirect off host: err=%v hits=%d auth=%q", err, elsewhereHits, elsewhereAuth)
+	}
+	// API calls follow no redirect at all.
+	if err := c.call(context.Background(), "x", "xoxb-test", nil, nil); err == nil || elsewhereHits != 0 {
+		t.Fatalf("api redirect: err=%v hits=%d", err, elsewhereHits)
 	}
 }

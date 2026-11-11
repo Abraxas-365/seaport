@@ -123,7 +123,7 @@ No credentials, and nothing about any organization.
 | `POST` | `/github/actions/{dock}` | A message from a GitHub Actions workflow. Bearer: the job's OIDC token, issued for this port (audience = `SEAPORT_PUBLIC_URL`; signature, issuer and expiry checked, else `401`). The token's repository must be served by an active installation of the dock's App, else `403`. Body `{"text":"…","number":12,"agent":"qa","id":"step-1"}`: `number` defaults to the pull request of the workflow's `refs/pull/N/merge` ref, `agent` must be on the dock's team, `id` keeps a retried step from sending twice. `202` `{"status":"queued"\|"held","ship_id","created","conversation_id","chat"}`. See [GitHub](../guides/github.md#trigger-an-agent-from-a-workflow). |
 | `POST` | `/jira/webhook/{dock}` | A Jira webhook or Automation rule for a Jira dock. Proof (else `401`): `X-Hub-Signature: sha256=<hex HMAC-SHA256 of the body>` with the dock's webhook secret, or `Authorization: Bearer <secret>`; body up to 5 MiB. `202` `{"status":"received","ship_id":"…","created":true}` for a message that called the account or an agent, `{"status":"recorded",…}` for a comment of the account itself, `{"status":"ignored"}` for everything else. `404` for a dock with no site. See [Jira](../guides/jira.md). |
 | `GET` | `/slack/oauth/callback` | Slack's redirect after a dock's app install (`code`, `state`; or `error`). Seaport trades the code, keeps the bot token and redirects to the dock's page (`?slack=installed`, or `?slack_error=…`). A bad or expired `state` is `401`. |
-| `POST` | `/slack/events/{dock}` | The app's Events API endpoint, signed with its signing secret (`X-Slack-Signature` v0 HMAC over `X-Slack-Request-Timestamp`, at most 5 minutes old, else `401`; body up to 3 MiB). `url_verification` is answered with its `challenge` even before the dock has an app. Otherwise `200` `{"status":"received","ship_id":"…","created":true}` for a message that called an agent (`created: false` for a retry), `200` `{"status":"ignored"}` for everything else. `404` for a dock with no app. See [Slack](../guides/slack.md). |
+| `POST` | `/slack/events/{dock}` | The app's Events API endpoint, signed with its signing secret (`X-Slack-Signature` v0 HMAC over `X-Slack-Request-Timestamp`, at most 5 minutes old, else `401`; body up to 3 MiB). `url_verification` is answered with its `challenge` even before the dock has an app. Otherwise it answers at once (Slack waits 3 seconds): `200` `{"status":"accepted"}` for a message for the crew, which Seaport then reads (names, images) and stores in the background, so the ship appears moments later (a Slack retry is dropped by the message's external id); `200` `{"status":"ignored"}` for everything else. `404` for a dock with no app. See [Slack](../guides/slack.md). |
 
 Session state:
 
@@ -269,7 +269,8 @@ See [API docks](../guides/api-docks.md).
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/docks/{id}/slack` | `docks:read` | The dock's app, its manifest and URLs (below). `422` for a dock of another channel. |
-| `POST` | `/docks/{id}/slack/create` | `docks:write` | Flow A. Body `{"config_token":"xoxe.xoxp-…","name":"Seaport Support"}` (`name` optional, at most 35 characters). Creates the app from the manifest with Slack's `apps.manifest.create` (the token is used once and not kept) and answers `{"install_url":"…"}`: Slack's OAuth page, with a signed state valid for 1 hour, whose redirect lands on `/slack/oauth/callback`. `422` when Slack refuses the token. |
+| `POST` | `/docks/{id}/slack/create` | `docks:write` | Flow A. Body `{"config_token":"xoxe.xoxp-…","name":"Seaport Support"}` (`name` optional, at most 35 characters). Creates the app from the manifest with Slack's `apps.manifest.create` (the token is used once and not kept) and answers `{"install_url":"…"}`: Slack's OAuth page, with a signed state valid for 1 hour, whose redirect lands on `/slack/oauth/callback`. Creating an app on a dock that had one replaces it and puts the dock back to `linking` until the new app is installed. `422` when Slack refuses the token. |
+| `POST` | `/docks/{id}/slack/install` | `docks:write` | Answers `{"install_url":"…"}` for an app Seaport created (flow A) that is not installed yet, or to install it again: a fresh signed state valid for 1 hour. It is a separate call because finishing the install replaces the bot token. `422` when the dock has no app or the app was not created by Seaport. |
 | `POST` | `/docks/{id}/slack/connect` | `docks:write` | Flow B. Body `{"signing_secret":"…","bot_token":"xoxb-…"}`. Checks the token with `auth.test`, keeps both sealed, links the dock and answers like `GET`. `422` for a token Slack refuses. |
 
 ```json
@@ -282,17 +283,17 @@ See [API docks](../guides/api-docks.md).
     "team_url": "https://acme.slack.com/",
     "bot_user_id": "U0123ABCD",
     "installed": true,
+    "managed": true,
     "created_at": "2025-01-15T10:30:00Z"
   },
   "manifest": { "display_information": { "name": "Seaport Support" } },
   "events_url": "https://port.example.com/slack/events/<dock-id>",
   "redirect_url": "https://port.example.com/slack/oauth/callback",
-  "reachable": true,
-  "install_url": "https://slack.com/oauth/v2/authorize?client_id=…&state=…"
+  "reachable": true
 }
 ```
 
-`app` is `null` until an app is connected; `installed` is `false` for an app created but not yet installed. `manifest` is the full app manifest (abridged above) for flow B. `install_url` appears only for apps Seaport created. `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback. No token or secret is ever answered. See [Slack](../guides/slack.md).
+`app` is `null` until an app is connected; `installed` is `false` for an app created but not yet installed. `manifest` is the full app manifest (abridged above) for flow B. `managed` is `true` for an app Seaport created (flow A), the only kind it can install (`POST …/slack/install`). `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback. No token or secret is ever answered. See [Slack](../guides/slack.md).
 
 ### Conversations
 

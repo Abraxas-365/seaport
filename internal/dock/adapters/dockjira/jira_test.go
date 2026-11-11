@@ -1,15 +1,19 @@
 package dockjira
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
@@ -236,9 +240,58 @@ func TestSiteAllowList(t *testing.T) {
 			t.Errorf("%q → %q, %v (want %q)", site, got, err, want)
 		}
 	}
+	// A wildcard or a bare host means the https default port; another port
+	// needs its own host:port entry.
+	ports := &Gateway{cfg: Config{Hosts: []string{"*.atlassian.net", "jira.corp.example", "other.corp.example:8443"}}}
+	for site, want := range map[string]string{
+		"https://x.atlassian.net:443":      "https://x.atlassian.net:443",
+		"https://x.atlassian.net:8080":     "",
+		"https://jira.corp.example:8080":   "",
+		"https://jira.corp.example:443":    "https://jira.corp.example:443",
+		"https://other.corp.example:8443":  "https://other.corp.example:8443",
+		"https://other.corp.example":       "",
+		"https://other.corp.example:9443":  "",
+		"https://x.atlassian.net.evil:443": "",
+	} {
+		got, err := ports.checkSite(site)
+		if (err == nil) != (want != "") || got != want {
+			t.Errorf("%q → %q, %v (want %q)", site, got, err, want)
+		}
+	}
 	local := &Gateway{cfg: Config{Hosts: []string{"127.0.0.1:4000"}}}
 	if got, err := local.checkSite("http://127.0.0.1:4000"); err != nil || got != "http://127.0.0.1:4000" {
 		t.Errorf("loopback: %q %v", got, err)
+	}
+}
+
+func TestStoredSiteIsCheckedBeforeCredentialsGo(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(`{"accountId":"5b10bot"}`))
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	g := &Gateway{cfg: Config{Hosts: []string{host}}}
+	g.client = newClient(g.stillAllowed)
+	if _, _, err := g.client.myself(context.Background(), srv.URL, "bot@example.com", "tok"); err != nil || hits != 1 {
+		t.Fatalf("allowed site: %v (hits %d)", err, hits)
+	}
+	// The operator removes the host: nothing is sent, the error says why.
+	g.cfg.Hosts = []string{"*.atlassian.net"}
+	s := Site{URL: srv.URL, Email: "bot@example.com", token: "tok"}
+	for name, call := range map[string]func() error{
+		"myself":  func() error { _, _, err := g.client.myself(context.Background(), s.URL, s.Email, s.token); return err },
+		"comment": func() error { _, err := g.client.comment(context.Background(), s, "PROJ-1", doc{}, "m1"); return err },
+		"stamp":   func() error { _, err := g.client.stamp(context.Background(), s, "10"); return err },
+	} {
+		err := call()
+		if !errx.IsType(err, errx.TypeAuthorization) {
+			t.Errorf("%s: %v, want forbidden", name, err)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("credentials sent to a removed host: %d requests", hits)
 	}
 }
 

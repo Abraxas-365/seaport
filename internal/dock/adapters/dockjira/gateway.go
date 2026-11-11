@@ -44,7 +44,9 @@ type Config struct {
 	// PublicURL is this port as Jira reaches it (the webhook URL).
 	PublicURL string
 	// Hosts is the allow-list of site hosts (SEAPORT_JIRA_HOSTS): exact
-	// names, or "*.domain" for the sites under one. Empty: *.atlassian.net.
+	// names, or "*.domain" for the sites under one; both mean the https
+	// default port, another port is listed as "host:port". Empty:
+	// *.atlassian.net.
 	Hosts []string
 }
 
@@ -75,7 +77,18 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string, cfg Config) (*Gate
 	if len(cfg.Hosts) == 0 {
 		cfg.Hosts = DefaultHosts
 	}
-	return &Gateway{store: store, client: newClient(), cfg: cfg}, nil
+	g := &Gateway{store: store, cfg: cfg}
+	g.client = newClient(g.stillAllowed)
+	return g, nil
+}
+
+// stillAllowed re-checks a stored site against the current allow-list
+// before credentials are sent to it.
+func (g *Gateway) stillAllowed(site string) error {
+	if _, err := g.checkSite(site); err != nil {
+		return errx.Forbidden("the Jira site " + site + " is no longer allowed on this port (SEAPORT_JIRA_HOSTS): no credentials were sent")
+	}
+	return nil
 }
 
 // Bind sets the domain callbacks (built after the gateway).
