@@ -36,6 +36,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
   seaport dock add api [-name N]        a dock fed through the HTTP API
   seaport dock add github [-name N]     a GitHub App (created and installed from the web)
+  seaport dock add slack [-name N]      a Slack App (created or pasted in the web)
   seaport dock list
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>

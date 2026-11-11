@@ -512,6 +512,9 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	if c.Channel == dock.ChannelJira {
 		b.WriteString(jiraHint(c.ExternalID))
 	}
+	if c.Channel == dock.ChannelSlack {
+		b.WriteString(slackHint(c.ExternalID, title))
+	}
 	if autoReply {
 		b.WriteString("Your final answer will be sent to this conversation as a message. " +
 			"Keep it short and conversational.")

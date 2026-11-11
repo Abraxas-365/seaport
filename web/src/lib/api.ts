@@ -8,6 +8,7 @@ import type {
   GitHubInfo,
   GitHubManifest,
   JiraInfo,
+  SlackInfo,
   CrewStatus,
   CrewToken,
   Customs,
@@ -174,6 +175,11 @@ export const api = {
   linkJira: (id: string, body: { site: string; email: string; api_token: string }) =>
     request<JiraInfo>("PUT", `${v1}/docks/${id}/jira`, body),
   rotateJiraSecret: (id: string) => request<JiraInfo>("POST", `${v1}/docks/${id}/jira/secret`),
+  slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
+  slackCreate: (id: string, body: { config_token: string; name?: string }) =>
+    request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/create`, body),
+  slackConnect: (id: string, body: { signing_secret: string; bot_token: string }) =>
+    request<SlackInfo>("POST", `${v1}/docks/${id}/slack/connect`, body),
 
   inbox: (f: { status?: CustomsStatus; dock_id?: string; limit?: number; offset?: number }) =>
     request<Paginated<InboxItem>>("GET", `${v1}/inbox${qs(f)}`),

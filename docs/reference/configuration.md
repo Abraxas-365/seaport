@@ -90,6 +90,8 @@ WhatsApp docks have no variables of their own. They use `DATABASE_URL` (the seal
 | `SEAPORT_GITHUB_URL` | `https://github.com` | GitHub's web address, where the App is created and installed. Set it for GitHub Enterprise Server (`https://github.example.com`). The web app's form policy (CSP `form-action`) allows it. |
 | `SEAPORT_GITHUB_API_URL` | `https://api.github.com` | GitHub's REST API (`https://github.example.com/api/v3` on Enterprise Server). |
 | `SEAPORT_GITHUB_OIDC_URL` | `https://token.actions.githubusercontent.com` | The issuer of GitHub Actions' OIDC tokens, which [workflows](../guides/github.md#trigger-an-agent-from-a-workflow) send (`https://github.example.com/_services/token` on Enterprise Server). Seaport reads its keys from `/.well-known/openid-configuration`. |
+| `SEAPORT_SLACK_URL` | `https://slack.com` | Slack's web address, where the app's OAuth install page lives (`<url>/oauth/v2/authorize`). Rarely changed (tests point it at a fake). |
+| `SEAPORT_SLACK_API_URL` | `https://slack.com/api` | Slack's Web API. |
 
 ## Jira
 

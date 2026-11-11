@@ -23,10 +23,17 @@ const (
 	// ChannelJira is a Jira Cloud site (a service account): issue comments
 	// that mention the account or an agent arrive; replies are comments.
 	ChannelJira Channel = "jira"
+	// ChannelSlack is a Slack App: mentions, DMs and thread follow-ups
+	// arrive; replies are messages in the thread.
+	ChannelSlack Channel = "slack"
 )
 
 func (c Channel) Valid() bool {
-	return c == ChannelWhatsApp || c == ChannelAPI || c == ChannelGitHub || c == ChannelJira
+	switch c {
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack:
+		return true
+	}
+	return false
 }
 
 // Status is the link state of a dock.
@@ -75,7 +82,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp, api, github or jira")
+		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira or slack")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

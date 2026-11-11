@@ -134,6 +134,10 @@ type Server struct {
 	// (SEAPORT_JIRA_HOSTS, comma separated, "*.domain" for every
 	// subdomain; default *.atlassian.net).
 	JiraHosts []string
+	// Slack docks: SEAPORT_SLACK_URL (default https://slack.com, where the
+	// app is installed) and SEAPORT_SLACK_API_URL (default
+	// https://slack.com/api).
+	SlackURL, SlackAPIURL string
 	// Egress proxy of hosted slots: SEAPORT_EGRESS_ADDR is its listen
 	// address ("": off, slots get no proxy and the runtime network alone
 	// decides what they reach); slots reach it at SEAPORT_EGRESS_URL
@@ -200,6 +204,8 @@ func LoadServer() (Server, error) {
 		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
 		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
 		JiraHosts:           splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
+		SlackURL:            strings.TrimRight(env("SEAPORT_SLACK_URL", "https://slack.com"), "/"),
+		SlackAPIURL:         strings.TrimRight(env("SEAPORT_SLACK_API_URL", "https://slack.com/api"), "/"),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
 		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
 		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
@@ -293,7 +299,8 @@ func (c Server) Validate() error {
 			return errx.Validation("SEAPORT_GATEWAY_ANTHROPIC_URL must be an http(s) URL")
 		}
 	}
-	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}, {"SEAPORT_GITHUB_OIDC_URL", c.GitHubOIDCURL}} {
+	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}, {"SEAPORT_GITHUB_OIDC_URL", c.GitHubOIDCURL},
+		{"SEAPORT_SLACK_URL", c.SlackURL}, {"SEAPORT_SLACK_API_URL", c.SlackAPIURL}} {
 		if u.value == "" {
 			continue
 		}

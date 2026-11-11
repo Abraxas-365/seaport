@@ -19,6 +19,7 @@ export const sidebar = [
       page('guides/whatsapp'),
       page('guides/github'),
       page('guides/jira'),
+      page('guides/slack'),
       page('guides/api-docks'),
       page('guides/customs'),
       page('guides/messages-and-images'),

@@ -27,6 +27,7 @@ import {
   GitHubMark,
   JiraMark,
   PageHeader,
+  SlackMark,
   type ChoiceOption,
 } from "@/components/seaport"
 import { MessageCircle, Webhook } from "lucide-react"
@@ -60,14 +61,28 @@ const channelOptions: ChoiceOption<Channel>[] = [
     tone: "info",
     description: "Una cuenta de servicio de Jira Cloud: menciona a tus agentes en los comentarios de un issue.",
   },
+  {
+    value: "slack",
+    label: "Slack",
+    icon: SlackMark,
+    tone: "neutral",
+    description: "Una Slack App: menciona a tus agentes en un canal o escríbeles por mensaje directo.",
+  },
 ]
 
-const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub", jira: "Jira" }
+const defaultName: Record<Channel, string> = {
+  whatsapp: "WhatsApp",
+  api: "API",
+  github: "GitHub",
+  jira: "Jira",
+  slack: "Slack",
+}
 const namePlaceholder: Record<Channel, string> = {
   whatsapp: "Mi WhatsApp",
   api: "Formulario web",
   github: "QA de pull requests",
   jira: "Soporte en Jira",
+  slack: "Soporte en Slack",
 }
 
 export function DocksPage() {

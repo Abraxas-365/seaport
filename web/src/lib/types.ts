@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api" | "github" | "jira"
+export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -64,6 +64,31 @@ export interface JiraInfo {
   secret?: string
   /** Sites a dock may name (SEAPORT_JIRA_HOSTS). */
   hosts: string[]
+}
+
+/** A Slack dock's App (GET /docks/{id}/slack; no secret). */
+export interface SlackApp {
+  app_id: string
+  name: string
+  team_id: string
+  team_name: string
+  team_url: string
+  bot_user_id: string
+  /** false: created, not installed yet (or the token was revoked). */
+  installed: boolean
+  created_at: string
+}
+
+export interface SlackInfo {
+  app: SlackApp | null
+  /** The app manifest (JSON) to create the app by hand. */
+  manifest: unknown
+  events_url: string
+  redirect_url: string
+  /** false: Slack can't reach this port (plain http or loopback). */
+  reachable: boolean
+  /** Install (again) an app Seaport created. */
+  install_url?: string
 }
 
 /** The form the web posts to GitHub to register the App. */

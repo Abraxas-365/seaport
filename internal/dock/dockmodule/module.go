@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockhttp"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockpg"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/dock/docksvc"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -44,6 +45,8 @@ type Deps struct {
 	GitHub dockgithub.Config
 	// Jira configures Jira docks (on with a secret key, like GitHub's).
 	Jira dockjira.Config
+	// Slack configures Slack docks (on with a secret key, like GitHub).
+	Slack dockslack.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -59,6 +62,8 @@ type Module struct {
 	ghHTTP   *dockgithub.Handler
 	jira     *dockjira.Gateway
 	jiraHTTP *dockjira.Handler
+	sl       *dockslack.Gateway
+	slHTTP   *dockslack.Handler
 	extra    []dock.Gateway
 }
 
@@ -81,19 +86,23 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		gateways = append(gateways, gh)
 	}
 	var jira *dockjira.Gateway
+	var sl *dockslack.Gateway
 	if d.SecretKey != "" {
 		var err error
 		if jira, err = dockjira.Open(ctx, d.DB, d.SecretKey, d.Jira); err != nil {
 			return nil, err
 		}
-		gateways = append(gateways, jira)
+		if sl, err = dockslack.Open(ctx, d.DB, d.SecretKey, d.Slack); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, jira, sl)
 	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, jira: jira, extra: d.Gateways}
+	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, jira: jira, sl: sl, extra: d.Gateways}
 	if jira != nil {
 		jira.Bind(svc, nil, nil)
 		m.jiraHTTP = dockjira.NewHandler(jira, svc)
@@ -101,6 +110,10 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	if gh != nil {
 		gh.Bind(svc, nil, nil)
 		m.ghHTTP = dockgithub.NewHandler(gh, svc)
+	}
+	if sl != nil {
+		sl.Bind(svc, nil, nil)
+		m.slHTTP = dockslack.NewHandler(sl, svc)
 	}
 	return m, nil
 }
@@ -115,6 +128,9 @@ func (m *Module) BindReceiver(r Receiver) {
 	}
 	if m.jira != nil {
 		m.jira.Bind(nil, r, nil)
+	}
+	if m.sl != nil {
+		m.sl.Bind(nil, r, nil)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
@@ -132,6 +148,9 @@ func (m *Module) BindTeams(t dockgithub.Teams) {
 	if m.jira != nil {
 		m.jira.Bind(nil, nil, t)
 	}
+	if m.sl != nil {
+		m.sl.Bind(nil, nil, t)
+	}
 }
 
 func (m *Module) Register(mux *http.ServeMux) {
@@ -141,6 +160,9 @@ func (m *Module) Register(mux *http.ServeMux) {
 	}
 	if m.jiraHTTP != nil {
 		m.jiraHTTP.Register(mux)
+	}
+	if m.slHTTP != nil {
+		m.slHTTP.Register(mux)
 	}
 }
 
@@ -152,6 +174,9 @@ func (m *Module) RegisterPublic(mux *http.ServeMux) {
 	}
 	if m.jiraHTTP != nil {
 		m.jiraHTTP.RegisterPublic(mux)
+	}
+	if m.slHTTP != nil {
+		m.slHTTP.RegisterPublic(mux)
 	}
 }
 

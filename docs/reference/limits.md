@@ -87,6 +87,9 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Age of held messages that get released | 24 h | `ship.ReleaseWindow` | No |
 | Rules per dock | 1000 | `conversation.MaxRules` | No |
 | Rule pattern | 256 characters | `conversation.MaxPattern` | No |
+| Slack: markdown per message | 12000 characters (longer replies are split) | `dockslack.MaxMarkdown` | No |
+| Slack: age of a signed event | 5 min | `dockslack.SignatureWindow` | No |
+| Slack: event body | 3 MiB | `dockslack.MaxEvent` | No |
 
 Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are replaced by a note in the text.
 

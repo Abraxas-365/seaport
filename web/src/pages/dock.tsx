@@ -35,6 +35,7 @@ import {
   useDockTeam,
   useGitHub,
   useJira,
+  useSlack,
   useInbox,
   useUnassignAgent,
 } from "@/lib/hooks"
@@ -67,6 +68,7 @@ import {
   ErrorState,
   GitHubMark,
   JiraMark,
+  SlackMark,
   Mono,
   PairingPanel,
   StatusBadge,
@@ -180,6 +182,27 @@ function DockDetail({ dock }: { dock: Dock }) {
                     onConfirm={() => actions.unlink.mutateAsync(dock.id)}
                   />
                 )}
+                {dock.channel === "slack" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Desconectar la Slack App
+                      </DropdownMenuItem>
+                    }
+                    title="¿Desconectar la Slack App?"
+                    description={
+                      <>
+                        <p>Seaport desinstala la App del espacio de trabajo (si la creó él) y olvida sus credenciales.</p>
+                        <p>
+                          Si la creaste a mano, bórrala en api.slack.com. Las conversaciones se conservan; puedes
+                          conectar otra App desde este muelle.
+                        </p>
+                      </>
+                    }
+                    actionLabel="Desconectar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
                 {wa && dock.status === "linked" && (
                   <ConfirmAction
                     trigger={
@@ -258,6 +281,7 @@ function DockDetail({ dock }: { dock: Dock }) {
         {dock.channel === "github" && <GitHubDockCard dock={dock} write={write} />}
 
         {dock.channel === "jira" && <JiraDockCard dock={dock} write={write} />}
+        {dock.channel === "slack" && <SlackDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
 
@@ -485,7 +509,9 @@ function DockConversations({ dock }: { dock: Dock }) {
                   ? "Menciona a un agente del equipo en un issue o pull request de un repositorio con la App instalada."
                   : dock.channel === "jira"
                     ? "Menciona a un agente del equipo (o a la cuenta de servicio) en un comentario de un issue de Jira."
-                    : "Envía un mensaje de prueba con el formulario de arriba."
+                    : dock.channel === "slack"
+                      ? "Invita a la App a un canal y menciónala (@app o @agente), o escríbele por mensaje directo."
+                      : "Envía un mensaje de prueba con el formulario de arriba."
             }
           />
         ) : (
@@ -933,6 +959,240 @@ function JiraDockCard({ dock, write }: { dock: Dock; write: boolean }) {
           </div>
         )}
         {!linked && !write && <p className="text-sm text-muted-foreground">Este muelle aún no está conectado a Jira.</p>}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SlackDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useSlack(dock.id)
+  const [params, setParams] = useSearchParams()
+  const [mode, setMode] = React.useState<"auto" | "manual">("auto")
+  const [configToken, setConfigToken] = React.useState("")
+  const [name, setName] = React.useState(`Seaport ${dock.name}`)
+  const [signing, setSigning] = React.useState("")
+  const [botToken, setBotToken] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
+  const qc = useQueryClient()
+
+  // Slack's OAuth redirect comes back here with the outcome.
+  React.useEffect(() => {
+    const ok = params.get("slack")
+    const problem = params.get("slack_error")
+    if (!ok && !problem) return
+    if (problem) toast.error("Slack no completó el paso", { description: problem })
+    else toast.success("Slack App instalada", { description: "Invítala a un canal y menciónala." })
+    setParams({}, { replace: true })
+  }, [params, setParams])
+
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const sl = info.data
+  const app = sl.app
+
+  const unreachable = !sl.reachable && (
+    <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+      Slack no puede llegar a esta dirección (<Mono>{sl.events_url}</Mono>): necesita HTTPS público. Configura{" "}
+      <code>SEAPORT_PUBLIC_URL</code> o usa un túnel antes de conectar la App.
+    </p>
+  )
+
+  const copy = (text: string) => navigator.clipboard.writeText(text).then(() => toast.success("Copiado"))
+
+  if (!app || !app.installed)
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SlackMark className="size-4" /> Conectar con Slack
+          </CardTitle>
+          <CardDescription>
+            {app
+              ? `La App ${app.name} está creada pero no instalada en el espacio de trabajo.`
+              : "Seaport usa una Slack App propia de este muelle. Créala con un token de configuración, o hazla tú con el manifiesto y pega sus credenciales."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {unreachable}
+          {!write ? (
+            <p className="text-sm text-muted-foreground">Este muelle aún no tiene una Slack App conectada.</p>
+          ) : (
+            <>
+              {app && sl.install_url && (
+                <Button asChild>
+                  <a href={sl.install_url}>
+                    <Plus /> Instalar la App
+                  </a>
+                </Button>
+              )}
+              {!app && (
+                <>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant={mode === "auto" ? "default" : "outline"} onClick={() => setMode("auto")}>
+                      Crear automáticamente
+                    </Button>
+                    <Button size="sm" variant={mode === "manual" ? "default" : "outline"} onClick={() => setMode("manual")}>
+                      Ya tengo la App
+                    </Button>
+                  </div>
+                  {mode === "auto" ? (
+                    <form
+                      className="space-y-4"
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        setBusy(true)
+                        try {
+                          const r = await api.slackCreate(dock.id, {
+                            config_token: configToken.trim(),
+                            name: name.trim() || undefined,
+                          })
+                          window.location.href = r.install_url
+                        } catch (err) {
+                          toast.error("No se pudo crear la App", { description: (err as Error).message })
+                          setBusy(false)
+                        }
+                      }}
+                    >
+                      <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel htmlFor="sl-config">Token de configuración</FieldLabel>
+                          <Input
+                            id="sl-config"
+                            type="password"
+                            autoComplete="off"
+                            value={configToken}
+                            onChange={(e) => setConfigToken(e.target.value)}
+                            placeholder="xoxe.xoxp-…"
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel htmlFor="sl-name">Nombre de la App</FieldLabel>
+                          <Input id="sl-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={35} />
+                        </Field>
+                      </FieldGroup>
+                      <p className="text-xs text-muted-foreground">
+                        Genéralo en api.slack.com/apps (“Your App Configuration Tokens”). Seaport lo usa una vez y no lo
+                        guarda.
+                      </p>
+                      <Button type="submit" disabled={busy || !configToken.trim()}>
+                        {busy ? <Spinner /> : <SlackMark className="size-4" />} Crear e instalar
+                      </Button>
+                    </form>
+                  ) : (
+                    <form
+                      className="space-y-4"
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        setBusy(true)
+                        try {
+                          await api.slackConnect(dock.id, { signing_secret: signing.trim(), bot_token: botToken.trim() })
+                          setSigning("")
+                          setBotToken("")
+                          await qc.invalidateQueries({ queryKey: keys.slack(dock.id) })
+                          await qc.invalidateQueries({ queryKey: keys.dock(dock.id), exact: true })
+                          toast.success("Slack App conectada")
+                        } catch (err) {
+                          toast.error("No se pudo conectar la App", { description: (err as Error).message })
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                    >
+                      <ol className="list-decimal space-y-1 pl-5 text-sm">
+                        <li>
+                          En api.slack.com/apps elige “Create New App” → “From a manifest” y pega este manifiesto.
+                        </li>
+                        <li>Instala la App en tu espacio de trabajo.</li>
+                        <li>Pega aquí el “Signing Secret” y el “Bot User OAuth Token” (<code>xoxb-…</code>).</li>
+                      </ol>
+                      <div className="relative">
+                        <pre className="scrollbar-thin max-h-48 overflow-auto rounded-lg bg-muted p-3 pr-12 font-mono text-xs leading-relaxed">
+                          {JSON.stringify(sl.manifest, null, 2)}
+                        </pre>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute top-2 right-2"
+                          aria-label="Copiar el manifiesto"
+                          onClick={() => copy(JSON.stringify(sl.manifest, null, 2))}
+                        >
+                          <Copy />
+                        </Button>
+                      </div>
+                      <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel htmlFor="sl-signing">Signing Secret</FieldLabel>
+                          <Input
+                            id="sl-signing"
+                            type="password"
+                            autoComplete="off"
+                            value={signing}
+                            onChange={(e) => setSigning(e.target.value)}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel htmlFor="sl-bot">Bot token</FieldLabel>
+                          <Input
+                            id="sl-bot"
+                            type="password"
+                            autoComplete="off"
+                            value={botToken}
+                            onChange={(e) => setBotToken(e.target.value)}
+                            placeholder="xoxb-…"
+                          />
+                        </Field>
+                      </FieldGroup>
+                      <Button type="submit" disabled={busy || !signing.trim() || !botToken.trim()}>
+                        {busy ? <Spinner /> : <SlackMark className="size-4" />} Conectar
+                      </Button>
+                    </form>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <SlackMark className="size-4" /> {app.name || "Slack"}
+        </CardTitle>
+        <CardDescription>
+          Invita a la App a un canal y menciónala (@{app.name || "app"}) o a un agente del equipo (@nombre); también
+          responde a mensajes directos. Las respuestas van al hilo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {unreachable}
+        <DataList>
+          <DataItem label="Espacio de trabajo">
+            {app.team_url ? (
+              <a href={app.team_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline-offset-4 hover:underline">
+                {app.team_name} <ExternalLink className="size-3" />
+              </a>
+            ) : (
+              app.team_name
+            )}
+          </DataItem>
+          <DataItem label="App">
+            <Mono>{app.app_id || "—"}</Mono>
+          </DataItem>
+          <DataItem label="Bot">
+            <Mono>{app.bot_user_id}</Mono>
+          </DataItem>
+          <DataItem label="Eventos">
+            <Mono title={sl.events_url}>{sl.events_url}</Mono>
+          </DataItem>
+        </DataList>
+        <p className="text-xs text-muted-foreground">
+          Consejo: en Aduana, permite el muelle por defecto; los canales solo despiertan a un agente cuando lo mencionan
+          o escriben en un hilo donde ya participa.
+        </p>
       </CardContent>
     </Card>
   )

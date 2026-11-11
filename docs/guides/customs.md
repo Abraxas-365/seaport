@@ -29,6 +29,7 @@ A rule allows or denies chats and senders whose **handles** match a pattern. Han
 | :--- | :--- |
 | WhatsApp | phone numbers as `+<digits>` (`+34600000001`), user ids (`…@s.whatsapp.net`, `…@lid`), groups (`…@g.us`) |
 | `api` dock | `chat_handles` and `sender_handles` you post, else `chat_id` and `sender_id` |
+| Slack | threads the channel id (`C0123ABCD`) and `#name`; authors the user id (`U0123ABCD`) and email ([Slack](slack.md#let-the-right-people-in)) |
 | GitHub | threads `owner/repo#12`, `owner/repo`, `owner`; authors `@login`, `github:member` or `github:outsider`, `association:<value>` ([GitHub](github.md#let-the-right-people-in)) |
 | Jira | threads `PROJ-123` and `PROJ`; authors by Atlassian account id or email ([Jira](jira.md#what-agents-see)) |
 

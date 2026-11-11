@@ -27,6 +27,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -218,7 +219,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
 		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways,
 		GitHub: dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL},
-		Jira:   dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts}})
+		Jira:   dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
+		Slack:  dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL}})
 	if err != nil {
 		bus.Close()
 		closeDBs()
@@ -354,8 +356,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).
 	root.Handle(hosting.GatewayPath+"/", hostingmodule.APIKeyAsBearer(auth.Crew(hosted.Gateway())))
-	// GitHub docks: the App flows' redirects and the webhooks (each checks
-	// its own proof: a sealed state, the App's webhook signature).
+	// GitHub and Slack docks: the App flows' redirects and the webhooks/events
+	// (each checks its own proof: a sealed state, the App's signature).
 	docks.RegisterPublic(root)
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".

@@ -38,6 +38,7 @@ export const channelLabel: Record<Channel, string> = {
   api: "API",
   github: "GitHub",
   jira: "Jira",
+  slack: "Slack",
 }
 
 /** GitHub's mark (lucide has no brand icons). */
@@ -58,6 +59,15 @@ export function JiraMark({ className, ...props }: React.ComponentProps<"svg">) {
   )
 }
 
+/** Slack's hash, simplified (lucide has no brand icons). */
+export function SlackMark({ className, ...props }: React.ComponentProps<"svg">) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden className={className} {...props}>
+      <path d="M6 2 4.8 14M11.2 2 10 14M2.5 5.8h11M2 10.2h11" />
+    </svg>
+  )
+}
+
 /** Channel glyph on a channel-colored tile. */
 export function ChannelIcon({
   channel,
@@ -68,7 +78,16 @@ export function ChannelIcon({
   size?: "sm" | "md" | "lg"
   className?: string
 }) {
-  const Icon = channel === "whatsapp" ? MessageCircle : channel === "github" ? GitHubMark : channel === "jira" ? JiraMark : Webhook
+  const Icon =
+    channel === "whatsapp"
+      ? MessageCircle
+      : channel === "github"
+        ? GitHubMark
+        : channel === "jira"
+          ? JiraMark
+          : channel === "slack"
+            ? SlackMark
+            : Webhook
   return (
     <span
       className={cn(
@@ -79,7 +98,9 @@ export function ChannelIcon({
             ? "bg-foreground text-background"
             : channel === "jira"
               ? "bg-[oklch(0.94_0.04_255)] text-[oklch(0.45_0.17_255)] dark:bg-[oklch(0.3_0.07_255)] dark:text-[oklch(0.82_0.1_255)]"
-              : "bg-secondary text-secondary-foreground",
+              : channel === "slack"
+                ? "bg-[oklch(0.35_0.1_330)] text-white dark:bg-[oklch(0.4_0.1_330)]"
+                : "bg-secondary text-secondary-foreground",
         size === "sm" && "size-6 [&_svg]:size-3.5",
         size === "md" && "size-8 [&_svg]:size-4",
         size === "lg" && "size-11 rounded-xl [&_svg]:size-5",

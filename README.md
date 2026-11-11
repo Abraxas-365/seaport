@@ -41,7 +41,7 @@ WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ s
 <tr>
 <td width="50%" valign="top">
 <h3>01 · Docks</h3>
-<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
+<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, a Slack app in your workspace, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
 </td>
 <td width="50%" valign="top">
 <h3>02 · Customs</h3>
@@ -261,7 +261,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | Path | Responsibility |
 | :--- | :--- |
 | `cmd/seaport` | One binary: `serve`, the admin CLI, `connect` |
-| `internal/dock` | Channels: WhatsApp (whatsmeow), GitHub Apps, Jira service accounts and `api` docks, ownership across processes |
+| `internal/dock` | Channels: WhatsApp (whatsmeow), GitHub Apps, Jira service accounts, Slack apps and `api` docks, ownership across processes |
 | `internal/conversation` | Chats and customs |
 | `internal/ship` | Messages, images and the delivery queue |
 | `internal/agent` | Agent library, routing, profiles and secrets |
