@@ -140,7 +140,9 @@ The list shows each token's name, agent, the start of its value, when it was cre
 
 ## Live updates
 
-The app does not poll. It keeps one connection to the port's event stream (server-sent events, `/api/v1/events`) and updates lists and conversations as things happen. The footer indicator shows its state: **En vivo** (green), **Conectando…** or **Sin conexión**. When the connection drops, the app reconnects and resumes where it left off, or reloads its data if it was away too long.
+The app keeps one connection to the port's event stream (server-sent events, `/api/v1/events`) and updates lists and conversations as things happen. The footer indicator shows its state: **En vivo** (green), **Conectando…** or **Sin conexión**. When the connection drops, the app reconnects and resumes where it left off, or reloads its data if it was away too long.
+
+If the stream doesn't get through for 10 seconds, the indicator reads **Sin conexión en vivo** and the app reloads what is on screen every 15 seconds (only while the tab is visible) until the stream connects again. A proxy or tunnel that buffers responses causes this; a [Cloudflare quick tunnel](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/#limitations) is one, since it doesn't carry server-sent events. While polling, you see new messages and each turn's tool summary when the turn ends, but not what an agent is doing while it works. Put the port behind a proxy that streams (the [deploy stack](operations/deploy.md)'s Caddy does) to get it live.
 
 ## Theme
 

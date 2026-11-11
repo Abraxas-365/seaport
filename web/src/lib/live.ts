@@ -1,6 +1,9 @@
 // Live updates: one EventSource on /api/v1/events patches the React Query
-// cache, so screens never poll. On "reset" (server restart or a gap older
-// than the replay window) everything is refetched.
+// cache, so screens don't poll. On "reset" (server restart or a gap older
+// than the replay window) everything is refetched. When the stream can't
+// get through (a proxy or tunnel that buffers it, e.g. a Cloudflare quick
+// tunnel: headers arrive, events never do), the app falls back to
+// refetching what is on screen every few seconds until it is live again.
 
 import { useEffect, useState } from "react"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
@@ -20,7 +23,13 @@ import type {
   Turn,
 } from "./types"
 
-export type LiveState = "connecting" | "live" | "offline"
+/** polling: no live stream for a while; screens refetch every pollEvery. */
+export type LiveState = "connecting" | "live" | "polling" | "offline"
+
+/** How long the stream may stay without "ready" before polling starts. */
+const fallbackAfter = 10_000
+/** How often active queries refetch while polling. */
+export const pollEvery = 15_000
 
 type Listener = (state: LiveState) => void
 
@@ -184,11 +193,16 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
 /** One shared stream for the whole app. */
 class LiveStream {
   private source: EventSource | null = null
+  private qc: QueryClient | null = null
+  /** The stream's own state; what listeners see is shown(). */
   private state: LiveState = "connecting"
   private listeners = new Set<Listener>()
+  private watchdog: ReturnType<typeof setTimeout> | undefined
+  private poller: ReturnType<typeof setInterval> | undefined
 
   start(qc: QueryClient) {
     if (this.source) return
+    this.qc = qc
     const src = new EventSource("/api/v1/events", { withCredentials: true })
     this.source = src
     this.set("connecting")
@@ -218,16 +232,57 @@ class LiveStream {
     this.source?.close()
     this.source = null
     this.set("offline")
+    clearTimeout(this.watchdog)
+    this.watchdog = undefined
+    clearInterval(this.poller)
+    this.poller = undefined
+    this.qc = null
+    this.emit()
   }
 
   private set(s: LiveState) {
     this.state = s
+    if (s === "live") {
+      clearTimeout(this.watchdog)
+      this.watchdog = undefined
+      if (this.poller) {
+        // Back live after polling: events of the gap may never come (a
+        // stream that never got through has no Last-Event-ID).
+        clearInterval(this.poller)
+        this.poller = undefined
+        clearActivity()
+        void this.qc?.invalidateQueries()
+      }
+    } else if (this.source && !this.watchdog && !this.poller) {
+      this.watchdog = setTimeout(() => this.startPolling(), fallbackAfter)
+    }
+    this.emit()
+  }
+
+  private startPolling() {
+    this.watchdog = undefined
+    if (!this.source || this.state === "live" || this.poller) return
+    const refetch = () => {
+      // Only what is on screen, and not while the tab is hidden.
+      if (document.visibilityState === "visible") void this.qc?.invalidateQueries({ type: "active" })
+    }
+    refetch()
+    this.poller = setInterval(refetch, pollEvery)
+    this.emit()
+  }
+
+  private shown(): LiveState {
+    return this.state !== "live" && this.poller ? "polling" : this.state
+  }
+
+  private emit() {
+    const s = this.shown()
     this.listeners.forEach((l) => l(s))
   }
 
   subscribe(l: Listener) {
     this.listeners.add(l)
-    l(this.state)
+    l(this.shown())
     return () => {
       this.listeners.delete(l)
     }

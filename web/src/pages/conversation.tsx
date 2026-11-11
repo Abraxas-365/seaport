@@ -25,6 +25,7 @@ import {
   useTurns,
 } from "@/lib/hooks"
 import { useActivity, type Activity } from "@/lib/activity"
+import { useLiveState } from "@/lib/live"
 import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
 import type { Access, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
@@ -218,6 +219,7 @@ function ShipList({
   const ref = React.useRef<HTMLDivElement>(null)
   const ordered = React.useMemo(() => ships.slice().reverse(), [ships])
   const agents = useAgents()
+  const liveState = useLiveState()
   const agentNames = new Map((agents.data?.items ?? []).map((a) => [a.id, a.name]))
   const multiAgent = new Set(ships.flatMap((s) => (s.agent_id ? [s.agent_id] : []))).size > 1
   const newest = ships[0]?.id
@@ -309,6 +311,11 @@ function ShipList({
           })}
           {working && <TypingBubble />}
           {activity && <AgentActivity activity={activity} className="mt-1.5" />}
+          {working && !activity && liveState === "polling" && (
+            <p className="mt-1.5 text-right text-xs text-muted-foreground">
+              Sin conexión en vivo: verás el resumen de herramientas cuando termine el turno.
+            </p>
+          )}
         </div>
       )}
     </div>
