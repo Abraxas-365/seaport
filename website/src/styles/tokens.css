@@ -1,0 +1,48 @@
+/* Seaport tokens shared by the landing page and the documentation (same palette as the web app, web/src/index.css). */
+:root {
+  --font-body-family: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-code-family: 'Geist Mono Variable', ui-monospace, monospace;
+  --background: oklch(0.165 0.02 258);
+  --foreground: oklch(0.955 0.006 250);
+  --card: oklch(0.2 0.022 258);
+  --secondary-foreground: oklch(0.86 0.012 250);
+  --muted: oklch(0.24 0.022 258);
+  --muted-foreground: oklch(0.68 0.025 252);
+  --primary: oklch(0.72 0.12 240);
+  --primary-foreground: oklch(0.18 0.04 258);
+  --bubble-out: oklch(0.36 0.09 250);
+  --accent-green: oklch(0.72 0.14 158);
+  --accent-blue: oklch(0.74 0.11 222);
+  --accent-aqua: oklch(0.78 0.1 200);
+  --accent-orange: oklch(0.8 0.15 75);
+  --accent-red: oklch(0.68 0.19 24);
+  --accent-purple: oklch(0.72 0.12 300);
+  --border: oklch(1 0 0 / 9%);
+  --border-strong: oklch(1 0 0 / 15%);
+  --ring: oklch(0.6 0.1 240);
+  --sidebar: oklch(0.15 0.019 258);
+  --navy: #1f4f99;
+  --radius: 0.5rem;
+}
+
+:root[data-theme='light'] {
+  --background: oklch(0.992 0.002 247);
+  --foreground: oklch(0.21 0.03 255);
+  --card: oklch(1 0 0);
+  --secondary-foreground: oklch(0.32 0.04 255);
+  --muted: oklch(0.962 0.006 250);
+  --muted-foreground: oklch(0.5 0.025 255);
+  --primary: oklch(0.48 0.14 252);
+  --primary-foreground: oklch(0.985 0.005 250);
+  --bubble-out: oklch(0.48 0.14 252);
+  --accent-green: oklch(0.52 0.13 158);
+  --accent-blue: oklch(0.5 0.12 222);
+  --accent-aqua: oklch(0.5 0.1 200);
+  --accent-orange: oklch(0.58 0.15 60);
+  --accent-red: oklch(0.55 0.2 27);
+  --accent-purple: oklch(0.5 0.14 300);
+  --border: oklch(0.915 0.01 250);
+  --border-strong: oklch(0.86 0.014 250);
+  --ring: oklch(0.62 0.12 252);
+  --sidebar: oklch(0.975 0.005 250);
+}
