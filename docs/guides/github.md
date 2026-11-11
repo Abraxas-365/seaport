@@ -157,6 +157,8 @@ The step's outputs are `ship-id` and `status`: `queued`, or `held` when customs 
 - **The workflow step fails with `401`.** The job needs `permissions: id-token: write`, and `port-url` must be exactly the port's `SEAPORT_PUBLIC_URL`. On a fork's pull request GitHub gives no OIDC token.
 - **The workflow step fails with `403`.** The dock's App isn't installed on that repository, or is suspended.
 - **`gh` can't connect.** Add `api.github.com` to the environment's `network.egress`.
+- **A reply with files fails.** The App needs **Contents: read and write** to commit to the `seaport-files` branch; if someone lowered it in the App's settings, set it back, and an owner accepts the pending permission request in the installation's settings. A port without blob storage (`SEAPORT_BLOB_URL=off` or no secret key) refuses files (`this port keeps no files`); see [Files agents send](messages-and-images.md#files-agents-send).
+- **File links in a comment give `404`.** The reader has no access to the repository, or someone deleted or force-pushed the `seaport-files` branch. Links point at a commit, so deleting a folder in a later commit doesn't break them; a commit no branch reaches can disappear.
 
 ## Where to read more
 

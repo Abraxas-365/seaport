@@ -66,7 +66,7 @@ Seaport keeps each file sealed as an attachment of the outbound message, like in
 | WhatsApp | The text, then each file as its own message: an image message or a document with its name. |
 | `api` | Kept with the message; your client reads them from `GET /api/v1/attachments/{id}`. |
 
-Files need blob storage: on a port without it (`SEAPORT_BLOB_URL=off` or no secret key) a reply with files is refused, not sent without them. The `seaport-files` branch grows with each file; delete old folders or the branch when you no longer need them (the comments' links then stop working).
+Files need blob storage: on a port without it (`SEAPORT_BLOB_URL=off` or no secret key) a reply with files is refused, not sent without them. The `seaport-files` branch grows with each file. Links point at the commit that added a file, so deleting old folders in a later commit doesn't break them (nor shrink the repository: the history keeps them). To reclaim the space, delete the branch; the links of its files then stop working once GitHub drops the unreachable commits.
 
 ## Storage
 
