@@ -85,9 +85,11 @@ type arrival struct {
 var members = map[string]bool{"OWNER": true, "MEMBER": true, "COLLABORATOR": true}
 
 // parse turns a webhook into an arrival, or ok=false for events that
-// carry no message for the crew: other kinds and actions, bots (our own
-// comments included, so a reply never wakes anyone), empty texts and
-// messages that call neither the App nor an agent of the dock's team.
+// carry no message for the crew: other kinds and actions, other bots,
+// empty texts and messages that call neither the App nor an agent of the
+// dock's team. The App's own messages (Seaport's replies, or an agent
+// acting with gh) are arrivals with in.Own: recorded as sent, waking
+// nobody, so a reply never loops.
 func parse(kind string, raw []byte, d identity.DockID, slug string, team []agent.Member) (arrival, bool) {
 	var e event
 	if err := json.Unmarshal(raw, &e); err != nil || e.Repository.FullName == "" {
@@ -134,10 +136,19 @@ func parse(kind string, raw []byte, d identity.DockID, slug string, team []agent
 	if author.Login == "" {
 		author = e.Sender
 	}
-	if author.Type == "Bot" || e.Sender.Type == "Bot" || strings.TrimSpace(body) == "" || thread.Number <= 0 {
+	own := slug != "" && strings.EqualFold(author.Login, slug+"[bot]")
+	if own {
+		var sent string
+		if body, sent = unmark(body); sent != "" {
+			id = sent
+		}
+	} else if author.Type == "Bot" || e.Sender.Type == "Bot" {
 		return arrival{}, false
 	}
-	if !calls(body, slug, team) {
+	if strings.TrimSpace(body) == "" || thread.Number <= 0 {
+		return arrival{}, false
+	}
+	if !own && !calls(body, slug, team) {
 		return arrival{}, false
 	}
 	repo := e.Repository.FullName
@@ -161,6 +172,9 @@ func parse(kind string, raw []byte, d identity.DockID, slug string, team []agent
 	if sent.IsZero() {
 		sent = time.Now()
 	}
+	if own {
+		react, senders = "", []string{"@" + author.Login}
+	}
 	return arrival{repo: repo, reactPath: react, in: ship.Inbound{
 		Dock: d, Channel: dock.ChannelGitHub,
 		ChatID: chat, ChatKind: conversation.KindGroup, ChatTitle: title,
@@ -169,6 +183,7 @@ func parse(kind string, raw []byte, d identity.DockID, slug string, team []agent
 		ChatHandles:   []string{chat, repo, owner},
 		SenderHandles: senders,
 		Addressed:     true,
+		Own:           own,
 	}}, true
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
@@ -179,17 +180,39 @@ func TestParseIgnores(t *testing.T) {
 		kind string
 		body []byte
 	}{
-		"no mention":      {"issue_comment", payload(t, comment("looks good", "bob", "User", "MEMBER", true))},
-		"other agent":     {"issue_comment", payload(t, comment("@ops look", "bob", "User", "MEMBER", true))},
-		"bot (our reply)": {"issue_comment", payload(t, comment("@qa done", "seaport-x[bot]", "Bot", "NONE", true))},
-		"edited":          {"issue_comment", payload(t, map[string]any{"action": "edited", "repository": map[string]any{"full_name": "a/b"}})},
-		"push":            {"push", []byte(`{"repository":{"full_name":"a/b"}}`)},
-		"garbage":         {"issue_comment", []byte(`not json`)},
+		"no mention":  {"issue_comment", payload(t, comment("looks good", "bob", "User", "MEMBER", true))},
+		"other agent": {"issue_comment", payload(t, comment("@ops look", "bob", "User", "MEMBER", true))},
+		"other bot":   {"issue_comment", payload(t, comment("@qa done", "dependabot[bot]", "Bot", "NONE", true))},
+		"edited":      {"issue_comment", payload(t, map[string]any{"action": "edited", "repository": map[string]any{"full_name": "a/b"}})},
+		"push":        {"push", []byte(`{"repository":{"full_name":"a/b"}}`)},
+		"garbage":     {"issue_comment", []byte(`not json`)},
 	}
 	for name, c := range cases {
 		if _, ok := parse(c.kind, c.body, dock, "seaport-x", team); ok {
 			t.Errorf("%s: forwarded", name)
 		}
+	}
+}
+
+// The App's own comments come back as its own messages: Seaport's send
+// (matched by its hidden message id) or an agent's gh comment.
+func TestParseOwnComments(t *testing.T) {
+	sent := "QA passed." + marker("gh-0b9c")
+	at, ok := parse("issue_comment", payload(t, comment(sent, "seaport-x[bot]", "Bot", "NONE", true)), identity.NewDockID(), "seaport-x", team)
+	if !ok || !at.in.Own || at.in.ExternalID != "gh-0b9c" || at.in.Text != "QA passed." || at.reactPath != "" ||
+		strings.Join(at.in.SenderHandles, ",") != "@seaport-x[bot]" {
+		t.Fatalf("seaport's send = %v %+v", ok, at)
+	}
+	if err := at.in.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	at, ok = parse("issue_comment", payload(t, comment("## QA review\nAll green, no @mention needed", "Seaport-X[bot]", "Bot", "NONE", true)), identity.NewDockID(), "seaport-x", team)
+	if !ok || !at.in.Own || at.in.ExternalID != "comment-555" || !strings.HasPrefix(at.in.Text, "## QA review") {
+		t.Fatalf("agent's gh comment = %v %+v", ok, at)
+	}
+	// A forged marker can't name an arbitrary id.
+	if body, id := unmark("x <!-- seaport-message ../../etc -->"); id != "" || body == "" {
+		t.Fatalf("unmark forged = %q %q", body, id)
 	}
 }
 
@@ -253,5 +276,18 @@ func TestReachable(t *testing.T) {
 		if reachable(u) != want {
 			t.Errorf("%s: want %v", u, want)
 		}
+	}
+}
+
+func TestFilesBody(t *testing.T) {
+	files := []dock.File{{Name: "shot.png", MIME: "image/png"}, {Name: "re[port].md", MIME: "text/plain; charset=utf-8"}}
+	links := []string{"https://github.com/o/r/blob/c1/pr-1/gh-1/shot.png", "https://github.com/o/r/blob/c1/pr-1/gh-1/re%5Bport%5D.md"}
+	got := filesBody("Done.", files, links)
+	want := "Done.\n\n![shot.png](" + links[0] + "?raw=true)\n📎 [report.md](" + links[1] + ")"
+	if got != want {
+		t.Fatalf("body = %q\nwant %q", got, want)
+	}
+	if got := filesBody("", files[:1], links[:1]); got != "![shot.png]("+links[0]+"?raw=true)" {
+		t.Fatalf("no text: %q", got)
 	}
 }

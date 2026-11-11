@@ -92,6 +92,9 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		return ship.Ship{}, false, errx.Wrap(err, "customs", errx.TypeInternal)
 	}
 	conv := arrival.Conversation
+	if input.Own {
+		return s.record(ctx, org, conv, input)
+	}
 	said := input.Text // routing reads what the sender wrote, not our notes
 	route := func(team []agent.Member, previous identity.AgentID) (identity.AgentID, string) {
 		return agent.Route(team, said, previous)
@@ -133,6 +136,19 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		}
 	}
 	return st, true, nil
+}
+
+// record keeps the dock's own message sent outside Seaport (validated by
+// Receive) in the conversation's history, as sent.
+func (s *Service) record(ctx context.Context, org identity.OrganizationID, conv conversation.Conversation, input ship.Inbound) (ship.Ship, bool, error) {
+	st, created, err := s.repo.Record(ctx, org, identity.NewShipID(), conv.ID, input)
+	if err != nil {
+		return ship.Ship{}, false, errx.Wrap(err, "record own message", errx.TypeInternal)
+	}
+	if created {
+		s.events.Publish(org, ship.EventCreated, st)
+	}
+	return st, created, nil
 }
 
 func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input ship.Claim) (ship.Delivery, bool, error) {
@@ -298,9 +314,13 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, input s
 	if err != nil {
 		return ship.Ship{}, errx.Wrap(err, "new message id", errx.TypeInternal)
 	}
+	attachments, files, err := s.keepFiles(ctx, org, input.Files)
+	if err != nil {
+		return ship.Ship{}, err
+	}
 	// Stored before sending so the channel's echo of it is a duplicate;
 	// refused (429) when the dock or the conversation sent too much lately.
-	out, err := s.repo.CreateOutbound(ctx, org, identity.NewShipID(), input, conv.Dock, msgID, s.limits.Check)
+	out, err := s.repo.CreateOutbound(ctx, org, identity.NewShipID(), input, conv.Dock, msgID, attachments, s.limits.Check)
 	if err != nil {
 		if errx.IsType(err, errx.TypeBusiness) {
 			slog.Warn("outbound refused", "organization", org, "dock", conv.Dock, "conversation", conv.ID, "err", err)
@@ -313,15 +333,17 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, input s
 	}
 	sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTimeout)
 	defer cancel()
-	sendErr := s.messenger.Send(sendCtx, org, dock.Outgoing{Dock: conv.Dock, ChatID: conv.ExternalID, MessageID: msgID, Text: input.Text})
+	sendErr := s.messenger.Send(sendCtx, org, dock.Outgoing{Dock: conv.Dock, ChatID: conv.ExternalID, MessageID: msgID, Text: input.Text, Files: files})
 	status, msg := ship.StatusSent, ""
 	if sendErr != nil {
 		status, msg = ship.StatusFailed, sendErr.Error()
 	}
+	kept := out.Attachments
 	out, err = s.repo.SetOutcome(context.WithoutCancel(ctx), org, out.ID, status, msg)
 	if err != nil {
 		return ship.Ship{}, errx.Wrap(err, "store send outcome", errx.TypeInternal)
 	}
+	out.Attachments = kept
 	s.events.Publish(org, ship.EventUpdated, out)
 	if sendErr != nil {
 		return out, errx.Wrap(sendErr, "send reply", errx.TypeExternal)

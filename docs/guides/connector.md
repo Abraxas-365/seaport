@@ -23,11 +23,11 @@ Everything after `--` is the harness command. Run the connector from the directo
 
 On start, the connector:
 
-1. fetches the agent's [profile](profiles.md) and secrets, then starts the harness with its secrets as environment variables;
+1. fetches the agent's [profile](profiles.md) and secrets, then starts the harness with its secrets as environment variables, plus `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` when they aren't set already (so the agent's shell can run `seaport reply -file` and `seaport github-token`);
 2. opens a WebSocket to the port's `/crew/ws` and says hello (agent name, concurrency, whether it can steer, profile version);
 3. waits. Each delivery of messages becomes a prompt to the harness.
 
-The harness answers through the port's MCP tools, which the connector adds to every session: `reply` sends a message, `history` reads earlier ones, `conversations` lists the chats the agent can reply to, `attachment` shows an image, and `skill` loads a [skill](profiles.md#skills). The agent's final text is **not** sent to anyone unless you use `-auto-reply`.
+The harness answers through the port's MCP tools, which the connector adds to every session: `reply` sends a message (with files if needed), `history` reads earlier ones, `conversations` lists the chats the agent can reply to, `attachment` shows an image or a document, and `skill` loads a [skill](profiles.md#skills). The agent's final text is **not** sent to anyone unless you use `-auto-reply`.
 
 If the connection drops, the connector reconnects, waiting 1 second and doubling up to 30 seconds. If the harness process exits, the connector stops with an error.
 

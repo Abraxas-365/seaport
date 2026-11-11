@@ -176,6 +176,19 @@ A harness home is an uploaded `~/.claude` or `~/.rness` baked into the environme
 
 The connector keeps its sessions in `sessions.json` under `<user config dir>/seaport/`, so conversations resume after a restart. A command is required after `--`; an invalid `-deliver` or `-approve` is refused before connecting.
 
+## github-token
+
+`seaport github-token [owner/repo]` prints a token of the [GitHub App](../guides/github.md#act-on-github-as-the-app) of one of the agent's GitHub docks, limited to that repository and valid for up to an hour. Without an argument it uses the `origin` remote of the current directory. It needs `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` (the agent's own token); a repository the App isn't installed on is an error. Example: `GH_TOKEN=$(seaport github-token acme/web) gh pr view 12 -R acme/web`.
+
+
+## reply
+
+`seaport reply <conversation-id> [-file PATH]... [text]` sends a reply as the agent, with files from disk: a QA report, screenshots, a log. It is the MCP `reply` tool for files a model shouldn't write out as base64. It needs `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` (the agent's own token; the connector passes both to the agent it runs). It prints the message id and its status. Limits: 10 files, 10 MiB each, 25 MiB together. See [Files agents send](../guides/messages-and-images.md#files-agents-send).
+
+```bash
+seaport reply 0193… -file qa-report.md -file checkout.png "QA done: 2 issues"
+```
+
 ## Commands for hosted slots
 
 These run inside a hosted slot's container and aren't meant to be called by hand; they appear here so you can recognize them in a slot's log.
@@ -186,4 +199,5 @@ These run inside a hosted slot's container and aren't meant to be called by hand
 | `seaport agent-login` | The subscription sign-in the port runs in a slot and relays. |
 | `seaport agent-account` | Prints how the slot's harness is signed in, as JSON; the port asks. |
 | `seaport home-setup` | Finishes an environment's harness home while its image is built. |
-| `seaport git-credential` | Git's credential helper in a slot: asks the port for repo credentials each time, so no token stays on disk. |
+| `seaport git-credential` | Git's credential helper in a slot: asks the port for repo credentials each time (the environment's, else a [GitHub App](../guides/github.md#act-on-github-as-the-app) token), so no token stays on disk. |
+| `gh` | Seaport's shim of GitHub's CLI in a slot (the seaport binary called as `gh`): runs the real `gh` with a GitHub App token for the repository the command is about. |

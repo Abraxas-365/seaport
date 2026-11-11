@@ -8,6 +8,7 @@ package dockgithub
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,10 +27,12 @@ type Receiver interface {
 	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
 }
 
-// Teams tells which agents work on a dock (the agent domain, bound late):
-// a message mentioning one of them is for the crew.
+// Teams tells which agents work on a dock and where an agent works (the
+// agent domain, bound late): a message mentioning one of them is for the
+// crew, and an agent gets App tokens for the repos of its docks' Apps.
 type Teams interface {
 	Team(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]agent.Member, error)
+	Find(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (agent.Agent, error)
 }
 
 // LinkSink records link state (the dock domain).
@@ -45,11 +48,15 @@ type Config struct {
 	// WebURL (https://github.com) and APIURL (https://api.github.com):
 	// GitHub Enterprise Server or a fake in tests.
 	WebURL, APIURL string
+	// OIDCURL is the issuer of GitHub Actions' OIDC tokens
+	// (DefaultOIDCURL; GHES: https://HOST/_services/token).
+	OIDCURL string
 }
 
 type Gateway struct {
 	store  *Store
 	client *client
+	oidc   *oidcVerifier
 	seal   seal.Sealer
 	cfg    Config
 
@@ -75,7 +82,10 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string, cfg Config) (*Gate
 	if cfg.APIURL == "" {
 		cfg.APIURL = "https://api.github.com"
 	}
-	return &Gateway{store: store, client: newClient(cfg.APIURL), seal: sealer, cfg: cfg}, nil
+	if cfg.OIDCURL == "" {
+		cfg.OIDCURL = DefaultOIDCURL
+	}
+	return &Gateway{store: store, client: newClient(cfg.APIURL), oidc: newOIDCVerifier(cfg.OIDCURL), seal: sealer, cfg: cfg}, nil
 }
 
 // Bind sets the domain callbacks (built after the gateway).
@@ -181,8 +191,38 @@ func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
 	if err != nil {
 		return err
 	}
-	_, err = g.client.comment(ctx, a, repo, number, msg.Text)
+	body := msg.Text
+	if len(msg.Files) > 0 {
+		links, err := g.client.commitFiles(ctx, a, g.cfg.WebURL, repo, number, msg.MessageID, msg.Files)
+		if err != nil {
+			return err
+		}
+		body = filesBody(msg.Text, msg.Files, links)
+	}
+	_, err = g.client.comment(ctx, a, repo, number, body+marker(msg.MessageID))
 	return err
+}
+
+// markerPrefix starts the hidden line Send appends to its comments with
+// the outbound ship's message id: the webhook of that comment comes back
+// as the App's own message and is matched to the stored ship by it.
+const markerPrefix = "<!-- seaport-message "
+
+func marker(id string) string { return "\n\n" + markerPrefix + id + " -->" }
+
+// unmark splits a comment's hidden message id off its body ("" when it
+// has none).
+func unmark(body string) (string, string) {
+	i := strings.LastIndex(body, markerPrefix)
+	if i < 0 {
+		return body, ""
+	}
+	id, ok := strings.CutSuffix(strings.TrimSpace(body[i+len(markerPrefix):]), "-->")
+	id = strings.TrimSpace(id)
+	if !ok || !strings.HasPrefix(id, "gh-") || len(id) > 64 || strings.ContainsAny(id, " \n") {
+		return body, ""
+	}
+	return strings.TrimRight(body[:i], "\n "), id
 }
 
 // seen marks a message the crew got (👀), in the background.

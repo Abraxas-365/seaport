@@ -19,6 +19,11 @@ ARG RNESS_REF=6d9d6da6652a71d693fff8cfc87a86a6c3185dc0
 ARG CLAUDE_AGENT_ACP_VERSION=0.102.0
 ARG CLAUDE_AGENT_ACP_SHA256_AMD64=b3f99ebf7580b2eb30d3efb1b42a9a81be5669e7e2a341e6bfed722a8f56eacb
 ARG CLAUDE_AGENT_ACP_SHA256_ARM64=655926c7c3c6c2e8e12cf847b02e9c16ade7eef3931de8a3e8cfad4287c71ba3
+# GitHub's CLI: agents use it as their GitHub dock's App (Seaport's gh shim
+# hands it a token for the repo; nothing is stored).
+ARG GH_VERSION=2.87.3
+ARG GH_SHA256_AMD64=c6e5537631fca45f277ef405ce8751d139b491e9402cc20891a003525a8773b2
+ARG GH_SHA256_ARM64=5f5d89563bf26751e2173b37e594065504e85b6b781c1f1832d24bf2c2b4554f
 
 FROM golang:1.26-bookworm AS seaport
 WORKDIR /src
@@ -67,6 +72,25 @@ RUN set -eu; \
     echo "${sum}  /tmp/acp.tgz" | sha256sum -c -; \
     mkdir -p /out && tar --no-same-owner -xzf /tmp/acp.tgz -C /out && chmod 755 /out/*
 
+FROM debian:bookworm-slim AS gh-download
+ARG TARGETARCH
+ARG GH_VERSION
+ARG GH_SHA256_AMD64
+ARG GH_SHA256_ARM64
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+      amd64) sum="${GH_SHA256_AMD64}" ;; \
+      arm64) sum="${GH_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/gh.tgz \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz"; \
+    echo "${sum}  /tmp/gh.tgz" | sha256sum -c -; \
+    tar --no-same-owner -xzf /tmp/gh.tgz -C /tmp \
+ && install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /out-gh
+
 FROM debian:bookworm-slim AS base
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git curl less procps \
@@ -75,6 +99,10 @@ RUN apt-get update \
  && mkdir -p /workspace /seaport/state \
  && chown 1000:1000 /workspace /seaport/state
 COPY --from=seaport /out/seaport /opt/seaport/bin/seaport
+# gh: the real one in /usr/local/bin, Seaport's shim (the seaport binary
+# called as gh) first in PATH, so `gh …` acts as the GitHub dock's App.
+COPY --from=gh-download /out-gh /usr/local/bin/gh
+RUN ln -s seaport /opt/seaport/bin/gh
 ENV PATH=/opt/seaport/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     HOME=/home/agent \
     LANG=C.UTF-8

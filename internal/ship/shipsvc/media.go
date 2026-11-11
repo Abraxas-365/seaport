@@ -12,6 +12,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/blob"
 	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/seal"
@@ -118,6 +119,49 @@ func (s *Service) keep(ctx context.Context, org identity.OrganizationID, in ship
 		kept = append(kept, a)
 	}
 	return kept, body, nil
+}
+
+// keepFiles stores a reply's files (sealed) before its ship, like keep:
+// the attachments to insert with it and the files for the channel. Files
+// can't be dropped silently (the agent is told): no storage, no files.
+func (s *Service) keepFiles(ctx context.Context, org identity.OrganizationID, files []ship.File) ([]ship.Attachment, []dock.File, error) {
+	if len(files) == 0 {
+		return nil, nil, nil
+	}
+	if !s.media.on() {
+		return nil, nil, errx.Business("this port keeps no files (SEAPORT_SECRET_KEY and SEAPORT_BLOB_URL)")
+	}
+	out := make([]ship.Attachment, len(files))
+	send := make([]dock.File, len(files))
+	for i, f := range files {
+		kind, mime := ship.AttachmentDocument, blob.FileType(f.Data)
+		if img := blob.ImageType(f.Data, ship.ImageTypes); img != "" && len(f.Data) <= ship.MaxImage {
+			kind, mime = ship.AttachmentImage, img
+		}
+		sum := sha256.Sum256(f.Data)
+		id := identity.NewAttachmentID()
+		out[i] = ship.Attachment{ID: id, Kind: kind, MIME: mime, Size: int64(len(f.Data)), Name: text.Clean(f.Name),
+			SHA256: hex.EncodeToString(sum[:]), Key: blob.TenantKey(org, "attachments", id.String())}
+		send[i] = dock.File{Name: out[i].Name, MIME: mime, Data: f.Data}
+	}
+	if err := s.repo.StageBlobs(ctx, org, keysOf(out), s.now().Add(ship.TrashGrace)); err != nil {
+		return nil, nil, errx.Wrap(err, "stage files", errx.TypeInternal)
+	}
+	for i, a := range out {
+		sealed := s.media.sealer.Seal(ship.AttachmentPurpose(org, a.ID), files[i].Data)
+		if err := s.media.blobs.Put(ctx, a.Key, bytes.NewReader(sealed), blob.PutOptions{ContentType: "application/octet-stream"}); err != nil {
+			return nil, nil, errx.Wrap(err, "store file "+a.Name, errx.TypeInternal)
+		}
+	}
+	return out, send, nil
+}
+
+func keysOf(as []ship.Attachment) []string {
+	out := make([]string, len(as))
+	for i, a := range as {
+		out[i] = a.Key
+	}
+	return out
 }
 
 // fetch gives the media's bytes (downloading them if the channel left

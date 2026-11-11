@@ -1,4 +1,4 @@
-import { ImageOff } from "lucide-react"
+import { Download, FileText, ImageOff } from "lucide-react"
 import { useState } from "react"
 
 import { attachmentURL } from "@/lib/api"
@@ -60,20 +60,50 @@ function ImageThumb({ attachment, single }: { attachment: Attachment; single: bo
   )
 }
 
-/** The images that came with a ship, above its caption. */
+/** A document of a ship: a chip that downloads it (never rendered). */
+function DocumentChip({ attachment }: { attachment: Attachment }) {
+  const label = attachment.name || "Archivo"
+  return (
+    <a
+      href={attachmentURL(attachment.id)}
+      download={label}
+      className="flex min-w-0 items-center gap-2 rounded-lg border bg-background/60 px-2.5 py-1.5 text-xs hover:bg-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      aria-label={`Descargar ${label}`}
+    >
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+      <span className="shrink-0 text-muted-foreground">{sizeLabel(attachment.size)}</span>
+      <Download className="size-3.5 shrink-0 text-muted-foreground" />
+    </a>
+  )
+}
+
+/** The files of a ship, above its caption: images as thumbnails,
+ * documents as download chips. */
 export function ShipAttachments({ attachments }: { attachments: Attachment[] }) {
   const images = attachments.filter((a) => a.kind === "image")
-  if (images.length === 0) return null
+  const documents = attachments.filter((a) => a.kind === "document")
+  if (images.length === 0 && documents.length === 0) return null
   const single = images.length === 1
   return (
-    <div
-      data-slot="ship-attachments"
-      aria-label={plural(images.length, "imagen", "imágenes")}
-      className={cn("-mx-1.5 mt-0.5 mb-1", single ? "" : "grid grid-cols-2 gap-1")}
-    >
-      {images.map((a) => (
-        <ImageThumb key={a.id} attachment={a} single={single} />
-      ))}
+    <div data-slot="ship-attachments" className="mt-0.5 mb-1 flex flex-col gap-1">
+      {images.length > 0 && (
+        <div
+          aria-label={plural(images.length, "imagen", "imágenes")}
+          className={cn("-mx-1.5", single ? "" : "grid grid-cols-2 gap-1")}
+        >
+          {images.map((a) => (
+            <ImageThumb key={a.id} attachment={a} single={single} />
+          ))}
+        </div>
+      )}
+      {documents.length > 0 && (
+        <div aria-label={plural(documents.length, "archivo", "archivos")} className="flex flex-col gap-1">
+          {documents.map((a) => (
+            <DocumentChip key={a.id} attachment={a} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

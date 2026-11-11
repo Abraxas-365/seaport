@@ -3,6 +3,9 @@ package ship
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -15,7 +18,12 @@ import (
 // downstream branches on a channel's message type.
 type AttachmentKind string
 
-const AttachmentImage AttachmentKind = "image"
+const (
+	AttachmentImage AttachmentKind = "image"
+	// AttachmentDocument is any other file (a report, a log): agents
+	// send them; they are shown as downloads, never rendered.
+	AttachmentDocument AttachmentKind = "document"
+)
 
 const (
 	// MaxImage bounds an image's size (3.75 MiB): its base64 fits the 5 MB
@@ -26,6 +34,10 @@ const (
 	MaxAttachments = 10
 	// MaxAttachmentName bounds an attachment's display name.
 	MaxAttachmentName = 200
+	// MaxFile bounds one file an agent sends (10 MiB) and MaxFiles all
+	// the files of one reply (25 MiB).
+	MaxFile  = 10 << 20
+	MaxFiles = 25 << 20
 	// TrashGrace: a blob staged for an attachment whose row never came
 	// (the port stopped mid-arrival, a duplicate) is deleted after it.
 	TrashGrace = time.Hour
@@ -122,6 +134,55 @@ type AttachmentFile struct {
 type OpenAttachment struct {
 	ID    identity.AttachmentID
 	Agent *identity.AgentID
+}
+
+// File is a file an agent sends with a reply. Its kind and type are
+// sniffed from the bytes (an image or a file); Name is what people see.
+type File struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+// fileName keeps names readable and harmless as a path segment.
+var fileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._ ()+-]*$`)
+
+func (f File) Validate() error {
+	if err := text.Required("files.name", f.Name, MaxAttachmentName); err != nil {
+		return err
+	}
+	if !fileName.MatchString(f.Name) || strings.Contains(f.Name, "..") {
+		return errx.InvalidField("files.name", "file names use letters, digits, spaces and . _ ( ) + - (no paths)")
+	}
+	if len(f.Data) == 0 {
+		return errx.InvalidField("files.data", "file "+f.Name+" is empty")
+	}
+	if len(f.Data) > MaxFile {
+		return errx.InvalidField("files.data", "file "+f.Name+" is too large (max 10 MiB)")
+	}
+	return nil
+}
+
+// ValidateFiles checks a reply's files: at most MaxAttachments, MaxFiles
+// bytes in all, names unique.
+func ValidateFiles(files []File) error {
+	if len(files) > MaxAttachments {
+		return errx.InvalidField("files", "too many files (max "+strconv.Itoa(MaxAttachments)+")")
+	}
+	total, seen := 0, map[string]bool{}
+	for _, f := range files {
+		if err := f.Validate(); err != nil {
+			return err
+		}
+		if seen[strings.ToLower(f.Name)] {
+			return errx.InvalidField("files.name", "two files are named "+f.Name)
+		}
+		seen[strings.ToLower(f.Name)] = true
+		total += len(f.Data)
+	}
+	if total > MaxFiles {
+		return errx.InvalidField("files", "the files are too large together (max 25 MiB)")
+	}
+	return nil
 }
 
 func (o OpenAttachment) Validate() error {

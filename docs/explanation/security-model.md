@@ -48,6 +48,7 @@ Secrets are the WhatsApp session keys, agent secrets (such as repo credentials o
 
 - **Never returned.** The admin API answers secret names and flags, never values. The code that opens an agent's secrets is limited by tests to one caller: the agent's own crew connection when it fetches its profile (`Equip`). No admin handler, event or agent tool can hand a secret back.
 - **Never in events.** Events are stored in clear for an hour, so services never publish secrets. The WhatsApp pairing QR code is dropped from dock events too; the web app fetches it separately.
+- **GitHub App tokens.** An App's private key never leaves the port. An agent gets a token of the App only through its own crew credential, only for one repository where the App of one of its GitHub docks is installed, and for an hour at most.
 - **Never in specs.** An environment names secrets as `${NAME}`. Setup scripts and harness homes are stored and baked into images, so the port refuses homes that contain strings that look like credentials.
 - **A stolen dump is not enough.** A database dump holds sealed values only. The key is not in it. See [Backups and upgrades](../guides/operations/backups-and-upgrades.md).
 
@@ -75,7 +76,7 @@ Every row belongs to an organization, and rows that reference each other must sh
 
 Two routes need no credentials: `/healthz`, and `/api/v1/config`, which tells the web app the auth mode and the version before sign-in. Neither reveals anything about an organization, a dock or an agent.
 
-The routes GitHub calls are public too, each with its own proof instead of a credential: the App's redirects (`/github/apps/created`, `/github/apps/installed`) need the state Seaport signed for that dock an hour earlier at most, and a webhook (`/github/webhook/{dock}`) needs the HMAC signature of that dock's App secret. A test in the build keeps the list of public routes explicit.
+The routes GitHub calls are public too, each with its own proof instead of a credential: the App's redirects (`/github/apps/created`, `/github/apps/installed`) need the state Seaport signed for that dock an hour earlier at most, a webhook (`/github/webhook/{dock}`) needs the HMAC signature of that dock's App secret, and a workflow's message (`/github/actions/{dock}`) needs an OIDC token GitHub signed for this port's URL, from a repository the dock's App is installed on. No Seaport credential is stored in repositories. A test in the build keeps the list of public routes explicit.
 
 ## Where to read more
 

@@ -216,7 +216,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
 		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways,
-		GitHub: dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL}})
+		GitHub: dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL}})
 	if err != nil {
 		bus.Close()
 		closeDBs()
@@ -344,7 +344,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
 	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
 	root.Handle("GET /crew/attachments/{id}", auth.Crew(limit.Wrap(crew.Attachment())))
+	root.Handle("POST /crew/reply", auth.Crew(limit.Wrap(crew.Reply())))
 	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
+	// App tokens for the agent's repos (gh and git inside its slot).
+	root.Handle("POST /crew/github/token", auth.Crew(limit.Wrap(docks.GitHubToken())))
 	// The model gateway: hosted slots call their provider with their slot
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).

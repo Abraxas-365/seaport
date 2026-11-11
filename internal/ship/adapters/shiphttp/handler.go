@@ -48,6 +48,9 @@ func (h *Handler) attachment(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if f.Kind == ship.AttachmentDocument {
+		return httpx.Download(w, f.MIME, f.Name, f.Data)
+	}
 	return httpx.File(w, f.MIME, f.Data)
 }
 

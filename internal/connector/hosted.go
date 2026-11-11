@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -480,9 +481,9 @@ func pruneEmpty(dir, root string) {
 	}
 }
 
-// configureGit makes this binary git's credential helper for the repos
-// with a credential (it asks the port each time: no token on disk) and
-// names the slot as the commit author.
+// configureGit makes this binary git's credential helper for https (it
+// asks the port each time: no token on disk) and names the slot as the
+// commit author.
 func configureGit(ctx context.Context, cfg HostedConfig, ws hosting.Workspace) error {
 	set := func(args ...string) error {
 		return git(ctx, cfg.Home, nil, append([]string{"config", "--global"}, args...)...)
@@ -496,22 +497,13 @@ func configureGit(ctx context.Context, cfg HostedConfig, ws hosting.Workspace) e
 	if err := set("init.defaultBranch", "main"); err != nil {
 		return err
 	}
-	seen := map[string]bool{}
-	for _, r := range ws.Repos {
-		u, err := url.Parse(r.URL)
-		if err != nil || r.Token == "" || seen[u.Host] {
-			continue
-		}
-		seen[u.Host] = true
-		prefix := "credential.https://" + u.Host
-		if err := set(prefix+".helper", "!"+shellQuote(cfg.Self)+" git-credential"); err != nil {
-			return err
-		}
-		if err := set(prefix+".useHttpPath", "true"); err != nil {
-			return err
-		}
+	// One helper for every https host: the environment's repo tokens
+	// first, else a GitHub App token of the agent's docks (asked each
+	// time; nothing is stored).
+	if err := set("credential.helper", "!"+shellQuote(cfg.Self)+" git-credential"); err != nil {
+		return err
 	}
-	return nil
+	return set("credential.useHttpPath", "true")
 }
 
 // prepareRepo clones a repo into the workspace, or fetches it when the
@@ -609,21 +601,34 @@ func GitCredential(ctx context.Context, op string, in io.Reader, out io.Writer) 
 	if err != nil {
 		return err
 	}
-	ws, err := fetchWorkspace(ctx, cfg)
-	if err != nil {
-		return err
-	}
 	want := strings.TrimSuffix(strings.Trim(req["path"], "/"), ".git")
-	for _, r := range ws.Repos {
-		u, err := url.Parse(r.URL)
-		if err != nil || r.Token == "" || !strings.EqualFold(u.Host, req["host"]) {
-			continue
+	if ws, err := fetchWorkspace(ctx, cfg); err == nil {
+		for _, r := range ws.Repos {
+			u, err := url.Parse(r.URL)
+			if err != nil || r.Token == "" || !strings.EqualFold(u.Host, req["host"]) {
+				continue
+			}
+			if want != "" && strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git") != want {
+				continue
+			}
+			_, err = fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", r.Token)
+			return err
 		}
-		if want != "" && strings.TrimSuffix(strings.Trim(u.Path, "/"), ".git") != want {
-			continue
-		}
-		_, err = fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", r.Token)
+	} else if !errx.IsType(err, errx.TypeAuthorization) {
 		return err
 	}
-	return nil
+	// No environment credential: a GitHub App token, when the agent's
+	// docks have their App installed on that repo.
+	if !dock.ValidRepository(want) {
+		return nil
+	}
+	t, err := GitHubToken(ctx, want, req["host"])
+	if err != nil {
+		if errx.IsType(err, errx.TypeNotFound) {
+			return nil // git asks the next helper, or fails as it would
+		}
+		return err
+	}
+	_, err = fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", t.Token)
+	return err
 }

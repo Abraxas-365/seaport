@@ -85,7 +85,7 @@ Quota names: `docks`, `crew_connections`, `crew_tokens`, `agents`, `agent_secret
 
 **Rate limits.** Two rates exist:
 
-- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments` and `/crew/workspace`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
+- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments`, `/crew/reply`, `/crew/workspace` and `/crew/github/token`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
 - The outbound limits (`SEAPORT_SEND_*`) refuse a reply when a dock, conversation or organization sent too much lately.
 
 Both answer `429` with `Retry-After` in seconds. Wait that long.
@@ -120,6 +120,7 @@ No credentials, and nothing about any organization.
 | `GET` | `/github/apps/created` | GitHub's redirect after it created a dock's App (`code`, `state`). Seaport trades the code for the App's credentials and redirects to its install page. A bad or expired `state` is `401`. |
 | `GET` | `/github/apps/installed` | GitHub's redirect after an install (`installation_id`, `state`). Seaport checks the installation with GitHub and redirects to the dock's page (`?github=installed`, or `?github_error=…`). |
 | `POST` | `/github/webhook/{dock}` | The App's webhook, signed with its secret (`X-Hub-Signature-256`, else `401`; body up to 5 MiB). `200` for `ping` and `installation` events, `202` `{"status":"received","ship_id":"…","created":true}` for a message that called an agent, `202` `{"status":"ignored"}` for everything else. `404` for a dock with no App. |
+| `POST` | `/github/actions/{dock}` | A message from a GitHub Actions workflow. Bearer: the job's OIDC token, issued for this port (audience = `SEAPORT_PUBLIC_URL`; signature, issuer and expiry checked, else `401`). The token's repository must be served by an active installation of the dock's App, else `403`. Body `{"text":"…","number":12,"agent":"qa","id":"step-1"}`: `number` defaults to the pull request of the workflow's `refs/pull/N/merge` ref, `agent` must be on the dock's team, `id` keeps a retried step from sending twice. `202` `{"status":"queued"\|"held","ship_id","created","conversation_id","chat"}`. See [GitHub](../guides/github.md#trigger-an-agent-from-a-workflow). |
 
 Session state:
 
@@ -245,7 +246,7 @@ See [API docks](../guides/api-docks.md).
 | `GET` | `/conversations/{id}/ships` | `ships:read` | Paginated ships (messages), newest first. |
 | `POST` | `/conversations/{id}/ships` | `ships:write` | Body `{"text":"…"}`. Sends a message as a person would. `201` with the ship. `403` if the conversation isn't allowed. |
 | `GET` | `/inbox` | `conversations:read` | Paginated conversations with a preview. Same filters as `/conversations`. |
-| `GET` | `/attachments/{id}` | `ships:read` | The file (an image), with its sniffed type. |
+| `GET` | `/attachments/{id}` | `ships:read` | The file, with its sniffed type: an image, or a document (a file an agent sent) as a download (`Content-Disposition: attachment`). |
 
 A conversation:
 
@@ -425,8 +426,10 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `GET` | `/crew/ws` | WebSocket upgrade: the agent's connection. See [Crew protocol](crew-protocol.md). |
 | `POST` | `/mcp` | The MCP server (streamable HTTP). See [MCP tools](mcp-tools.md). |
 | `GET` | `/crew/profile` | The agent's kit: its profile with secrets resolved, `env` and `revision`. See [Agent profile](agent-profile.md). Query `agent=<name>` names the agent in `none` mode; with a token it must match. `Cache-Control: no-store`. |
-| `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image). Only for conversations on the agent's docks, else `404`. |
+| `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image, or a document as a download). Only for conversations on the agent's docks, else `404`. |
+| `POST` | `/crew/reply` | A reply as the agent, with files. Body `{"conversation_id","text","files":[{"name","data"}]}` (`data` base64; body up to about 35 MiB). `201` `{"ship_id","status"}`. Agent tokens only (`403` without an agent). Same rules as the MCP `reply` tool. |
 | `GET` | `/crew/workspace` | A hosted slot's plan for `/workspace`: `slot`, `harness`, `repo_config`, `persistent`, `repos`, `sign_in`, with repo credentials resolved. Only a slot's own token gets it; any other is `403`. |
+| `POST` | `/crew/github/token` | A GitHub App token for one repository. Body `{"repository":"owner/repo","host":"github.com"}` (`host` optional: another host than the port's GitHub is `404`). `200` `{"token","expires_at","repository","host","api_url","app"}`, `Cache-Control: no-store`. Only an agent's crew token, and only for a repository where the App of one of its GitHub docks is installed and active; else `404` (`403` without an agent: `none` mode). See [GitHub](../guides/github.md#act-on-github-as-the-app). |
 | `*` | `/gateway/anthropic/…` | The model gateway for hosted slots. |
 
 The gateway is for hosted slots only: it takes the slot token as the bearer or as `x-api-key`, drops the caller's own `Authorization`, adds the real provider key from the agent's secrets and forwards:
@@ -438,4 +441,4 @@ The gateway is for hosted slots only: it takes the slot token as the bearer or a
 Any other path under it answers `404`. It streams responses and records the token usage of successful Messages calls (`GET /api/v1/agents/{id}/usage`). Errors come back in Anthropic's error shape. It isn't covered by the API rate limit. Where it forwards to is `SEAPORT_GATEWAY_ANTHROPIC_URL`. See [Network](../guides/hosting/network.md).
 
 > [!NOTE]
-> `/crew/profile` and `/crew/workspace` hand out secrets. They only answer the crew credential of the agent itself, never an admin credential. See [Security model](../explanation/security-model.md).
+> `/crew/profile`, `/crew/workspace` and `/crew/github/token` hand out secrets. They only answer the crew credential of the agent itself, never an admin credential. See [Security model](../explanation/security-model.md).

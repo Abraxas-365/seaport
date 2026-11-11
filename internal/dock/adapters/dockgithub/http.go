@@ -56,6 +56,7 @@ func (h *Handler) RegisterPublic(mux *http.ServeMux) {
 	mux.Handle("GET /github/apps/created", httpx.Handle(h.created))
 	mux.Handle("GET /github/apps/installed", httpx.Handle(h.installed))
 	mux.Handle("POST /github/webhook/{dock}", httpx.Handle(h.webhook))
+	mux.Handle("POST /github/actions/{dock}", httpx.Handle(h.action))
 }
 
 // githubDock finds the caller's dock and checks it is a GitHub one.
@@ -188,7 +189,7 @@ func (h *Handler) manifest(w http.ResponseWriter, r *http.Request) error {
 		"hook_attributes": map[string]any{"url": public + WebhookPath + d.ID.String(), "active": true},
 		"default_permissions": map[string]string{
 			"metadata": "read", "issues": "write", "pull_requests": "write",
-			// contents: hosted agents push branches (docs, screenshots)
+			// contents: reply files (seaport-files branch), agents push branches
 			"contents": "write",
 		},
 		"default_events": []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment"},
@@ -398,7 +399,11 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	if created && st.Status == ship.StatusQueued {
 		h.g.seen(a, at)
 	}
-	return httpx.JSON(w, http.StatusAccepted, map[string]any{"status": "received", "ship_id": st.ID, "created": created})
+	status := "received"
+	if at.in.Own {
+		status = "recorded"
+	}
+	return httpx.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
 }
 
 // installationEvent keeps the installations in step with GitHub (also

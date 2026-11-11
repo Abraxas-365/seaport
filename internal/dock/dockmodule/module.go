@@ -14,7 +14,9 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockpg"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/dock/docksvc"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -122,6 +124,18 @@ func (m *Module) RegisterPublic(mux *http.ServeMux) {
 	if m.ghHTTP != nil {
 		m.ghHTTP.RegisterPublic(mux)
 	}
+}
+
+// GitHubToken serves POST /crew/github/token (mounted behind crew auth):
+// App tokens for the agent's repos. Without GitHub docks (no secret key)
+// it answers 404.
+func (m *Module) GitHubToken() http.Handler {
+	if m.ghHTTP == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpx.WriteError(w, r, errx.NotFound("GitHub docks are off on this port (no secret key)"))
+		})
+	}
+	return m.ghHTTP.Token()
 }
 
 // Start runs dock ownership (serving other processes' requests, renewing

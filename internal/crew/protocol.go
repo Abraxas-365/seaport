@@ -36,6 +36,32 @@ import (
 // token it is the token's agent and the header, when sent, must match.
 const AgentHeader = "X-Seaport-Agent"
 
+// ReplyPath is where an agent sends a reply with files over HTTP (crew
+// auth): `seaport reply -file`, for files too big for a model to write as
+// base64.
+const ReplyPath = "/crew/reply"
+
+// MaxReplyBody bounds a ReplyPath body: ship.MaxFiles as base64 plus the
+// text.
+const MaxReplyBody = ship.MaxFiles/3*4 + 1<<20
+
+// ReplyRequest is the body of ReplyPath; Files' data is base64 in JSON.
+type ReplyRequest struct {
+	ConversationID identity.ConversationID `json:"conversation_id"`
+	Text           string                  `json:"text,omitempty"`
+	Files          []ship.File             `json:"files,omitempty"`
+}
+
+func (r ReplyRequest) Validate() error {
+	return ship.Outbound{Conversation: r.ConversationID, Text: r.Text, Files: r.Files}.Validate()
+}
+
+// ReplyAnswer is what ReplyPath answers: the outbound ship.
+type ReplyAnswer struct {
+	ShipID string `json:"ship_id"`
+	Status string `json:"status"`
+}
+
 // FrameType names a frame.
 type FrameType string
 

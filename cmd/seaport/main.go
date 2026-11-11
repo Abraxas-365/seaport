@@ -94,6 +94,10 @@ Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
   seaport connect [flags] -- <agent command>   e.g. seaport connect -- rness --acp
                                         works as the token's agent (-agent <name> without a token),
                                         with its profile: instructions, skills, MCP servers, secrets
+  seaport github-token [owner/repo]     a GitHub App token for a repo of the agent's GitHub docks
+                                        (default: the origin remote here); hosted slots' gh and git use it
+  seaport reply <conversation-id> [-file PATH]... [text]
+                                        reply as the agent, with files (reports, screenshots)
 `
 
 func main() {
@@ -106,6 +110,12 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	run := run
+	if filepath.Base(os.Args[0]) == "gh" {
+		// The gh shim of hosted slots (/opt/seaport/bin/gh → seaport): gh
+		// with a GitHub App token for the repo it is about.
+		run = func(ctx context.Context, args []string) error { return connector.GH(ctx, args) }
+	}
 	if err := run(ctx, os.Args[1:]); err != nil {
 		var e *errx.Error
 		if errors.As(err, &e) {
@@ -154,6 +164,13 @@ func run(ctx context.Context, args []string) error {
 			op = rest[0]
 		}
 		return connector.GitCredential(ctx, op, os.Stdin, os.Stdout)
+	case "reply":
+		// an agent's reply with files from disk.
+		return connector.ReplyCommand(ctx, rest, os.Stdout)
+	case "github-token":
+		// a GitHub App token for a repo of the agent's GitHub docks
+		// (GH_TOKEN=$(seaport github-token owner/repo) gh …).
+		return connector.GitHubTokenCommand(ctx, rest, os.Stdout)
 	case "healthcheck":
 		return healthcheck(ctx)
 	case "version":

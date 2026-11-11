@@ -587,6 +587,18 @@ function Conversation() {
               attachments: [{ id: "00000000-0000-0000-0000-000000000000", kind: "image", mime: "image/jpeg", size: 245_000, sha256: "" }],
             })}
           />
+          {/* A document an agent sent with its reply: a download chip. */}
+          <ShipBubble
+            ship={sampleShip({
+              direction: "out",
+              status: "sent",
+              text: "Revisión QA lista.",
+              sent_at: ago(1),
+              attachments: [
+                { id: "00000000-0000-0000-0000-000000000001", kind: "document", mime: "text/plain; charset=utf-8", size: 4_200, name: "qa-report.md", sha256: "" },
+              ],
+            })}
+          />
         </div>
         <Composer onSend={() => new Promise((r) => setTimeout(r, 600))} />
       </Card>

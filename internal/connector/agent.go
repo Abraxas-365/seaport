@@ -17,6 +17,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	acp "github.com/coder/acp-go-sdk"
 )
@@ -71,6 +72,14 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error)
 	cmd.Dir = cfg.Cwd
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
+	// The agent's own tools (`seaport reply -file`, `seaport github-token`)
+	// reach the port as the connector does.
+	if os.Getenv(hosting.EnvURL) == "" && cfg.Server != "" {
+		cmd.Env = append(cmd.Env, hosting.EnvURL+"="+cfg.Server)
+	}
+	if os.Getenv(hosting.EnvToken) == "" && cfg.Token != "" {
+		cmd.Env = append(cmd.Env, hosting.EnvToken+"="+cfg.Token)
+	}
 	if kit != nil {
 		for k, v := range kit.Env {
 			if slices.Contains(cfg.Protect, k) {

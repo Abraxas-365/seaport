@@ -96,6 +96,8 @@ internal/
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
+action/               composite GitHub Action: a workflow hands a message to a
+                      GitHub dock (OIDC, POST /github/actions/{dock})
 images/               base images of hosted agents (Dockerfile targets rness,
                       claude-code; release.yml pushes ghcr.io/abraxas-365/seaport-*)
 scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
@@ -161,8 +163,9 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - Public routes (`permission_architecture_test.go`,
   `TestPublicRoutesAreListed`): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
-  `publicRoutes` (`/`, `/healthz`, GitHub's redirects and webhook, which
-  carry their own proof: a sealed state or the App's HMAC).
+  `publicRoutes` (`/`, `/healthz`, GitHub's redirects, webhook and
+  Actions endpoint, which carry their own proof: a sealed state, the
+  App's HMAC or a GitHub Actions OIDC token for this port).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -410,6 +413,27 @@ test together with the reason. Add a rule when you add a pattern.
   ACP image blocks only when the agent advertises
   `promptCapabilities.image` (rness refuses them otherwise), up to
   `maxPromptImages`, naming the rest in the text.
+- Outbound files (migration 00023, `shipsvc.keepFiles`): `ship.Outbound.Files`
+  (MCP `reply` `files` base64, `POST /crew/reply` = `seaport reply -file`,
+  body ≤ `crew.MaxReplyBody`; MCP handler's `MaxRequestBodyBytes` too) are
+  checked by `ship.ValidateFiles` (≤ `MaxAttachments`, `MaxFile` each,
+  `MaxFiles` together, plain unique names), sniffed (`blob.ImageType` →
+  kind `image`; else `document` with `blob.FileType`, which maps anything
+  renderable to `application/octet-stream`), sealed and staged like media
+  *before* `CreateOutbound`, which inserts the attachments in its
+  transaction; no blob store → `Business` refusal, never dropped. Documents
+  are served with `httpx.Download`. `dock.Outgoing.Files` reach the
+  gateway: `dockgithub` commits them in one commit (Git Data API) to the
+  orphan branch `FilesBranch` (`seaport-files`, retried when the ref moved)
+  under `pr-<n>/<message id>/` and links them at that commit in the
+  comment (`filesBody`); `dockwa` sends the text with the stored id, then
+  each file as an image/document message (ids remembered in
+  `session.sentFiles` so the self-chat echo is dropped); `dockapi` keeps
+  them. The App's own comments (`<slug>[bot]`) come back by webhook as
+  `Inbound.Own`: `Receive` records them (`Repository.Record`: outbound,
+  sent, agent = the conversation's claiming agent, wakes nobody); `Send`
+  appends `<!-- seaport-message <id> -->` so the echo of a stored reply is
+  a duplicate.
 - Harness homes (`hosting/home.go`, migration 00021,
   `hostingsvc/homes.go`): an environment's `home: sha256:…` names an
   uploaded `~/.claude` or `~/.rness` (`POST /api/v1/homes?harness=…`, raw
@@ -625,7 +649,21 @@ test together with the reason. Add a rule when you add a pattern.
   loops); thread = conversation `owner/repo#N` (group, addressed), ship
   ids `comment-/review-/review-comment-/issue-/pr-<id>`. `Send` posts an
   issue comment with an installation token (cached until 5 min before
-  expiry). Off without a secret key. Unlink uninstalls every installation
+  expiry). Off without a secret key. Agents act as the App through
+  `POST /crew/github/token` (crew auth, agent tokens only;
+  `Gateway.AgentToken`): a token scoped to one repository, only where the
+  App of one of the agent's GitHub docks has an active installation (else
+  NotFound); `seaport github-token`, the `gh` shim (seaport binary called
+  as `gh`, real gh at `/usr/local/bin/gh` in the base images) and
+  `git-credential` (fallback after the environment's credentials) ask it
+  each time; nothing on disk. Workflows send messages through the public
+  `POST /github/actions/{dock}` (`dockgithub/actions.go`, composite action
+  `action/action.yml`): bearer = the job's GitHub Actions OIDC token
+  (`oidc.go`: RS256 against the issuer's JWKS, `SEAPORT_GITHUB_OIDC_URL`;
+  audience = `SEAPORT_PUBLIC_URL`), its repository must be served by an
+  active installation of the dock's App; the ship is `@actor` +
+  `github:action`, addressed, external id
+  `action-<run>-<attempt>-<id|hash>`. Unlink uninstalls every installation
   and deletes the App row (the App itself stays on GitHub).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).

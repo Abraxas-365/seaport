@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,27 @@ type session struct {
 	mu       sync.Mutex
 	lastSend time.Time
 	titles   map[types.JID]string
+	// sentFiles are the ids of file messages sent after a reply's text
+	// (no stored ship has them), so their echo in the self chat is dropped.
+	sentFiles []types.MessageID
+}
+
+// maxSentFiles bounds the remembered file message ids.
+const maxSentFiles = 64
+
+func (s *session) sentFile(id types.MessageID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sentFiles = append(s.sentFiles, id)
+	if len(s.sentFiles) > maxSentFiles {
+		s.sentFiles = s.sentFiles[len(s.sentFiles)-maxSentFiles:]
+	}
+}
+
+func (s *session) isSentFile(id types.MessageID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Contains(s.sentFiles, id)
 }
 
 // Open opens the sealed store (secretKey: SEAPORT_SECRET_KEY).
@@ -330,13 +352,59 @@ func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
 	if err != nil {
 		return errx.Wrap(err, "parse chat id", errx.TypeInternal)
 	}
-	s.pace(ctx)
-	_, err = s.client.SendMessage(ctx, to, &waE2E.Message{Conversation: proto.String(msg.Text)},
-		whatsmeow.SendRequestExtra{ID: types.MessageID(msg.MessageID)})
-	if err != nil {
-		return errx.Wrap(err, "send whatsapp message", errx.TypeExternal)
+	// The text goes with the message id stored for it (so its echo is a
+	// duplicate), each file as its own image or document message after it
+	// (the first file takes the id when there is no text).
+	id := types.MessageID(msg.MessageID)
+	if msg.Text != "" {
+		s.pace(ctx)
+		_, err = s.client.SendMessage(ctx, to, &waE2E.Message{Conversation: proto.String(msg.Text)}, whatsmeow.SendRequestExtra{ID: id})
+		if err != nil {
+			return errx.Wrap(err, "send whatsapp message", errx.TypeExternal)
+		}
+		id = ""
+	}
+	for _, f := range msg.Files {
+		if id == "" {
+			id = whatsmeow.GenerateMessageID()
+			s.sentFile(id)
+		}
+		m, err := s.fileMessage(ctx, f)
+		if err != nil {
+			return err
+		}
+		s.pace(ctx)
+		if _, err := s.client.SendMessage(ctx, to, m, whatsmeow.SendRequestExtra{ID: id}); err != nil {
+			return errx.Wrap(err, "send whatsapp file "+f.Name, errx.TypeExternal)
+		}
+		id = ""
 	}
 	return nil
+}
+
+// fileMessage uploads a file (encrypted, to WhatsApp's media servers) and
+// returns the image or document message that shows it.
+func (s *session) fileMessage(ctx context.Context, f dock.File) (*waE2E.Message, error) {
+	kind := whatsmeow.MediaDocument
+	if f.IsImage() {
+		kind = whatsmeow.MediaImage
+	}
+	up, err := s.client.Upload(ctx, f.Data, kind)
+	if err != nil {
+		return nil, errx.Wrap(err, "upload whatsapp file "+f.Name, errx.TypeExternal)
+	}
+	if f.IsImage() {
+		return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
+			URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+			Mimetype: proto.String(f.MIME), FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+			FileLength: proto.Uint64(up.FileLength),
+		}}, nil
+	}
+	return &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
+		URL: proto.String(up.URL), DirectPath: proto.String(up.DirectPath), MediaKey: up.MediaKey,
+		Mimetype: proto.String(f.MIME), FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256,
+		FileLength: proto.Uint64(up.FileLength), FileName: proto.String(f.Name), Title: proto.String(f.Name),
+	}}, nil
 }
 
 func (g *Gateway) session(id identity.DockID) *session {
@@ -473,7 +541,7 @@ func (s *session) inbound(ctx context.Context, e *events.Message) (ship.Inbound,
 	}
 	own, ownLID := s.client.Store.GetJID().ToNonAD(), s.client.Store.GetLID().ToNonAD()
 	self := !info.IsGroup && (chat.User == own.User || (!ownLID.IsEmpty() && chat.User == ownLID.User))
-	if info.IsFromMe && !self {
+	if info.IsFromMe && (!self || s.isSentFile(info.ID)) {
 		return ship.Inbound{}, false
 	}
 	body := messageText(e.Message)

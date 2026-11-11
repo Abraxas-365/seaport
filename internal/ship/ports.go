@@ -88,9 +88,17 @@ type Repository interface {
 	FindExternal(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, externalID string) (s Ship, found bool, err error)
 	// CreateOutbound stores a reply only if admit accepts the dock's and the
 	// conversation's recent outbound counts; counting and inserting are
-	// atomic per dock, so concurrent replies can't overshoot a limit.
-	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, dock identity.DockID, externalID string, admit func(OutboundCounts) error) (Ship, error)
+	// atomic per dock, so concurrent replies can't overshoot a limit. Its
+	// attachments (blobs already stored) are inserted with it and leave
+	// the trash.
+	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, dock identity.DockID, externalID string, attachments []Attachment, admit func(OutboundCounts) error) (Ship, error)
 	SetOutcome(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, status Status, errMsg string) (Ship, error)
+	// Record stores the dock's own message sent outside Seaport
+	// (Inbound.Own) as an outbound ship already sent, by the agent
+	// working the conversation when one is (its claimed ships' agent).
+	// created is false when the conversation already has a ship with
+	// that external id (Seaport's own send, or a redelivery).
+	Record(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation identity.ConversationID, input Inbound) (s Ship, created bool, err error)
 	// Claim records session as the ships' holder; Join gives joined ships
 	// the delivery's holder.
 	Claim(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, delivery identity.DeliveryID, session string, until time.Time) (conversation identity.ConversationID, ships []Ship, err error)

@@ -33,22 +33,25 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 
 | Tool | Always there | What it does |
 | :--- | :--- | :--- |
-| `reply` | yes | Sends a text message to an allowed conversation. |
+| `reply` | yes | Sends a message, with files if needed, to an allowed conversation. |
 | `history` | yes | Reads the latest messages of a conversation. |
-| `attachment` | yes | Returns an image attached to a message. |
+| `attachment` | yes | Returns a file attached to a message (an image or a document). |
 | `conversations` | yes | Lists the allowed conversations of the agent's docks. |
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
 
 ### reply
 
-Sends a text message to a Seaport conversation. Only allowed conversations accept replies.
+Sends a message to a Seaport conversation, with files if needed. Only allowed conversations accept replies.
 
 Arguments:
 
 | Name | Type | Required | Meaning |
 | :--- | :--- | :--- | :--- |
 | `conversation_id` | string | yes | The `conversation_id` given in the Seaport prompt. |
-| `text` | string | yes | The message to send. At most 65536 characters. |
+| `text` | string | unless `files` | The message to send. At most 65536 characters. |
+| `files` | array | no | Files sent with it: `{ "name": "qa-report.md", "content_base64": "…" }` each. |
+
+Files: at most 10, 10 MiB each and 25 MiB together (the request body is capped at about 35 MiB). Names use letters, digits, spaces and `. _ ( ) + -`, without paths, unique in the reply. The type comes from the bytes. Each channel delivers files its own way; see [Files agents send](../guides/messages-and-images.md#files-agents-send). For files on disk, `seaport reply <conversation_id> -file PATH… "text"` sends them without the model writing base64 ([CLI](cli.md)).
 
 Result:
 
@@ -64,6 +67,7 @@ Errors:
 - The conversation belongs to a dock the agent doesn't work on: `conversation not found`.
 - The dock, conversation or organization sent too much lately: a rate-limit error. See [Limits](limits.md).
 - The channel failed to send: the message is stored as `failed` and the tool returns an error.
+- Files on a port without blob storage: `this port keeps no files`. Invalid files (a path as name, empty, too large, two with one name, bad base64) are refused and nothing is sent.
 
 ### history
 
@@ -99,7 +103,7 @@ Result:
 - `direction` is `in` or `out`.
 - `from` is the sender's name, else the sender id; for outbound messages it is `agent`.
 - `status` is the ship status (inbound `held`, `queued`, `claimed`, `handled`; outbound `pending`, `sent`, `failed`).
-- `attachments` is left out when the message has none. `name` is left out when unknown.
+- `attachments` is left out when the message has none. `kind` is `image` or `document` (a file an agent sent). `name` is left out when unknown.
 - `total` is the number of messages in the conversation, not the number returned.
 
 ### attachment
@@ -112,7 +116,7 @@ Arguments:
 | :--- | :--- | :--- | :--- |
 | `attachment_id` | string | yes | An `attachment_id` listed by `history`. |
 
-Result: MCP image content (the bytes and their MIME type), not text. Only images are stored: `image/jpeg`, `image/png`, `image/webp` and `image/gif`, up to 3.75 MiB each. An attachment of a dock the agent doesn't work on answers not found. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
+Result: for an image (`image/jpeg`, `image/png`, `image/webp`, `image/gif`, up to 3.75 MiB), MCP image content. For a document (a file an agent sent), an embedded resource: its text for text files, else its bytes. An attachment of a dock the agent doesn't work on answers not found. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
 
 ### conversations
 

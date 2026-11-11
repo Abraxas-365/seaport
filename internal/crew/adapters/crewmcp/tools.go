@@ -5,6 +5,7 @@ package crewmcp
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"slices"
 	"strings"
@@ -39,7 +40,8 @@ func Handler(d Deps) http.Handler {
 	// refuse hosted slots, which reach a port on the host as
 	// host.docker.internal (through loopback on Docker Desktop).
 	h := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server(r.Context(), d) },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true})
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, DisableLocalhostProtection: true,
+			MaxRequestBodyBytes: crew.MaxReplyBody})
 	return withAgent(d.Agents, h)
 }
 
@@ -77,8 +79,10 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	})
 	t := tools{d: d}
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "reply",
-		Description: "Send a text message to a seaport conversation (WhatsApp chat...). Only allowed conversations accept replies.",
+		Name: "reply",
+		Description: "Send a message to a seaport conversation (WhatsApp chat, GitHub pull request...), optionally with files " +
+			"(reports, screenshots; base64). Only allowed conversations accept replies. For files on disk, prefer the shell: " +
+			"`seaport reply <conversation_id> -file report.md -file shot.png \"text\"`.",
 	}, t.reply)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "history",
@@ -86,7 +90,7 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	}, t.history)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "attachment",
-		Description: "Look at a file attached to a message (an image), by the attachment id that history lists.",
+		Description: "Look at a file attached to a message (an image, a document), by the attachment id that history lists.",
 	}, t.attachment)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "conversations",
@@ -147,8 +151,15 @@ func (t tools) visible(ctx context.Context, org identity.OrganizationID, id *ide
 }
 
 type ReplyIn struct {
-	ConversationID string `json:"conversation_id" jsonschema:"the conversation_id given in the seaport prompt"`
-	Text           string `json:"text" jsonschema:"the message to send"`
+	ConversationID string      `json:"conversation_id" jsonschema:"the conversation_id given in the seaport prompt"`
+	Text           string      `json:"text,omitempty" jsonschema:"the message to send (may be empty when files go)"`
+	Files          []ReplyFile `json:"files,omitempty" jsonschema:"files sent with the message (at most 10; 10 MiB each, 25 MiB in all)"`
+}
+
+// ReplyFile is a file of a reply; its type is sniffed from the bytes.
+type ReplyFile struct {
+	Name   string `json:"name" jsonschema:"the file name people see, e.g. qa-report.md"`
+	Base64 string `json:"content_base64" jsonschema:"the file's bytes, base64 (standard)"`
 }
 
 type ReplyOut struct {
@@ -165,8 +176,16 @@ func (t tools) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (*
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
+	files := make([]ship.File, 0, len(in.Files))
+	for _, f := range in.Files {
+		data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(f.Base64))
+		if err != nil {
+			return failure(errx.InvalidField("files.content_base64", "file "+f.Name+" is not valid base64")), ReplyOut{}, nil
+		}
+		files = append(files, ship.File{Name: strings.TrimSpace(f.Name), Data: data})
+	}
 	// Send refuses a conversation of a dock the agent doesn't work on.
-	s, err := t.d.Ships.Send(ctx, org, ship.Outbound{Conversation: id, Text: in.Text, Agent: agentID})
+	s, err := t.d.Ships.Send(ctx, org, ship.Outbound{Conversation: id, Text: in.Text, Agent: agentID, Files: files})
 	if err != nil {
 		return failure(err), ReplyOut{}, nil
 	}
@@ -254,7 +273,16 @@ func (t tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, in Attach
 	if err != nil {
 		return failure(err), nil, nil
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.ImageContent{Data: f.Data, MIMEType: f.MIME}}}, nil, nil
+	if f.Kind == ship.AttachmentImage {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.ImageContent{Data: f.Data, MIMEType: f.MIME}}}, nil, nil
+	}
+	res := &mcp.ResourceContents{URI: "attachment://" + f.ID.String(), MIMEType: f.MIME}
+	if strings.HasPrefix(f.MIME, "text/") {
+		res.Text = string(f.Data)
+	} else {
+		res.Blob = f.Data
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.EmbeddedResource{Resource: res}}}, nil, nil
 }
 
 type ConversationsIn struct{}

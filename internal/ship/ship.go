@@ -117,6 +117,12 @@ type Inbound struct {
 	// Media: files that came with the message (images), downloaded at
 	// arrival; Text is then the caption (may be empty).
 	Media []Media
+	// Own: the dock's own account sent it, not through Seaport (an agent
+	// commenting with gh as the GitHub App): it is recorded as an
+	// outbound ship already sent, wakes nobody and carries no media. Its
+	// ExternalID matches the outbound ship Seaport stored when it was
+	// Seaport's own send, so that echo is a duplicate.
+	Own bool
 }
 
 func (in Inbound) Validate() error {
@@ -139,6 +145,9 @@ func (in Inbound) Validate() error {
 		}
 	} else if err := text.Required("text", in.Text, text.MaxMessage); err != nil {
 		return err
+	}
+	if in.Own && len(in.Media) > 0 {
+		return errx.InvalidField("media", "the dock's own messages carry no media")
 	}
 	if len(in.Media) > MaxAttachments {
 		return errx.InvalidField("media", "too many attachments (max "+strconv.Itoa(MaxAttachments)+")")
@@ -171,14 +180,25 @@ func (in Inbound) Arrival() conversation.Arrive {
 // Outbound is a reply the crew sends to a conversation.
 type Outbound struct {
 	Conversation identity.ConversationID
-	Text         string
+	// Text may be empty when the reply carries files.
+	Text string
 	// Agent is the agent replying (nil: a person, from the admin).
 	Agent *identity.AgentID
+	// Files go with the reply: kept (sealed) as its attachments and sent
+	// the channel's way (GitHub: committed and linked; WhatsApp: image or
+	// document messages; api: read from the API).
+	Files []File
 }
 
 func (o Outbound) Validate() error {
 	if o.Conversation.IsZero() {
 		return errx.InvalidField("conversation_id", "conversation_id is required")
+	}
+	if len(o.Files) > 0 {
+		if err := ValidateFiles(o.Files); err != nil {
+			return err
+		}
+		return text.Optional("text", o.Text, text.MaxMessage)
 	}
 	return text.Required("text", o.Text, text.MaxMessage)
 }

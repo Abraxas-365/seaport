@@ -47,6 +47,7 @@ var publicRoutes = map[string]string{
 	"GET /github/apps/created":    "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
 	"GET /github/apps/installed":  "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
 	"POST /github/webhook/{dock}": "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
+	"POST /github/actions/{dock}": "GitHub Actions: checks the job's OIDC token (GitHub's signature, audience = this port) and that the dock's App is installed on its repository",
 }
 
 // publicViolations: literal routes outside /api/v1/ neither behind

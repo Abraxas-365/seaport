@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
@@ -19,6 +20,19 @@ import (
 func workspaceServer(t *testing.T, ws hosting.Workspace) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == dock.GitHubTokenPath && r.Header.Get("Authorization") == "Bearer sp_crew_slot" {
+			// The App of the agent's GitHub dock is installed on acme/bot.
+			var in dock.GitHubTokenRequest
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			w.Header().Set("Content-Type", "application/json")
+			if in.Repository != "acme/bot" || (in.Host != "" && in.Host != "github.com") {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"error":{"message":"no GitHub dock"}}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(dock.GitHubToken{Token: "ghs_app_bot", Repository: in.Repository, Host: "github.com"})
+			return
+		}
 		if r.URL.Path != "/crew/workspace" || r.Header.Get("Authorization") != "Bearer sp_crew_slot" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -65,6 +79,11 @@ func TestGitCredential(t *testing.T) {
 	}
 	if got := ask("protocol=https\nhost=github.com\npath=acme/app\n"); !strings.Contains(got, "ghp_app") {
 		t.Fatalf("app: %q", got)
+	}
+	// No environment credential: the GitHub App's token, when the
+	// agent's dock has its App on the repo.
+	if got := ask("protocol=https\nhost=github.com\npath=acme/bot.git\n"); got != "username=x-access-token\npassword=ghs_app_bot\n" {
+		t.Fatalf("bot: %q", got)
 	}
 	for _, in := range []string{"protocol=https\nhost=github.com\npath=acme/open.git\n", "protocol=https\nhost=gitlab.com\npath=acme/app.git\n", "protocol=http\nhost=github.com\npath=acme/app.git\n"} {
 		if got := ask(in); got != "" {
@@ -226,7 +245,7 @@ func TestReposAndWorktrees(t *testing.T) {
 	if err := configureGit(ctx, cfg, ws); err != nil {
 		t.Fatal(err)
 	}
-	if got := run(t, cfg.Home, "git", "config", "--global", "credential.https://example.test.helper"); got != "!'/opt/seaport/bin/seaport' git-credential" {
+	if got := run(t, cfg.Home, "git", "config", "--global", "credential.helper"); got != "!'/opt/seaport/bin/seaport' git-credential" {
 		t.Fatalf("helper: %q", got)
 	}
 	if err := prepareRepo(ctx, cfg, repo); err != nil {

@@ -31,6 +31,7 @@ type Module struct {
 	mcp      http.Handler
 	kit      http.Handler
 	media    http.Handler
+	reply    http.Handler
 	version  string
 }
 
@@ -62,12 +63,14 @@ func (m *Module) Bind(ships interface {
 	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Version: m.version})
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}
+	m.reply = crewhttp.Reply{Ships: ships}
 	m.Hub.Bind(ships, agents)
 }
 
 // WS is the /crew/ws handler, MCP the /mcp handler, Kit GET /crew/profile,
-// Attachment GET /crew/attachments/{id}.
+// Attachment GET /crew/attachments/{id}, Reply POST /crew/reply.
 func (m *Module) WS() http.Handler         { return m.Hub }
 func (m *Module) MCP() http.Handler        { return m.mcp }
 func (m *Module) Kit() http.Handler        { return m.kit }
 func (m *Module) Attachment() http.Handler { return m.media }
+func (m *Module) Reply() http.Handler      { return m.reply }

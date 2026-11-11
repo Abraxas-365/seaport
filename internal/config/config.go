@@ -125,6 +125,11 @@ type Server struct {
 	// SEAPORT_GITHUB_API_URL (default https://api.github.com); GitHub
 	// Enterprise Server: https://host and https://host/api/v3.
 	GitHubURL, GitHubAPIURL string
+	// GitHubOIDCURL is the issuer of GitHub Actions' OIDC tokens
+	// (SEAPORT_GITHUB_OIDC_URL, default
+	// https://token.actions.githubusercontent.com; GHES:
+	// https://host/_services/token).
+	GitHubOIDCURL string
 	// Egress proxy of hosted slots: SEAPORT_EGRESS_ADDR is its listen
 	// address ("": off, slots get no proxy and the runtime network alone
 	// decides what they reach); slots reach it at SEAPORT_EGRESS_URL
@@ -189,6 +194,7 @@ func LoadServer() (Server, error) {
 		GatewayAnthropicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_GATEWAY_ANTHROPIC_URL")), "/"),
 		GitHubURL:           strings.TrimRight(env("SEAPORT_GITHUB_URL", "https://github.com"), "/"),
 		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
+		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
 		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
 		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
@@ -282,7 +288,7 @@ func (c Server) Validate() error {
 			return errx.Validation("SEAPORT_GATEWAY_ANTHROPIC_URL must be an http(s) URL")
 		}
 	}
-	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}} {
+	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}, {"SEAPORT_GITHUB_OIDC_URL", c.GitHubOIDCURL}} {
 		if u.value == "" {
 			continue
 		}

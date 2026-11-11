@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -501,6 +502,9 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	fmt.Fprintf(&b, "conversation: %s (%s)\n\n", title, c.Kind)
 	writeShips(&b, d.Ships, ok)
 	b.WriteString("\n")
+	if c.Channel == dock.ChannelGitHub {
+		b.WriteString(githubHint(c.ExternalID))
+	}
 	if autoReply {
 		b.WriteString("Your final answer will be sent to this conversation as a message. " +
 			"Keep it short and conversational.")

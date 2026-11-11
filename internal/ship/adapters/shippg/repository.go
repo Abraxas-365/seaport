@@ -91,27 +91,35 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 	if err != nil {
 		return s, false, pgerr.MapWith(err, "create inbound ship", messages)
 	}
+	if err := insertAttachments(ctx, tx, org, id, attachments, &s); err != nil {
+		return s, false, err
+	}
+	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
+}
+
+// insertAttachments stores a new ship's attachments in its transaction;
+// their blobs are in use now: out of the trash.
+func insertAttachments(ctx context.Context, tx *sqlx.Tx, org identity.OrganizationID, id identity.ShipID, attachments []ship.Attachment, s *ship.Ship) error {
 	for i, a := range attachments {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO ship_attachments
 			(organization_id, id, ship_id, position, kind, mime, size, name, sha256, blob_key)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 			org, a.ID, id, i, a.Kind, a.MIME, a.Size, a.Name, a.SHA256, a.Key); err != nil {
-			return s, false, pgerr.Map(err, "store attachment")
+			return pgerr.Map(err, "store attachment")
 		}
 		a.Organization, a.Ship, a.Position = org, id, i
 		s.Attachments = append(s.Attachments, a)
 	}
 	if len(attachments) > 0 {
-		// Their blobs are in use now: out of the trash.
 		if _, err := tx.ExecContext(ctx, `DELETE FROM blob_trash WHERE blob_key = ANY($1::text[])`, keysOf(attachments)); err != nil {
-			return s, false, pgerr.Map(err, "keep attachment blobs")
+			return pgerr.Map(err, "keep attachment blobs")
 		}
 	}
-	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
+	return nil
 }
 
 func (r *Repository) CreateOutbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, in ship.Outbound,
-	dock identity.DockID, externalID string, admit func(ship.OutboundCounts) error) (ship.Ship, error) {
+	dock identity.DockID, externalID string, attachments []ship.Attachment, admit func(ship.OutboundCounts) error) (ship.Ship, error) {
 	var s ship.Ship
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -169,6 +177,9 @@ func (r *Repository) CreateOutbound(ctx context.Context, org identity.Organizati
 	if err != nil {
 		return s, pgerr.MapWith(err, "create outbound ship", messages)
 	}
+	if err := insertAttachments(ctx, tx, org, id, attachments, &s); err != nil {
+		return s, err
+	}
 	return s, pgerr.Map(tx.Commit(), "commit outbound")
 }
 
@@ -177,6 +188,26 @@ func (r *Repository) SetOutcome(ctx context.Context, org identity.OrganizationID
 	err := r.db.GetContext(ctx, &s, `UPDATE ships SET status = $2, error = $3
 		WHERE id = $1 AND organization_id = $4 RETURNING `+columns, id, status, errMsg, org)
 	return s, pgerr.MapWith(err, "set ship outcome", messages)
+}
+
+func (r *Repository) Record(ctx context.Context, org identity.OrganizationID, id identity.ShipID, conv identity.ConversationID, in ship.Inbound) (ship.Ship, bool, error) {
+	var s ship.Ship
+	err := r.db.GetContext(ctx, &s, `
+		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status, agent_id, sent_at)
+		VALUES ($1, $2, $3, 'out', $4, $5, $6, $7, 'sent',
+			(SELECT agent_id FROM ships WHERE organization_id = $2 AND conversation_id = $3 AND status = 'claimed'
+			 ORDER BY created_at LIMIT 1), $8)
+		ON CONFLICT (conversation_id, external_id) DO NOTHING
+		RETURNING `+columns,
+		id, org, conv, in.ExternalID, in.SenderID, in.SenderName, in.Text, in.SentAt)
+	if pgerr.IsNoRows(err) {
+		s, found, err := r.FindExternal(ctx, org, conv, in.ExternalID)
+		if err == nil && !found {
+			err = pgerr.MapWith(pgerr.ErrNoRows, "find recorded ship", messages)
+		}
+		return s, false, err
+	}
+	return s, err == nil, pgerr.MapWith(err, "record own message", messages)
 }
 
 // claimable limits an UPDATE of a conversation's queued ships of agent $5

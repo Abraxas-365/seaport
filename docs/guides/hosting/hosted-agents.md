@@ -184,7 +184,9 @@ Repos are cloned into `/workspace` when a slot starts. If the workspace is persi
 
 Each conversation gets its own git worktree, on a branch named `seaport/<conversation>`. Two conversations worked at once don't edit one tree. Without repos, every conversation works in `/workspace` itself.
 
-Git gets credentials from the port each time it asks: inside the slot, git's credential helper calls the port with the slot's token, and the port answers with the secret named by `credential`. No token is written to disk.
+Git gets credentials from the port each time it asks: inside the slot, git's credential helper calls the port with the slot's token, and the port answers with the secret named by `credential`. A repository with no `credential` gets a token of the GitHub App of one of the agent's [GitHub docks](../github.md#act-on-github-as-the-app), when the App is installed there. No token is written to disk.
+
+The base images ship GitHub's CLI. `gh` in a slot runs it with the App's token for the repository the command is about, so an agent of a GitHub dock can review pull requests, comment on lines and push branches as the App.
 
 `workspace: persistent` keeps `/workspace` in a per-slot volume across restarts. `ephemeral` starts every run clean. The harness's sessions and sign-in live in a separate state volume, so a woken slot resumes its conversations either way.
 

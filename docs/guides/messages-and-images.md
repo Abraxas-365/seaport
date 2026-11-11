@@ -48,6 +48,26 @@ The prompt names each attachment under its message line. How the agent looks at 
 
 See [The connector](connector.md#images).
 
+## Files agents send
+
+An agent's reply can carry files: a QA report, screenshots, a log. It sends them with the MCP `reply` tool (`files`, base64) or, for files on disk, from its shell:
+
+```bash
+seaport reply <conversation_id> -file qa-report.md -file checkout.png "QA done: 2 issues"
+```
+
+`seaport reply` uses `SEAPORT_URL` and `SEAPORT_CREW_TOKEN`, which the connector passes to the agent it runs (and hosted slots have). Limits: 10 files, 10 MiB each, 25 MiB together; names without paths.
+
+Seaport keeps each file sealed as an attachment of the outbound message, like inbound images, so the history and the web app show what was sent. Images (the four formats above, up to 3.75 MiB) show inline; any other file is a **document**, served only as a download and never rendered (HTML, SVG and other types a browser could run are stored as `application/octet-stream`). Then the channel delivers them:
+
+| Channel | Delivery |
+| :--- | :--- |
+| GitHub | One commit to the `seaport-files` branch of the repository (made on first use, without history from your code) under `pr-<number>/<message id>/`. The comment shows the images and links the other files at that commit, so links keep working. Readers need access to the repository. |
+| WhatsApp | The text, then each file as its own message: an image message or a document with its name. |
+| `api` | Kept with the message; your client reads them from `GET /api/v1/attachments/{id}`. |
+
+Files need blob storage: on a port without it (`SEAPORT_BLOB_URL=off` or no secret key) a reply with files is refused, not sent without them. The `seaport-files` branch grows with each file; delete old folders or the branch when you no longer need them (the comments' links then stop working).
+
 ## Storage
 
 Images are stored in a blob store:
@@ -63,7 +83,7 @@ Every file is sealed with `SEAPORT_SECRET_KEY` before it is written, and each is
 
 Deleting a dock, a conversation or a message deletes its images; a sweeper removes the blobs within about a minute. The port's secret key and blob store are covered in [Configuration](../reference/configuration.md) and [Backups and upgrades](operations/backups-and-upgrades.md).
 
-Images are served only to people with the permission to read messages (`ships:read`) and to agents for their own docks, always as downloads that can't run as web pages.
+Images and documents are served only to people with the permission to read messages (`ships:read`) and to agents for their own docks, always as downloads that can't run as web pages.
 
 ## Sending limits
 

@@ -38,6 +38,9 @@ type client struct {
 type tokenKey struct {
 	dock         identity.DockID
 	installation int64
+	// repo, when set, scopes the token to that repository (owner/name,
+	// lowercase): what agents get.
+	repo string
 }
 
 type repoKey struct {
@@ -224,53 +227,76 @@ func (c *client) forget(dock identity.DockID) {
 // token returns an installation token of the App, cached until close to
 // its expiry.
 func (c *client) token(ctx context.Context, a App, inst int64) (string, error) {
-	key := tokenKey{a.Dock, inst}
+	t, err := c.scopedToken(ctx, a, inst, "")
+	return t.value, err
+}
+
+// scopedToken returns an installation token, limited to one repository
+// (owner/name) when repo is set (the App's permissions are the ceiling).
+func (c *client) scopedToken(ctx context.Context, a App, inst int64, repo string) (installationToken, error) {
+	key := tokenKey{a.Dock, inst, strings.ToLower(repo)}
 	c.mu.Lock()
 	t, ok := c.tokens[key]
 	c.mu.Unlock()
 	if ok && time.Until(t.expires) > tokenMargin {
-		return t.value, nil
+		return t, nil
 	}
 	jwt, err := appJWT(a.AppID, a.key, time.Now())
 	if err != nil {
-		return "", err
+		return installationToken{}, err
+	}
+	var body any
+	if repo != "" {
+		_, name, _ := strings.Cut(repo, "/")
+		body = map[string][]string{"repositories": {name}}
 	}
 	var out struct {
 		Token     string    `json:"token"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/app/installations/"+strconv.FormatInt(inst, 10)+"/access_tokens", jwt, nil, &out); err != nil {
-		return "", err
+	if err := c.do(ctx, http.MethodPost, "/app/installations/"+strconv.FormatInt(inst, 10)+"/access_tokens", jwt, body, &out); err != nil {
+		return installationToken{}, err
 	}
 	if out.Token == "" {
-		return "", errx.External("github gave no installation token")
+		return installationToken{}, errx.External("github gave no installation token")
+	}
+	t = installationToken{value: out.Token, expires: out.ExpiresAt}
+	c.mu.Lock()
+	c.tokens[key] = t
+	c.mu.Unlock()
+	return t, nil
+}
+
+// installationOf says which installation of the App serves repo
+// (owner/name), asking GitHub the first time (NotFound: none).
+func (c *client) installationOf(ctx context.Context, a App, repo string) (int64, error) {
+	key := repoKey{a.Dock, strings.ToLower(repo)}
+	c.mu.Lock()
+	inst, ok := c.repos[key]
+	c.mu.Unlock()
+	if ok {
+		return inst, nil
+	}
+	jwt, err := appJWT(a.AppID, a.key, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	var out installation
+	if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/installation", jwt, nil, &out); err != nil {
+		return 0, err
 	}
 	c.mu.Lock()
-	c.tokens[key] = installationToken{value: out.Token, expires: out.ExpiresAt}
+	c.repos[key] = out.ID
 	c.mu.Unlock()
-	return out.Token, nil
+	return out.ID, nil
 }
 
 // repoToken returns a token of the installation that serves repo
 // (owner/name), asking GitHub which one the first time.
 func (c *client) repoToken(ctx context.Context, a App, repo string) (string, error) {
-	key := repoKey{a.Dock, strings.ToLower(repo)}
-	c.mu.Lock()
-	inst, ok := c.repos[key]
-	c.mu.Unlock()
-	if !ok {
-		jwt, err := appJWT(a.AppID, a.key, time.Now())
-		if err != nil {
-			return "", err
-		}
-		var out installation
-		if err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/installation", jwt, nil, &out); err != nil {
-			return "", errx.Wrap(err, "find the installation of "+repo, errx.TypeExternal)
-		}
-		inst = out.ID
-		c.mu.Lock()
-		c.repos[key] = inst
-		c.mu.Unlock()
+	inst, err := c.installationOf(ctx, a, repo)
+	if err != nil {
+		return "", errx.Wrap(err, "find the installation of "+repo, errx.TypeExternal)
 	}
 	return c.token(ctx, a, inst)
 }

@@ -100,14 +100,15 @@ export interface Ship {
   error?: string
   sent_at: string
   created_at: string
-  /** Files that came with it (inbound images), in order. */
+  /** Files that go with it (inbound images, files agents send), in order. */
   attachments?: Attachment[]
 }
 
-/** A file that came with a ship; its bytes are at attachmentURL(id). */
+/** A file of a ship; its bytes are at attachmentURL(id). Documents are
+ * downloads only (the server sends them as attachments). */
 export interface Attachment {
   id: ID
-  kind: "image"
+  kind: "image" | "document"
   mime: string
   size: number
   name?: string

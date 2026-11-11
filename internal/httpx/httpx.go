@@ -86,6 +86,13 @@ func File(w http.ResponseWriter, contentType string, data []byte) error {
 	return nil
 }
 
+// Download answers a file to save, never to show: like File, plus a
+// Content-Disposition naming it.
+func Download(w http.ResponseWriter, contentType, name string, data []byte) error {
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	return File(w, contentType, data)
+}
+
 // Created answers 201 with Location = request path + "/" + rel.
 func Created(w http.ResponseWriter, r *http.Request, rel string, body any) error {
 	w.Header().Set("Location", strings.TrimRight(r.URL.Path, "/")+"/"+strings.TrimLeft(rel, "/"))
@@ -164,18 +171,24 @@ func RequireBearer(token string, next http.Handler) http.Handler {
 }
 
 // DecodeJSON decodes a single JSON object strictly: JSON content type,
-// size limit, unknown fields rejected, no trailing data.
+// size limit (MaxJSONBody), unknown fields rejected, no trailing data.
 func DecodeJSON(r *http.Request, into any) error {
+	return DecodeJSONMax(r, into, MaxJSONBody)
+}
+
+// DecodeJSONMax is DecodeJSON with a body limit of max bytes (requests
+// that carry files as base64).
+func DecodeJSONMax(r *http.Request, into any, max int64) error {
 	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if mt != "application/json" {
 		return errx.UnsupportedMediaType("Content-Type must be application/json")
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxJSONBody+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
 	if err != nil {
 		return errx.Validation("could not read request body")
 	}
-	if len(body) > MaxJSONBody {
-		return errx.PayloadTooLarge("request body is too large (max 1 MiB)")
+	if int64(len(body)) > max {
+		return errx.PayloadTooLarge("request body is too large (max " + strconv.FormatInt(max>>20, 10) + " MiB)")
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return errx.Validation("request body is required")

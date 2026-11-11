@@ -1,0 +1,82 @@
+name: Seaport
+description: Hand a message to a Seaport agent on a GitHub dock (for example, a functional QA review of the pull request).
+author: Seaport
+branding:
+  icon: anchor
+  color: blue
+
+inputs:
+  port-url:
+    description: The port's public URL (its SEAPORT_PUBLIC_URL), for example https://seaport.example.com.
+    required: true
+  dock:
+    description: The GitHub dock's id (on the dock's page in the web app).
+    required: true
+  text:
+    description: The message for the agent.
+    required: true
+  agent:
+    description: The agent of the dock's team that should take it (default the dock's routing).
+    required: false
+    default: ""
+  number:
+    description: The issue or pull request it is about (default the workflow's pull request).
+    required: false
+    default: ""
+  id:
+    description: Tells several messages of one run apart; a retried step with the same id isn't sent twice (default a hash of the text).
+    required: false
+    default: ""
+
+outputs:
+  ship-id:
+    description: The message's id in Seaport.
+    value: ${{ steps.send.outputs.ship-id }}
+  status:
+    description: queued (an agent will take it) or held (customs or routing held it; see the inbox).
+    value: ${{ steps.send.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - id: send
+      shell: bash
+      env:
+        SEAPORT_PORT_URL: ${{ inputs.port-url }}
+        SEAPORT_DOCK: ${{ inputs.dock }}
+        SEAPORT_TEXT: ${{ inputs.text }}
+        SEAPORT_AGENT: ${{ inputs.agent }}
+        SEAPORT_NUMBER: ${{ inputs.number }}
+        SEAPORT_ID: ${{ inputs.id }}
+      run: |
+        set -euo pipefail
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+          echo "::error::Seaport needs the job's OIDC token: add 'permissions: id-token: write' to the job"
+          exit 1
+        fi
+        port="${SEAPORT_PORT_URL%/}"
+        # GitHub signs a token for this port (audience = its URL); Seaport
+        # checks it and that its GitHub App is installed on this repository.
+        oidc=$(curl -fsS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=$(jq -rn --arg a "$port" '$a|@uri')" | jq -r .value)
+        echo "::add-mask::${oidc}"
+        body=$(jq -n --arg text "$SEAPORT_TEXT" --arg agent "$SEAPORT_AGENT" --arg number "$SEAPORT_NUMBER" --arg id "$SEAPORT_ID" \
+          '{text: $text}
+           + (if $agent != "" then {agent: $agent} else {} end)
+           + (if $number != "" then {number: ($number|tonumber)} else {} end)
+           + (if $id != "" then {id: $id} else {} end)')
+        out=$(mktemp)
+        code=$(curl -sS -o "$out" -w '%{http_code}' -X POST "${port}/github/actions/${SEAPORT_DOCK}" \
+          -H "Authorization: Bearer ${oidc}" -H "Content-Type: application/json" --data "$body")
+        if [ "$code" != "202" ]; then
+          echo "::error::Seaport answered ${code}: $(jq -r '.error.message // .' "$out" 2>/dev/null || cat "$out")"
+          exit 1
+        fi
+        status=$(jq -r .status "$out")
+        echo "ship-id=$(jq -r .ship_id "$out")" >> "$GITHUB_OUTPUT"
+        echo "status=${status}" >> "$GITHUB_OUTPUT"
+        if [ "$status" = "held" ]; then
+          echo "::warning::Seaport held the message (customs or routing); allow it from the port's inbox"
+        else
+          echo "Seaport: message ${status} for $(jq -r .chat "$out")"
+        fi

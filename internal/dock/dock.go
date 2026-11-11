@@ -1,6 +1,7 @@
 package dock
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -86,13 +87,27 @@ func (u Update) Validate() error {
 	return text.Required("name", *u.Name, text.MaxName)
 }
 
-// Outgoing is one text message sent through a dock.
+// Outgoing is one message sent through a dock: text, files or both.
 type Outgoing struct {
 	Dock      identity.DockID
 	ChatID    string
 	MessageID string
 	Text      string
+	// Files go with the text, each the channel's way (GitHub: committed
+	// to the repository and linked; WhatsApp: image or document messages).
+	Files []File `json:",omitempty"`
 }
+
+// File is a file sent with a message; MIME was sniffed from the bytes.
+type File struct {
+	Name string
+	MIME string
+	Data []byte
+}
+
+// IsImage: shown inline where the channel can (an image message, an
+// embedded image).
+func (f File) IsImage() bool { return strings.HasPrefix(f.MIME, "image/") }
 
 func (o Outgoing) Validate() error {
 	if o.Dock.IsZero() {
@@ -103,6 +118,17 @@ func (o Outgoing) Validate() error {
 	}
 	if err := text.Required("message_id", o.MessageID, MaxAddress); err != nil {
 		return err
+	}
+	if len(o.Files) > 0 {
+		for _, f := range o.Files {
+			if err := text.Required("files.name", f.Name, MaxAddress); err != nil {
+				return err
+			}
+			if len(f.Data) == 0 || f.MIME == "" {
+				return errx.InvalidField("files", "a file needs its bytes and type")
+			}
+		}
+		return text.Optional("text", o.Text, text.MaxMessage)
 	}
 	return text.Required("text", o.Text, text.MaxMessage)
 }
