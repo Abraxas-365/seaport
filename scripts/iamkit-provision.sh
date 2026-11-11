@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # iamkit-provision.sh — idempotently provision Seaport (SEAPORT_AUTH=iam) in
 # ANY IAMKit (local, staging, production) and write its IAMKIT_* settings to
-# an env file (README "IAM mode"): `set -a; . ./.iamkit.env; set +a`.
+# an env file (docs/guides/operations/iam-mode.md): `set -a; . ./.iamkit.env; set +a`.
 #
 # Everything is found by name and created only when missing, so re-running it
 # after editing iam/permissions.json (new permissions, new roles) syncs IAMKit.

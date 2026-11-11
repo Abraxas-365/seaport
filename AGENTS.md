@@ -1,6 +1,12 @@
 # AGENTS.md — Seaport
 
-Go 1.26, hexagonal (ports & adapters). Read `README.md` for what Seaport is.
+Go 1.26, hexagonal (ports & adapters). Read `README.md` for what Seaport is;
+user-facing docs live in `docs/` (tutorials, guides, reference,
+explanation; keep them current with behavior — see
+`docs/contributing/documentation.md` for the format the website relies on).
+`website/` (Astro + Starlight, npm) renders the landing page and `docs/` for
+GitHub Pages (`.github/workflows/website.yml`); check with
+`cd website && npm test && npm run build && npm run check:links`.
 Design notes: `~/.rness/plans/puerto/puerto-design.md` (outside the repo).
 
 ## Commands
@@ -10,14 +16,14 @@ go build ./... && go vet ./...
 go test ./...                                   # architecture tests always run
 docker compose up -d                            # dev Postgres 127.0.0.1:5449
 docker build -t seaport .                        # image (web + binary, distroless)
-# deploy/: production compose (Postgres, Seaport, Caddy TLS, backups); README "Deploy"
+# deploy/: production compose (Postgres, Seaport, Caddy TLS, backups); docs/guides/operations/deploy.md
 PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
 SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
                                                 # + iam mode e2e against a real IAMKit container (Docker)
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
-scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (README "IAM mode")
+scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (docs/guides/operations/iam-mode.md)
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
 ```
 

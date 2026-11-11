@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title description">
+  <title id="title">Seaport — Messages arrive. Your agents work them.</title>
+  <desc id="description">A navy banner with the Seaport anchor and wordmark, and an illustrative port log: a WhatsApp message passes customs and wakes the agent @pm, which replies. The log is an illustration, not an application screenshot.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#2a3b5c" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f4f99" stop-opacity="0"/>
+      <stop offset="1" stop-color="#1f4f99" stop-opacity="0.35"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="400" rx="18" fill="#0f1729"/>
+  <rect width="1200" height="400" rx="18" fill="url(#grid)" opacity="0.35"/>
+  <path d="M0 330c100-18 200 18 300 0s200-18 300 0 200 18 300 0 200-18 300 0v52a18 18 0 0 1-18 18H18A18 18 0 0 1 0 382z" fill="url(#sea)"/>
+  <path d="M0 352c100-14 200 14 300 0s200-14 300 0 200 14 300 0 200-14 300 0" fill="none" stroke="#3d6fc4" stroke-opacity="0.35" stroke-width="2"/>
+
+  <g transform="translate(48 52) scale(1.25)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="32" height="32" rx="9" fill="#1f4f99" stroke="none"/>
+    <g stroke="#f5f8fc" stroke-width="2.2">
+      <circle cx="16" cy="9.5" r="2.6"/>
+      <path d="M16 12.1V25"/>
+      <path d="M11.5 16h9"/>
+      <path d="M8.5 19.5c.6 3.4 3.7 5.5 7.5 5.5s6.9-2.1 7.5-5.5"/>
+    </g>
+  </g>
+  <text x="104" y="79" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700" letter-spacing="3" fill="#8fa3c4">A PORT FOR YOUR AGENTS</text>
+  <text x="48" y="196" font-family="monospace" font-size="100" font-weight="700" letter-spacing="-5" fill="#f5f8fc">seaport<tspan fill="#6fa3f0">.</tspan></text>
+  <text x="56" y="246" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="600" fill="#f5f8fc">Messages arrive. Your agents work them.</text>
+  <text x="56" y="282" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#8fa3c4">WhatsApp in, any ACP agent out — on your laptop or hosted by the port.</text>
+  <text x="56" y="318" font-family="monospace" font-size="12" letter-spacing="1" fill="#7088ad">DOCKS <tspan fill="#3d5478">/</tspan> CUSTOMS <tspan fill="#3d5478">/</tspan> CREW <tspan fill="#3d5478">/</tspan> HOSTED SLOTS</text>
+
+  <rect x="650" y="54" width="494" height="270" rx="12" fill="#16213a" stroke="#2a3b5c"/>
+  <path d="M662 54h470a12 12 0 0 1 12 12v30H650V66a12 12 0 0 1 12-12" fill="#1b2846"/>
+  <circle cx="672" cy="75" r="5" fill="#f26d6d"/>
+  <circle cx="690" cy="75" r="5" fill="#f2c46d"/>
+  <circle cx="708" cy="75" r="5" fill="#6dd49a"/>
+  <text x="1123" y="80" text-anchor="end" font-family="monospace" font-size="12" fill="#8fa3c4">port log</text>
+  <g font-family="monospace" font-size="14">
+    <text x="672" y="130" fill="#6fa3f0">⚓ ship<tspan fill="#c8d4e8">  WhatsApp · Ana</tspan></text>
+    <text x="672" y="156" fill="#e6edf8">  "@pm ¿cómo va el ticket 42?"</text>
+    <text x="672" y="190" fill="#6dd49a">✓ customs<tspan fill="#8fa3c4">  allow +34*  → allowed</tspan></text>
+    <text x="672" y="222" fill="#f2c46d">→ crew<tspan fill="#8fa3c4">     @pm woken (slot pm-1)</tspan></text>
+    <text x="672" y="256" fill="#6fa3f0">↩ reply<tspan fill="#c8d4e8">    "En revisión, PR #17 abierto"</tspan></text>
+    <text x="672" y="296" fill="#56698c"># no public address · no lost messages</text>
+  </g>
+</svg>

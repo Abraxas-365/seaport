@@ -2,7 +2,7 @@
 // iam/permissions.json is the single source: permission_gen.go (this
 // package) and web/src/lib/permissions.gen.ts are generated from it. After
 // editing the manifest run `go generate ./internal/permission`, then sync
-// IAMKit with scripts/iamkit-provision.sh (README "IAM mode").
+// IAMKit with scripts/iamkit-provision.sh (docs/guides/operations/iam-mode.md).
 //
 // Every mode uses these permissions: none and token mode admins hold All,
 // iam mode admins hold what their IAMKit roles grant.
