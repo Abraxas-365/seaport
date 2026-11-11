@@ -121,6 +121,10 @@ type Server struct {
 	// Model gateway: SEAPORT_GATEWAY_ANTHROPIC_URL is where it forwards
 	// Anthropic calls (default https://api.anthropic.com).
 	GatewayAnthropicURL string
+	// GitHub docks: SEAPORT_GITHUB_URL (default https://github.com) and
+	// SEAPORT_GITHUB_API_URL (default https://api.github.com); GitHub
+	// Enterprise Server: https://host and https://host/api/v3.
+	GitHubURL, GitHubAPIURL string
 	// Egress proxy of hosted slots: SEAPORT_EGRESS_ADDR is its listen
 	// address ("": off, slots get no proxy and the runtime network alone
 	// decides what they reach); slots reach it at SEAPORT_EGRESS_URL
@@ -183,6 +187,8 @@ func LoadServer() (Server, error) {
 		RuntimeNetwork:      env("SEAPORT_RUNTIME_NETWORK", "bridge"),
 		RuntimeHostGateway:  os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
 		GatewayAnthropicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_GATEWAY_ANTHROPIC_URL")), "/"),
+		GitHubURL:           strings.TrimRight(env("SEAPORT_GITHUB_URL", "https://github.com"), "/"),
+		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
 		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
 		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
@@ -274,6 +280,14 @@ func (c Server) Validate() error {
 	if c.GatewayAnthropicURL != "" {
 		if u, err := url.Parse(c.GatewayAnthropicURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			return errx.Validation("SEAPORT_GATEWAY_ANTHROPIC_URL must be an http(s) URL")
+		}
+	}
+	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}} {
+		if u.value == "" {
+			continue
+		}
+		if p, err := url.Parse(u.value); err != nil || (p.Scheme != "https" && p.Scheme != "http") || p.Host == "" || p.User != nil {
+			return errx.Validation(u.key + " must be an http(s) URL without credentials")
 		}
 	}
 	switch c.Auth {

@@ -467,6 +467,8 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"PATCH", "/api/v1/docks/" + dk, "PATCH /api/v1/docks/{id}", map[string]string{"name": "x"}, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/relink", "POST /api/v1/docks/{id}/relink", nil, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/unlink", "POST /api/v1/docks/{id}/unlink", nil, permission.DocksWrite},
+		{"GET", "/api/v1/docks/" + dk + "/github", "GET /api/v1/docks/{id}/github", nil, permission.DocksRead},
+		{"POST", "/api/v1/docks/" + dk + "/github/manifest", "POST /api/v1/docks/{id}/github/manifest", map[string]string{}, permission.DocksWrite},
 		{"DELETE", "/api/v1/docks/" + dk, "DELETE /api/v1/docks/{id}", nil, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/ships", "POST /api/v1/docks/{id}/ships", inject, permission.ShipsWrite},
 		{"GET", "/api/v1/inbox", "GET /api/v1/inbox", nil, permission.ConversationsRead},

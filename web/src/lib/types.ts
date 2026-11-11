@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api"
+export type Channel = "whatsapp" | "api" | "github"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -16,6 +16,40 @@ export interface Dock {
   created_at: string
   updated_at: string
   qr_code?: string
+}
+
+/** A GitHub dock's App and installations (GET /docks/{id}/github; no secret). */
+export interface GitHubApp {
+  app_id: number
+  slug: string
+  name: string
+  owner: string
+  owner_type: string
+  html_url: string
+  created_at: string
+}
+
+export interface GitHubInstallation {
+  id: number
+  account: string
+  account_type: string
+  suspended: boolean
+  created_at: string
+}
+
+export interface GitHubInfo {
+  app: GitHubApp | null
+  installations: GitHubInstallation[]
+  webhook_url: string
+  /** false: GitHub can't reach this port (plain http or loopback). */
+  reachable: boolean
+  install_url?: string
+}
+
+/** The form the web posts to GitHub to register the App. */
+export interface GitHubManifest {
+  action_url: string
+  manifest: string
 }
 
 export type ConversationKind = "direct" | "group" | "self"

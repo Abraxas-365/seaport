@@ -29,6 +29,7 @@ A rule allows or denies chats and senders whose **handles** match a pattern. Han
 | :--- | :--- |
 | WhatsApp | phone numbers as `+<digits>` (`+34600000001`), user ids (`…@s.whatsapp.net`, `…@lid`), groups (`…@g.us`) |
 | `api` dock | `chat_handles` and `sender_handles` you post, else `chat_id` and `sender_id` |
+| GitHub | threads `owner/repo#12`, `owner/repo`, `owner`; authors `@login`, `github:member` or `github:outsider`, `association:<value>` ([GitHub](github.md#let-the-right-people-in)) |
 
 `*` matches any run of characters; everything else is literal and case-insensitive. Phone patterns are normalized: `34 600-000-001` and `34600*` become `+34600000001` and `+34600*`.
 

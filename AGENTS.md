@@ -77,7 +77,8 @@ internal/
                       adapters/{authiam (IAMKit SDK), authpg (web_sessions), authhttp
                       (httpx.Authenticator + OAuth routes)}
   dock/               channels: domain, ports.go, docksvc, dockmodule,
-                      adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi}
+                      adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi,
+                      dockgithub (GitHub App: stdlib REST, no SDK)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
@@ -157,6 +158,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `hosting/hostingsvc` and their modules) import `internal/blob`
   (`blobOwners`); everyone else reads through the owner's checked queries
   (`OpenAttachment`, `HomeFile`/`HomeArchive`).
+- Public routes (`permission_architecture_test.go`,
+  `TestPublicRoutesAreListed`): every root route (outside `/api/v1/`) is
+  wrapped in the admin or crew authenticator or listed with its reason in
+  `publicRoutes` (`/`, `/healthz`, GitHub's redirects and webhook, which
+  carry their own proof: a sealed state or the App's HMAC).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -602,6 +608,25 @@ test together with the reason. Add a rule when you add a pattern.
   doubling while it repeats, up to 10 min). Unlinking a linked dock the
   owner hasn't reconnected yet connects it briefly to log out (the phone
   drops the device); if that fails the keys are deleted anyway.
+- GitHub docks (`dockgithub`, migration 00022): a dock is one GitHub App
+  made by the manifest flow (`POST /api/v1/docks/{id}/github/manifest` →
+  form POST to GitHub → `GET /github/apps/created` trades the code →
+  install → `GET /github/apps/installed`), both redirects bound to the
+  dock by a sealed state (1 h, kind manifest|install). `github_apps` holds
+  the App's private key, webhook and client secret sealed (info `seaport
+  github v1`, purpose `github-app\x00<dock>\x00<field>`; counted by
+  `bootstrap.SecretKey`), `github_installations` its installations; the
+  dock is linked (address = App slug) while one installation is active,
+  else logged_out; `installation` webhooks keep both in step. Not
+  exclusive: any process takes webhooks and sends. `POST
+  /github/webhook/{dock}` checks the HMAC with that dock's secret, then
+  forwards only messages that mention `@<slug>` or an agent of the team
+  (`dockgithub.Teams` = agent service, bound late), never bots' (no
+  loops); thread = conversation `owner/repo#N` (group, addressed), ship
+  ids `comment-/review-/review-comment-/issue-/pr-<id>`. `Send` posts an
+  issue comment with an installation token (cached until 5 min before
+  expiry). Off without a secret key. Unlink uninstalls every installation
+  and deletes the App row (the App itself stays on GitHub).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
@@ -622,7 +647,7 @@ test together with the reason. Add a rule when you add a pattern.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,
-  `ship_attachments` or `hosting_homes` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  `ship_attachments`, `hosting_homes` or `github_apps` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so

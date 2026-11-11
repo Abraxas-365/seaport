@@ -25,6 +25,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -214,7 +215,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		}
 	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
-		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways})
+		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways,
+		GitHub: dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL}})
 	if err != nil {
 		bus.Close()
 		closeDBs()
@@ -259,6 +261,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	docks.BindReceiver(ships.Service)
+	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
 	hostCfg := hostingmodule.Config{
@@ -346,9 +349,12 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).
 	root.Handle(hosting.GatewayPath+"/", hostingmodule.APIKeyAsBearer(auth.Crew(hosted.Gateway())))
+	// GitHub docks: the App flows' redirects and the webhooks (each checks
+	// its own proof: a sealed state, the App's webhook signature).
+	docks.RegisterPublic(root)
 	// Everything else is the admin UI (client routes fall back to index.html).
 	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
-	ui := httpx.SPA(web.Dist())
+	ui := httpx.SPA(web.Dist(), cfg.GitHubURL)
 	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			httpx.NotFound(w, r)

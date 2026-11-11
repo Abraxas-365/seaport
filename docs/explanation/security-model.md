@@ -75,6 +75,8 @@ Every row belongs to an organization, and rows that reference each other must sh
 
 Two routes need no credentials: `/healthz`, and `/api/v1/config`, which tells the web app the auth mode and the version before sign-in. Neither reveals anything about an organization, a dock or an agent.
 
+The routes GitHub calls are public too, each with its own proof instead of a credential: the App's redirects (`/github/apps/created`, `/github/apps/installed`) need the state Seaport signed for that dock an hour earlier at most, and a webhook (`/github/webhook/{dock}`) needs the HMAC signature of that dock's App secret. A test in the build keeps the list of public routes explicit.
+
 ## Where to read more
 
 - [Customs](../guides/customs.md)

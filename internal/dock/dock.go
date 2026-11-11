@@ -16,9 +16,12 @@ const (
 	// ChannelAPI is a generic channel fed through the admin API (your own
 	// app, scripts, tests). Replies are stored, not delivered anywhere.
 	ChannelAPI Channel = "api"
+	// ChannelGitHub is a GitHub App: issues and pull requests that mention
+	// an agent arrive; replies are comments.
+	ChannelGitHub Channel = "github"
 )
 
-func (c Channel) Valid() bool { return c == ChannelWhatsApp || c == ChannelAPI }
+func (c Channel) Valid() bool { return c == ChannelWhatsApp || c == ChannelAPI || c == ChannelGitHub }
 
 // Status is the link state of a dock.
 type Status string
@@ -66,7 +69,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp or api")
+		return errx.InvalidField("channel", "channel must be whatsapp, api or github")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

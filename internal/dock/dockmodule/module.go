@@ -9,6 +9,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockapi"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockhttp"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockpg"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
@@ -35,6 +36,9 @@ type Deps struct {
 	// Gateways are extra gateways (tests: a fake exclusive channel); one
 	// with a BindReceiver(Receiver) method gets inbound messages' receiver.
 	Gateways []dock.Gateway
+	// GitHub configures GitHub docks (on with a secret key: it seals the
+	// Apps' credentials).
+	GitHub dockgithub.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -46,6 +50,8 @@ type Module struct {
 	Service *docksvc.Service
 	http    *dockhttp.Handler
 	wa      *dockwa.Gateway
+	gh      *dockgithub.Gateway
+	ghHTTP  *dockgithub.Handler
 	extra   []dock.Gateway
 }
 
@@ -59,18 +65,34 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, wa)
 	}
+	var gh *dockgithub.Gateway
+	if d.SecretKey != "" {
+		var err error
+		if gh, err = dockgithub.Open(ctx, d.DB, d.SecretKey, d.GitHub); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, gh)
+	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	return &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, extra: d.Gateways}, nil
+	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, extra: d.Gateways}
+	if gh != nil {
+		gh.Bind(svc, nil, nil)
+		m.ghHTTP = dockgithub.NewHandler(gh, svc)
+	}
+	return m, nil
 }
 
 // BindReceiver hands inbound messages to the ship domain (built later).
 func (m *Module) BindReceiver(r Receiver) {
 	if m.wa != nil {
 		m.wa.Bind(m.Service, r)
+	}
+	if m.gh != nil {
+		m.gh.Bind(nil, r, nil)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
@@ -79,7 +101,28 @@ func (m *Module) BindReceiver(r Receiver) {
 	}
 }
 
-func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
+// BindTeams tells GitHub docks which agents work on a dock (a mention of
+// one is for the crew; the agent domain is built later).
+func (m *Module) BindTeams(t dockgithub.Teams) {
+	if m.gh != nil {
+		m.gh.Bind(nil, nil, t)
+	}
+}
+
+func (m *Module) Register(mux *http.ServeMux) {
+	m.http.Register(mux)
+	if m.ghHTTP != nil {
+		m.ghHTTP.Register(mux)
+	}
+}
+
+// RegisterPublic mounts the routes GitHub calls without a Seaport
+// credential (App flows, webhooks; each checks its own proof).
+func (m *Module) RegisterPublic(mux *http.ServeMux) {
+	if m.ghHTTP != nil {
+		m.ghHTTP.RegisterPublic(mux)
+	}
+}
 
 // Start runs dock ownership (serving other processes' requests, renewing
 // leases, taking over the docks of stopped processes).

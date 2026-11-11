@@ -50,6 +50,7 @@ import {
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
+  channelLabel,
   customsLabel,
   customsTone,
   type ChoiceOption,
@@ -371,7 +372,7 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
           )}
           <Separator />
           <DataList>
-            <DataItem label="Canal">{c.channel === "whatsapp" ? "WhatsApp" : "API"}</DataItem>
+            <DataItem label="Canal">{channelLabel[c.channel]}</DataItem>
             <DataItem label="Chat">
               <Mono title={c.external_id}>{c.external_id}</Mono>
             </DataItem>

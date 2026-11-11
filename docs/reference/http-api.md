@@ -117,6 +117,9 @@ No credentials, and nothing about any organization.
 | `POST` | `/api/v1/session` | `token` mode: body `{"token":"…"}`; sets the cookie and answers the session state. A wrong token is `401` (`invalid token`). |
 | `GET` | `/api/v1/session/login` | `iam` mode only: starts the browser sign-in and redirects to IAMKit. Query: `next` (a path to come back to, at most 2048 characters), `organization`, `switch=1` (pick another organization). |
 | `GET` | `/auth/callback` | `iam` mode only: OAuth code and PKCE callback. It sets the cookie and redirects. |
+| `GET` | `/github/apps/created` | GitHub's redirect after it created a dock's App (`code`, `state`). Seaport trades the code for the App's credentials and redirects to its install page. A bad or expired `state` is `401`. |
+| `GET` | `/github/apps/installed` | GitHub's redirect after an install (`installation_id`, `state`). Seaport checks the installation with GitHub and redirects to the dock's page (`?github=installed`, or `?github_error=…`). |
+| `POST` | `/github/webhook/{dock}` | The App's webhook, signed with its secret (`X-Hub-Signature-256`, else `401`; body up to 5 MiB). `200` for `ping` and `installation` events, `202` `{"status":"received","ship_id":"…","created":true}` for a message that called an agent, `202` `{"status":"ignored"}` for everything else. `404` for a dock with no App. |
 
 Session state:
 
@@ -152,12 +155,12 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/docks` | `docks:read` | Paginated docks. |
-| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
+| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
 | `GET` | `/docks/{id}` | `docks:read` | The dock, with `qr_code` while a WhatsApp dock is linking. |
 | `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`. The dock. |
 | `DELETE` | `/docks/{id}` | `docks:write` | `204`. Deletes its conversations and ships. |
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
-| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out. The dock. |
+| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App). The dock. |
 | `POST` | `/docks/{id}/ships` | `ships:write` | Injects an inbound message into an `api` dock. See below. |
 
 A dock:
@@ -202,6 +205,35 @@ A dock:
 - Answer: `201` with the ship and `"duplicate": false`. A repeated `message_id` answers `200` with `"duplicate": true` and stores nothing.
 
 See [API docks](../guides/api-docks.md).
+
+### GitHub docks
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/docks/{id}/github` | `docks:read` | The dock's App and installations (below). `422` for a dock of another channel. |
+| `POST` | `/docks/{id}/github/manifest` | `docks:write` | Body `{"organization":"acme","name":"Seaport QA"}`, both optional (no organization: the user's account; name: `Seaport <dock name>`, at most 34 characters). `{"action_url":"…","manifest":"…"}`: the web posts `manifest` as a form field to `action_url` on GitHub. The URL carries a signed state valid for 1 hour. |
+
+```json
+{
+  "app": {
+    "app_id": 123456,
+    "slug": "seaport-qa",
+    "name": "Seaport QA",
+    "owner": "acme",
+    "owner_type": "Organization",
+    "html_url": "https://github.com/apps/seaport-qa",
+    "created_at": "2025-01-15T10:30:00Z"
+  },
+  "installations": [
+    { "id": 9, "account": "acme", "account_type": "Organization", "suspended": false, "created_at": "2025-01-15T10:31:00Z" }
+  ],
+  "webhook_url": "https://port.example.com/github/webhook/<dock-id>",
+  "reachable": true,
+  "install_url": "https://github.com/apps/seaport-qa/installations/new?state=…"
+}
+```
+
+`app` is `null` until the App is created. `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback (GitHub couldn't deliver webhooks). No secret of the App is ever answered. See [GitHub](../guides/github.md).
 
 ### Conversations
 

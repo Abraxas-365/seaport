@@ -1,9 +1,10 @@
 import * as React from "react"
-import { Link, useNavigate, useParams } from "react-router"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router"
 import {
   ArrowLeft,
   Check,
   Copy,
+  ExternalLink,
   Link2,
   Link2Off,
   MoreHorizontal,
@@ -29,6 +30,7 @@ import {
   useDock,
   useDockAction,
   useDockTeam,
+  useGitHub,
   useInbox,
   useUnassignAgent,
 } from "@/lib/hooks"
@@ -59,6 +61,7 @@ import {
   DataList,
   EmptyState,
   ErrorState,
+  GitHubMark,
   Mono,
   PairingPanel,
   StatusBadge,
@@ -129,6 +132,27 @@ function DockDetail({ dock }: { dock: Dock }) {
                   <DropdownMenuItem onSelect={() => actions.relink.mutate(dock.id)}>
                     <RefreshCw /> {dock.status === "linked" ? "Volver a vincular" : "Generar nuevo QR"}
                   </DropdownMenuItem>
+                )}
+                {dock.channel === "github" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Desconectar la GitHub App
+                      </DropdownMenuItem>
+                    }
+                    title="¿Desconectar la GitHub App?"
+                    description={
+                      <>
+                        <p>Seaport desinstala la App de las cuentas donde está y olvida sus credenciales.</p>
+                        <p>
+                          La App sigue existiendo en GitHub (bórrala en sus ajustes si ya no la usas). Las
+                          conversaciones se conservan; puedes crear otra App desde este muelle.
+                        </p>
+                      </>
+                    }
+                    actionLabel="Desconectar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
                 )}
                 {wa && dock.status === "linked" && (
                   <ConfirmAction
@@ -204,6 +228,8 @@ function DockDetail({ dock }: { dock: Dock }) {
             </CardContent>
           </Card>
         )}
+
+        {dock.channel === "github" && <GitHubDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
 
@@ -427,7 +453,9 @@ function DockConversations({ dock }: { dock: Dock }) {
             description={
               dock.channel === "whatsapp"
                 ? "Escribe a este número desde otro teléfono para probar."
-                : "Envía un mensaje de prueba con el formulario de arriba."
+                : dock.channel === "github"
+                  ? "Menciona a un agente del equipo en un issue o pull request de un repositorio con la App instalada."
+                  : "Envía un mensaje de prueba con el formulario de arriba."
             }
           />
         ) : (
@@ -512,6 +540,175 @@ function ApiDockCard({ dock }: { dock: Dock }) {
             {busy ? <Spinner /> : <Send />} Enviar al puerto
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Posts the App manifest to GitHub (a top-level form POST: GitHub's manifest flow). */
+function postManifest(action: string, manifest: string) {
+  const form = document.createElement("form")
+  form.method = "post"
+  form.action = action
+  const field = document.createElement("input")
+  field.type = "hidden"
+  field.name = "manifest"
+  field.value = manifest
+  form.appendChild(field)
+  document.body.appendChild(form)
+  form.submit()
+}
+
+function GitHubDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useGitHub(dock.id)
+  const [params, setParams] = useSearchParams()
+  const [organization, setOrganization] = React.useState("")
+  const [name, setName] = React.useState(`Seaport ${dock.name}`)
+  const [busy, setBusy] = React.useState(false)
+
+  // GitHub's redirects come back here with the outcome.
+  React.useEffect(() => {
+    const ok = params.get("github")
+    const problem = params.get("github_error")
+    if (!ok && !problem) return
+    if (problem) toast.error("GitHub no completó el paso", { description: problem })
+    else toast.success("GitHub App instalada", { description: "Menciona a tus agentes en un issue o pull request." })
+    setParams({}, { replace: true })
+  }, [params, setParams])
+
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const gh = info.data
+  const app = gh.app
+  const active = gh.installations.filter((i) => !i.suspended)
+
+  const unreachable = !gh.reachable && (
+    <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+      GitHub no puede llegar a esta dirección (<Mono>{gh.webhook_url}</Mono>): necesita HTTPS público. Configura{" "}
+      <code>SEAPORT_PUBLIC_URL</code> o usa un túnel{app ? "; la App se creó con esta dirección, así que vuelve a crearla después." : " antes de crear la App."}
+    </p>
+  )
+
+  if (!app)
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <GitHubMark className="size-4" /> Conectar con GitHub
+          </CardTitle>
+          <CardDescription>
+            Seaport crea una GitHub App propia de este muelle (con sus permisos sobre issues, pull requests y
+            contenido) y luego la instalas en los repositorios que quieras.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {unreachable}
+          {write ? (
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setBusy(true)
+                try {
+                  const m = await api.githubManifest(dock.id, {
+                    organization: organization.trim() || undefined,
+                    name: name.trim() || undefined,
+                  })
+                  postManifest(m.action_url, m.manifest)
+                } catch (err) {
+                  toast.error("No se pudo preparar la App", { description: (err as Error).message })
+                  setBusy(false)
+                }
+              }}
+            >
+              <FieldGroup className="grid gap-3 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="gh-org">Organización de GitHub</FieldLabel>
+                  <Input
+                    id="gh-org"
+                    value={organization}
+                    onChange={(e) => setOrganization(e.target.value)}
+                    placeholder="Vacío: tu cuenta personal"
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="gh-name">Nombre de la App</FieldLabel>
+                  <Input id="gh-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={34} />
+                </Field>
+              </FieldGroup>
+              <p className="text-xs text-muted-foreground">
+                GitHub pide que el nombre sea único. Su identificador (<code>@nombre-de-la-app</code>) también sirve
+                para llamar a los agentes.
+              </p>
+              <Button type="submit" disabled={busy}>
+                {busy ? <Spinner /> : <GitHubMark className="size-4" />} Crear GitHub App
+              </Button>
+            </form>
+          ) : (
+            <p className="text-sm text-muted-foreground">Este muelle aún no tiene una GitHub App.</p>
+          )}
+        </CardContent>
+      </Card>
+    )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitHubMark className="size-4" /> {app.name}
+        </CardTitle>
+        <CardDescription>
+          {active.length === 0
+            ? "La App existe pero no está instalada en ninguna cuenta: instálala para recibir menciones."
+            : `Menciona @${app.slug} o a un agente del equipo (@nombre) en un issue o pull request; la respuesta llega como comentario.`}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {unreachable}
+        <div className="flex flex-wrap gap-2">
+          {write && gh.install_url && (
+            <Button asChild size="sm" variant={active.length === 0 ? "default" : "outline"}>
+              <a href={gh.install_url}>
+                <Plus /> {active.length === 0 ? "Instalar la App" : "Instalar en otra cuenta o repositorio"}
+              </a>
+            </Button>
+          )}
+          <Button asChild size="sm" variant="ghost">
+            <a href={app.html_url} target="_blank" rel="noreferrer">
+              <ExternalLink /> Ver en GitHub
+            </a>
+          </Button>
+        </div>
+        {gh.installations.length > 0 && (
+          <div className="divide-y rounded-lg border">
+            {gh.installations.map((i) => (
+              <div key={i.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="font-medium">{i.account}</span>
+                <span className="text-muted-foreground">
+                  {i.account_type === "Organization" ? "organización" : "usuario"}
+                </span>
+                <span className="ml-auto">
+                  <StatusBadge tone={i.suspended ? "warning" : "success"}>
+                    {i.suspended ? "Suspendida" : "Instalada"}
+                  </StatusBadge>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        <DataList>
+          <DataItem label="Identificador">
+            <Mono>@{app.slug}</Mono>
+          </DataItem>
+          <DataItem label="Propietario">{app.owner}</DataItem>
+          <DataItem label="Webhook">
+            <Mono title={gh.webhook_url}>{gh.webhook_url}</Mono>
+          </DataItem>
+        </DataList>
+        <p className="text-xs text-muted-foreground">
+          Consejo: en Aduana, permite el muelle por defecto y deniega <code>github:outsider</code> para que en
+          repositorios públicos solo despierten a tus agentes los miembros y colaboradores.
+        </p>
       </CardContent>
     </Card>
   )

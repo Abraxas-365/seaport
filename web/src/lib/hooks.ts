@@ -96,6 +96,12 @@ export function useDock(id: string) {
   return useQuery({ queryKey: keys.dock(id), queryFn: () => api.dock(id), enabled: can(Perm.DocksRead) })
 }
 
+/** A GitHub dock's App and installations (refetched when the dock changes). */
+export function useGitHub(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.github(dock), queryFn: () => api.github(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 export function useCustoms(dock: string | undefined) {
   const can = useCan()
   return useQuery({

@@ -20,7 +20,7 @@ The **port** is the Seaport server: one process (or several behind the same data
 
 ## Docks
 
-A **dock** is one channel account: a WhatsApp number you linked, or an `api` dock that your systems post to over HTTP. Docks are where **ships** arrive and leave. Each dock has its own customs, its own team of agents, and its own send limits. See [WhatsApp](../guides/whatsapp.md) and [API docks](../guides/api-docks.md).
+A **dock** is one channel account: a WhatsApp number you linked, a GitHub App you installed on your repositories, or an `api` dock that your systems post to over HTTP. Docks are where **ships** arrive and leave. Each dock has its own customs, its own team of agents, and its own send limits. See [WhatsApp](../guides/whatsapp.md), [GitHub](../guides/github.md) and [API docks](../guides/api-docks.md).
 
 ## Conversations and ships
 

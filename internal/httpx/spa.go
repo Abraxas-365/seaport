@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"fmt"
 	"io/fs"
 	"net/http"
 	"path"
@@ -14,13 +15,20 @@ import (
 // allowed (Radix positions popovers with them).
 const spaCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; " +
-	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'%s; object-src 'none'"
 
 // SPA serves a built single-page app from fsys: existing files as they are
 // (hashed /assets/* cached forever, everything else revalidated), and
 // index.html for any other path without an extension so client-side
 // routes survive a reload. Missing files with an extension are 404s.
-func SPA(fsys fs.FS) http.Handler {
+// formActions are origins besides its own the UI may post forms to (the
+// GitHub App manifest goes to GitHub as a form).
+func SPA(fsys fs.FS, formActions ...string) http.Handler {
+	extra := ""
+	for _, o := range formActions {
+		extra += " " + o
+	}
+	csp := fmt.Sprintf(spaCSP, extra)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
 		if name == "" {
@@ -45,7 +53,7 @@ func SPA(fsys fs.FS) http.Handler {
 			h.Set("Cache-Control", "no-cache")
 		}
 		if name == "index.html" {
-			h.Set("Content-Security-Policy", spaCSP)
+			h.Set("Content-Security-Policy", csp)
 			h.Set("X-Frame-Options", "DENY")
 		}
 		http.ServeContent(w, r, name, time.Time{}, strings.NewReader(string(data)))

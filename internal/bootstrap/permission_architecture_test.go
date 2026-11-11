@@ -22,6 +22,9 @@ import (
 //   - Every route registered on a mux with a "/api/v1/" pattern wraps its
 //     handler in httpx.Require / httpx.RequireFunc(permission.X, ...),
 //     unless it is listed in unguardedRoutes with the reason.
+//   - Every other route (outside "/api/v1/", outside the connector, which
+//     serves its own machine) is behind auth.Admin / auth.Crew, or listed
+//     in publicRoutes with the reason: it then checks its own proof.
 //   - No "seaport:…" permission literal outside internal/permission (Go)
 //     or web/src/lib/permissions.gen.ts (web): a typo must not compile.
 //   - Every permission of the manifest is checked somewhere (no orphan).
@@ -35,6 +38,64 @@ var unguardedRoutes = map[string]string{
 	"DELETE /api/v1/session":    "any principal may end its own session",
 	"GET /api/v1/session/login": "public: starts the IAMKit sign-in (iam mode)",
 	"GET /api/v1/events":        "filters every event by its read permission (EventPermissions)",
+}
+
+// publicRoutes: route outside /api/v1/ → why no Seaport credential guards it.
+var publicRoutes = map[string]string{
+	"/":                           "the web UI's static files (the admin mux's catch-all 404 sits behind auth)",
+	"GET /healthz":                "public liveness: nothing about any organization",
+	"GET /github/apps/created":    "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
+	"GET /github/apps/installed":  "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
+	"POST /github/webhook/{dock}": "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
+}
+
+// publicViolations: literal routes outside /api/v1/ neither behind
+// auth.Admin/auth.Crew nor listed in publicRoutes.
+func publicViolations(files []goFile) []string {
+	var out []string
+	for _, f := range files {
+		if roleOf(path.Dir(f.rel)).kind == "client" {
+			continue
+		}
+		ast.Inspect(f.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 2 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
+				return true
+			}
+			lit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			pattern, _ := strconv.Unquote(lit.Value)
+			if strings.Contains(pattern, " /api/") || strings.HasPrefix(pattern, "/api/") {
+				return true
+			}
+			if _, ok := publicRoutes[pattern]; ok || authed(call.Args[1]) {
+				return true
+			}
+			out = append(out, f.fset.Position(call.Pos()).String()+": route "+pattern+
+				" must be behind auth.Admin/auth.Crew (or listed in publicRoutes with the proof it checks)")
+			return true
+		})
+	}
+	sort.Strings(out)
+	return out
+}
+
+// authed: the handler expression calls auth.Admin or auth.Crew.
+func authed(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok && (isSelector(call.Fun, "auth", "Admin") || isSelector(call.Fun, "auth", "Crew")) {
+			found = true
+		}
+		return !found
+	})
+	return found
 }
 
 func routeViolations(files []goFile) []string {
@@ -191,6 +252,7 @@ func catalogIdents(t *testing.T) map[string]string {
 }
 
 func TestAdminRoutesRequirePermission(t *testing.T) { report(t, routeViolations(sources(t, false))) }
+func TestPublicRoutesAreListed(t *testing.T)        { report(t, publicViolations(sources(t, false))) }
 func TestNoPermissionLiterals(t *testing.T)         { report(t, literalViolations(sources(t, false))) }
 func TestEveryPermissionIsChecked(t *testing.T) {
 	report(t, orphanViolations(sources(t, false), catalogIdents(t)))
@@ -272,6 +334,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/widgets/{id}", httpx.Require("seaport:widgets:write", h.del))
 	mux.Handle("GET /api/v1/session", h.session)
 	mux.HandleFunc("GET /healthz", h.health)
+	mux.Handle("POST /hooks/widget", httpx.Handle(h.hook))
+	mux.Handle("GET /crew/widgets", auth.Crew(h.crew))
 }`,
 		"permission/permission_gen.go": `package permission
 const DocksRead = "seaport:docks:read"`,
@@ -280,6 +344,7 @@ const DocksRead = "seaport:docks:read"`,
 		"route POST /api/v1/widgets must be wrapped",
 		"route DELETE /api/v1/widgets/{id} must be wrapped",
 	)
+	expectViolations(t, publicViolations(files), "route POST /hooks/widget must be behind auth.Admin/auth.Crew")
 	expectViolations(t, literalViolations(files), `permission literal "seaport:widgets:write"`)
 	expectViolations(t, orphanViolations(files, map[string]string{"DocksRead": "a", "DocksWrite": "b"}),
 		"permission.DocksWrite (b) is in the manifest but no code checks it")

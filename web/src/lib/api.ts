@@ -5,6 +5,8 @@ import type {
   Access,
   Channel,
   Conversation,
+  GitHubInfo,
+  GitHubManifest,
   CrewStatus,
   CrewToken,
   Customs,
@@ -163,6 +165,9 @@ export const api = {
   relinkDock: (id: string) => request<Dock>("POST", `${v1}/docks/${id}/relink`),
   unlinkDock: (id: string) => request<Dock>("POST", `${v1}/docks/${id}/unlink`),
   deleteDock: (id: string) => request<void>("DELETE", `${v1}/docks/${id}`),
+  github: (id: string) => request<GitHubInfo>("GET", `${v1}/docks/${id}/github`),
+  githubManifest: (id: string, body: { organization?: string; name?: string }) =>
+    request<GitHubManifest>("POST", `${v1}/docks/${id}/github/manifest`, body),
 
   inbox: (f: { status?: CustomsStatus; dock_id?: string; limit?: number; offset?: number }) =>
     request<Paginated<InboxItem>>("GET", `${v1}/inbox${qs(f)}`),

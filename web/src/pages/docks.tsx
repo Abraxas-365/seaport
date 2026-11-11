@@ -24,6 +24,7 @@ import {
   DockCard,
   EmptyState,
   ErrorState,
+  GitHubMark,
   PageHeader,
   type ChoiceOption,
 } from "@/components/seaport"
@@ -44,7 +45,21 @@ const channelOptions: ChoiceOption<Channel>[] = [
     tone: "brand",
     description: "Recibe mensajes por HTTP desde tu propio sistema.",
   },
+  {
+    value: "github",
+    label: "GitHub",
+    icon: GitHubMark,
+    tone: "neutral",
+    description: "Una GitHub App: menciona a tus agentes en issues y pull requests.",
+  },
 ]
+
+const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub" }
+const namePlaceholder: Record<Channel, string> = {
+  whatsapp: "Mi WhatsApp",
+  api: "Formulario web",
+  github: "QA de pull requests",
+}
 
 export function DocksPage() {
   const docks = useDocks()
@@ -109,7 +124,7 @@ function NewDockDialog() {
           onSubmit={(e) => {
             e.preventDefault()
             create.mutate(
-              { channel, name: name.trim() || (channel === "whatsapp" ? "WhatsApp" : "API") },
+              { channel, name: name.trim() || defaultName[channel] },
               {
                 onSuccess: (d) => {
                   setOpen(false)
@@ -124,13 +139,13 @@ function NewDockDialog() {
             <DialogDescription>Elige el canal por el que llegarán los mensajes.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
-            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-2" />
+            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-3" />
             <Field>
               <FieldLabel htmlFor="dock-name">Nombre</FieldLabel>
               <Input
                 id="dock-name"
                 value={name}
-                placeholder={channel === "whatsapp" ? "Mi WhatsApp" : "Formulario web"}
+                placeholder={namePlaceholder[channel]}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
               />
@@ -143,7 +158,7 @@ function NewDockDialog() {
             </Button>
             <Button type="submit" disabled={create.isPending}>
               {create.isPending && <Spinner />}
-              {channel === "whatsapp" ? "Crear y vincular" : "Crear"}
+              {channel === "api" ? "Crear" : "Crear y vincular"}
             </Button>
           </DialogFooter>
         </form>
