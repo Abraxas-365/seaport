@@ -112,6 +112,12 @@ export function useGitHub(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.github(dock), queryFn: () => api.github(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+/** A Slack dock's App (refetched when the dock changes). */
+export function useSlack(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.slack(dock), queryFn: () => api.slack(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 export function useCustoms(dock: string | undefined) {
   const can = useCan()
   return useQuery({

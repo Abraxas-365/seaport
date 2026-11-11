@@ -26,6 +26,7 @@ import {
   ErrorState,
   GitHubMark,
   PageHeader,
+  SlackMark,
   type ChoiceOption,
 } from "@/components/seaport"
 import { MessageCircle, Webhook } from "lucide-react"
@@ -52,13 +53,21 @@ const channelOptions: ChoiceOption<Channel>[] = [
     tone: "neutral",
     description: "Una GitHub App: menciona a tus agentes en issues y pull requests.",
   },
+  {
+    value: "slack",
+    label: "Slack",
+    icon: SlackMark,
+    tone: "neutral",
+    description: "Una Slack App: menciona a tus agentes en un canal o escríbeles por mensaje directo.",
+  },
 ]
 
-const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub" }
+const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub", slack: "Slack" }
 const namePlaceholder: Record<Channel, string> = {
   whatsapp: "Mi WhatsApp",
   api: "Formulario web",
   github: "QA de pull requests",
+  slack: "Soporte en Slack",
 }
 
 export function DocksPage() {
@@ -139,7 +148,7 @@ function NewDockDialog() {
             <DialogDescription>Elige el canal por el que llegarán los mensajes.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
-            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-3" />
+            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-2" />
             <Field>
               <FieldLabel htmlFor="dock-name">Nombre</FieldLabel>
               <Input

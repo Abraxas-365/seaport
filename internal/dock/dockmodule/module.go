@@ -12,6 +12,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockhttp"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockpg"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/dock/docksvc"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -41,6 +42,8 @@ type Deps struct {
 	// GitHub configures GitHub docks (on with a secret key: it seals the
 	// Apps' credentials).
 	GitHub dockgithub.Config
+	// Slack configures Slack docks (on with a secret key, like GitHub).
+	Slack dockslack.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -54,6 +57,8 @@ type Module struct {
 	wa      *dockwa.Gateway
 	gh      *dockgithub.Gateway
 	ghHTTP  *dockgithub.Handler
+	sl      *dockslack.Gateway
+	slHTTP  *dockslack.Handler
 	extra   []dock.Gateway
 }
 
@@ -75,15 +80,27 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, gh)
 	}
+	var sl *dockslack.Gateway
+	if d.SecretKey != "" {
+		var err error
+		if sl, err = dockslack.Open(ctx, d.DB, d.SecretKey, d.Slack); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, sl)
+	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, extra: d.Gateways}
+	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, sl: sl, extra: d.Gateways}
 	if gh != nil {
 		gh.Bind(svc, nil, nil)
 		m.ghHTTP = dockgithub.NewHandler(gh, svc)
+	}
+	if sl != nil {
+		sl.Bind(svc, nil, nil)
+		m.slHTTP = dockslack.NewHandler(sl, svc)
 	}
 	return m, nil
 }
@@ -95,6 +112,9 @@ func (m *Module) BindReceiver(r Receiver) {
 	}
 	if m.gh != nil {
 		m.gh.Bind(nil, r, nil)
+	}
+	if m.sl != nil {
+		m.sl.Bind(nil, r, nil)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
@@ -109,12 +129,18 @@ func (m *Module) BindTeams(t dockgithub.Teams) {
 	if m.gh != nil {
 		m.gh.Bind(nil, nil, t)
 	}
+	if m.sl != nil {
+		m.sl.Bind(nil, nil, t)
+	}
 }
 
 func (m *Module) Register(mux *http.ServeMux) {
 	m.http.Register(mux)
 	if m.ghHTTP != nil {
 		m.ghHTTP.Register(mux)
+	}
+	if m.slHTTP != nil {
+		m.slHTTP.Register(mux)
 	}
 }
 
@@ -123,6 +149,9 @@ func (m *Module) Register(mux *http.ServeMux) {
 func (m *Module) RegisterPublic(mux *http.ServeMux) {
 	if m.ghHTTP != nil {
 		m.ghHTTP.RegisterPublic(mux)
+	}
+	if m.slHTTP != nil {
+		m.slHTTP.RegisterPublic(mux)
 	}
 }
 

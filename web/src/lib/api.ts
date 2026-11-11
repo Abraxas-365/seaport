@@ -7,6 +7,7 @@ import type {
   Conversation,
   GitHubInfo,
   GitHubManifest,
+  SlackInfo,
   CrewStatus,
   CrewToken,
   Customs,
@@ -169,6 +170,11 @@ export const api = {
   github: (id: string) => request<GitHubInfo>("GET", `${v1}/docks/${id}/github`),
   githubManifest: (id: string, body: { organization?: string; name?: string }) =>
     request<GitHubManifest>("POST", `${v1}/docks/${id}/github/manifest`, body),
+  slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
+  slackCreate: (id: string, body: { config_token: string; name?: string }) =>
+    request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/create`, body),
+  slackConnect: (id: string, body: { signing_secret: string; bot_token: string }) =>
+    request<SlackInfo>("POST", `${v1}/docks/${id}/slack/connect`, body),
 
   inbox: (f: { status?: CustomsStatus; dock_id?: string; limit?: number; offset?: number }) =>
     request<Paginated<InboxItem>>("GET", `${v1}/inbox${qs(f)}`),

@@ -43,7 +43,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 
 ## A word on names
 
-Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a WhatsApp number, a GitHub App or an `api` dock. A **ship** is a message. **Customs** decides which chats may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
+Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a WhatsApp number, a GitHub App, a Slack app or an `api` dock. A **ship** is a message. **Customs** decides which chats may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
 
 The web app is in Spanish. These docs name each page in Spanish with the English meaning in parentheses: **Bandeja** (Inbox), **Aduana** (Customs), **Muelles** (Docks), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew).
 

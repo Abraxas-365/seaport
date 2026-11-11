@@ -78,7 +78,8 @@ internal/
                       (httpx.Authenticator + OAuth routes)}
   dock/               channels: domain, ports.go, docksvc, dockmodule,
                       adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi,
-                      dockgithub (GitHub App: stdlib REST, no SDK)}
+                      dockgithub (GitHub App: stdlib REST, no SDK),
+                      dockslack (Slack app: stdlib REST, no SDK)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
@@ -693,6 +694,36 @@ test together with the reason. Add a rule when you add a pattern.
   `github:action`, addressed, external id
   `action-<run>-<attempt>-<id|hash>`. Unlink uninstalls every installation
   and deletes the App row (the App itself stays on GitHub).
+- Slack docks (`dockslack`, migration 00026): a dock is one Slack app,
+  connected two ways. Flow A: `POST /api/v1/docks/{id}/slack/create` trades
+  the user's configuration token (used once, never stored) for the app
+  (`apps.manifest.create` from `Gateway.manifest`) and answers the OAuth v2
+  install URL, whose sealed state (1 h, kind install; purpose
+  `slack-flow-state`) binds the redirect `GET /slack/oauth/callback` to the
+  dock; the callback runs `oauth.v2.access` (basic auth = client id/secret).
+  Flow B: `POST …/slack/connect` takes the signing secret and `xoxb-` token
+  the user pasted and verifies the token with `auth.test`. `slack_apps`
+  keeps client secret, signing secret and bot token sealed (info `seaport
+  slack v1`, purpose `slack\x00<dock>\x00<field>`; counted by
+  `bootstrap.SecretKey`), `slack_threads` the channel threads an agent was
+  called into. The dock is linked (address = workspace) while the app is
+  installed. Not exclusive: any process takes events and sends. `POST
+  /slack/events/{dock}` answers `url_verification` even before an app is
+  known, then checks the v0 HMAC (5 min window) with that dock's signing
+  secret and answers fast: only messages that mention the bot or an agent
+  of the team (`dockgithub`-style `Teams`, bound late), follow-ups in a
+  recorded thread, and DMs (direct, always addressed) are forwarded, never
+  bots' (the app's own included: no loops); thread = conversation
+  `<channel>/<thread_ts>` (DM: `<channel>`), ship ids `msg-<channel>-<ts>`;
+  Slack's retries and the app_mention + message pair of one message are
+  one ship by external id. mrkdwn is converted to Markdown, image files
+  are fetched with the bot token within `ship.MaxImage`. `Send` posts a
+  `markdown` block (≤ 12 000 characters, longer replies split) with the
+  text as fallback; files go through `files.getUploadURLExternal`/
+  `completeUploadExternal`; Slack refusals (`ok:false`) are typed errors.
+  An accepted message gets a 👀 reaction from a background goroutine.
+  Unlink calls `apps.uninstall` (best effort, only for apps Seaport
+  created) and deletes the rows. Off without a secret key.
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
@@ -713,7 +744,7 @@ test together with the reason. Add a rule when you add a pattern.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,
-  `ship_attachments`, `hosting_homes` or `github_apps` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  `ship_attachments`, `hosting_homes`, `github_apps` or `slack_apps` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so
