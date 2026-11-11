@@ -14,8 +14,10 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 // sseEvent is one parsed Server-Sent Event.
@@ -279,5 +281,113 @@ func TestWebUIRoutes(t *testing.T) {
 	}
 	if resp, _ := get(http.MethodGet, "/healthz"); resp.StatusCode != http.StatusOK {
 		t.Errorf("healthz: %d", resp.StatusCode)
+	}
+}
+
+// What an agent does on its delivery reaches the web live (a flash: no
+// id, not replayed); activity for a delivery the connection doesn't hold
+// is dropped, a bad frame is refused.
+func TestAgentActivityIsLive(t *testing.T) {
+	p := startPort(t)
+	events := p.openEvents("")
+	d := p.apiDock("t")
+	p.letIn(d)
+	s := p.inject(d, "555", "act1", "revisa esto")
+	c := p.dialCrew(1)
+	f := c.read()
+	if f.Type != crew.FrameDelivery {
+		t.Fatalf("delivery: %+v", f)
+	}
+	del := f.Delivery.ID
+
+	stranger := identity.NewDeliveryID()
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &stranger,
+		Items: []crew.ActivityItem{{Kind: crew.ActivityThought, Text: "not mine"}}})
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &del,
+		Items: []crew.ActivityItem{{Kind: "secret-dump", Text: "x"}}})
+	if e := c.read(); e.Type != crew.FrameError {
+		t.Fatalf("bad item kind: %+v", e)
+	}
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &del, Items: []crew.ActivityItem{
+		{Kind: crew.ActivityThought, Text: "Leo el <diff>"},
+		{Kind: crew.ActivityTool, Tool: "t1", Title: "Bash: git diff", ToolKind: "execute", Status: crew.ToolInProgress},
+	}})
+	e := next(t, events, crew.EventActivity, nil)
+	var a crew.Activity
+	if err := json.Unmarshal(e.Data, &a); err != nil {
+		t.Fatal(err)
+	}
+	if e.ID != "" || a.Delivery != del || a.Conversation != s.Conversation || a.AgentName != "test" ||
+		len(a.Items) != 2 || a.Items[0].Text != "Leo el <diff>" || a.Items[1].Status != crew.ToolInProgress {
+		t.Fatalf("activity: id=%q %+v", e.ID, a)
+	}
+	// Flashes are not replayed to a client resuming from before them.
+	for _, ev := range replayAll(t, p) {
+		if ev.Type == crew.EventActivity {
+			t.Fatalf("activity was stored: %+v", ev)
+		}
+	}
+	// A later update of t1 (completed) and a title with a token in it.
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &del, Items: []crew.ActivityItem{
+		{Kind: crew.ActivityTool, Tool: "t1", Status: crew.ToolCompleted},
+		{Kind: crew.ActivityTool, Tool: "t2", Title: "Bash: curl -H 'Authorization: token ghp_" + strings.Repeat("a", 36) + "'",
+			ToolKind: "execute", Status: crew.ToolFailed},
+	}})
+	next(t, events, crew.EventActivity, nil)
+	c.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &del})
+	// After the ack the delivery is gone: late activity is dropped quietly.
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &del,
+		Items: []crew.ActivityItem{{Kind: crew.ActivityMessage, Text: "late"}}})
+	c.quiet(300 * time.Millisecond)
+
+	// The turn's summary is stored: tools only (no thoughts), titles redacted.
+	e = next(t, events, ship.EventTurn, nil)
+	var turn ship.Turn
+	if err := json.Unmarshal(e.Data, &turn); err != nil {
+		t.Fatal(err)
+	}
+	var got query.Paginated[ship.Turn]
+	if code := p.admin(http.MethodGet, "/api/v1/conversations/"+s.Conversation.String()+"/turns", nil, &got); code != http.StatusOK {
+		t.Fatalf("turns: %d", code)
+	}
+	if len(got.Items) != 1 || got.Items[0].Delivery != del || got.Items[0].Outcome != ship.TurnAcked ||
+		got.Items[0].AgentName != "test" || len(got.Items[0].Tools) != 2 {
+		t.Fatalf("turns: %+v", got)
+	}
+	t1, t2 := got.Items[0].Tools[0], got.Items[0].Tools[1]
+	if t1.Title != "Bash: git diff" || t1.Kind != "execute" || t1.Status != crew.ToolCompleted || t1.EndedAt == nil {
+		t.Fatalf("t1: %+v", t1)
+	}
+	if t2.Status != crew.ToolFailed || strings.Contains(t2.Title, "ghp_") || !strings.Contains(t2.Title, text.Redacted) {
+		t.Fatalf("t2 not redacted: %+v", t2)
+	}
+	if turn.Delivery != del || strings.Contains(string(e.Data), "ghp_") || strings.Contains(string(e.Data), "diff>") {
+		t.Fatalf("turn event: %s", e.Data)
+	}
+
+	// A turn without tool calls stores nothing.
+	p.inject(d, "555", "act2", "otra")
+	f = c.read()
+	del2 := f.Delivery.ID
+	c.send(crew.Frame{Type: crew.FrameActivity, DeliveryID: &del2, Items: []crew.ActivityItem{{Kind: crew.ActivityThought, Text: "hmm"}}})
+	c.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &del2})
+	c.quiet(300 * time.Millisecond)
+	if code := p.admin(http.MethodGet, "/api/v1/conversations/"+s.Conversation.String()+"/turns", nil, &got); code != http.StatusOK || got.Page.Total != 1 {
+		t.Fatalf("turns after a tool-less turn: %d %+v", code, got.Page)
+	}
+}
+
+// replayAll reads every stored event a client resuming from 0 gets.
+func replayAll(t *testing.T, p *port) []sseEvent {
+	t.Helper()
+	events := p.openEvents("0")
+	var out []sseEvent
+	for {
+		select {
+		case e := <-events:
+			out = append(out, e)
+		case <-time.After(300 * time.Millisecond):
+			return out
+		}
 	}
 }

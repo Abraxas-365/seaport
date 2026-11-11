@@ -57,7 +57,15 @@ func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) http
 			if perm, ok := perms[e.Type]; !ok || !p.Can(perm) {
 				return true
 			}
-			if _, err := fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data); err != nil {
+			var err error
+			if e.ID == "" {
+				// A flash: no id line, which would reset the client's
+				// Last-Event-ID (flashes are never replayed).
+				_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, e.Data)
+			} else {
+				_, err = fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data)
+			}
+			if err != nil {
 				return false
 			}
 			return rc.Flush() == nil

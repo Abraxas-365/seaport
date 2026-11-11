@@ -244,6 +244,7 @@ See [API docks](../guides/api-docks.md).
 | `GET` | `/conversations/{id}` | `conversations:read` | The conversation. |
 | `PATCH` | `/conversations/{id}` | `conversations:write` | Body with any of `access` (`auto`, `allow`, `deny`), `group_mode` (`mentions`, `all`, or empty to inherit the dock's) and `title`. The conversation. |
 | `GET` | `/conversations/{id}/ships` | `ships:read` | Paginated ships (messages), newest first. |
+| `GET` | `/conversations/{id}/turns` | `ships:read` | Paginated [turn summaries](events.md#turn) (the tools an agent called on each delivery), newest first. |
 | `POST` | `/conversations/{id}/ships` | `ships:write` | Body `{"text":"…"}`. Sends a message as a person would. `201` with the ship. `403` if the conversation isn't allowed. |
 | `GET` | `/inbox` | `conversations:read` | Paginated conversations with a preview. Same filters as `/conversations`. |
 | `GET` | `/attachments/{id}` | `ships:read` | The file, with its sniffed type: an image, or a document (a file an agent sent) as a download (`Content-Disposition: attachment`). |

@@ -42,6 +42,7 @@ import type {
   PortConfig,
   Session,
   Ship,
+  Turn,
   TeamMember,
 } from "./types"
 
@@ -182,6 +183,8 @@ export const api = {
       "GET",
       `${v1}/conversations/${conversation}/ships${qs({ limit, offset })}`,
     ),
+  turns: (conversation: string, limit = 100) =>
+    request<Paginated<Turn>>("GET", `${v1}/conversations/${conversation}/turns${qs({ limit })}`),
   send: (conversation: string, text: string) =>
     request<Ship>("POST", `${v1}/conversations/${conversation}/ships`, { text }),
   inject: (

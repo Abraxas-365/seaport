@@ -3,7 +3,11 @@
 // NAT need no public address.
 //
 //	server → client: welcome, delivery, steer, profile
-//	client → server: hello, ack, release, reply, drain
+//	client → server: hello, ack, release, reply, drain, activity
+//
+// Activity: while a turn runs the connector may send what the agent does
+// (thinking, text, tool calls: titles and status only) for a delivery it
+// holds; the port flashes it to the web (live only, never stored).
 //
 // Profiles: a connector working as an agent with a profile fetches its
 // kit (GET /crew/profile) and says which version it runs in its hello. A
@@ -75,6 +79,7 @@ const (
 	FrameReply    FrameType = "reply"
 	FrameProfile  FrameType = "profile"
 	FrameDrain    FrameType = "drain"
+	FrameActivity FrameType = "activity"
 	FrameError    FrameType = "error"
 )
 
@@ -110,10 +115,14 @@ type Frame struct {
 	// delivery, steer
 	Delivery *ship.Delivery `json:"delivery,omitempty"`
 
-	// ack, release
+	// ack, release, activity
 	DeliveryID *identity.DeliveryID `json:"delivery_id,omitempty"`
 	// ack: the ships the agent handled
 	ShipIDs []identity.ShipID `json:"ship_ids,omitempty"`
+
+	// activity: what the agent did since the previous activity frame of
+	// the delivery (live view; see Activity).
+	Items []ActivityItem `json:"items,omitempty"`
 
 	// reply (connectors without MCP send the agent's answer this way)
 	ConversationID *identity.ConversationID `json:"conversation_id,omitempty"`

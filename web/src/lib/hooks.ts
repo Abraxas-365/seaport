@@ -74,6 +74,16 @@ export function useShips(conversation: string) {
   })
 }
 
+/** A conversation's latest turn summaries (newest first). */
+export function useTurns(conversation: string) {
+  const can = useCan()
+  return useQuery({
+    enabled: can(Perm.ShipsRead),
+    queryKey: keys.turns(conversation),
+    queryFn: () => api.turns(conversation),
+  })
+}
+
 // Read queries run only with their permission (the server would answer
 // 403); pages show NoAccess instead.
 

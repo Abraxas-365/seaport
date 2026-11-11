@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 type entry struct {
@@ -219,7 +221,7 @@ func TestHomeRules(t *testing.T) {
 				t.Errorf("%s reserved %s accepted", harness, p)
 			}
 		}
-		if len(r.Secrets) != len(secretPatterns) {
+		if len(r.Secrets) != len(text.Secrets) {
 			t.Fatalf("%s secrets: %+v", harness, r.Secrets)
 		}
 		// JavaScript-compatible: no RE2-only syntax (flags, \z, \A, \Q…\E, [[:class:]], \p).

@@ -29,6 +29,7 @@ func New(c ship.Commands, q ship.Queries, docks dock.Queries) *Handler {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/inbox", httpx.RequireFunc(permission.ConversationsRead, h.inbox))
 	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
+	mux.Handle("GET /api/v1/conversations/{id}/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
 	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
 	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
 	mux.Handle("GET /api/v1/attachments/{id}", httpx.RequireFunc(permission.ShipsRead, h.attachment))
@@ -68,6 +69,28 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	out, err := h.queries.History(r.Context(), org, id, page)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(w, http.StatusOK, out)
+}
+
+// turns lists what the agent did on each delivery of a conversation
+// (ship.Turn), newest first.
+func (h *Handler) turns(w http.ResponseWriter, r *http.Request) error {
+	org, err := httpx.Organization(r)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseConversationID(r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	page, err := httpx.Pagination(r)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Turns(r.Context(), org, id, page)
 	if err != nil {
 		return err
 	}

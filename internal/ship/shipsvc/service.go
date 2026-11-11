@@ -362,6 +362,34 @@ func (s *Service) History(ctx context.Context, org identity.OrganizationID, conv
 	return out, nil
 }
 
+func (s *Service) RecordTurn(ctx context.Context, org identity.OrganizationID, t ship.Turn) error {
+	for i := range t.Tools {
+		t.Tools[i].Title = ship.ToolTitle(t.Tools[i].Title)
+	}
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	created, err := s.repo.SaveTurn(ctx, org, t)
+	if err != nil {
+		return errx.Wrap(err, "save turn", errx.TypeInternal)
+	}
+	if created {
+		s.events.Publish(org, ship.EventTurn, t)
+	}
+	return nil
+}
+
+func (s *Service) Turns(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, page query.Pagination) (query.Paginated[ship.Turn], error) {
+	if _, err := s.convs.Find(ctx, org, conv); err != nil {
+		return query.Paginated[ship.Turn]{}, errx.Wrap(err, "find conversation", errx.TypeInternal)
+	}
+	out, err := s.repo.Turns(ctx, org, conv, page.Normalize())
+	if err != nil {
+		return out, errx.Wrap(err, "list turns", errx.TypeInternal)
+	}
+	return out, nil
+}
+
 func (s *Service) Inbox(ctx context.Context, org identity.OrganizationID, filter conversation.Filter, page query.Pagination) (query.Paginated[ship.InboxItem], error) {
 	convs, err := s.convs.List(ctx, org, filter, page)
 	if err != nil {

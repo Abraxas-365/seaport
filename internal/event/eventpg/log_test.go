@@ -126,6 +126,37 @@ func TestTwoProcesses(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no event after the sweep")
 	}
+
+	// A flash crosses to the other process once (not back to its own
+	// subscribers twice) and is never stored.
+	var before int
+	if err := first.GetContext(ctx, &before, `SELECT count(*) FROM events`); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // both LISTEN connections up
+	for len(subs[0].C) > 0 {
+		<-subs[0].C // "after sweep"
+	}
+	buses[0].Flash(org, "live", map[string]int{"n": 7})
+	for i, s := range subs {
+		select {
+		case e := <-s.C:
+			if e.Type != "live" || e.ID != "" || string(e.Data) != `{"n":7}` {
+				t.Fatalf("bus %d: flash %+v %s", i, e, e.Data)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("bus %d got no flash", i)
+		}
+	}
+	select {
+	case e := <-subs[0].C:
+		t.Fatalf("the sender's bus got its flash twice: %+v", e)
+	case <-time.After(300 * time.Millisecond):
+	}
+	var after int
+	if err := first.GetContext(ctx, &after, `SELECT count(*) FROM events`); err != nil || after != before {
+		t.Fatalf("a flash was stored: %d → %d (%v)", before, after, err)
+	}
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,36 @@ func TestNoGapNoDuplicate(t *testing.T) {
 			}
 		}
 		s.Close()
+	}
+}
+
+// TestFlashIsLiveOnly: a flash reaches the organization's live
+// subscribers with no id, is never stored (no replay, no Seq), and
+// oversized ones are dropped.
+func TestFlashIsLiveOnly(t *testing.T) {
+	log := event.NewMemoryLog()
+	b := startBus(t, log)
+	a, _, _ := subscribe(t, b, orgA, "")
+	other, _, _ := subscribe(t, b, orgB, "")
+	b.Publish(orgA, "stored", 1)
+	first := recv(t, a)
+	b.Flash(orgA, "live", map[string]string{"code": "<a>&</a>"})
+	e := recv(t, a)
+	if e.Type != "live" || e.ID != "" || e.Seq != 0 || string(e.Data) != `{"code":"<a>&</a>"}` {
+		t.Fatalf("flash: %+v %s", e, e.Data)
+	}
+	select {
+	case e := <-other.C:
+		t.Fatalf("other organization got %+v", e)
+	case <-time.After(50 * time.Millisecond):
+	}
+	_, replay, _ := subscribe(t, b, orgA, "0")
+	if len(replay) != 1 || replay[0].ID != first.ID {
+		t.Fatalf("replay has the flash: %+v", replay)
+	}
+	b.Flash(orgA, "big", strings.Repeat("x", event.MaxFlash))
+	b.Flash(orgA, "after", 1)
+	if e := recv(t, a); e.Type != "after" {
+		t.Fatalf("oversized flash went out: %s", e.Type)
 	}
 }

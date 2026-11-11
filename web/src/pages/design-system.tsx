@@ -1,7 +1,8 @@
 import * as React from "react"
 import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Build, Dock, InboxItem, Ship, Slot, UsageDay } from "@/lib/types"
+import type { Agent, Build, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
+import type { Activity } from "@/lib/activity"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -11,6 +12,8 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import {
+  AgentActivity,
+  TurnSummary,
   AgentCard,
   AgentChip,
   AccountBadge,
@@ -76,6 +79,7 @@ export function DesignSystemPage() {
           <Primitives />
           <Domain />
           <Conversation />
+          <MarkdownMessages />
           <Feedback />
         </div>
       </div>
@@ -303,6 +307,37 @@ const sampleShip = (over: Partial<Ship>): Ship => ({
   created_at: ago(3),
   ...over,
 })
+
+const sec = (s: number) => now - s * 1000
+const sampleActivity: Activity = {
+  delivery: "d-sample",
+  agentName: "ventas",
+  startedAt: sec(42),
+  steps: [
+    { kind: "thought", text: "Ana quiere reservar una X200. Reviso el stock antes de confirmar.", at: sec(40) },
+    { kind: "tool", id: "t1", title: "inventory.lookup X200", toolKind: "fetch", status: "completed", at: sec(38), endedAt: sec(36) },
+    { kind: "tool", id: "t2", title: "Read pedidos/reservas.csv", toolKind: "read", status: "completed", at: sec(35), endedAt: sec(35) },
+    { kind: "tool", id: "t3", title: "crm.reserve --sku X200 --qty 1", toolKind: "execute", status: "failed", at: sec(30), endedAt: sec(26) },
+    { kind: "thought", text: "Falló por sesión expirada; reintento con un token nuevo.", at: sec(25) },
+    { kind: "tool", id: "t4", title: "crm.reserve --sku X200 --qty 1", toolKind: "execute", status: "in_progress", at: sec(12) },
+  ],
+}
+
+const iso = (s: number) => new Date(sec(s)).toISOString()
+const sampleTurn: Turn = {
+  delivery_id: "d-done",
+  conversation_id: "c-ana",
+  agent_id: "a1",
+  agent_name: "ventas",
+  outcome: "acked",
+  started_at: iso(130),
+  ended_at: iso(118),
+  tools: [
+    { title: "inventory.lookup X200", kind: "fetch", status: "completed", started_at: iso(128), ended_at: iso(126) },
+    { title: "Read envios/tarifas.csv", kind: "read", status: "completed", started_at: iso(125), ended_at: iso(125) },
+    { title: "Bash: curl -H 'Authorization: [redacted]' …/quote", kind: "execute", status: "failed", started_at: iso(124), ended_at: iso(121) },
+  ],
+}
 
 const inboxItems: InboxItem[] = [
   {
@@ -565,7 +600,7 @@ function Domain() {
 
 function Conversation() {
   return (
-    <Block title="Conversación" description="Burbujas: entrantes a la izquierda, el agente a la derecha; retenidos punteados.">
+    <Block title="Conversación" description="Burbujas: entrantes a la izquierda, el agente a la derecha; retenidos punteados; bajo cada respuesta, el resumen guardado de herramientas; y lo que el agente hace en vivo.">
       <Card className="gap-0 overflow-hidden py-0">
         <div className="bg-canvas px-4 pb-4 md:px-10">
           <DayDivider label="Hoy" />
@@ -575,9 +610,13 @@ function Conversation() {
             ship={sampleShip({ direction: "out", status: "sent", text: "¡Hola Ana! Sí, quedan 4 unidades. A Arequipa demora 2 días hábiles.", sent_at: ago(12) })}
           />
           <ShipBubble ship={sampleShip({ direction: "out", status: "pending", text: "¿Te reservo una?", sent_at: ago(12) })} grouped />
+          {/* What the agent did for that answer, stored when the turn ended (tools only, folded). */}
+          <TurnSummary turn={sampleTurn} className="mt-1" />
           <ShipBubble ship={sampleShip({ text: "Mensaje en grupo sin mención", status: "held", sender_name: "Pedro", sent_at: ago(6) })} showSender />
           <ShipBubble ship={sampleShip({ direction: "out", status: "failed", error: "not connected", text: "Esto no salió", sent_at: ago(2) })} />
           <ShipBubble ship={sampleShip({ text: "Perfecto, resérvame una 🙌", status: "claimed", sent_at: ago(1) })} />
+          {/* What the agent is doing on that message, live (never stored). */}
+          <AgentActivity activity={sampleActivity} className="mt-3" />
           {/* An image attachment (no bytes behind it here: it shows the unavailable state). */}
           <ShipBubble
             ship={sampleShip({
@@ -601,6 +640,37 @@ function Conversation() {
           />
         </div>
         <Composer onSend={() => new Promise((r) => setTimeout(r, 600))} />
+      </Card>
+    </Block>
+  )
+}
+
+const sampleMarkdown = [
+  "(on docs/guides/github.md:161) **A corregir.** Los enlaces apuntan al commit ([files.go#L100](https://github.com/acme/web/blob/main/files.go#L100)), no a la rama `seaport-files`.",
+  "",
+  "```suggestion",
+  "- **File links give `404`.** The reader has no access to the repository.",
+  "```",
+  "",
+  "| Check | Estado |",
+  "| :--- | :--- |",
+  "| Permisos | ✅ |",
+  "| Enlaces | ❌ |",
+  "",
+  "- [x] Leer el diff",
+  "- [ ] Probar en local",
+  "",
+  "> Raw <b>HTML</b> no se muestra; [rutas relativas](../x.md) quedan como texto.",
+].join("\n")
+
+function MarkdownMessages() {
+  return (
+    <Block title="Mensajes en Markdown" description="GitHub y los muelles API escriben Markdown (negritas, código, sugerencias, tablas, listas de tareas); WhatsApp se muestra tal cual. Sin HTML crudo; solo enlaces http(s) absolutos, en otra pestaña.">
+      <Card className="gap-0 overflow-hidden py-0">
+        <div className="bg-canvas px-4 pb-4 md:px-10">
+          <ShipBubble ship={sampleShip({ text: "@qa revisa el PR por favor, sobre todo `files.go`", sent_at: ago(5) })} markdown />
+          <ShipBubble ship={sampleShip({ direction: "out", status: "sent", text: sampleMarkdown, sent_at: ago(4) })} markdown />
+        </div>
       </Card>
     </Block>
   )

@@ -92,6 +92,11 @@ Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are rep
 | Default of `seaport connect --concurrency` | 2 | flag default in `cmd/seaport` | `--concurrency` |
 | Maximum `concurrency` | 32 | `crew.MaxConcurrency` | No |
 | WebSocket frame | 4 MiB | `crew.MaxFrame` | No |
+| Items in one `activity` frame | 32 | `crew.MaxActivityItems` | No |
+| Encoded items of one `activity` frame | 6000 bytes | `crew.MaxActivityBytes` | No |
+| Live-only event (`crew.activity`) payload | 7000 bytes | `event.MaxFlash` | No |
+| Tool calls kept in a turn summary | 200 (the rest counted in `omitted`) | `ship.MaxTurnTools` | No |
+| Tool title in a turn summary | 300 characters | `ship.MaxToolTitle` | No |
 | WebSocket ping interval (both sides) | 30 s | `crew.PingInterval` | No |
 | Longest pause between touches of a process's connections | 10 s (otherwise lease/4) | `crewws.maxTouch` | No |
 | One connection operation | 15 s | `crewws.opTimeout` | No |

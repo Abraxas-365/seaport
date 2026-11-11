@@ -49,7 +49,7 @@ const closeWait = 5 * time.Second
 type Hub struct {
 	lease  time.Duration
 	mcpURL string
-	events event.Publisher
+	events event.Stream
 	// maxConns bounds each organization's live connections, across
 	// processes (≤ 0: unlimited).
 	maxConns int
@@ -133,12 +133,15 @@ type tracked struct {
 	conversation identity.ConversationID
 	ships        []identity.ShipID
 	since        time.Time
+	// turn gathers the agent's tool calls (activity frames) for the turn
+	// summary stored when the delivery ends.
+	turn turnLog
 }
 
 // New builds the hub of process (its name among the processes serving the
 // database); a delivery lease is lease, and connections are touched every
 // lease/4 (at most maxTouch).
-func New(process string, lease time.Duration, mcpURL string, events event.Publisher, maxConns int, presence crew.Presence) *Hub {
+func New(process string, lease time.Duration, mcpURL string, events event.Stream, maxConns int, presence crew.Presence) *Hub {
 	if events == nil {
 		events = event.Nop{}
 	}
@@ -753,7 +756,14 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 		} else {
 			err = ships.Release(opCtx, c.organization, *f.DeliveryID)
 		}
-		c.forget(*f.DeliveryID)
+		t := c.take(*f.DeliveryID)
+		if err == nil {
+			outcome := ship.TurnAcked
+			if f.Type == crew.FrameRelease {
+				outcome = ship.TurnReleased
+			}
+			h.recordTurn(opCtx, c, *f.DeliveryID, t, outcome)
+		}
 		h.working(c)
 		c.poke()
 		return err
@@ -768,6 +778,23 @@ func (h *Hub) apply(ctx context.Context, c *conn, f crew.Frame) error {
 		}
 		_, err := ships.Send(opCtx, c.organization, ship.Outbound{Conversation: *f.ConversationID, Text: f.Text, Agent: &c.agentID})
 		return err
+	case crew.FrameActivity:
+		if f.DeliveryID == nil {
+			return errx.InvalidField("delivery_id", "delivery_id is required")
+		}
+		now := time.Now().UTC()
+		a := crew.Activity{Delivery: *f.DeliveryID, AgentID: c.agentID, AgentName: c.agentName, At: now, Items: f.Items}
+		if err := a.Validate(); err != nil {
+			return err
+		}
+		conv, ok := c.noteActivity(*f.DeliveryID, f.Items, now)
+		if !ok {
+			// The delivery just ended (acked): late activity is dropped.
+			return nil
+		}
+		a.Conversation = conv
+		h.events.Flash(c.organization, crew.EventActivity, a)
+		return nil
 	default:
 		return errx.Validation("unexpected frame type " + string(f.Type))
 	}
@@ -874,8 +901,12 @@ func (h *Hub) drop(c *conn) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 	for _, id := range c.deliveries() {
-		if err := h.commands().Release(ctx, c.organization, id); err != nil && !errx.IsType(err, errx.TypeNotFound) {
+		err := h.commands().Release(ctx, c.organization, id)
+		if err != nil && !errx.IsType(err, errx.TypeNotFound) {
 			slog.Error("release delivery of closed connection", "delivery", id, "err", err)
+		}
+		if err == nil {
+			h.recordTurn(ctx, c, id, c.take(id), ship.TurnDropped)
 		}
 	}
 	// And any claim it never tracked (committed as the connection closed).
@@ -949,10 +980,14 @@ func shipIDs(into []identity.ShipID, ships []ship.Ship) []identity.ShipID {
 	return into
 }
 
-func (c *conn) forget(id identity.DeliveryID) {
+// take forgets an open delivery and hands back what was tracked for it
+// (nil if it wasn't open).
+func (c *conn) take(id identity.DeliveryID) *tracked {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := c.inFlight[id]
 	delete(c.inFlight, id)
-	c.mu.Unlock()
+	return t
 }
 
 func (c *conn) owns(id identity.DeliveryID) bool {
@@ -960,6 +995,19 @@ func (c *conn) owns(id identity.DeliveryID) bool {
 	defer c.mu.Unlock()
 	_, ok := c.inFlight[id]
 	return ok
+}
+
+// noteActivity adds a frame's tool calls to an open delivery's turn and
+// says its conversation; false when the delivery isn't open here.
+func (c *conn) noteActivity(id identity.DeliveryID, items []crew.ActivityItem, now time.Time) (identity.ConversationID, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.inFlight[id]
+	if !ok {
+		return identity.ConversationID{}, false
+	}
+	t.turn.note(items, now)
+	return t.conversation, true
 }
 
 func (c *conn) deliveries() []identity.DeliveryID {

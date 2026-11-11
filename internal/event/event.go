@@ -9,6 +9,7 @@
 package event
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -40,10 +41,48 @@ type Publisher interface {
 	Publish(organization identity.OrganizationID, typ string, data any)
 }
 
+// Flasher sends live-only events: not stored, no id, never replayed; a
+// client that isn't listening at that moment never sees them (what an
+// agent is doing right now). Delivery is best effort.
+type Flasher interface {
+	Flash(organization identity.OrganizationID, typ string, data any)
+}
+
+// Stream publishes both kinds of events.
+type Stream interface {
+	Publisher
+	Flasher
+}
+
 // Nop discards events (tests, tools).
 type Nop struct{}
 
 func (Nop) Publish(identity.OrganizationID, string, any) {}
+func (Nop) Flash(identity.OrganizationID, string, any)   {}
+
+// MaxFlash bounds a flash's encoded data (Postgres NOTIFY payloads are
+// under 8000 bytes, with the envelope).
+const MaxFlash = 7000
+
+// Flashes carries flashes to every process. A Log that implements it
+// (eventpg: NOTIFY) makes flashes cross processes; else they reach this
+// process's subscribers only.
+type Flashes interface {
+	// SendFlash hands a flash to every process (this one included may get
+	// it back: the bus drops its own by origin).
+	SendFlash(ctx context.Context, f Flash) error
+	// ListenFlashes calls fn with every flash of any process until ctx ends.
+	ListenFlashes(ctx context.Context, fn func(Flash))
+}
+
+// Flash is a live-only event on the way between processes. Origin is the
+// sending bus's Boot.
+type Flash struct {
+	Origin       string                  `json:"o"`
+	Organization identity.OrganizationID `json:"g"`
+	Type         string                  `json:"t"`
+	Data         json.RawMessage         `json:"d"`
+}
 
 // Log stores events in order and tells its listeners when there are new
 // ones. Implementations: MemoryLog (one process), eventpg (Postgres).
@@ -127,6 +166,20 @@ func (b *Bus) Start(ctx context.Context) error {
 		defer close(listening)
 		b.log.Listen(ctx, b.poke)
 	}()
+	if fl, ok := b.log.(Flashes); ok {
+		flashing := make(chan struct{})
+		prev := listening
+		listening = flashing
+		go func() {
+			defer close(flashing)
+			defer func() { <-prev }()
+			fl.ListenFlashes(ctx, func(f Flash) {
+				if f.Origin != b.boot {
+					b.fanFlash(f)
+				}
+			})
+		}()
+	}
 	go func() {
 		defer close(b.done)
 		defer func() { <-listening }()
@@ -182,6 +235,53 @@ func (b *Bus) Publish(organization identity.OrganizationID, typ string, data any
 		return
 	}
 	b.poke()
+}
+
+var _ Stream = (*Bus)(nil)
+
+// Flash fans data out to this process's subscribers of organization at
+// once and, through the log when it carries flashes, to every other
+// process's. Data that encodes larger than MaxFlash is dropped (logged).
+func (b *Bus) Flash(organization identity.OrganizationID, typ string, data any) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // code is full of < > &: keep it compact
+	if err := enc.Encode(data); err != nil {
+		slog.Error("marshal flash", "type", typ, "err", err)
+		return
+	}
+	raw := bytes.TrimRight(buf.Bytes(), "\n")
+	if len(raw) > MaxFlash {
+		slog.Warn("flash too large, dropped", "type", typ, "bytes", len(raw))
+		return
+	}
+	f := Flash{Origin: b.boot, Organization: organization, Type: typ, Data: raw}
+	b.fanFlash(f)
+	if fl, ok := b.log.(Flashes); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), publishTimeout)
+		defer cancel()
+		if err := fl.SendFlash(ctx, f); err != nil {
+			slog.Warn("send flash", "type", typ, "err", err)
+		}
+	}
+}
+
+// fanFlash hands a flash to the organization's subscribers; a full queue
+// skips it (flashes are best effort, and never cost a subscriber its
+// stream).
+func (b *Bus) fanFlash(f Flash) {
+	e := Event{Organization: f.Organization, Type: f.Type, At: time.Now().UTC(), Data: f.Data}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for s := range b.subs {
+		if s.organization != f.Organization {
+			continue
+		}
+		select {
+		case s.c <- e:
+		default:
+		}
+	}
 }
 
 // catchUp fans out everything after head.

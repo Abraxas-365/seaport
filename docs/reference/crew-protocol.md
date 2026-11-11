@@ -52,6 +52,7 @@ client                                  port
 | `release` | client → port | `delivery_id` |
 | `reply` | client → port | `conversation_id`, `text` |
 | `drain` | client → port | none |
+| `activity` | client → port | `delivery_id`, `items` |
 | `error` | port → client | `message` |
 
 ### hello
@@ -147,6 +148,31 @@ For connectors that can't use [MCP](mcp-tools.md): sends the agent's answer to a
 ```
 
 Tells the port to give this connection no new deliveries. Steers still join the deliveries in flight. The connector sends it before it restarts its harness with a new kit: once its work is acked, it closes and reconnects. Drain lasts until the connection closes.
+
+### activity
+
+```json
+{"type":"activity","delivery_id":"…","items":[
+  {"kind":"thought","text":"Let me read the diff first."},
+  {"kind":"tool","tool":"call-1","title":"Bash: git diff","tool_kind":"execute","status":"in_progress"}
+]}
+```
+
+Optional. What the agent did on a delivery since the previous `activity` frame of that delivery, so people watching the conversation in the web app see it work. The port checks the frame and sends it on as a live [`crew.activity` event](events.md#agent-activity). The thinking and text are never stored: a page opened mid-turn sees only what comes after. The tool calls are also gathered into a [turn summary](events.md#turn), stored when the delivery ends (`ack`, `release` or the connection closing).
+
+- `delivery_id` must be a delivery open on this connection. Activity for a delivery that just ended (acked or released) is dropped without an error.
+- `items` holds 1 to 32 items, at most 6000 bytes once encoded as JSON (`crew.MaxActivityItems`, `crew.MaxActivityBytes`). Texts are UTF-8 without control characters (newlines and tabs are fine).
+
+| Item field | Meaning |
+| :--- | :--- |
+| `kind` | `thought` (a chunk of the agent's reasoning), `message` (a chunk of its own text) or `tool` (a tool call started or changed). |
+| `text` | The chunk, for `thought` and `message`. Chunks of one kind follow on from the previous ones. |
+| `tool` | For `tool`: the call's id within the turn, at most 128 bytes. Later items with the same id update it. |
+| `title` | For `tool`: what the call does, as the harness names it (`Read src/main.go`). |
+| `tool_kind` | For `tool`: the ACP tool kind (`read`, `edit`, `delete`, `move`, `search`, `execute`, `think`, `fetch`, `other`). |
+| `status` | For `tool`: `pending`, `in_progress`, `completed` or `failed`; empty when unchanged. |
+
+Send titles and status only, never a tool's input or output: those can hold file contents or secrets. `seaport connect` sends the ACP `agent_thought_chunk`, `agent_message_chunk`, `tool_call` and `tool_call_update` updates of each turn this way, batched every 300 ms, and sends the last batch before its `ack` or `release`.
 
 ### profile
 

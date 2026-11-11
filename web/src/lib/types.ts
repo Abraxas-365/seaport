@@ -322,6 +322,58 @@ export interface DeliveryEvent {
   owner?: string
 }
 
+/** ACP's tool call statuses ("": unchanged in an update). */
+export type ToolStatus = "pending" | "in_progress" | "completed" | "failed"
+
+/** One step of what an agent does: a chunk of its thinking or text, or a
+ * tool call's latest state (title and status only, never its input or
+ * output). */
+export interface ActivityItem {
+  kind: "thought" | "message" | "tool"
+  text?: string
+  tool?: string
+  title?: string
+  tool_kind?: string
+  status?: ToolStatus | ""
+}
+
+/** crew.activity: live only (never stored, never replayed). */
+export interface ActivityEvent {
+  delivery_id: ID
+  conversation_id: ID
+  agent_id: ID
+  agent_name: string
+  at: string
+  items: ActivityItem[]
+}
+
+/** How a delivery ended: finished, failed (ships requeued), or the
+ * connection closed mid-turn. */
+export type TurnOutcome = "acked" | "released" | "dropped"
+
+/** One tool call of a stored turn (title redacted, never input/output). */
+export interface TurnTool {
+  title: string
+  kind?: string
+  status: ToolStatus
+  started_at: string
+  ended_at?: string
+}
+
+/** What an agent did on one delivery (ship.turn; GET …/turns). */
+export interface Turn {
+  delivery_id: ID
+  conversation_id: ID
+  agent_id: ID
+  agent_name: string
+  outcome: TurnOutcome
+  started_at: string
+  ended_at: string
+  tools: TurnTool[]
+  /** Tools past the server's cap, not kept. */
+  omitted?: number
+}
+
 /** Server-Sent Event types of GET /api/v1/events. */
 export interface EventMap {
   "dock.updated": Dock
@@ -331,7 +383,9 @@ export interface EventMap {
   "ship.created": Ship
   "ship.updated": Ship
   "delivery.changed": DeliveryEvent
+  "ship.turn": Turn
   "crew.changed": CrewStatus
+  "crew.activity": ActivityEvent
   "agent.updated": LibraryAgent
   "agent.deleted": { id: ID }
   "environment.updated": Environment

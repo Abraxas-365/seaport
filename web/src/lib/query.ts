@@ -32,6 +32,7 @@ export const keys = {
   inbox: (f: object) => ["inbox", f] as const,
   conversation: (id: string) => ["conversation", id] as const,
   ships: (id: string) => ["ships", id] as const,
+  turns: (id: string) => ["turns", id] as const,
   customs: (dock: string) => ["customs", dock] as const,
   crew: ["crew"] as const,
   crewTokens: ["crew-tokens"] as const,

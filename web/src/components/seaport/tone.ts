@@ -1,6 +1,6 @@
 // Tone: the one place status → color meaning lives (see index.css).
 
-import type { BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState } from "@/lib/types"
+import type { BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState, ToolStatus, TurnOutcome } from "@/lib/types"
 
 export type Tone = "neutral" | "brand" | "success" | "warning" | "danger" | "info"
 
@@ -126,6 +126,27 @@ export const buildLabel: Record<BuildState, string> = {
 
 /** How a home's file differs from the version it's compared with. */
 export type HomeChange = "added" | "changed" | "removed"
+
+/** A tool call an agent is making (live activity). */
+export const toolTone: Record<ToolStatus, Tone> = {
+  pending: "neutral",
+  in_progress: "info",
+  completed: "success",
+  failed: "danger",
+}
+
+export const turnTone: Record<TurnOutcome, Tone> = {
+  acked: "neutral",
+  released: "danger",
+  dropped: "warning",
+}
+
+export const toolLabel: Record<ToolStatus, string> = {
+  pending: "En espera",
+  in_progress: "Ejecutando",
+  completed: "Listo",
+  failed: "Falló",
+}
 
 export const homeChangeTone: Record<HomeChange, Tone> = {
   added: "success",

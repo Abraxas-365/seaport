@@ -22,10 +22,12 @@ import {
   useSetAccess,
   useSetGroupMode,
   useShips,
+  useTurns,
 } from "@/lib/hooks"
+import { useActivity, type Activity } from "@/lib/activity"
 import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
-import type { Access, Conversation, GroupMode, Ship } from "@/lib/types"
+import type { Access, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -38,6 +40,7 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
+  AgentActivity,
   ChatAvatar,
   Composer,
   DataItem,
@@ -50,6 +53,7 @@ import {
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
+  TurnSummary,
   channelLabel,
   customsLabel,
   customsTone,
@@ -72,6 +76,7 @@ export function ConversationPage() {
   const { conversationId = "" } = useParams()
   const conv = useConversation(conversationId)
   const ships = useShips(conversationId)
+  const turns = useTurns(conversationId)
   const crew = useCrew()
   const send = useSend(conversationId)
   const can = useCan()
@@ -79,6 +84,9 @@ export function ConversationPage() {
   // The connection working this chat (one at a time), for its agent's name.
   const worker = crew.data?.agents.find((a) => a.deliveries.some((d) => d.conversation_id === conversationId))
   const working = !!worker
+  // What it is doing, while that delivery is open (live only).
+  const live = useActivity(conversationId)
+  const activity = working && worker.deliveries.some((d) => d.id === live?.delivery) ? live : undefined
 
   if (conv.isError) return <ErrorState error={conv.error} onRetry={() => conv.refetch()} className="h-full" />
   if (!conv.data) return <ConversationSkeleton />
@@ -98,6 +106,8 @@ export function ConversationPage() {
           loadingMore={ships.isFetchingNextPage}
           onLoadMore={() => ships.fetchNextPage()}
           working={!!working}
+          activity={activity}
+          turns={turns.data?.items}
         />
       ) : (
         <NoAccess what="leer los mensajes" className="flex-1" />
@@ -192,6 +202,8 @@ function ShipList({
   loadingMore,
   onLoadMore,
   working,
+  activity,
+  turns,
 }: {
   conversation: Conversation
   ships: Ship[]
@@ -200,6 +212,8 @@ function ShipList({
   loadingMore: boolean
   onLoadMore: () => void
   working: boolean
+  activity?: Activity
+  turns?: Turn[]
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
   const ordered = React.useMemo(() => ships.slice().reverse(), [ships])
@@ -208,12 +222,17 @@ function ShipList({
   const multiAgent = new Set(ships.flatMap((s) => (s.agent_id ? [s.agent_id] : []))).size > 1
   const newest = ships[0]?.id
   const stick = React.useRef(true)
+  // Each turn summary goes right after the ships before it ended (its
+  // answer is sent before the delivery closes); turns older than the
+  // loaded history wait for "Mensajes anteriores".
+  const turnsAfter = React.useMemo(() => placeTurns(ordered, turns ?? []), [ordered, turns])
 
-  // Follow new ships when the user is at the bottom.
+  // Follow new ships (and the agent's live activity) when the user is at
+  // the bottom.
   React.useLayoutEffect(() => {
     const el = ref.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [newest, working, loading])
+  }, [newest, working, loading, activity, turns])
 
   // Keep position when older pages load at the top.
   const prevHeight = React.useRef(0)
@@ -237,6 +256,9 @@ function ShipList({
     )
 
   const group = conversation.kind === "group"
+  // GitHub (and API docks) speak Markdown; WhatsApp has its own *bold*
+  // and _italic_, so its text shows as typed.
+  const markdown = conversation.channel !== "whatsapp"
   return (
     <div
       ref={ref}
@@ -279,11 +301,14 @@ function ShipList({
                   multiAgent={multiAgent}
                   grouped={grouped}
                   showSender={group && !grouped}
+                  markdown={markdown}
                 />
+                {turnsAfter.get(i)?.map((t) => <TurnSummary key={t.delivery_id} turn={t} className="mt-1" />)}
               </React.Fragment>
             )
           })}
           {working && <TypingBubble />}
+          {activity && <AgentActivity activity={activity} className="mt-1.5" />}
         </div>
       )}
     </div>
@@ -397,6 +422,25 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
       </SheetContent>
     </Sheet>
   )
+}
+
+/** Maps the index of a ship (oldest first) to the turns that ended after
+ * it and before the next one; turns before the first loaded ship are left
+ * out (that history isn't loaded). */
+function placeTurns(ordered: Ship[], turns: Turn[]): Map<number, Turn[]> {
+  const out = new Map<number, Turn[]>()
+  if (ordered.length === 0) return out
+  const first = new Date(ordered[0].sent_at).getTime()
+  const sorted = turns
+    .map((t) => ({ t, at: new Date(t.ended_at).getTime() }))
+    .filter((x) => x.at >= first)
+    .sort((a, b) => a.at - b.at)
+  let i = 0
+  for (const { t, at } of sorted) {
+    while (i + 1 < ordered.length && new Date(ordered[i + 1].sent_at).getTime() <= at) i++
+    out.set(i, [...(out.get(i) ?? []), t])
+  }
+  return out
 }
 
 function ConversationSkeleton() {

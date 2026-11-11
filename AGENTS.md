@@ -550,6 +550,34 @@ test together with the reason. Add a rule when you add a pattern.
   stored in clear for an hour: never publish secrets — `dock.updated` goes
   through `docksvc.announce`, which drops the pairing QR (the web refetches
   a linking dock; `TestEventsNeverCarryTheQR`).
+- Live-only events (`event.Flasher`, `Bus.Flash`): what an agent is doing
+  (`crew.activity`) is flashed, not published: never stored, no SSE id
+  (so it never moves a client's `Last-Event-ID`), never replayed. The bus
+  fans a flash out to this process's subscribers of the organization
+  (skipped for a full queue, never a drop) and, when its Log implements
+  `event.Flashes` (`eventpg`: `NOTIFY seaport_flashes`), to every other
+  process, which drop their own by `Boot`. Payloads stay under
+  `event.MaxFlash` (NOTIFY's 8000 bytes). The connector's `feed` batches a
+  turn's ACP updates (thought/message chunks, tool calls: title, kind and
+  status only, never input or output) into `activity` frames every 300 ms
+  and sends the last before its ack/release; the hub accepts them only for
+  a delivery open on that connection (late ones dropped quietly), checks
+  `crew.Activity.Validate` and flashes them with the conversation and
+  agent filled in. The web keeps them outside React Query
+  (`src/lib/activity.ts`), cleared on `reset` and, once the delivery
+  ends, when its turn summary arrives (or after a short grace).
+- Turn summaries (`ship/turn.go`, migration 00024): the hub gathers each
+  delivery's tool calls from its activity frames (`crewws/turn.go`,
+  `turnLog`: title/kind/status, timed by the hub, at most
+  `ship.MaxTurnTools`, the rest counted) and on ack/release/close
+  (outcome `acked`|`released`|`dropped`; none for an expired lease or a
+  turn without tools) calls `ship.Commands.RecordTurn`, best effort,
+  which redacts titles (`ship.ToolTitle`: `text.Redact` with
+  `text.Secrets`, the patterns harness homes refuse), stores the row
+  (`ship_turns`, keyed by delivery, idempotent) and publishes `ship.turn`.
+  Thoughts and message text are never stored. `GET
+  /api/v1/conversations/{id}/turns` (`ships:read`) lists them; the web
+  folds each under the ships before its `ended_at`.
 - Modes (`SEAPORT_AUTH`, plan `~/.rness/plans/puerto/modes-and-tenancy.md`):
   auth is the `httpx.Authenticator` port, picked once in `bootstrap`
   (`Open` for `none`, `Tokens` for `token`, `authhttp` for `iam`); it puts an

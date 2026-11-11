@@ -133,4 +133,30 @@ func (l *Log) Listen(ctx context.Context, wake func()) {
 	pglisten.Listen(ctx, l.db.DB, channel, wake, func(string) { wake() })
 }
 
+// flashChannel carries flashes (event.Flash as JSON) between processes.
+const flashChannel = "seaport_flashes"
+
+var _ event.Flashes = (*Log)(nil)
+
+// SendFlash is a NOTIFY: nothing is stored.
+func (l *Log) SendFlash(ctx context.Context, f event.Flash) error {
+	raw, err := json.Marshal(f)
+	if err != nil {
+		return err
+	}
+	_, err = l.db.ExecContext(ctx, `SELECT pg_notify($1, $2)`, flashChannel, string(raw))
+	return pgerr.Map(err, "send flash")
+}
+
+// ListenFlashes holds a LISTEN connection of its own; flashes sent while
+// it reconnects are lost (they are best effort).
+func (l *Log) ListenFlashes(ctx context.Context, fn func(event.Flash)) {
+	pglisten.Listen(ctx, l.db.DB, flashChannel, func() {}, func(payload string) {
+		var f event.Flash
+		if json.Unmarshal([]byte(payload), &f) == nil && f.Type != "" {
+			fn(f)
+		}
+	})
+}
+
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }

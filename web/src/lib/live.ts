@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react"
 import type { InfiniteData, QueryClient } from "@tanstack/react-query"
 
+import { applyActivity, clearActivity, deliveryChanged, turnStored } from "./activity"
 import { keys } from "./query"
 import type {
   Build,
@@ -16,6 +17,7 @@ import type {
   InboxItem,
   Paginated,
   Ship,
+  Turn,
 } from "./types"
 
 export type LiveState = "connecting" | "live" | "offline"
@@ -114,13 +116,24 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
     qc.invalidateQueries({ queryKey: keys.inboxAll })
   },
   "delivery.changed": (qc, ev) => {
+    deliveryChanged(ev)
     if (ev.conversation_id) qc.invalidateQueries({ queryKey: keys.ships(ev.conversation_id) })
     else qc.invalidateQueries({ queryKey: ["ships"] })
     qc.invalidateQueries({ queryKey: keys.inboxAll })
   },
+  "ship.turn": (qc, turn) => {
+    qc.setQueryData<Paginated<Turn>>(keys.turns(turn.conversation_id), (old) =>
+      old && !old.items.some((t) => t.delivery_id === turn.delivery_id)
+        ? { items: [turn, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
+        : old,
+    )
+    turnStored(turn)
+  },
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)
   },
+  // Live only, outside the query cache (src/lib/activity.ts).
+  "crew.activity": (_qc, ev) => applyActivity(ev),
   // A default demotes another agent without its own event: refetch.
   // Unassigning or deleting an agent holds what waited for it (no ship
   // events): refetch histories and the inbox too.
@@ -177,7 +190,10 @@ class LiveStream {
     this.source = src
     this.set("connecting")
     src.addEventListener("ready", () => this.set("live"))
-    src.addEventListener("reset", () => qc.invalidateQueries())
+    src.addEventListener("reset", () => {
+      clearActivity()
+      qc.invalidateQueries()
+    })
     src.onerror = () => {
       // EventSource reconnects by itself (retry: 3000) and resends
       // Last-Event-ID; a closed source (e.g. 401) does not.

@@ -276,8 +276,11 @@ func githubHint(chat string) string {
 	}
 	return "GitHub: repository " + repo + ", issue/PR #" + num + ". Your reply is posted there as a comment. " +
 		"For anything else on GitHub (reviews, line comments, labels, pushing a branch) use `gh` (e.g. `gh pr view " + num +
-		" -R " + repo + "`, `gh pr review " + num + " -R " + repo + " --comment -b …`) and git: both act as the port's GitHub App" +
-		" for this repository (`seaport github-token " + repo + "` prints its token). " +
+		" -R " + repo + " --comments` reads the whole thread, `gh pr review " + num + " -R " + repo + " --comment -b …`) and git:" +
+		" both act as the port's GitHub App for this repository (`seaport github-token " + repo + "` prints its token). " +
+		"A review you post already answers in the thread: don't repeat it in a reply (reply only when nothing else was posted, " +
+		"or to add something new). In anything you post, link files with full URLs " +
+		"(https://github.com/" + repo + "/blob/<ref>/<path>#L<n>): relative links break in comments. " +
 		"To attach files (a QA report, screenshots), reply with `seaport reply <conversation_id> -file PATH... \"text\"`" +
 		" instead of the reply tool: images show in the comment, other files are linked.\n"
 }

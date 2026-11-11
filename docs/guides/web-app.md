@@ -53,7 +53,12 @@ Each row has the chat's name, a preview of the last message (agent messages star
 
 Select a conversation to read it. Messages are oldest to newest, with day dividers; **Mensajes anteriores** loads older ones. Inbound messages are on the left, and in groups they show the sender's name. Messages sent by agents (or by you) are on the right; when several agents work in the chat, each bubble names its `@agent`. Hover a message's time to see its status. A held message shows why, for example "esperando tu decisión en la aduana" or "no se llamó a ningún agente (@nombre)". See [held reasons](../explanation/message-lifecycle.md#held-reasons). A failed send shows its error.
 
-While an agent works on the chat, the header shows "@name está respondiendo…" and typing bubbles.
+In GitHub and API conversations, message text is rendered as Markdown: bold, lists, tables, task lists, inline code, code blocks and GitHub's `suggestion` blocks (labelled "Sugerencia de cambio"). Links open in a new tab, and only absolute `http(s)` and `mailto` links are followed; relative paths stay plain text. Raw HTML is not rendered, and remote images show as links, never loaded. WhatsApp text shows as typed, because WhatsApp has its own formatting.
+While an agent works on the chat, the header shows "@name está respondiendo…" and typing bubbles. Below them, a panel shows what the agent is doing as it happens: its thinking, its own text, and each tool it calls with its title, status (running, done, failed) and duration. Click the panel's header to fold it. Only titles and status are shown, never a tool's input or output. Seeing it takes `seaport:ships:read`.
+
+The live panel is not stored. If you open the chat while the agent is already working, you see what it does from then on. The agent's connector sends this activity (`seaport connect` does it for every ACP harness; see the [`activity` frame](../reference/crew-protocol.md#activity)).
+
+When the turn ends, the panel folds into a line under the agent's answer, such as "@ventas trabajó 12s · 3 herramientas". Click it to see the tools again with their status and duration. This summary is stored with the conversation, so it stays after a reload. It keeps the tools only (title, kind, status and timing, with secret-looking strings in titles replaced by `[redacted]`), never the agent's thinking or text. A turn that failed reads "falló tras…" and one cut by a disconnect "se desconectó tras…". Turns without tool calls leave no summary.
 
 Images sent to the chat show inline:
 

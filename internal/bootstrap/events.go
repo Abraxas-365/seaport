@@ -15,14 +15,18 @@ import (
 // returning that data). A type missing here is never streamed;
 // TestEveryEventTypeHasAPermission keeps it complete.
 var EventPermissions = map[string]string{
-	dock.EventUpdated:               permission.DocksRead,
-	dock.EventDeleted:               permission.DocksRead,
-	conversation.EventUpdated:       permission.ConversationsRead,
-	conversation.EventCustoms:       permission.CustomsRead,
-	ship.EventCreated:               permission.ShipsRead,
-	ship.EventUpdated:               permission.ShipsRead,
-	ship.EventDelivery:              permission.ShipsRead,
-	crew.EventChanged:               permission.CrewRead,
+	dock.EventUpdated:         permission.DocksRead,
+	dock.EventDeleted:         permission.DocksRead,
+	conversation.EventUpdated: permission.ConversationsRead,
+	conversation.EventCustoms: permission.CustomsRead,
+	ship.EventCreated:         permission.ShipsRead,
+	ship.EventUpdated:         permission.ShipsRead,
+	ship.EventDelivery:        permission.ShipsRead,
+	ship.EventTurn:            permission.ShipsRead,
+	crew.EventChanged:         permission.CrewRead,
+	// Activity shows what the agent reads and writes in a conversation:
+	// the same permission as its messages.
+	crew.EventActivity:              permission.ShipsRead,
 	agent.EventUpdated:              permission.AgentsRead,
 	agent.EventDeleted:              permission.AgentsRead,
 	hosting.EventEnvironmentUpdated: permission.EnvironmentsRead,

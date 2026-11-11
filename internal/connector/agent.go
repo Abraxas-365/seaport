@@ -42,6 +42,8 @@ type Agent struct {
 	open     map[string]acp.SessionId // opened on this connection
 	opening  map[string]*sync.Mutex
 	answers  map[acp.SessionId]*strings.Builder
+	// feeds: the running turns whose activity goes to the port.
+	feeds map[acp.SessionId]*feed
 	// briefs: sessions whose next prompt must carry the profile's
 	// instructions (agents without systemPrompt) or the news that they
 	// changed; kept until a turn with it succeeds.
@@ -103,7 +105,7 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error)
 	a := &Agent{cfg: cfg, kit: kit, cmd: cmd, done: make(chan struct{}), wire: &wire{},
 		sessions: map[string]savedSession{}, open: map[string]acp.SessionId{},
 		opening: map[string]*sync.Mutex{}, answers: map[acp.SessionId]*strings.Builder{},
-		briefs: map[acp.SessionId]brief{}}
+		feeds: map[acp.SessionId]*feed{}, briefs: map[acp.SessionId]brief{}}
 	a.approve = cfg.Approve
 	if kit != nil {
 		a.wire.prompt = strings.TrimSpace(kit.Instructions)
@@ -191,8 +193,8 @@ func (a *Agent) SetMCPURL(u string) {
 }
 
 // Prompt runs one turn on the conversation's session and returns the
-// agent's final text.
-func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text string, images []image) (string, error) {
+// agent's final text; f (optional) gets the turn's session updates.
+func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text string, images []image, f *feed) (string, error) {
 	sid, err := a.sessionFor(ctx, conv)
 	if err != nil {
 		return "", err
@@ -200,6 +202,9 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	buf := &strings.Builder{}
 	a.mu.Lock()
 	a.answers[sid] = buf
+	if f != nil {
+		a.feeds[sid] = f
+	}
 	brief, briefed := a.briefs[sid]
 	if briefed {
 		text = brief.text + text
@@ -208,6 +213,7 @@ func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text s
 	defer func() {
 		a.mu.Lock()
 		delete(a.answers, sid)
+		delete(a.feeds, sid)
 		a.mu.Unlock()
 	}()
 	resp, err := a.conn.Prompt(ctx, acp.PromptRequest{SessionId: sid, Prompt: blocks(text, images)})
@@ -630,15 +636,19 @@ var _ acp.Client = (*client)(nil)
 
 func (c *client) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
 	u := n.Update
-	switch {
-	case u.AgentMessageChunk != nil && u.AgentMessageChunk.Content.Text != nil:
-		c.a.mu.Lock()
+	c.a.mu.Lock()
+	f := c.a.feeds[n.SessionId]
+	if u.AgentMessageChunk != nil && u.AgentMessageChunk.Content.Text != nil {
 		if buf, ok := c.a.answers[n.SessionId]; ok {
 			buf.WriteString(u.AgentMessageChunk.Content.Text.Text)
 		}
-		c.a.mu.Unlock()
-	case u.ToolCall != nil:
+	}
+	c.a.mu.Unlock()
+	if u.ToolCall != nil {
 		slog.Info("agent tool", "session", n.SessionId, "title", u.ToolCall.Title)
+	}
+	if f != nil {
+		f.update(u)
 	}
 	return nil
 }

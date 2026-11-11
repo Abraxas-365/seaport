@@ -48,3 +48,14 @@ func HasForbiddenControl(s string) bool {
 	}
 	return false
 }
+
+// StripControl drops the characters HasForbiddenControl refuses (and
+// invalid UTF-8).
+func StripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == utf8.RuneError || (unicode.IsControl(r) && r != '\n' && r != '\t' && r != '\r') {
+			return -1
+		}
+		return r
+	}, s)
+}

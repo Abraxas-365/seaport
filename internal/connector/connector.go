@@ -444,8 +444,12 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "title", d.Conversation.Title)
 	log.Info("delivery received", "ships", len(d.Ships))
 	images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
-	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply, ok), images)
+	// What the agent does goes to the port's live view as it happens; the
+	// last of it is sent before the ack or release.
+	f := newFeed(id, send)
+	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply, ok), images, f)
 	handled := j.finish()
+	f.close()
 	if err != nil {
 		// Turns failing in a row (the agent can't open sessions, its model
 		// refuses...) wait longer each time before the ships come back.

@@ -54,6 +54,10 @@ type Commands interface {
 	// SweepTrash deletes the blobs whose attachment is gone (or never
 	// came), in every organization (system: sweeper), and says how many.
 	SweepTrash(ctx context.Context, now time.Time) (int, error)
+	// RecordTurn stores the summary of an ended delivery (the crew hub,
+	// from the agent's activity) and publishes EventTurn. A second
+	// record of one delivery changes nothing.
+	RecordTurn(ctx context.Context, organization identity.OrganizationID, turn Turn) error
 }
 
 type Queries interface {
@@ -64,6 +68,8 @@ type Queries interface {
 	// OpenAttachment reads an attachment's bytes (unsealed); an agent
 	// reads only those of conversations on its docks (else NotFound).
 	OpenAttachment(ctx context.Context, organization identity.OrganizationID, input OpenAttachment) (AttachmentFile, error)
+	// Turns lists a conversation's turn summaries, newest first.
+	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)
 }
 
 // Notifier wakes the crew of an organization when ships are waiting
@@ -118,6 +124,9 @@ type Repository interface {
 	// ships of each (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
+	// SaveTurn inserts a turn (created false when its delivery has one).
+	SaveTurn(ctx context.Context, organization identity.OrganizationID, turn Turn) (created bool, err error)
+	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)
 	Summaries(ctx context.Context, organization identity.OrganizationID, conversations []identity.ConversationID) (map[identity.ConversationID]Summary, error)
 	// Attachment finds an attachment and its ship's conversation.
 	Attachment(ctx context.Context, organization identity.OrganizationID, id identity.AttachmentID) (Attachment, identity.ConversationID, error)

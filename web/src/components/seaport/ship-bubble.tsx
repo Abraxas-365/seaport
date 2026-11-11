@@ -4,6 +4,7 @@ import { formatFull, formatTime } from "@/lib/format"
 import type { Ship } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Markdown } from "./markdown"
 import { ShipAttachments } from "./ship-attachments"
 import { shipLabel } from "./tone"
 
@@ -44,6 +45,8 @@ const holdLabel: Record<string, string> = {
  * groups), the agent's replies on the right in the brand color. Held
  * messages are dimmed with a dashed outline: customs or routing kept them.
  * `agentName` is the agent it went to (inbound) or that sent it (outbound).
+ * `markdown` renders the text as Markdown (channels written in it, such as
+ * GitHub); otherwise it shows as typed.
  */
 export function ShipBubble({
   ship,
@@ -51,6 +54,7 @@ export function ShipBubble({
   multiAgent = false,
   showSender = false,
   grouped = false,
+  markdown = false,
 }: {
   ship: Ship
   agentName?: string
@@ -59,6 +63,7 @@ export function ShipBubble({
   showSender?: boolean
   /** follows a bubble of the same side: tighter spacing, no tail */
   grouped?: boolean
+  markdown?: boolean
 }) {
   const out = ship.direction === "out"
   const held = ship.status === "held"
@@ -84,7 +89,12 @@ export function ShipBubble({
           <div className="mb-0.5 text-xs font-semibold text-primary">{ship.sender_name}</div>
         )}
         {ship.attachments && ship.attachments.length > 0 && <ShipAttachments attachments={ship.attachments} />}
-        {ship.text && <p className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{ship.text}</p>}
+        {ship.text &&
+          (markdown ? (
+            <Markdown text={ship.text} />
+          ) : (
+            <p className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{ship.text}</p>
+          ))}
         <Tooltip>
           <TooltipTrigger asChild>
             <div

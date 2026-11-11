@@ -57,7 +57,7 @@ On `reset`, refetch your state from the API (lists, details) and continue from t
 - You are more than 1000 events behind (`maxReplay`).
 - Your connection was too slow and the server dropped it (more than 256 events queued): the next reconnect replays or resets.
 
-`reset` arrives right after `ready` and has no `id`.
+`reset` arrives right after `ready` and has no `id`. [`crew.activity`](#agent-activity) events have no `id` either: they are live only, so they don't move the resume point.
 
 ## Lifetime of a stream
 
@@ -88,7 +88,9 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `ship.created` | `seaport:ships:read` | Ship | A ship was stored: inbound (queued or held) or an outbound reply (pending). |
 | `ship.updated` | `seaport:ships:read` | Ship | An outbound ship's outcome (`sent` or `failed`). |
 | `delivery.changed` | `seaport:ships:read` | Delivery event | A delivery opened, grew (steer), closed or was released. |
+| `ship.turn` | `seaport:ships:read` | [Turn](#turn) | A delivery with tool calls ended and its summary was stored. |
 | `crew.changed` | `seaport:crew:read` | Crew status (`{"agents":[…]}`) | An agent connected or disconnected, or its deliveries changed. Carries the whole crew. |
+| `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
 | `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one. |
 | `agent.deleted` | `seaport:agents:read` | `{"id"}` | An agent left the library. |
 | `environment.updated` | `seaport:environments:read` | Environment | An environment was created or got a new version. |
@@ -112,6 +114,36 @@ The payload of `delivery.changed`:
 | `owner` | string | Names the claimer (for logs and debugging). |
 
 Fields that are empty are left out.
+
+### Agent activity
+
+The payload of `crew.activity`: what an agent did on a delivery since its previous `crew.activity`, as its connector reported it with an [`activity` frame](crew-protocol.md#activity).
+
+| Field | Type | Meaning |
+| :--- | :--- | :--- |
+| `delivery_id` | string | The delivery being worked. |
+| `conversation_id` | string | Its conversation. |
+| `agent_id`, `agent_name` | string | The agent working it. |
+| `at` | string | When the port received it (RFC 3339). |
+| `items` | list | The steps, in order: `{kind, text}` for `thought` and `message` chunks (append them to the previous chunk of the same kind), `{kind: "tool", tool, title, tool_kind, status}` for a tool call (update the call with the same `tool`). Tools carry no input or output. |
+
+Activity events are live only. They have no `id` line, are not written to the event log, and a client that reconnects gets none of the ones it missed. Clear what you show when the delivery ends (`delivery.changed` with `acked`, `released` or `expired`) and on `reset`. Reading them takes `seaport:ships:read`, the permission that reads the conversation's messages.
+
+### Turn
+
+The payload of `ship.turn`, and an item of `GET /api/v1/conversations/{id}/turns`: what an agent did on one delivery, stored when the delivery ended. The port builds it from the delivery's [`activity` frames](crew-protocol.md#activity), keeping the tool calls only (no thinking, no text).
+
+| Field | Type | Meaning |
+| :--- | :--- | :--- |
+| `delivery_id` | string | The delivery. |
+| `conversation_id` | string | Its conversation. |
+| `agent_id`, `agent_name` | string | The agent that worked it. |
+| `outcome` | string | `acked` (finished), `released` (the agent gave up; its ships went back to the queue) or `dropped` (the connection closed mid-turn). |
+| `started_at`, `ended_at` | string | When the delivery was handed out and when it ended (RFC 3339). |
+| `tools` | list | `{title, kind, status, started_at, ended_at}` for each tool call, in order. Times are when the port saw the call start and finish; `ended_at` is absent for a call that never finished. Secret-looking strings in titles are replaced by `[redacted]`. |
+| `omitted` | number | Tool calls past the first 200, not kept. Absent when 0. |
+
+A delivery without tool calls stores no turn. A lease that expires (the sweeper requeues the ships) stores none either.
 
 ### Notes on payloads
 

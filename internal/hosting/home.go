@@ -127,10 +127,10 @@ func HomeRulesOf() map[string]HomeRules {
 	out := map[string]HomeRules{}
 	for harness, tops := range homeTop {
 		r := HomeRules{Root: HomeRoot(harness), Dirs: []string{}, Files: []string{}, FilePrefixes: []string{},
-			Reserved: []string{}, Secrets: make([]SecretPattern, 0, len(secretPatterns)), MaxFiles: MaxHomeFiles,
+			Reserved: []string{}, Secrets: make([]SecretPattern, 0, len(text.Secrets)), MaxFiles: MaxHomeFiles,
 			MaxFile: MaxHomeFile, MaxBytes: MaxHomeBytes, MaxUpload: MaxHomeUpload, MaxDepth: MaxHomeDepth}
-		for _, p := range secretPatterns {
-			r.Secrets = append(r.Secrets, SecretPattern{What: p.what, Pattern: p.re.String()})
+		for _, p := range text.Secrets {
+			r.Secrets = append(r.Secrets, SecretPattern{What: p.What, Pattern: p.Re.String()})
 		}
 		for name, dir := range tops {
 			if dir {
@@ -418,25 +418,6 @@ type SecretPattern struct {
 	Pattern string `json:"pattern"`
 }
 
-// secretPatterns are strings that look like credentials (high confidence:
-// fixed prefixes of providers' key formats). Clients get them through
-// HomeRules, so keep them to syntax RE2 and JavaScript share.
-var secretPatterns = []struct {
-	what string
-	re   *regexp.Regexp
-}{
-	{"an Anthropic API key", regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{20,}`)},
-	{"an OpenAI API key", regexp.MustCompile(`sk-(proj-|svcacct-)?[A-Za-z0-9_-]{40,}`)},
-	{"a GitHub token", regexp.MustCompile(`(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})`)},
-	{"a GitLab token", regexp.MustCompile(`glpat-[A-Za-z0-9_-]{20,}`)},
-	{"a Slack token", regexp.MustCompile(`xox[abprs]-[A-Za-z0-9-]{10,}`)},
-	{"an AWS access key", regexp.MustCompile(`\b(AKIA|ASIA)[0-9A-Z]{16}\b`)},
-	{"a Google API key", regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)},
-	{"a private key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
-	{"a Seaport crew token", regexp.MustCompile(`sp_crew_[A-Za-z0-9_-]{16,}`)},
-	{"an IAMKit API key", regexp.MustCompile(`ik_key_[A-Za-z0-9_-]{16,}`)},
-}
-
 // ScanSecrets refuses a file holding a credential-looking string: a home
 // is baked into an image and readable with environments:read. Secrets go
 // as the agent's env secrets, which the config reads from the environment.
@@ -444,10 +425,10 @@ func ScanSecrets(name string, body []byte) error {
 	if !utf8.Valid(body) {
 		return nil // binary: images and the like
 	}
-	for _, p := range secretPatterns {
-		if loc := p.re.FindIndex(body); loc != nil {
+	for _, p := range text.Secrets {
+		if loc := p.Re.FindIndex(body); loc != nil {
 			line := bytes.Count(body[:loc[0]], []byte("\n")) + 1
-			return errx.Validation(name + " line " + strconv.Itoa(line) + " looks like " + p.what +
+			return errx.Validation(name + " line " + strconv.Itoa(line) + " looks like " + p.What +
 				": keep secrets out of the home (give the agent an env secret and read it from the environment)")
 		}
 	}
