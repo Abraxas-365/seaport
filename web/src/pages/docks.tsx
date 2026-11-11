@@ -25,6 +25,7 @@ import {
   EmptyState,
   ErrorState,
   GitHubMark,
+  JiraMark,
   PageHeader,
   type ChoiceOption,
 } from "@/components/seaport"
@@ -52,13 +53,21 @@ const channelOptions: ChoiceOption<Channel>[] = [
     tone: "neutral",
     description: "Una GitHub App: menciona a tus agentes en issues y pull requests.",
   },
+  {
+    value: "jira",
+    label: "Jira",
+    icon: JiraMark,
+    tone: "info",
+    description: "Una cuenta de servicio de Jira Cloud: menciona a tus agentes en los comentarios de un issue.",
+  },
 ]
 
-const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub" }
+const defaultName: Record<Channel, string> = { whatsapp: "WhatsApp", api: "API", github: "GitHub", jira: "Jira" }
 const namePlaceholder: Record<Channel, string> = {
   whatsapp: "Mi WhatsApp",
   api: "Formulario web",
   github: "QA de pull requests",
+  jira: "Soporte en Jira",
 }
 
 export function DocksPage() {
@@ -139,7 +148,7 @@ function NewDockDialog() {
             <DialogDescription>Elige el canal por el que llegarán los mensajes.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
-            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-3" />
+            <ChoiceCards value={channel} options={channelOptions} onChange={setChannel} className="sm:grid-cols-2" />
             <Field>
               <FieldLabel htmlFor="dock-name">Nombre</FieldLabel>
               <Input

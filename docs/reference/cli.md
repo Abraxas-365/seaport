@@ -32,6 +32,7 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock add whatsapp [-name N]` | Creates a WhatsApp dock and shows its QR code in the terminal until you scan it (waits up to 3 minutes; the code refreshes about every 20 s). `-name` defaults to the channel name. |
 | `seaport dock add api [-name N]` | Creates an `api` dock, fed through the [HTTP API](../guides/api-docks.md). |
 | `seaport dock add github [-name N]` | Creates a `github` dock and prints its page in the web app, where you create and install its [GitHub App](../guides/github.md). |
+| `seaport dock add jira [-name N]` | Creates a `jira` dock and prints its page in the web app, where you enter the site, the service account's email and its API token (see [Jira](../guides/jira.md)). |
 | `seaport dock list` | Table of docks: ID, channel, name, status, address (up to 100). |
 | `seaport dock relink <dock-id>` | Pairs the dock again (shows the QR code). |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |

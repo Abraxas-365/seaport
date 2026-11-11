@@ -121,6 +121,7 @@ No credentials, and nothing about any organization.
 | `GET` | `/github/apps/installed` | GitHub's redirect after an install (`installation_id`, `state`). Seaport checks the installation with GitHub and redirects to the dock's page (`?github=installed`, or `?github_error=…`). |
 | `POST` | `/github/webhook/{dock}` | The App's webhook, signed with its secret (`X-Hub-Signature-256`, else `401`; body up to 5 MiB). `200` for `ping` and `installation` events, `202` `{"status":"received","ship_id":"…","created":true}` for a message that called an agent, `202` `{"status":"ignored"}` for everything else. `404` for a dock with no App. |
 | `POST` | `/github/actions/{dock}` | A message from a GitHub Actions workflow. Bearer: the job's OIDC token, issued for this port (audience = `SEAPORT_PUBLIC_URL`; signature, issuer and expiry checked, else `401`). The token's repository must be served by an active installation of the dock's App, else `403`. Body `{"text":"…","number":12,"agent":"qa","id":"step-1"}`: `number` defaults to the pull request of the workflow's `refs/pull/N/merge` ref, `agent` must be on the dock's team, `id` keeps a retried step from sending twice. `202` `{"status":"queued"\|"held","ship_id","created","conversation_id","chat"}`. See [GitHub](../guides/github.md#trigger-an-agent-from-a-workflow). |
+| `POST` | `/jira/webhook/{dock}` | A Jira webhook or Automation rule for a Jira dock. Proof (else `401`): `X-Hub-Signature: sha256=<hex HMAC-SHA256 of the body>` with the dock's webhook secret, or `Authorization: Bearer <secret>`; body up to 5 MiB. `202` `{"status":"received","ship_id":"…","created":true}` for a message that called the account or an agent, `{"status":"recorded",…}` for a comment of the account itself, `{"status":"ignored"}` for everything else. `404` for a dock with no site. See [Jira](../guides/jira.md). |
 
 Session state:
 
@@ -156,12 +157,12 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/docks` | `docks:read` | Paginated docks. |
-| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
+| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github"\|"jira","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
 | `GET` | `/docks/{id}` | `docks:read` | The dock, with `qr_code` while a WhatsApp dock is linking. |
 | `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`. The dock. |
 | `DELETE` | `/docks/{id}` | `docks:write` | `204`. Deletes its conversations and ships. |
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
-| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App). The dock. |
+| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret). The dock. |
 | `POST` | `/docks/{id}/ships` | `ships:write` | Injects an inbound message into an `api` dock. See below. |
 
 A dock:
@@ -235,6 +236,31 @@ See [API docks](../guides/api-docks.md).
 ```
 
 `app` is `null` until the App is created. `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback (GitHub couldn't deliver webhooks). No secret of the App is ever answered. See [GitHub](../guides/github.md).
+
+### Jira docks
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/docks/{id}/jira` | `docks:read` | The dock's site (below). Never the token or the secret. `422` for a dock of another channel. |
+| `PUT` | `/docks/{id}/jira` | `docks:write` | Body `{"site":"https://example.atlassian.net","email":"bot@example.com","api_token":"…"}`. Seaport checks the site against `SEAPORT_JIRA_HOSTS` (`400` if not allowed) and the credentials with `GET /rest/api/3/myself` (`422` if Jira refuses them), stores them sealed and links the dock (address = the site's host). The first link makes the webhook secret and answers it in `secret`; linking again keeps it and answers none. |
+| `POST` | `/docks/{id}/jira/secret` | `docks:write` | Makes a new webhook secret (the old one stops working) and answers it in `secret`. |
+
+```json
+{
+  "site": {
+    "site": "https://example.atlassian.net",
+    "account_id": "5b10a2844c20165700ede21g",
+    "display_name": "Seaport Bot",
+    "email": "bot@example.com"
+  },
+  "webhook_url": "https://port.example.com/jira/webhook/<dock-id>",
+  "reachable": true,
+  "secret": "…",
+  "hosts": ["*.atlassian.net"]
+}
+```
+
+`site` is `null` until the dock is linked. `secret` appears only in the answers that made it (first link, rotate). `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback. `hosts` is the site allow-list. See [Jira](../guides/jira.md).
 
 ### Conversations
 

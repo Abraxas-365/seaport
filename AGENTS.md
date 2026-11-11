@@ -78,7 +78,8 @@ internal/
                       (httpx.Authenticator + OAuth routes)}
   dock/               channels: domain, ports.go, docksvc, dockmodule,
                       adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi,
-                      dockgithub (GitHub App: stdlib REST, no SDK)}
+                      dockgithub (GitHub App: stdlib REST, no SDK),
+                      dockjira (Jira Cloud: stdlib REST + goldmark)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
@@ -136,7 +137,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
   pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
   the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`,
-  `gocloud.dev` → `blob/adapters/gocloudblob`
+  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -164,8 +165,9 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `TestPublicRoutesAreListed`): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
   `publicRoutes` (`/`, `/healthz`, GitHub's redirects, webhook and
-  Actions endpoint, which carry their own proof: a sealed state, the
-  App's HMAC or a GitHub Actions OIDC token for this port).
+  Actions endpoint, Jira's webhook, which carry their own proof: a sealed
+  state, the App's HMAC, a GitHub Actions OIDC token for this port or the
+  Jira dock's secret as HMAC/bearer).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -693,6 +695,30 @@ test together with the reason. Add a rule when you add a pattern.
   `github:action`, addressed, external id
   `action-<run>-<attempt>-<id|hash>`. Unlink uninstalls every installation
   and deletes the App row (the App itself stays on GitHub).
+- Jira docks (`dockjira`, migration 00025): a dock is one Jira Cloud
+  service account, linked by `PUT /api/v1/docks/{id}/jira` (`{site, email,
+  api_token}`: the site must match `SEAPORT_JIRA_HOSTS`, default
+  `*.atlassian.net`, since the credentials are only ever sent there; no
+  redirects followed; verified with `GET /rest/api/3/myself` before
+  anything is stored). `jira_sites` holds the token and a generated webhook
+  secret sealed (info `seaport jira v1`, purpose `jira\x00<dock>\x00<field>`;
+  counted by `bootstrap.SecretKey`); the secret is answered only when made
+  (first link, `POST …/jira/secret`), never read back; the dock's address is
+  the site's host. Not exclusive, stateless, off without a secret key. Public
+  `POST /jira/webhook/{dock}` accepts `X-Hub-Signature: sha256=<hmac>` or
+  `Authorization: Bearer <secret>` (Automation), both constant time, and
+  forwards `comment_created` and `jira:issue_created` only when the text
+  mentions the account or `@<agent>` of the team (`dockjira.Teams`, bound
+  late), never other apps' comments (no loops); conversation = issue key
+  (group, addressed, `Inbound.ChatHandles` key + project), ship ids
+  `comment-<id>`/`issue-<id>`. Bodies are ADF (REST) or wiki markup (admin
+  webhooks), both normalized to Markdown (`adf.go`). `Send` converts
+  Markdown to ADF (goldmark, `md.go`), splits at `MaxComment` and stamps each
+  comment with the comment property `seaport` = the message id, so the
+  account's own comments come back as `Inbound.Own` (the stamp is the
+  ExternalID, else `comment-<id>`). Files are a `Business` refusal. A 401/403
+  from Jira makes the dock `logged_out`; unlink deletes the row (nothing is
+  revoked in Jira).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
@@ -713,7 +739,7 @@ test together with the reason. Add a rule when you add a pattern.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,
-  `ship_attachments`, `hosting_homes` or `github_apps` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  `ship_attachments`, `hosting_homes`, `github_apps` or `jira_sites` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so

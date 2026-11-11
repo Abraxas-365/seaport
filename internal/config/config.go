@@ -130,6 +130,10 @@ type Server struct {
 	// https://token.actions.githubusercontent.com; GHES:
 	// https://host/_services/token).
 	GitHubOIDCURL string
+	// JiraHosts is the allow-list of Jira sites a dock may name
+	// (SEAPORT_JIRA_HOSTS, comma separated, "*.domain" for every
+	// subdomain; default *.atlassian.net).
+	JiraHosts []string
 	// Egress proxy of hosted slots: SEAPORT_EGRESS_ADDR is its listen
 	// address ("": off, slots get no proxy and the runtime network alone
 	// decides what they reach); slots reach it at SEAPORT_EGRESS_URL
@@ -195,6 +199,7 @@ func LoadServer() (Server, error) {
 		GitHubURL:           strings.TrimRight(env("SEAPORT_GITHUB_URL", "https://github.com"), "/"),
 		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
 		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
+		JiraHosts:           splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
 		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
 		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
@@ -414,4 +419,15 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// splitList reads a comma separated list, dropping blanks.
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

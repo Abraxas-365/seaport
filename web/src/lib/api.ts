@@ -7,6 +7,7 @@ import type {
   Conversation,
   GitHubInfo,
   GitHubManifest,
+  JiraInfo,
   CrewStatus,
   CrewToken,
   Customs,
@@ -169,6 +170,10 @@ export const api = {
   github: (id: string) => request<GitHubInfo>("GET", `${v1}/docks/${id}/github`),
   githubManifest: (id: string, body: { organization?: string; name?: string }) =>
     request<GitHubManifest>("POST", `${v1}/docks/${id}/github/manifest`, body),
+  jira: (id: string) => request<JiraInfo>("GET", `${v1}/docks/${id}/jira`),
+  linkJira: (id: string, body: { site: string; email: string; api_token: string }) =>
+    request<JiraInfo>("PUT", `${v1}/docks/${id}/jira`, body),
+  rotateJiraSecret: (id: string) => request<JiraInfo>("POST", `${v1}/docks/${id}/jira/secret`),
 
   inbox: (f: { status?: CustomsStatus; dock_id?: string; limit?: number; offset?: number }) =>
     request<Paginated<InboxItem>>("GET", `${v1}/inbox${qs(f)}`),

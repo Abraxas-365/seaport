@@ -99,7 +99,7 @@ func (a *admin) send(ctx context.Context, method, path, contentType string, body
 
 func dockAdd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errx.Validation("usage: seaport dock add whatsapp|api|github [-name N]")
+		return errx.Validation("usage: seaport dock add whatsapp|api|github|jira [-name N]")
 	}
 	channel := args[0]
 	fs := flag.NewFlagSet("dock add", flag.ContinueOnError)
@@ -122,6 +122,9 @@ func dockAdd(ctx context.Context, args []string) error {
 	case dock.ChannelGitHub:
 		// The manifest flow runs in the browser (GitHub's forms and redirects).
 		fmt.Printf("Create and install its GitHub App in the web: %s/docks/%s\n", a.base, d.ID)
+	case dock.ChannelJira:
+		// The site, account email and API token are entered in the web (or PUT /api/v1/docks/{id}/jira).
+		fmt.Printf("Connect its Jira site in the web: %s/docks/%s\n", a.base, d.ID)
 	}
 	return nil
 }

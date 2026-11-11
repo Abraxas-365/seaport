@@ -112,6 +112,12 @@ export function useGitHub(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.github(dock), queryFn: () => api.github(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+/** A Jira dock's site (the webhook secret never comes back from here). */
+export function useJira(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.jira(dock), queryFn: () => api.jira(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 export function useCustoms(dock: string | undefined) {
   const can = useCan()
   return useQuery({

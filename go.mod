@@ -17,6 +17,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/testcontainers/testcontainers-go v0.44.0
+	github.com/yuin/goldmark v1.8.2
 	go.mau.fi/util v0.11.0
 	go.mau.fi/whatsmeow v0.0.0-20261107160454-79dc2a8c33df
 	go.yaml.in/yaml/v3 v3.0.5

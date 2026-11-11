@@ -77,6 +77,7 @@ function patchDock(qc: QueryClient, dock: Dock) {
   }
   // A GitHub dock's state follows its installations: refetch them.
   if (dock.channel === "github") void qc.invalidateQueries({ queryKey: keys.github(dock.id) })
+  if (dock.channel === "jira") void qc.invalidateQueries({ queryKey: keys.jira(dock.id) })
   qc.setQueryData(keys.dock(dock.id), dock)
   qc.setQueryData<Paginated<Dock>>(keys.docks, (old) => {
     if (!old) return old

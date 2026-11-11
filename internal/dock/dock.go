@@ -20,9 +20,14 @@ const (
 	// ChannelGitHub is a GitHub App: issues and pull requests that mention
 	// an agent arrive; replies are comments.
 	ChannelGitHub Channel = "github"
+	// ChannelJira is a Jira Cloud site (a service account): issue comments
+	// that mention the account or an agent arrive; replies are comments.
+	ChannelJira Channel = "jira"
 )
 
-func (c Channel) Valid() bool { return c == ChannelWhatsApp || c == ChannelAPI || c == ChannelGitHub }
+func (c Channel) Valid() bool {
+	return c == ChannelWhatsApp || c == ChannelAPI || c == ChannelGitHub || c == ChannelJira
+}
 
 // Status is the link state of a dock.
 type Status string
@@ -70,7 +75,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp, api or github")
+		return errx.InvalidField("channel", "channel must be whatsapp, api, github or jira")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

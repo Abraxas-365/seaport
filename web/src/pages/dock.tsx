@@ -20,7 +20,10 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { useQueryClient } from "@tanstack/react-query"
+
 import { api } from "@/lib/api"
+import { keys } from "@/lib/query"
 import {
   flatten,
   useAgents,
@@ -31,6 +34,7 @@ import {
   useDockAction,
   useDockTeam,
   useGitHub,
+  useJira,
   useInbox,
   useUnassignAgent,
 } from "@/lib/hooks"
@@ -62,6 +66,7 @@ import {
   EmptyState,
   ErrorState,
   GitHubMark,
+  JiraMark,
   Mono,
   PairingPanel,
   StatusBadge,
@@ -154,6 +159,27 @@ function DockDetail({ dock }: { dock: Dock }) {
                     onConfirm={() => actions.unlink.mutateAsync(dock.id)}
                   />
                 )}
+                {dock.channel === "jira" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Desconectar Jira
+                      </DropdownMenuItem>
+                    }
+                    title="¿Desconectar Jira?"
+                    description={
+                      <>
+                        <p>Seaport olvida el token de API y el secreto del webhook; dejan de llegar comentarios.</p>
+                        <p>
+                          No se revoca nada en Jira: revoca el token en la cuenta de servicio y borra el webhook o la
+                          regla de Automation. Las conversaciones se conservan.
+                        </p>
+                      </>
+                    }
+                    actionLabel="Desconectar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
                 {wa && dock.status === "linked" && (
                   <ConfirmAction
                     trigger={
@@ -230,6 +256,8 @@ function DockDetail({ dock }: { dock: Dock }) {
         )}
 
         {dock.channel === "github" && <GitHubDockCard dock={dock} write={write} />}
+
+        {dock.channel === "jira" && <JiraDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
 
@@ -455,7 +483,9 @@ function DockConversations({ dock }: { dock: Dock }) {
                 ? "Escribe a este número desde otro teléfono para probar."
                 : dock.channel === "github"
                   ? "Menciona a un agente del equipo en un issue o pull request de un repositorio con la App instalada."
-                  : "Envía un mensaje de prueba con el formulario de arriba."
+                  : dock.channel === "jira"
+                    ? "Menciona a un agente del equipo (o a la cuenta de servicio) en un comentario de un issue de Jira."
+                    : "Envía un mensaje de prueba con el formulario de arriba."
             }
           />
         ) : (
@@ -709,6 +739,200 @@ function GitHubDockCard({ dock, write }: { dock: Dock; write: boolean }) {
           Consejo: en Aduana, permite el muelle por defecto y deniega <code>github:outsider</code> para que en
           repositorios públicos solo despierten a tus agentes los miembros y colaboradores.
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Copy-to-clipboard block for a value shown once (the webhook secret). */
+function CopyField({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="flex items-center gap-2 rounded-lg bg-muted p-2 pl-3">
+        <span className={mono ? "min-w-0 flex-1 truncate font-mono text-xs" : "min-w-0 flex-1 truncate text-sm"} title={value}>
+          {value}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Copiar ${label.toLowerCase()}`}
+          onClick={() => navigator.clipboard.writeText(value).then(() => toast.success("Copiado"))}
+        >
+          <Copy />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function JiraDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useJira(dock.id)
+  const qc = useQueryClient()
+  const [site, setSite] = React.useState("")
+  const [email, setEmail] = React.useState("")
+  const [token, setToken] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
+  const [relinking, setRelinking] = React.useState(false)
+  // The secret is shown only by the answers that made it: keep it here.
+  const [secret, setSecret] = React.useState<string>()
+
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const jira = info.data
+  const linked = jira.site
+  const form = !linked || relinking
+
+  const accept = (next: typeof jira) => {
+    qc.setQueryData(keys.jira(dock.id), { ...next, secret: undefined })
+    void qc.invalidateQueries({ queryKey: keys.docks, exact: true })
+    void qc.invalidateQueries({ queryKey: keys.dock(dock.id) })
+    if (next.secret) setSecret(next.secret)
+  }
+
+  const unreachable = !jira.reachable && (
+    <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+      Jira no puede llegar a esta dirección (<Mono>{jira.webhook_url}</Mono>): necesita HTTPS público. Configura{" "}
+      <code>SEAPORT_PUBLIC_URL</code> o usa un túnel.
+    </p>
+  )
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <JiraMark className="size-4" /> {linked ? linked.site.replace(/^https?:\/\//, "") : "Conectar con Jira"}
+        </CardTitle>
+        <CardDescription>
+          {linked
+            ? `Menciona a @${linked.display_name} o a un agente del equipo (@nombre) en un comentario; la respuesta llega como comentario del issue.`
+            : "Crea una cuenta de servicio en tu sitio de Jira Cloud, genera su token de API y pégalo aquí. Seaport comprueba las credenciales antes de guardarlas."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {unreachable}
+        {linked && (
+          <DataList>
+            <DataItem label="Cuenta">{linked.display_name || linked.email}</DataItem>
+            <DataItem label="Correo">
+              <Mono>{linked.email}</Mono>
+            </DataItem>
+            <DataItem label="Estado">
+              <StatusBadge tone={dockTone[dock.status]}>{dockLabel[dock.status]}</StatusBadge>
+            </DataItem>
+          </DataList>
+        )}
+        {write && form && (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setBusy(true)
+              try {
+                const next = await api.linkJira(dock.id, { site: site.trim(), email: email.trim(), api_token: token.trim() })
+                accept(next)
+                setToken("")
+                setRelinking(false)
+                toast.success("Jira conectado", { description: "Configura ahora el webhook con la dirección y el secreto." })
+              } catch (err) {
+                toast.error("No se pudo conectar", { description: (err as Error).message })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <FieldGroup className="grid gap-3 sm:grid-cols-2">
+              <Field className="sm:col-span-2">
+                <FieldLabel htmlFor="jira-site">Sitio</FieldLabel>
+                <Input
+                  id="jira-site"
+                  value={site}
+                  onChange={(e) => setSite(e.target.value)}
+                  placeholder={linked?.site ?? "https://tu-empresa.atlassian.net"}
+                  className="font-mono text-sm"
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="jira-email">Correo de la cuenta</FieldLabel>
+                <Input
+                  id="jira-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="bot@example.com"
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="jira-token">Token de API</FieldLabel>
+                <Input
+                  id="jira-token"
+                  type="password"
+                  autoComplete="off"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  required
+                />
+              </Field>
+            </FieldGroup>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy || !site.trim() || !email.trim() || !token.trim()}>
+                {busy ? <Spinner /> : <JiraMark className="size-4" />} {linked ? "Guardar credenciales" : "Conectar"}
+              </Button>
+              {relinking && (
+                <Button type="button" variant="ghost" onClick={() => setRelinking(false)}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+        {linked && (
+          <div className="space-y-3">
+            <CopyField label="URL del webhook" value={jira.webhook_url} />
+            {secret ? (
+              <>
+                <CopyField label="Secreto del webhook" value={secret} />
+                <p className="text-xs text-muted-foreground">
+                  Cópialo ahora: Seaport lo guarda cifrado y no lo vuelve a mostrar. En el webhook de Jira va como
+                  secreto; en una regla de Automation, como <code>Authorization: Bearer …</code>.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                El secreto del webhook se mostró al conectar. Si lo perdiste, genera uno nuevo (hay que actualizarlo en Jira).
+              </p>
+            )}
+            {write && (
+              <div className="flex flex-wrap gap-2">
+                {!relinking && (
+                  <Button size="sm" variant="outline" onClick={() => setRelinking(true)}>
+                    <RefreshCw /> Cambiar credenciales
+                  </Button>
+                )}
+                <ConfirmAction
+                  trigger={
+                    <Button size="sm" variant="outline">
+                      <RefreshCw /> Nuevo secreto
+                    </Button>
+                  }
+                  title="¿Generar un secreto nuevo?"
+                  description={<p>El anterior deja de valer: actualiza el webhook o la regla de Automation en Jira.</p>}
+                  actionLabel="Generar"
+                  onConfirm={async () => {
+                    try {
+                      accept(await api.rotateJiraSecret(dock.id))
+                    } catch (err) {
+                      toast.error("No se pudo generar el secreto", { description: (err as Error).message })
+                    }
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {!linked && !write && <p className="text-sm text-muted-foreground">Este muelle aún no está conectado a Jira.</p>}
       </CardContent>
     </Card>
   )

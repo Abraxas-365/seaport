@@ -18,7 +18,7 @@ import (
 
 // SecretKey is SEAPORT_SECRET_KEY, or else the key in cfg.SecretKeyFile,
 // generated there (0600) on first start. It seals the WhatsApp store,
-// agent secrets, message media, harness homes and GitHub Apps, so a new key is never generated while sealed values exist:
+// agent secrets, message media, harness homes, GitHub Apps and Jira sites, so a new key is never generated while sealed values exist:
 // that would lose them (every dock linked again, every secret set again).
 func SecretKey(ctx context.Context, cfg config.Server, db *sqlx.DB) (string, error) {
 	if cfg.SecretKey != "" {
@@ -33,11 +33,11 @@ func SecretKey(ctx context.Context, cfg config.Server, db *sqlx.DB) (string, err
 		return key, err
 	}
 	var sealed bool
-	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets) OR EXISTS (SELECT 1 FROM ship_attachments) OR EXISTS (SELECT 1 FROM hosting_homes) OR EXISTS (SELECT 1 FROM github_apps)`); err != nil {
+	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets) OR EXISTS (SELECT 1 FROM ship_attachments) OR EXISTS (SELECT 1 FROM hosting_homes) OR EXISTS (SELECT 1 FROM github_apps) OR EXISTS (SELECT 1 FROM jira_sites)`); err != nil {
 		return "", errx.Wrap(err, "check sealed values", errx.TypeInternal)
 	}
 	if sealed {
-		return "", errx.Validation("the WhatsApp store, the agent secrets, message media, harness homes or GitHub Apps hold values sealed with a key that is not here: restore " + path +
+		return "", errx.Validation("the WhatsApp store, the agent secrets, message media, harness homes, GitHub Apps or Jira sites hold values sealed with a key that is not here: restore " + path +
 			" (or set SEAPORT_SECRET_KEY to that key); a new key can't open them")
 	}
 	return generateKeyFile(path)

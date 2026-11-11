@@ -271,6 +271,7 @@ function Primitives() {
           <ChannelIcon channel="whatsapp" size="lg" />
           <ChannelIcon channel="api" size="lg" />
           <ChannelIcon channel="github" size="lg" />
+          <ChannelIcon channel="jira" size="lg" />
           <Separator orientation="vertical" className="h-8" />
           <SeaportMark />
           <SeaportMark className="size-10" />

@@ -46,7 +46,9 @@ var clients = map[string]bool{"connector": true}
 // vendorSDKs are confined to the packages that adapt them, so a protocol or
 // vendor change touches one place.
 var vendorSDKs = map[string][]string{
-	"go.mau.fi/whatsmeow":                    {"dock/adapters/dockwa"},
+	"go.mau.fi/whatsmeow": {"dock/adapters/dockwa"},
+	// Markdown → Atlassian Document Format (Jira comments)
+	"github.com/yuin/goldmark":               {"dock/adapters/dockjira"},
 	"github.com/modelcontextprotocol/go-sdk": {"crew/adapters/crewmcp"},
 	"github.com/coder/acp-go-sdk":            {"connector"},
 	"github.com/coder/websocket":             {"crew/adapters/crewws", "connector"},

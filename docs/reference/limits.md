@@ -34,6 +34,14 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Messages per conversation per minute | 8 | `config.Server.SendPerChatMinute` | `SEAPORT_SEND_PER_CHAT_MINUTE` |
 | Minimum gap between two WhatsApp sends of one dock | 1.2 s | `dockwa.minSendGap` | No |
 
+## Jira docks
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Webhook body | 5 MiB | `dockjira.MaxWebhook` | No |
+| Markdown of one comment (longer replies are split) | 24000 bytes | `dockjira.MaxComment` | No |
+| Jira API call | 30 s, no redirects, answers read up to 1 MiB | `dockjira` | No |
+
 ## API requests
 
 | Limit | Value | Constant | Configurable |

@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api" | "github"
+export type Channel = "whatsapp" | "api" | "github" | "jira"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -44,6 +44,26 @@ export interface GitHubInfo {
   /** false: GitHub can't reach this port (plain http or loopback). */
   reachable: boolean
   install_url?: string
+}
+
+/** A Jira dock's site and service account (GET /docks/{id}/jira; never the token). */
+export interface JiraSite {
+  site: string
+  account_id: string
+  display_name: string
+  email: string
+  created_at: string
+}
+
+export interface JiraInfo {
+  site: JiraSite | null
+  webhook_url: string
+  /** false: Jira can't reach this port (plain http or loopback). */
+  reachable: boolean
+  /** The webhook secret: only in the answers that made it (link, rotate). */
+  secret?: string
+  /** Sites a dock may name (SEAPORT_JIRA_HOSTS). */
+  hosts: string[]
 }
 
 /** The form the web posts to GitHub to register the App. */
