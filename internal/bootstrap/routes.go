@@ -23,6 +23,8 @@ type nativeRoutes struct {
 	githubToken fiber.Handler
 	// events is the SSE stream (GET /api/v1/events).
 	events fiber.Handler
+	// ws is the crew hub's WebSocket (GET /crew/ws).
+	ws fiber.Handler
 	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
 	kit, attachment, reply, workspace fiber.Handler
 }
@@ -62,7 +64,7 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	app.Get("/api/v1/events", r.events)
 
 	// The crew's endpoints: crew authentication, then the rate limit.
-	app.All("/crew/ws", auth.Crew(), limit, legacy)
+	app.Get("/crew/ws", auth.Crew(), limit, r.ws)
 	app.All("/mcp", auth.Crew(), limit, legacy)
 	app.Get("/crew/profile", auth.Crew(), limit, r.kit)
 	app.Get("/crew/attachments/:id", auth.Crew(), limit, r.attachment)

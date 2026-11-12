@@ -69,7 +69,7 @@ func (m *Module) Bind(ships interface {
 
 // WS is the /crew/ws handler, MCP the /mcp handler, Kit GET /crew/profile,
 // Attachment GET /crew/attachments/{id}, Reply POST /crew/reply.
-func (m *Module) WS() http.Handler          { return m.Hub }
+func (m *Module) WS() httpx.Handler         { return m.Hub.Handle }
 func (m *Module) MCP() http.Handler         { return m.mcp }
 func (m *Module) Kit() httpx.Handler        { return m.kit.Handle }
 func (m *Module) Attachment() httpx.Handler { return m.media.Handle }

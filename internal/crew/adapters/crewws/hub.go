@@ -16,7 +16,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -27,10 +26,10 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
-	"github.com/coder/websocket"
+	"github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 )
 
 // opTimeout bounds one ship command run for a connection.
@@ -69,7 +68,7 @@ type Hub struct {
 	opening map[*pending]struct{}
 	closing bool
 
-	serving sync.WaitGroup // ServeHTTP calls in progress
+	serving sync.WaitGroup // upgraded connections (and their upgrade) in progress
 	stop    context.CancelFunc
 	done    sync.WaitGroup // Start's goroutines
 
@@ -105,7 +104,7 @@ type conn struct {
 	agentID     identity.AgentID
 	agentName   string
 	cancel      context.CancelFunc
-	ws          *websocket.Conn
+	ws          *wsConn
 	session     string
 	remote      string
 	connectedAt time.Time
@@ -521,73 +520,100 @@ func (h *Hub) resolveAgent(ctx context.Context, p httpx.Principal, hello crew.He
 	return crew.ResolveAgent(ctx, agents, crew.Caller{Organization: p.Organization, Agent: p.Agent, AgentName: p.AgentName}, hello.As)
 }
 
-// ServeHTTP upgrades /crew/ws. Auth is done by the router (crew
-// principal): the connection belongs to the principal's organization.
-func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.commands() == nil {
-		stdhttp.WriteError(w, r, errx.Internal("hub not ready"))
-		return
+// admitted is a connection from its quota row to its end: everything the
+// upgrade needs, and what finish gives back.
+type admitted struct {
+	p           httpx.Principal
+	session     string
+	connectedAt time.Time
+	remote      string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	open        *pending
+	// opened: the connection left h.opening (it is in h.conns, or gone).
+	opened bool
+	// dropped: drop owns the presence row from here (it may keep it for
+	// the reaper).
+	dropped bool
+}
+
+// finish releases what admit took, whatever the connection's end.
+func (h *Hub) finish(a *admitted) {
+	if !a.opened {
+		h.mu.Lock()
+		delete(h.opening, a.open)
+		h.mu.Unlock()
 	}
-	p, err := stdhttp.Caller(r)
+	if !a.dropped {
+		cctx, ccancel := context.WithTimeout(context.Background(), opTimeout)
+		defer ccancel()
+		if err := h.presence.Close(cctx, a.p.Organization, a.session); err != nil {
+			slog.Error("forget crew connection", "session", a.session, "err", err)
+		}
+	}
+	a.cancel()
+	h.serving.Done()
+}
+
+// Handle upgrades /crew/ws. Auth is done by the router (crew principal):
+// the connection belongs to the principal's organization. Everything that
+// can refuse (hub not ready, shutting down, the organization's connection
+// quota) happens before the upgrade, as an ordinary error response; after
+// it the hijacked connection is served by run, which owns the cleanup.
+func (h *Hub) Handle(c fiber.Ctx) error {
+	if h.commands() == nil {
+		return errx.Internal("hub not ready")
+	}
+	p, err := httpx.Caller(c)
 	if err != nil {
-		stdhttp.WriteError(w, r, err)
-		return
+		return err
 	}
 	org := p.Organization
 	h.mu.Lock()
 	if h.closing {
 		h.mu.Unlock()
-		stdhttp.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
-		return
+		return errx.External("the port is shutting down; reconnect")
 	}
 	h.serving.Add(1)
 	h.mu.Unlock()
-	defer h.serving.Done()
-	ctx, cancel := context.WithCancel(context.WithoutCancel(r.Context()))
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.WithoutCancel(c.Context()))
 	// Recorded before the upgrade: the quota counts open and opening
 	// connections of every process.
-	session := newSession()
-	connectedAt := time.Now().UTC()
-	if err := h.presence.Open(r.Context(), org, crew.Connection{Session: session, Process: h.process,
-		Credential: p.Credential, Remote: r.RemoteAddr, ConnectedAt: connectedAt}, h.maxConns); err != nil {
-		stdhttp.WriteError(w, r, err)
-		return
+	a := &admitted{p: p, session: newSession(), connectedAt: time.Now().UTC(), remote: c.RequestCtx().RemoteAddr().String(),
+		ctx: ctx, cancel: cancel, dropped: true}
+	if err := h.presence.Open(c.Context(), org, crew.Connection{Session: a.session, Process: h.process,
+		Credential: p.Credential, Remote: a.remote, ConnectedAt: a.connectedAt}, h.maxConns); err != nil {
+		h.finish(a)
+		return err
 	}
-	dropped := false // from then on drop owns the row (it may keep it for the reaper)
-	defer func() {
-		if dropped {
-			return
-		}
-		cctx, ccancel := context.WithTimeout(context.Background(), opTimeout)
-		defer ccancel()
-		if err := h.presence.Close(cctx, org, session); err != nil {
-			slog.Error("forget crew connection", "session", session, "err", err)
-		}
-	}()
+	a.dropped = false
 	// Tracked from here, so a revoke during the handshake closes it too.
-	open := &pending{organization: org, credential: p.Credential, agent: p.Agent, session: session, cancel: cancel}
+	a.open = &pending{organization: org, credential: p.Credential, agent: p.Agent, session: a.session, cancel: cancel}
 	h.mu.Lock()
 	if h.closing { // Close swept while Open ran
 		h.mu.Unlock()
-		stdhttp.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
-		return
+		a.opened = true
+		h.finish(a)
+		return errx.External("the port is shutting down; reconnect")
 	}
-	h.opening[open] = struct{}{}
+	h.opening[a.open] = struct{}{}
 	h.mu.Unlock()
-	opened := false
-	defer func() {
-		if !opened {
-			h.mu.Lock()
-			delete(h.opening, open)
-			h.mu.Unlock()
-		}
-	}()
-	ws, err := websocket.Accept(w, r, nil)
-	if err != nil {
-		return // Accept already answered
+	// The connector (coder/websocket) sends no Origin header.
+	upgrade := websocket.New(func(conn *websocket.Conn) { h.run(a, conn) }, websocket.Config{AllowEmptyOrigin: true})
+	if err := upgrade(c); err != nil {
+		h.finish(a) // refused (not an upgrade request, bad handshake)
+		return err
 	}
-	ws.SetReadLimit(crew.MaxFrame)
+	return nil
+}
+
+// run serves one upgraded connection until it ends. It runs on the
+// hijacked connection's goroutine: it must not touch the Fiber context.
+func (h *Hub) run(a *admitted, raw *websocket.Conn) {
+	defer h.finish(a)
+	defer raw.Close() // the library leaves the socket open when the handler returns
+	p, org, ctx, cancel, open := a.p, a.p.Organization, a.ctx, a.cancel, a.open
+	ws := newWSConn(raw, crew.MaxFrame, ctx)
 	if !p.Expires.IsZero() {
 		// An expiring token's connection ends with it; the connector
 		// reconnects and is refused.
@@ -597,14 +623,14 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	hello, err := readHello(ctx, ws)
 	if err != nil {
-		_ = ws.Close(websocket.StatusPolicyViolation, err.Error())
+		ws.closeWith(websocket.ClosePolicyViolation, err.Error())
 		return
 	}
 	actx, acancel := context.WithTimeout(ctx, opTimeout)
 	agentID, agentName, err := h.resolveAgent(actx, p, hello)
 	acancel()
 	if err != nil {
-		_ = ws.Close(websocket.StatusPolicyViolation, publicMessage(err))
+		ws.closeWith(websocket.ClosePolicyViolation, publicMessage(err))
 		return
 	}
 	if p.Agent.IsZero() {
@@ -619,33 +645,33 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, err := agents.Find(actx, org, agentID)
 		acancel()
 		if err != nil {
-			_ = ws.Close(websocket.StatusPolicyViolation, publicMessage(err))
+			ws.closeWith(websocket.ClosePolicyViolation, publicMessage(err))
 			return
 		}
 	}
-	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: session, remote: r.RemoteAddr, connectedAt: connectedAt,
+	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: a.session, remote: a.remote, connectedAt: a.connectedAt,
 		agentID: agentID, agentName: agentName, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer, profile: hello.ProfileVersion,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
 
 	// From opening to conns under one lock: a revoke sees it in one of them.
 	h.mu.Lock()
 	delete(h.opening, open)
-	opened = true
+	a.opened = true
 	if ctx.Err() != nil || h.closing { // revoked, expired or shutting down during the handshake
 		h.mu.Unlock()
-		_ = ws.Close(websocket.StatusPolicyViolation, "the crew token is no longer valid")
+		ws.closeWith(websocket.ClosePolicyViolation, "the crew token is no longer valid")
 		return
 	}
 	h.conns[c] = struct{}{}
 	h.mu.Unlock()
-	dropped = true
+	a.dropped = true
 	defer h.drop(c)
-	if err := h.presence.Ready(ctx, org, session, c.agentInfo()); err != nil {
-		slog.Error("record crew connection", "session", session, "err", err)
-		_ = ws.Close(websocket.StatusInternalError, "try again")
+	if err := h.presence.Ready(ctx, org, a.session, c.agentInfo()); err != nil {
+		slog.Error("record crew connection", "session", a.session, "err", err)
+		ws.closeWith(websocket.CloseInternalServerErr, "try again")
 		return
 	}
-	slog.Info("crew connected", "organization", org, "agent", c.agentName, "label", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", r.RemoteAddr)
+	slog.Info("crew connected", "organization", org, "agent", c.agentName, "label", c.agent, "concurrency", c.concurrency, "steer", c.steer, "remote", a.remote)
 	h.changed(org)
 
 	go c.writer(ctx, cancel)
@@ -655,10 +681,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.reader(ctx, c)
 }
 
-func readHello(ctx context.Context, ws *websocket.Conn) (crew.Hello, error) {
-	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	_, raw, err := ws.Read(rctx)
+func readHello(ctx context.Context, ws *wsConn) (crew.Hello, error) {
+	raw, err := ws.read(ctx, 10*time.Second)
 	if err != nil {
 		return crew.Hello{}, errx.Validation("expected hello")
 	}
@@ -683,17 +707,11 @@ func (c *conn) writer(ctx context.Context, cancel context.CancelFunc) {
 			return
 		case f := <-c.send:
 			raw, _ := json.Marshal(f)
-			wctx, done := context.WithTimeout(ctx, opTimeout)
-			err := c.ws.Write(wctx, websocket.MessageText, raw)
-			done()
-			if err != nil {
+			if err := c.ws.write(raw, opTimeout); err != nil {
 				return
 			}
 		case <-ping.C:
-			pctx, done := context.WithTimeout(ctx, opTimeout)
-			err := c.ws.Ping(pctx)
-			done()
-			if err != nil {
+			if !c.ws.ping(opTimeout) {
 				return
 			}
 		}
@@ -702,7 +720,7 @@ func (c *conn) writer(ctx context.Context, cancel context.CancelFunc) {
 
 func (h *Hub) reader(ctx context.Context, c *conn) {
 	for {
-		_, raw, err := c.ws.Read(ctx)
+		raw, err := c.ws.read(ctx, 0)
 		if err != nil {
 			return
 		}
@@ -883,7 +901,7 @@ func (h *Hub) drop(c *conn) {
 	h.mu.Lock()
 	delete(h.conns, c)
 	h.mu.Unlock()
-	_ = c.ws.Close(websocket.StatusNormalClosure, "")
+	c.ws.closeWith(websocket.CloseNormalClosure, "")
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 	for _, id := range c.deliveries() {

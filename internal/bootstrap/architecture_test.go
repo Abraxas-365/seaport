@@ -51,8 +51,11 @@ var vendorSDKs = map[string][]string{
 	"github.com/yuin/goldmark":               {"dock/adapters/dockjira"},
 	"github.com/modelcontextprotocol/go-sdk": {"crew/adapters/crewmcp"},
 	"github.com/coder/acp-go-sdk":            {"connector"},
-	"github.com/coder/websocket":             {"crew/adapters/crewws", "connector"},
-	"github.com/pressly/goose":               {"bootstrap"},
+	// the client side of /crew/ws (the hub serves it with Fiber's websocket)
+	"github.com/coder/websocket": {"connector"},
+	// the server side of /crew/ws
+	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws"},
+	"github.com/pressly/goose":                {"bootstrap"},
 	// IAMKit (iam mode) and the JWT library that verifies its id_tokens
 	"github.com/Abraxas-365/iamkit": {"auth/adapters/authiam"},
 	"github.com/golang-jwt/jwt":     {"auth/adapters/authiam"},
@@ -72,7 +75,7 @@ var vendorSDKs = map[string][]string{
 	// deadline; bootstrap/server.go: the app) and the inbound adapters that
 	// serve Fiber handlers. Handlers stay net/http (httpx/stdhttp) until their
 	// domain migrates; its adapter is added here then.
-	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp", "event/eventsse"},
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp", "event/eventsse", "crew/adapters/crewws"},
 	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 
