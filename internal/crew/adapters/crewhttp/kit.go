@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 )
 
 // Kit serves GET /crew/profile (behind crew auth): the caller's agent's
@@ -19,7 +20,7 @@ type Kit struct {
 }
 
 func (k Kit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok {
 			return errx.Unauthorized("missing crew principal")
@@ -34,6 +35,6 @@ func (k Kit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		return httpx.JSON(w, http.StatusOK, kit)
+		return stdhttp.JSON(w, http.StatusOK, kit)
 	}).ServeHTTP(w, r)
 }

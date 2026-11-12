@@ -5,18 +5,18 @@ import (
 	"unicode/utf8"
 
 	"github.com/Abraxas-365/seaport/internal/hosting"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 )
 
 // Harness homes: POST /api/v1/homes?harness=… takes a tar (or tar.gz) of
 // the home's files and answers its manifest; a spec names it by digest.
 
 func (h *Handler) uploadHome(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
-	body, err := httpx.ReadBody(r, hosting.MaxHomeUpload, "application/x-tar", "application/gzip")
+	body, err := stdhttp.ReadBody(r, hosting.MaxHomeUpload, "application/x-tar", "application/gzip")
 	if err != nil {
 		return err
 	}
@@ -25,17 +25,17 @@ func (h *Handler) uploadHome(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, home.Digest, home)
+	return stdhttp.Created(w, r, home.Digest, home)
 }
 
 // homeRules answers what each harness's home may hold, so a client picks
 // a dropped folder's files before uploading.
 func (h *Handler) homeRules(w http.ResponseWriter, _ *http.Request) error {
-	return httpx.JSON(w, http.StatusOK, hosting.HomeRulesOf())
+	return stdhttp.JSON(w, http.StatusOK, hosting.HomeRulesOf())
 }
 
 func (h *Handler) home(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -43,11 +43,11 @@ func (h *Handler) home(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, home)
+	return stdhttp.JSON(w, http.StatusOK, home)
 }
 
 func (h *Handler) homeArchive(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -55,13 +55,13 @@ func (h *Handler) homeArchive(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.File(w, "application/x-tar", tarball)
+	return stdhttp.File(w, "application/x-tar", tarball)
 }
 
 // homeFile answers one file of a home as text when it is UTF-8 (the web
 // shows it), else as bytes; sandboxed like every stored file.
 func (h *Handler) homeFile(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -73,5 +73,5 @@ func (h *Handler) homeFile(w http.ResponseWriter, r *http.Request) error {
 	if utf8.Valid(data) {
 		ct = "text/plain; charset=utf-8"
 	}
-	return httpx.File(w, ct, data)
+	return stdhttp.File(w, ct, data)
 }

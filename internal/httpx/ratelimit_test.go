@@ -1,12 +1,14 @@
 package httpx
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/gofiber/fiber/v3"
 )
 
 func TestRateLimit(t *testing.T) {
@@ -16,48 +18,59 @@ func TestRateLimit(t *testing.T) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 	l := NewRateLimit(2, 3)
 	l.now = func() time.Time { return now }
-	h := l.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 	orgA := identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001")
 	orgB := identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000002")
-	call := func(p *Principal) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(http.MethodGet, "/api/v1/docks", nil)
-		if p != nil {
-			r = r.WithContext(WithPrincipal(r.Context(), *p))
+	// The principal under test is set by a middleware in front, as the
+	// authenticator does.
+	var current *Principal
+	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler})
+	app.Use(func(c fiber.Ctx) error {
+		if current != nil {
+			SetPrincipal(c, *current)
 		}
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w
+		return c.Next()
+	}, l.Middleware())
+	app.Get("/api/v1/docks", func(c fiber.Ctx) error { return c.SendStatus(http.StatusTeapot) })
+	call := func(p *Principal) *http.Response {
+		current = p
+		resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/api/v1/docks", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return resp
 	}
 	alice := &Principal{Organization: orgA, Role: RoleAdmin, Subject: "alice"}
 	for i := range 3 { // the burst
-		if w := call(alice); w.Code != http.StatusTeapot {
-			t.Fatalf("burst call %d: %d", i, w.Code)
+		if w := call(alice); w.StatusCode != http.StatusTeapot {
+			t.Fatalf("burst call %d: %d", i, w.StatusCode)
 		}
 	}
 	w := call(alice)
-	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "1" {
-		t.Fatalf("over the burst: %d Retry-After %q", w.Code, w.Header().Get("Retry-After"))
+	if w.StatusCode != http.StatusTooManyRequests || w.Header.Get("Retry-After") != "1" {
+		t.Fatalf("over the burst: %d Retry-After %q", w.StatusCode, w.Header.Get("Retry-After"))
 	}
 	// Other callers have their own bucket: another subject, another
 	// organization with the same subject, the same subject as crew.
 	for _, p := range []*Principal{{Organization: orgA, Role: RoleAdmin, Subject: "bob"},
 		{Organization: orgB, Role: RoleAdmin, Subject: "alice"}, {Organization: orgA, Role: RoleCrew, Subject: "alice"},
 		{Organization: orgA, Role: RoleAdmin, Subject: "alice", Credential: "token-2"}} {
-		if w := call(p); w.Code != http.StatusTeapot {
-			t.Errorf("%+v shares alice's bucket: %d", p, w.Code)
+		if w := call(p); w.StatusCode != http.StatusTeapot {
+			t.Errorf("%+v shares alice's bucket: %d", p, w.StatusCode)
 		}
 	}
 	// A refused call spends nothing: half a second later one token is back.
 	now = now.Add(500 * time.Millisecond)
-	if w := call(alice); w.Code != http.StatusTeapot {
-		t.Fatalf("after refill: %d", w.Code)
+	if w := call(alice); w.StatusCode != http.StatusTeapot {
+		t.Fatalf("after refill: %d", w.StatusCode)
 	}
-	if w := call(alice); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("refill gave more than one token: %d", w.Code)
+	if w := call(alice); w.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("refill gave more than one token: %d", w.StatusCode)
 	}
 	// No principal: the authenticator already refused or it is public.
-	if w := call(nil); w.Code != http.StatusTeapot {
-		t.Errorf("no principal: %d", w.Code)
+	if w := call(nil); w.StatusCode != http.StatusTeapot {
+		t.Errorf("no principal: %d", w.StatusCode)
 	}
 	// Idle buckets are swept.
 	now = now.Add(2 * time.Minute)
@@ -70,7 +83,11 @@ func TestRateLimit(t *testing.T) {
 	}
 	// nil passes through.
 	var off *RateLimit
-	if off.Wrap(h) == nil {
-		t.Error("nil RateLimit must return the handler")
+	app2 := fiber.New()
+	app2.Use(off.Middleware())
+	app2.Get("/", func(c fiber.Ctx) error { return c.SendStatus(http.StatusTeapot) })
+	resp, err := app2.Test(httptest.NewRequest(http.MethodGet, "/", nil))
+	if err != nil || resp.StatusCode != http.StatusTeapot {
+		t.Errorf("nil RateLimit: %v %v", err, resp)
 	}
 }

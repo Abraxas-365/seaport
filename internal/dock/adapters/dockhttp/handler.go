@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/dock"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -19,13 +19,13 @@ func New(c dock.Commands, q dock.Queries) *Handler { return &Handler{commands: c
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks", httpx.RequireFunc(permission.DocksRead, h.list))
-	mux.Handle("POST /api/v1/docks", httpx.RequireFunc(permission.DocksWrite, h.create))
-	mux.Handle("GET /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksRead, h.find))
-	mux.Handle("POST /api/v1/docks/{id}/relink", httpx.RequireFunc(permission.DocksWrite, h.relink))
-	mux.Handle("PATCH /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksWrite, h.update))
-	mux.Handle("POST /api/v1/docks/{id}/unlink", httpx.RequireFunc(permission.DocksWrite, h.unlink))
-	mux.Handle("DELETE /api/v1/docks/{id}", httpx.RequireFunc(permission.DocksWrite, h.delete))
+	mux.Handle("GET /api/v1/docks", stdhttp.RequireFunc(permission.DocksRead, h.list))
+	mux.Handle("POST /api/v1/docks", stdhttp.RequireFunc(permission.DocksWrite, h.create))
+	mux.Handle("GET /api/v1/docks/{id}", stdhttp.RequireFunc(permission.DocksRead, h.find))
+	mux.Handle("POST /api/v1/docks/{id}/relink", stdhttp.RequireFunc(permission.DocksWrite, h.relink))
+	mux.Handle("PATCH /api/v1/docks/{id}", stdhttp.RequireFunc(permission.DocksWrite, h.update))
+	mux.Handle("POST /api/v1/docks/{id}/unlink", stdhttp.RequireFunc(permission.DocksWrite, h.unlink))
+	mux.Handle("DELETE /api/v1/docks/{id}", stdhttp.RequireFunc(permission.DocksWrite, h.delete))
 }
 
 type updateRequest struct {
@@ -33,7 +33,7 @@ type updateRequest struct {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -42,18 +42,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req updateRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	d, err := h.commands.Update(r.Context(), org, id, dock.Update{Name: req.Name})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, d)
+	return stdhttp.JSON(w, http.StatusOK, d)
 }
 
 func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -65,11 +65,11 @@ func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, d)
+	return stdhttp.JSON(w, http.StatusOK, d)
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -90,27 +90,27 @@ type createRequest struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	d, err := h.commands.Create(r.Context(), org, dock.Create{Channel: req.Channel, Name: req.Name})
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, d.ID.String(), d)
+	return stdhttp.Created(w, r, d.ID.String(), d)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -118,11 +118,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -134,11 +134,11 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, d)
+	return stdhttp.JSON(w, http.StatusOK, d)
 }
 
 func (h *Handler) relink(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -150,5 +150,5 @@ func (h *Handler) relink(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, d)
+	return stdhttp.JSON(w, http.StatusOK, d)
 }

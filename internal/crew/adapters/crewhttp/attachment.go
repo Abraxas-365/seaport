@@ -5,6 +5,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
@@ -18,7 +19,7 @@ type Attachment struct {
 }
 
 func (a Attachment) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok {
 			return errx.Unauthorized("missing crew principal")
@@ -36,8 +37,8 @@ func (a Attachment) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if f.Kind == ship.AttachmentDocument {
-			return httpx.Download(w, f.MIME, f.Name, f.Data)
+			return stdhttp.Download(w, f.MIME, f.Name, f.Data)
 		}
-		return httpx.File(w, f.MIME, f.Data)
+		return stdhttp.File(w, f.MIME, f.Data)
 	}).ServeHTTP(w, r)
 }

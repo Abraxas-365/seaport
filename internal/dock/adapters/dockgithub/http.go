@@ -14,7 +14,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -46,22 +46,22 @@ func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g,
 
 // Register mounts the admin routes (behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks/{id}/github", httpx.RequireFunc(permission.DocksRead, h.info))
-	mux.Handle("POST /api/v1/docks/{id}/github/manifest", httpx.RequireFunc(permission.DocksWrite, h.manifest))
+	mux.Handle("GET /api/v1/docks/{id}/github", stdhttp.RequireFunc(permission.DocksRead, h.info))
+	mux.Handle("POST /api/v1/docks/{id}/github/manifest", stdhttp.RequireFunc(permission.DocksWrite, h.manifest))
 }
 
 // RegisterPublic mounts the routes GitHub reaches without a Seaport
 // credential: each checks its own proof (a sealed state, a signature).
 func (h *Handler) RegisterPublic(mux *http.ServeMux) {
-	mux.Handle("GET /github/apps/created", httpx.Handle(h.created))
-	mux.Handle("GET /github/apps/installed", httpx.Handle(h.installed))
-	mux.Handle("POST /github/webhook/{dock}", httpx.Handle(h.webhook))
-	mux.Handle("POST /github/actions/{dock}", httpx.Handle(h.action))
+	mux.Handle("GET /github/apps/created", stdhttp.Handle(h.created))
+	mux.Handle("GET /github/apps/installed", stdhttp.Handle(h.installed))
+	mux.Handle("POST /github/webhook/{dock}", stdhttp.Handle(h.webhook))
+	mux.Handle("POST /github/actions/{dock}", stdhttp.Handle(h.action))
 }
 
 // githubDock finds the caller's dock and checks it is a GitHub one.
 func (h *Handler) githubDock(r *http.Request) (dock.Dock, error) {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -112,7 +112,7 @@ func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
 	a, err := h.g.store.App(r.Context(), d.ID)
 	switch {
 	case errx.IsType(err, errx.TypeNotFound):
-		return httpx.JSON(w, http.StatusOK, out)
+		return stdhttp.JSON(w, http.StatusOK, out)
 	case err != nil:
 		return err
 	}
@@ -121,7 +121,7 @@ func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	out.InstallURL = h.installURL(a, d)
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) installURL(a App, d dock.Dock) string {
@@ -163,7 +163,7 @@ func (h *Handler) manifest(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req manifestRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	req.Organization, req.Name = text.Clean(req.Organization), text.Clean(req.Name)
@@ -200,7 +200,7 @@ func (h *Handler) manifest(w http.ResponseWriter, r *http.Request) error {
 		action = h.g.cfg.WebURL + "/organizations/" + url.PathEscape(req.Organization) + "/settings/apps/new"
 	}
 	action += "?state=" + url.QueryEscape(h.g.state(d.Organization, d.ID, "manifest"))
-	return httpx.JSON(w, http.StatusOK, Manifest{ActionURL: action, Manifest: string(raw)})
+	return stdhttp.JSON(w, http.StatusOK, Manifest{ActionURL: action, Manifest: string(raw)})
 }
 
 // flowState is what a manifest or install flow carries through GitHub.
@@ -373,7 +373,7 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	kind := r.Header.Get("X-GitHub-Event")
 	switch kind {
 	case "ping":
-		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "pong"})
+		return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "pong"})
 	case "installation":
 		return h.installationEvent(w, r, a, body)
 	}
@@ -389,7 +389,7 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	}
 	at, ok := parse(kind, body, a.Dock, a.Slug, team)
 	if !ok {
-		return httpx.JSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
+		return stdhttp.JSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
 	}
 	st, created, err := receiver.Receive(r.Context(), a.Organization, at.in)
 	if err != nil {
@@ -403,7 +403,7 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	if at.in.Own {
 		status = "recorded"
 	}
-	return httpx.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
+	return stdhttp.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
 }
 
 // installationEvent keeps the installations in step with GitHub (also
@@ -437,5 +437,5 @@ func (h *Handler) installationEvent(w http.ResponseWriter, r *http.Request, a Ap
 			return err
 		}
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

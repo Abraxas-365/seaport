@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/coder/websocket"
 )
 
@@ -30,7 +31,7 @@ func startShell(t *testing.T, fallback http.Handler) (url string, stop func()) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, newServer(fallback), ln, func() {}) }()
+	go func() { done <- serve(ctx, newServer(fallback, nil), ln, func() {}) }()
 	var stopped bool
 	stop = func() {
 		if !stopped {
@@ -66,7 +67,7 @@ func TestShellHealthzAndEdges(t *testing.T) {
 		case "/panic":
 			panic("boom")
 		default:
-			httpx.NotFound(w, r)
+			stdhttp.NotFound(w, r)
 		}
 	}))
 	get := func(method, path string, hdr map[string]string) (*http.Response, string) {
@@ -248,7 +249,7 @@ func TestFallbackStreamsIncrementally(t *testing.T) {
 func TestFallbackWebSocket(t *testing.T) {
 	url, _ := startShell(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/crew/ws" {
-			httpx.NotFound(w, r)
+			stdhttp.NotFound(w, r)
 			return
 		}
 		c, err := websocket.Accept(w, r, nil)
@@ -313,7 +314,7 @@ func TestShutdownEndsStreams(t *testing.T) {
 			_, _ = io.WriteString(w, "event: ready\n\n")
 			_ = http.NewResponseController(w).Flush()
 			<-end
-		})), ln, func() { close(end) })
+		}), nil), ln, func() { close(end) })
 	}()
 	resp, err := http.Get("http://" + ln.Addr().String() + "/api/v1/events")
 	if err != nil {
@@ -364,7 +365,7 @@ func TestShutdownWaitsForNoWebSocket(t *testing.T) {
 			conn = c
 			close(ready)
 			_, _, _ = c.Read(context.WithoutCancel(r.Context())) // until closed
-		})), ln, func() { conn.CloseNow() }) // what Hub.Close does
+		}), nil), ln, func() { conn.CloseNow() }) // what Hub.Close does
 	}()
 	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dcancel()

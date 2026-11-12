@@ -111,7 +111,17 @@ func publicViolations(files []goFile) []string {
 			if strings.Contains(rc.pattern, " /api/") || strings.HasPrefix(rc.pattern, "/api/") {
 				return true
 			}
-			if _, ok := publicRoutes[rc.pattern]; ok || authed(rc.handler) {
+			if _, ok := publicRoutes[rc.pattern]; ok || authedCall(rc) {
+				return true
+			}
+			if f.rel == "bootstrap/bootstrap.go" && legacyRoot(rc) {
+				// A route of the net/http mux behind the Fiber app: Fiber
+				// authenticates it first (routes.go), which the check below
+				// requires for each of them (removed with the mux).
+				if !hasNativeTwin(files, rc.pattern) {
+					out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
+						" of the legacy mux needs a Fiber route behind auth.Admin/auth.Crew in bootstrap/routes.go")
+				}
 				return true
 			}
 			out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
@@ -123,7 +133,68 @@ func publicViolations(files []goFile) []string {
 	return out
 }
 
-// authed: the handler expression calls auth.Admin or auth.Crew.
+// legacyRoot: mux.Handle on the net/http mux the Fiber app falls back to.
+func legacyRoot(rc routeCall) bool {
+	sel, ok := rc.call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == "root" && (sel.Sel.Name == "Handle" || sel.Sel.Name == "HandleFunc")
+}
+
+// routeKey is the form routes of both routers compare in: path only, with
+// {param} for :param and a trailing "/" for "/*".
+func routeKey(pattern string) string {
+	_, p, ok := strings.Cut(pattern, " /")
+	if ok {
+		p = "/" + p
+	} else {
+		p = pattern
+	}
+	if strings.HasSuffix(p, "/*") {
+		p = strings.TrimSuffix(p, "*")
+	}
+	parts := strings.Split(p, "/")
+	for i, part := range parts {
+		if name, ok := strings.CutPrefix(part, ":"); ok {
+			parts[i] = "{" + name + "}"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// hasNativeTwin: routes.go registers pattern's path behind auth.
+func hasNativeTwin(files []goFile, pattern string) bool {
+	for _, f := range files {
+		if f.rel != "bootstrap/routes.go" {
+			continue
+		}
+		found := false
+		ast.Inspect(f.file, func(n ast.Node) bool {
+			rc, ok := routeCallOf(n)
+			if ok && authedCall(rc) && routeKey(rc.pattern) == routeKey(pattern) {
+				found = true
+			}
+			return !found
+		})
+		return found
+	}
+	return false
+}
+
+// authedCall: the registration (a Fiber one lists middleware before its
+// handler) calls auth.Admin or auth.Crew in any of its arguments.
+func authedCall(rc routeCall) bool {
+	for _, a := range rc.call.Args[1:] {
+		if authed(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// authed: the expression calls auth.Admin or auth.Crew.
 func authed(e ast.Expr) bool {
 	found := false
 	ast.Inspect(e, func(n ast.Node) bool {
@@ -166,7 +237,10 @@ func guarded(e ast.Expr) bool {
 	if !ok || len(call.Args) != 2 {
 		return false
 	}
-	if !isSelector(call.Fun, "httpx", "Require") && !isSelector(call.Fun, "httpx", "RequireFunc") {
+	// stdhttp.Require is the net/http form, for the handlers not migrated to
+	// Fiber yet (removed with the last of them).
+	if !isSelector(call.Fun, "httpx", "Require") && !isSelector(call.Fun, "httpx", "RequireFunc") &&
+		!isSelector(call.Fun, "stdhttp", "Require") && !isSelector(call.Fun, "stdhttp", "RequireFunc") {
 		return false
 	}
 	sel, ok := call.Args[0].(*ast.SelectorExpr)
@@ -366,7 +440,8 @@ func register(app *fiber.App) {
 	app.Delete("/api/v1/gadgets/:id", g.del)
 	app.Post("/hooks/gadget", g.hook)
 	app.Get("/healthz", g.health)
-	app.Get("/crew/gadgets", auth.Crew(g.crew))
+	app.Get("/crew/gadgets", auth.Crew(), g.crew)
+	app.Get("/crew/sprockets", limit, auth.Crew(), g.crew)
 	_ = c.Get("X-Request-ID")
 }`,
 		"permission/permission_gen.go": `package permission

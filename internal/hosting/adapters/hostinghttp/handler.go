@@ -8,6 +8,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -27,46 +28,46 @@ func New(c hosting.Commands, q hosting.Queries, runtime bool) *Handler {
 // whose repo credentials name agent secrets directs them, so writing one,
 // or hosting an agent on one, needs agents:write too (credentials).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/environments", httpx.RequireFunc(permission.EnvironmentsRead, h.list))
-	mux.Handle("POST /api/v1/environments", httpx.RequireFunc(permission.EnvironmentsWrite, h.create))
-	mux.Handle("GET /api/v1/environments/{id}", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
-	mux.Handle("PUT /api/v1/environments/{id}", httpx.RequireFunc(permission.EnvironmentsWrite, h.save))
-	mux.Handle("DELETE /api/v1/environments/{id}", httpx.RequireFunc(permission.EnvironmentsWrite, h.delete))
-	mux.Handle("GET /api/v1/environments/{id}/versions", httpx.RequireFunc(permission.EnvironmentsRead, h.versions))
-	mux.Handle("GET /api/v1/environments/{id}/versions/{version}", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
-	mux.Handle("POST /api/v1/environments/{id}/build", httpx.RequireFunc(permission.EnvironmentsWrite, h.startBuild))
-	mux.Handle("GET /api/v1/environments/{id}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
-	mux.Handle("GET /api/v1/environments/{id}/versions/{version}/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
-	mux.Handle("POST /api/v1/homes", httpx.RequireFunc(permission.EnvironmentsWrite, h.uploadHome))
-	mux.Handle("GET /api/v1/homes/rules", httpx.RequireFunc(permission.EnvironmentsRead, h.homeRules))
-	mux.Handle("GET /api/v1/homes/{digest}", httpx.RequireFunc(permission.EnvironmentsRead, h.home))
-	mux.Handle("GET /api/v1/homes/{digest}/archive", httpx.RequireFunc(permission.EnvironmentsRead, h.homeArchive))
-	mux.Handle("GET /api/v1/homes/{digest}/files/{path...}", httpx.RequireFunc(permission.EnvironmentsRead, h.homeFile))
-	mux.Handle("GET /api/v1/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hostedAgents))
-	mux.Handle("GET /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hosted))
-	mux.Handle("PUT /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.host))
-	mux.Handle("DELETE /api/v1/agents/{id}/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.unhost))
-	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/start", httpx.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
-	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", httpx.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
-	mux.Handle("GET /api/v1/agents/{id}/hosting/egress", httpx.RequireFunc(permission.EnvironmentsRead, h.denials))
+	mux.Handle("GET /api/v1/environments", stdhttp.RequireFunc(permission.EnvironmentsRead, h.list))
+	mux.Handle("POST /api/v1/environments", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.create))
+	mux.Handle("GET /api/v1/environments/{id}", stdhttp.RequireFunc(permission.EnvironmentsRead, h.find))
+	mux.Handle("PUT /api/v1/environments/{id}", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.save))
+	mux.Handle("DELETE /api/v1/environments/{id}", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.delete))
+	mux.Handle("GET /api/v1/environments/{id}/versions", stdhttp.RequireFunc(permission.EnvironmentsRead, h.versions))
+	mux.Handle("GET /api/v1/environments/{id}/versions/{version}", stdhttp.RequireFunc(permission.EnvironmentsRead, h.find))
+	mux.Handle("POST /api/v1/environments/{id}/build", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.startBuild))
+	mux.Handle("GET /api/v1/environments/{id}/build", stdhttp.RequireFunc(permission.EnvironmentsRead, h.build))
+	mux.Handle("GET /api/v1/environments/{id}/versions/{version}/build", stdhttp.RequireFunc(permission.EnvironmentsRead, h.build))
+	mux.Handle("POST /api/v1/homes", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.uploadHome))
+	mux.Handle("GET /api/v1/homes/rules", stdhttp.RequireFunc(permission.EnvironmentsRead, h.homeRules))
+	mux.Handle("GET /api/v1/homes/{digest}", stdhttp.RequireFunc(permission.EnvironmentsRead, h.home))
+	mux.Handle("GET /api/v1/homes/{digest}/archive", stdhttp.RequireFunc(permission.EnvironmentsRead, h.homeArchive))
+	mux.Handle("GET /api/v1/homes/{digest}/files/{path...}", stdhttp.RequireFunc(permission.EnvironmentsRead, h.homeFile))
+	mux.Handle("GET /api/v1/hosting", stdhttp.RequireFunc(permission.EnvironmentsRead, h.hostedAgents))
+	mux.Handle("GET /api/v1/agents/{id}/hosting", stdhttp.RequireFunc(permission.EnvironmentsRead, h.hosted))
+	mux.Handle("PUT /api/v1/agents/{id}/hosting", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.host))
+	mux.Handle("DELETE /api/v1/agents/{id}/hosting", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.unhost))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/start", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/egress", stdhttp.RequireFunc(permission.EnvironmentsRead, h.denials))
 	// Logs: whatever the agent printed (a tool may echo an env secret), so
 	// only who may change where it runs reads them.
-	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", httpx.RequireFunc(permission.EnvironmentsWrite, h.slotLog))
-	mux.Handle("GET /api/v1/agents/{id}/usage", httpx.RequireFunc(permission.AgentsRead, h.usage))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.slotLog))
+	mux.Handle("GET /api/v1/agents/{id}/usage", stdhttp.RequireFunc(permission.AgentsRead, h.usage))
 	// Subscription sign-in (experimental): signing a slot in decides whose
 	// account it spends, so it is environments:write's, like starting it.
-	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.startLogin))
-	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.login))
-	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", httpx.RequireFunc(permission.EnvironmentsWrite, h.loginCode))
-	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/account", httpx.RequireFunc(permission.EnvironmentsRead, h.account))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.startLogin))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/login", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.login))
+	mux.Handle("POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", stdhttp.RequireFunc(permission.EnvironmentsWrite, h.loginCode))
+	mux.Handle("GET /api/v1/agents/{id}/hosting/slots/{slot}/account", stdhttp.RequireFunc(permission.EnvironmentsRead, h.account))
 }
 
 // Workspace is GET /crew/workspace (behind crew auth): a hosted slot's
 // plan for /workspace, its repo credentials resolved. Only a slot token
 // gets it, and only its own slot's (TestOnlyTheCrewEquips).
 func (h *Handler) Workspace() http.Handler {
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		p, err := httpx.Caller(r)
+	return stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		p, err := stdhttp.Caller(r)
 		if err != nil {
 			return err
 		}
@@ -77,7 +78,7 @@ func (h *Handler) Workspace() http.Handler {
 		if err != nil {
 			return err
 		}
-		return httpx.JSON(w, http.StatusOK, out)
+		return stdhttp.JSON(w, http.StatusOK, out)
 	})
 }
 
@@ -113,11 +114,11 @@ func (h *Handler) environmentID(r *http.Request, org identity.OrganizationID) (i
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -125,7 +126,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type createRequest struct {
@@ -134,12 +135,12 @@ type createRequest struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	if err := credentials(p, req.Spec); err != nil {
@@ -149,11 +150,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, e.ID.String(), e)
+	return stdhttp.Created(w, r, e.ID.String(), e)
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -169,7 +170,7 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, e)
+	return stdhttp.JSON(w, http.StatusOK, e)
 }
 
 // pathVersion is {version} (0 when the route has none).
@@ -194,7 +195,7 @@ type buildRequest struct {
 // startBuild answers 202 with the build (in progress, or as it is when
 // already built or building); the body is optional.
 func (h *Handler) startBuild(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -204,7 +205,7 @@ func (h *Handler) startBuild(w http.ResponseWriter, r *http.Request) error {
 	}
 	var req buildRequest
 	if r.ContentLength != 0 {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
+		if err := stdhttp.DecodeJSON(r, &req); err != nil {
 			return err
 		}
 	}
@@ -212,11 +213,11 @@ func (h *Handler) startBuild(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, b)
+	return stdhttp.JSON(w, http.StatusAccepted, b)
 }
 
 func (h *Handler) build(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -232,7 +233,7 @@ func (h *Handler) build(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, b)
+	return stdhttp.JSON(w, http.StatusOK, b)
 }
 
 type saveRequest struct {
@@ -242,7 +243,7 @@ type saveRequest struct {
 }
 
 func (h *Handler) save(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func (h *Handler) save(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req saveRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	if err := credentials(p, req.Spec); err != nil {
@@ -261,11 +262,11 @@ func (h *Handler) save(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, e)
+	return stdhttp.JSON(w, http.StatusOK, e)
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -281,7 +282,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) versions(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -293,11 +294,11 @@ func (h *Handler) versions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"versions": out})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"versions": out})
 }
 
 func (h *Handler) hostedAgents(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -305,11 +306,11 @@ func (h *Handler) hostedAgents(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"agents": out, "runtime": h.runtime})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"agents": out, "runtime": h.runtime})
 }
 
 func (h *Handler) hosted(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -321,7 +322,7 @@ func (h *Handler) hosted(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type hostRequest struct {
@@ -331,7 +332,7 @@ type hostRequest struct {
 }
 
 func (h *Handler) host(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
@@ -340,7 +341,7 @@ func (h *Handler) host(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req hostRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	if req.Environment == "" {
@@ -362,11 +363,11 @@ func (h *Handler) host(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) unhost(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -382,7 +383,7 @@ func (h *Handler) unhost(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) slotAction(r *http.Request) (httpx.Principal, hosting.SlotAction, error) {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return p, hosting.SlotAction{}, err
 	}
@@ -406,7 +407,7 @@ func (h *Handler) startSlot(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, out)
+	return stdhttp.JSON(w, http.StatusAccepted, out)
 }
 
 func (h *Handler) stopSlot(w http.ResponseWriter, r *http.Request) error {
@@ -418,7 +419,7 @@ func (h *Handler) stopSlot(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, out)
+	return stdhttp.JSON(w, http.StatusAccepted, out)
 }
 
 // slotLog is GET /api/v1/agents/{id}/hosting/slots/{slot}/logs?lines=N
@@ -438,13 +439,13 @@ func (h *Handler) slotLog(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 // usage is GET /api/v1/agents/{id}/usage?days=N (default 30): the
 // agent's model use through the gateway.
 func (h *Handler) usage(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -462,13 +463,13 @@ func (h *Handler) usage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"days": out})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"days": out})
 }
 
 // denials is GET /api/v1/agents/{id}/hosting/egress: the hosts the
 // egress proxy refused the agent's slots.
 func (h *Handler) denials(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -480,7 +481,7 @@ func (h *Handler) denials(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"denials": out})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"denials": out})
 }
 
 // startLogin is POST …/slots/{slot}/login: starts the slot's sign-in (or
@@ -494,7 +495,7 @@ func (h *Handler) startLogin(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, out)
+	return stdhttp.JSON(w, http.StatusAccepted, out)
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) error {
@@ -506,7 +507,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type codeRequest struct {
@@ -521,14 +522,14 @@ func (h *Handler) loginCode(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req codeRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	out, err := h.commands.SubmitLoginCode(r.Context(), p.Organization, hosting.LoginCode{Agent: in.Agent, Index: in.Index, Code: req.Code})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, out)
+	return stdhttp.JSON(w, http.StatusAccepted, out)
 }
 
 // account is GET …/slots/{slot}/account: how the slot's harness is
@@ -542,5 +543,5 @@ func (h *Handler) account(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }

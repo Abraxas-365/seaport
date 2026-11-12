@@ -6,12 +6,12 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 func (h *Handler) profile(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func (h *Handler) profile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, p)
+	return stdhttp.JSON(w, http.StatusOK, p)
 }
 
 type profileRequest struct {
@@ -44,7 +44,7 @@ type profileRequest struct {
 }
 
 func (h *Handler) saveProfile(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (h *Handler) saveProfile(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req profileRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	by := p.Name
@@ -66,11 +66,11 @@ func (h *Handler) saveProfile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) versions(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -82,11 +82,11 @@ func (h *Handler) versions(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"versions": out})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"versions": out})
 }
 
 func (h *Handler) secrets(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (h *Handler) secrets(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"secrets": out})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"secrets": out})
 }
 
 type secretRequest struct {
@@ -108,7 +108,7 @@ type secretRequest struct {
 
 // setSecret answers with the secret's name and flags, never its value.
 func (h *Handler) setSecret(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -117,18 +117,18 @@ func (h *Handler) setSecret(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req secretRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	out, err := h.commands.SetSecret(r.Context(), org, id, agent.SetSecret{Name: r.PathValue("name"), Value: req.Value, Env: req.Env})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) deleteSecret(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}

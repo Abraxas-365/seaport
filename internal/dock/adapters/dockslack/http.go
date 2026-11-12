@@ -14,7 +14,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -53,22 +53,22 @@ func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g,
 
 // Register mounts the admin routes (behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks/{id}/slack", httpx.RequireFunc(permission.DocksRead, h.info))
-	mux.Handle("POST /api/v1/docks/{id}/slack/create", httpx.RequireFunc(permission.DocksWrite, h.create))
-	mux.Handle("POST /api/v1/docks/{id}/slack/install", httpx.RequireFunc(permission.DocksWrite, h.install))
-	mux.Handle("POST /api/v1/docks/{id}/slack/connect", httpx.RequireFunc(permission.DocksWrite, h.connect))
+	mux.Handle("GET /api/v1/docks/{id}/slack", stdhttp.RequireFunc(permission.DocksRead, h.info))
+	mux.Handle("POST /api/v1/docks/{id}/slack/create", stdhttp.RequireFunc(permission.DocksWrite, h.create))
+	mux.Handle("POST /api/v1/docks/{id}/slack/install", stdhttp.RequireFunc(permission.DocksWrite, h.install))
+	mux.Handle("POST /api/v1/docks/{id}/slack/connect", stdhttp.RequireFunc(permission.DocksWrite, h.connect))
 }
 
 // RegisterPublic mounts the routes Slack reaches without a Seaport
 // credential: each checks its own proof (a sealed state, a signature).
 func (h *Handler) RegisterPublic(mux *http.ServeMux) {
-	mux.Handle("GET "+OAuthCallbackPath, httpx.Handle(h.callback))
-	mux.Handle("POST "+EventsPath+"{dock}", httpx.Handle(h.events))
+	mux.Handle("GET "+OAuthCallbackPath, stdhttp.Handle(h.callback))
+	mux.Handle("POST "+EventsPath+"{dock}", stdhttp.Handle(h.events))
 }
 
 // slackDock finds the caller's dock and checks it is a Slack one.
 func (h *Handler) slackDock(r *http.Request) (dock.Dock, error) {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -123,13 +123,13 @@ func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
 	a, err := h.g.store.App(r.Context(), d.ID)
 	switch {
 	case errx.IsType(err, errx.TypeNotFound):
-		return httpx.JSON(w, http.StatusOK, out)
+		return stdhttp.JSON(w, http.StatusOK, out)
 	case err != nil:
 		return err
 	}
 	out.App = &AppInfo{AppID: a.AppID, Name: a.Name, TeamID: a.TeamID, TeamName: a.TeamName, TeamURL: a.TeamURL,
 		BotUserID: a.BotUserID, Installed: a.Installed(), Managed: a.ClientID != "" && a.clientSecret != "", CreatedAt: a.CreatedAt}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (g *Gateway) eventsURL(d identity.DockID) string {
@@ -206,7 +206,7 @@ func (h *Handler) install(w http.ResponseWriter, r *http.Request) error {
 	if a.ClientID == "" || a.clientSecret == "" {
 		return errx.Business("this dock's app was not created by Seaport: paste its tokens instead")
 	}
-	return httpx.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
+	return stdhttp.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
 }
 
 type createRequest struct {
@@ -230,7 +230,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	req.ConfigToken, req.Name = strings.TrimSpace(req.ConfigToken), text.Clean(req.Name)
@@ -267,7 +267,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
+	return stdhttp.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
 }
 
 type connectRequest struct {
@@ -283,7 +283,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req connectRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	req.SigningSecret, req.BotToken = strings.TrimSpace(req.SigningSecret), strings.TrimSpace(req.BotToken)
@@ -454,7 +454,7 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 	a, err := h.g.store.App(r.Context(), id)
 	if errx.IsType(err, errx.TypeNotFound) {
 		if env.Type == "url_verification" && env.Challenge != "" {
-			return httpx.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
+			return stdhttp.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
 		}
 		return errx.NotFound("unknown events endpoint")
 	}
@@ -465,10 +465,10 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 		return errx.Unauthorized("bad event signature")
 	}
 	if env.Type == "url_verification" {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
+		return stdhttp.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
 	}
 	if !a.Installed() {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
 	_, receiver, teams := h.g.bound()
 	if receiver == nil {
@@ -488,13 +488,13 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if !ok {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 	}
 	// Slack wants an answer within 3 s and retries otherwise: names, images
 	// and the ship are taken in the background (a retry is a duplicate the
 	// ship's external id drops).
 	go h.forward(a, env, rt, receiver)
-	return httpx.JSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
 // forwardTimeout bounds the background work of one event.

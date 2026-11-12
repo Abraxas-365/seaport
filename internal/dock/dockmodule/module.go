@@ -18,7 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/docksvc"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -186,7 +186,7 @@ func (m *Module) RegisterPublic(mux *http.ServeMux) {
 func (m *Module) GitHubToken() http.Handler {
 	if m.ghHTTP == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			httpx.WriteError(w, r, errx.NotFound("GitHub docks are off on this port (no secret key)"))
+			stdhttp.WriteError(w, r, errx.NotFound("GitHub docks are off on this port (no secret key)"))
 		})
 	}
 	return m.ghHTTP.Token()

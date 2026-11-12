@@ -1,22 +1,21 @@
-// Package httpx holds the HTTP edges shared by every inbound adapter:
-// the one error writer, strict JSON decoding, pagination parsing, request
-// ids, security headers and bearer-token auth. Handlers are stdlib
-// net/http; fiber.go is the Fiber shell around them (Edges, ErrorHandler,
-// Fallback).
+// Package httpx holds the HTTP edges shared by every inbound adapter, over
+// Fiber: the one error body, strict JSON decoding, pagination parsing,
+// request ids, the principal and bearer-token auth. Handlers are Fiber
+// handlers (func(fiber.Ctx) error) that return their errors; fiber.go is the
+// server shell (Edges, ErrorHandler, Deadline), stdhttp the net/http form of
+// the helpers for handlers that haven't moved yet.
 package httpx
 
 import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"mime"
-	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -24,6 +23,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/gofiber/fiber/v3"
 )
 
 // MaxJSONBody is the request body limit for JSON endpoints.
@@ -35,76 +35,57 @@ const requestIDKey ctxKey = iota
 
 var validRequestID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-// HandlerFunc is an http handler that returns its error instead of writing it.
-type HandlerFunc func(w http.ResponseWriter, r *http.Request) error
+// Router is where a domain's routes are registered (the server's Fiber app).
+// Modules and adapters name it through httpx so that only the adapters
+// that read the request import Fiber.
+type Router = fiber.Router
 
-// Handle adapts a HandlerFunc: a returned error goes through WriteError.
-func Handle(h HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := h(w, r); err != nil {
-			WriteError(w, r, err)
-		}
-	})
-}
-
-// WriteError is the only place errors become responses.
-func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	var e *errx.Error
-	if !errors.As(err, &e) {
-		e = errx.Internal(errx.GenericMessage)
+// JSON writes body with status (Content-Type without charset, a trailing
+// newline: the bytes net/http handlers always wrote).
+func JSON(c fiber.Ctx, status int, body any) error {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(body); err != nil {
+		return err
 	}
-	id := RequestID(r.Context())
-	if e.HTTPStatus >= 500 {
-		slog.Error("request failed", "request_id", id, "method", r.Method, "path", r.URL.Path,
-			"status", e.HTTPStatus, "code", e.Code, "err", err)
-	}
-	if e.HTTPStatus == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", "Bearer")
-	}
-	if s, ok := e.Details["retry_after_seconds"].(int); ok && e.HTTPStatus == http.StatusTooManyRequests {
-		w.Header().Set("Retry-After", strconv.Itoa(s))
-	}
-	writeJSON(w, e.HTTPStatus, map[string]any{"error": e.ToResponse(id)})
-}
-
-// JSON writes body with status.
-func JSON(w http.ResponseWriter, status int, body any) error {
-	writeJSON(w, status, body)
-	return nil
+	c.Status(status)
+	c.Set(fiber.HeaderContentType, "application/json")
+	return c.Send(buf.Bytes())
 }
 
 // File answers 200 with stored bytes of a sniffed type (message media):
 // never cached (decrypted media stays off disks), sniffed again or run by
 // the browser.
-func File(w http.ResponseWriter, contentType string, data []byte) error {
-	h := w.Header()
-	h.Set("Content-Type", contentType)
-	h.Set("Content-Length", strconv.Itoa(len(data)))
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Cache-Control", "private, no-store")
-	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
-	return nil
+func File(c fiber.Ctx, contentType string, data []byte) error {
+	c.Set("Content-Type", contentType)
+	c.Set("X-Content-Type-Options", "nosniff")
+	c.Set("Cache-Control", "private, no-store")
+	c.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	c.Status(fiber.StatusOK)
+	return c.Send(data)
 }
 
 // Download answers a file to save, never to show: like File, plus a
 // Content-Disposition naming it.
-func Download(w http.ResponseWriter, contentType, name string, data []byte) error {
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-	return File(w, contentType, data)
+func Download(c fiber.Ctx, contentType, name string, data []byte) error {
+	c.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	return File(c, contentType, data)
 }
 
 // Created answers 201 with Location = request path + "/" + rel.
-func Created(w http.ResponseWriter, r *http.Request, rel string, body any) error {
-	w.Header().Set("Location", strings.TrimRight(r.URL.Path, "/")+"/"+strings.TrimLeft(rel, "/"))
-	return JSON(w, http.StatusCreated, body)
+func Created(c fiber.Ctx, rel string, body any) error {
+	c.Set("Location", strings.TrimRight(c.Path(), "/")+"/"+strings.TrimLeft(rel, "/"))
+	return JSON(c, fiber.StatusCreated, body)
 }
 
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+// Param is a path parameter, percent-decoded as net/http's PathValue was
+// (Fiber routes on the raw path; "*" is the tail of a wildcard route, without
+// its leading slash).
+func Param(c fiber.Ctx, key string) string {
+	v := c.Params(key)
+	if u, err := url.PathUnescape(v); err == nil {
+		return u
+	}
+	return v
 }
 
 // RequestID returns the request id set by the Edges middleware.
@@ -124,42 +105,20 @@ func newRequestID() string {
 	return hex.EncodeToString(b[:])
 }
 
-// NotFound answers unknown routes with the standard error body.
-func NotFound(w http.ResponseWriter, r *http.Request) {
-	WriteError(w, r, errx.NotFound("route not found"))
-}
-
-// RequireBearer rejects requests whose bearer token is not token
-// (constant-time compare).
-func RequireBearer(token string, next http.Handler) http.Handler {
-	want := []byte(token)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(got)), want) != 1 {
-			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // DecodeJSON decodes a single JSON object strictly: JSON content type,
 // size limit (MaxJSONBody), unknown fields rejected, no trailing data.
-func DecodeJSON(r *http.Request, into any) error {
-	return DecodeJSONMax(r, into, MaxJSONBody)
+func DecodeJSON(c fiber.Ctx, into any) error {
+	return DecodeJSONMax(c, into, MaxJSONBody)
 }
 
 // DecodeJSONMax is DecodeJSON with a body limit of max bytes (requests
 // that carry files as base64).
-func DecodeJSONMax(r *http.Request, into any, max int64) error {
-	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+func DecodeJSONMax(c fiber.Ctx, into any, max int64) error {
+	mt, _, _ := mime.ParseMediaType(c.Get("Content-Type"))
 	if mt != "application/json" {
 		return errx.UnsupportedMediaType("Content-Type must be application/json")
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
-	if err != nil {
-		return errx.Validation("could not read request body")
-	}
+	body := c.Body()
 	if int64(len(body)) > max {
 		return errx.PayloadTooLarge("request body is too large (max " + strconv.FormatInt(max>>20, 10) + " MiB)")
 	}
@@ -182,15 +141,12 @@ func DecodeJSONMax(r *http.Request, into any, max int64) error {
 
 // ReadBody reads a raw request body (an upload) of one of the given
 // content types, at most max bytes.
-func ReadBody(r *http.Request, max int64, contentTypes ...string) ([]byte, error) {
-	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+func ReadBody(c fiber.Ctx, max int64, contentTypes ...string) ([]byte, error) {
+	mt, _, _ := mime.ParseMediaType(c.Get("Content-Type"))
 	if !slices.Contains(contentTypes, mt) {
 		return nil, errx.UnsupportedMediaType("Content-Type must be " + strings.Join(contentTypes, " or "))
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, max+1))
-	if err != nil {
-		return nil, errx.Validation("could not read request body")
-	}
+	body := c.Body()
 	if int64(len(body)) > max {
 		return nil, errx.PayloadTooLarge("request body is too large (max " + strconv.FormatInt(max>>20, 10) + " MiB)")
 	}
@@ -217,17 +173,16 @@ func jsonError(err error) error {
 }
 
 // Pagination parses limit/offset strictly (bad values are 400, not ignored).
-func Pagination(r *http.Request) (query.Pagination, error) {
+func Pagination(c fiber.Ctx) (query.Pagination, error) {
 	p := query.Pagination{}
-	q := r.URL.Query()
-	if raw := q.Get("limit"); raw != "" {
+	if raw := c.Query("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
 			return p, errx.InvalidField("limit", "limit must be an integer of at least 1")
 		}
 		p.Limit = n
 	}
-	if raw := q.Get("offset"); raw != "" {
+	if raw := c.Query("offset"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 || n > query.MaxOffset {
 			return p, errx.InvalidField("offset", "offset must be an integer between 0 and "+strconv.Itoa(query.MaxOffset))
@@ -238,8 +193,8 @@ func Pagination(r *http.Request) (query.Pagination, error) {
 }
 
 // BoolQuery parses an optional boolean query parameter.
-func BoolQuery(r *http.Request, name string) (*bool, error) {
-	raw := r.URL.Query().Get(name)
+func BoolQuery(c fiber.Ctx, name string) (*bool, error) {
+	raw := c.Query(name)
 	if raw == "" {
 		return nil, nil
 	}

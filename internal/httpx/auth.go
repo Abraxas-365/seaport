@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
+	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/csrf"
 )
 
 // Role is what a principal may do: administer the port (web, CLI) or work
@@ -55,25 +58,24 @@ type Principal struct {
 // Can reports whether the principal holds the permission.
 func (p Principal) Can(perm string) bool { return permission.Has(p.Permissions, perm) }
 
-// Require serves next only to a principal holding perm: 401 without a
+// Require runs h only for a principal holding perm: 401 without a
 // principal, 403 without the permission. Every admin route is wrapped in
 // it (architecture test TestAdminRoutesRequirePermission).
-func Require(perm string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := PrincipalFrom(r.Context())
+func Require(perm string, h fiber.Handler) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, ok := PrincipalFrom(c.Context())
 		switch {
 		case !ok:
-			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
+			return errx.Unauthorized("missing or invalid token")
 		case p.Role != RoleAdmin || !p.Can(perm):
-			WriteError(w, r, errx.Forbidden("missing permission "+perm))
-		default:
-			next.ServeHTTP(w, r)
+			return errx.Forbidden("missing permission " + perm)
 		}
-	})
+		return h(c)
+	}
 }
 
-// RequireFunc is Require for an httpx.HandlerFunc.
-func RequireFunc(perm string, h HandlerFunc) http.Handler { return Require(perm, Handle(h)) }
+// RequireFunc is Require for a handler function.
+func RequireFunc(perm string, h func(fiber.Ctx) error) fiber.Handler { return Require(perm, h) }
 
 type principalKey struct{}
 
@@ -91,18 +93,24 @@ func PrincipalFrom(ctx context.Context) (Principal, bool) {
 // Organization is the caller's tenant. Routes are always mounted behind
 // an Authenticator, so a missing principal is a wiring bug: it answers 401
 // rather than guessing a tenant.
-func Organization(r *http.Request) (identity.OrganizationID, error) {
-	p, err := Caller(r)
+func Organization(c fiber.Ctx) (identity.OrganizationID, error) {
+	p, err := Caller(c)
 	return p.Organization, err
 }
 
 // Caller is the request's principal (401 when missing, like Organization).
-func Caller(r *http.Request) (Principal, error) {
-	p, ok := PrincipalFrom(r.Context())
+func Caller(c fiber.Ctx) (Principal, error) {
+	p, ok := PrincipalFrom(c.Context())
 	if !ok {
 		return Principal{}, errx.Unauthorized("missing or invalid token")
 	}
 	return p, nil
+}
+
+// SetPrincipal makes p the principal of the request: the context handlers
+// (and whatever still runs behind the net/http fallback) read it from.
+func SetPrincipal(c fiber.Ctx, p Principal) {
+	c.SetContext(WithPrincipal(c.Context(), p))
 }
 
 // CrewResolver turns a bearer value into a crew principal (crew tokens
@@ -112,38 +120,49 @@ type CrewResolver interface {
 }
 
 // Bearer returns the request's bearer token, or "".
-func Bearer(r *http.Request) string {
-	got, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+func Bearer(c fiber.Ctx) string {
+	got, _ := strings.CutPrefix(c.Get("Authorization"), "Bearer ")
 	return strings.TrimSpace(got)
 }
 
-// CrewAuth serves next with the crew principal of the request's bearer
-// token, resolved by tokens (crew tokens: each names its organization and
-// its agent).
-func CrewAuth(tokens CrewResolver, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := Bearer(r)
+// CheckBearer is nil when the request's bearer token is token
+// (constant-time compare), else 401.
+func CheckBearer(c fiber.Ctx, token string) error {
+	want := []byte(token)
+	if len(want) == 0 || subtle.ConstantTimeCompare([]byte(Bearer(c)), want) != 1 {
+		return errx.Unauthorized("missing or invalid token")
+	}
+	return nil
+}
+
+// CrewAuth serves the request with the crew principal of the request's
+// bearer token, resolved by tokens (crew tokens: each names its organization
+// and its agent).
+func CrewAuth(tokens CrewResolver) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		got := Bearer(c)
 		if got == "" || tokens == nil {
-			WriteError(w, r, errx.Unauthorized("missing or invalid token"))
-			return
+			return errx.Unauthorized("missing or invalid token")
 		}
-		p, err := tokens.ResolveCrew(r.Context(), got)
+		p, err := tokens.ResolveCrew(c.Context(), got)
 		if err != nil {
-			WriteError(w, r, err)
-			return
+			return err
 		}
-		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
-	})
+		SetPrincipal(c, p)
+		return c.Next()
+	}
 }
 
 // Authenticator establishes the principal of a request for one role. It is
 // the inbound auth port; the run mode picks the adapter (Open, Tokens...).
+// Its handlers are middleware: they answer 401/403 or set the principal
+// (SetPrincipal) and call Next.
 type Authenticator interface {
-	// Admin protects the admin API (/api/v1): it serves next with an admin
-	// principal or answers 401/403.
-	Admin(next http.Handler) http.Handler
-	// Crew protects the agents' endpoints (/crew/ws, /mcp).
-	Crew(next http.Handler) http.Handler
+	// Admin protects the admin API (/api/v1): it answers 401/403 or sets an
+	// admin principal and calls Next.
+	Admin() fiber.Handler
+	// Crew protects the agents' endpoints (/crew/..., /mcp, the gateway).
+	Crew() fiber.Handler
 	// Session is /api/v1/session (browser login), mounted unauthenticated.
 	Session() SessionRoutes
 }
@@ -153,8 +172,8 @@ type Authenticator interface {
 // Callback (GET /auth/callback) are the redirect sign-in of iam mode, nil
 // in the others.
 type SessionRoutes struct {
-	Login, Current, Logout http.Handler
-	SignIn, Callback       http.Handler
+	Login, Current, Logout fiber.Handler
+	SignIn, Callback       fiber.Handler
 }
 
 // Open is SEAPORT_AUTH=none: every caller is the admin (and crew) of one
@@ -176,22 +195,30 @@ var _ Authenticator = Open{}
 //     callers into loopback connections, and may even rewrite Host to
 //     localhost; they all add X-Forwarded-For or similar. Vite's dev proxy
 //     adds none, so `pnpm dev` keeps working.
-func (o Open) with(role Role, next http.Handler) http.Handler {
+func (o Open) guard(role Role) fiber.Handler {
+	csrf := CrossOrigin()
+	return func(c fiber.Ctx) error {
+		if err := o.allow(c, role); err != nil {
+			return err
+		}
+		return csrf(c)
+	}
+}
+
+// allow checks the request is local and makes the open principal its own.
+func (o Open) allow(c fiber.Ctx, role Role) error {
 	p := Principal{Organization: o.Organization, Role: role, Subject: "local"}
 	if role == RoleAdmin {
 		p.Permissions = permission.All
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !loopbackHost(r.Host) {
-			WriteError(w, r, errx.Forbidden("an open port only answers to localhost"))
-			return
-		}
-		if h := forwardedBy(r); h != "" {
-			WriteError(w, r, errx.Forbidden("an open port refuses proxied requests ("+h+"); use SEAPORT_AUTH=token behind a proxy"))
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
-	})
+	if !loopbackHost(string(c.Request().Header.Host())) {
+		return errx.Forbidden("an open port only answers to localhost")
+	}
+	if h := forwardedBy(c); h != "" {
+		return errx.Forbidden("an open port refuses proxied requests (" + h + "); use SEAPORT_AUTH=token behind a proxy")
+	}
+	SetPrincipal(c, p)
+	return nil
 }
 
 // forwardingHeaders mark a request relayed by a proxy or tunnel.
@@ -199,9 +226,9 @@ var forwardingHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Ho
 	"X-Forwarded-Proto", "X-Real-Ip", "Cf-Connecting-Ip", "True-Client-Ip", "Tailscale-User-Login"}
 
 // forwardedBy names the first forwarding header present, or "".
-func forwardedBy(r *http.Request) string {
+func forwardedBy(c fiber.Ctx) string {
 	for _, h := range forwardingHeaders {
-		if _, ok := r.Header[h]; ok {
+		if len(c.Request().Header.PeekAll(h)) > 0 {
 			return h
 		}
 	}
@@ -221,25 +248,23 @@ func loopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func (o Open) Admin(next http.Handler) http.Handler {
-	// Browsers on other sites must not drive an open port either.
-	return CrossOrigin(o.with(RoleAdmin, next))
-}
+// Admin: browsers on other sites must not drive an open port either.
+func (o Open) Admin() fiber.Handler { return o.guard(RoleAdmin) }
 
 // Crew: connectors send no Origin, browsers on other sites do (the
 // WebSocket handshake also checks it).
-func (o Open) Crew(next http.Handler) http.Handler { return CrossOrigin(o.with(RoleCrew, next)) }
+func (o Open) Crew() fiber.Handler { return o.guard(RoleCrew) }
 
 func (o Open) Session() SessionRoutes {
-	always := Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return JSON(w, http.StatusOK, SessionState{Authenticated: true, Subject: "local", Permissions: permission.All})
-	})
-	none := Handle(func(w http.ResponseWriter, r *http.Request) error {
-		w.WriteHeader(http.StatusNoContent)
-		return nil
-	})
-	// Through with: a rebinding page must not learn the port is open.
-	return SessionRoutes{Login: o.with(RoleAdmin, always), Current: o.with(RoleAdmin, always), Logout: none}
+	// Through allow: a rebinding page must not learn the port is open.
+	state := func(c fiber.Ctx) error {
+		if err := o.allow(c, RoleAdmin); err != nil {
+			return err
+		}
+		return JSON(c, http.StatusOK, SessionState{Authenticated: true, Subject: "local", Permissions: permission.All})
+	}
+	return SessionRoutes{Login: state, Current: state,
+		Logout: func(c fiber.Ctx) error { c.Status(http.StatusNoContent); return nil }}
 }
 
 // Tokens is SEAPORT_AUTH=token: a static admin token (bearer, or traded
@@ -253,24 +278,34 @@ type Tokens struct {
 
 var _ Authenticator = Tokens{}
 
-func (t Tokens) Admin(next http.Handler) http.Handler {
+func (t Tokens) Admin() fiber.Handler {
 	p := Principal{Organization: t.Organization, Role: RoleAdmin, Subject: "admin", Permissions: permission.All}
-	return t.Sessions.RequireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), p)))
-	}))
+	return t.Sessions.RequireAdmin(p)
 }
 
-func (t Tokens) Crew(next http.Handler) http.Handler { return CrewAuth(t.CrewTokens, next) }
+func (t Tokens) Crew() fiber.Handler { return CrewAuth(t.CrewTokens) }
 
 func (t Tokens) Session() SessionRoutes {
 	return SessionRoutes{Login: t.Sessions.Login(), Current: t.Sessions.Current(), Logout: t.Sessions.Logout()}
 }
 
-// CrossOrigin rejects unsafe requests a browser sends from another origin.
-func CrossOrigin(next http.Handler) http.Handler {
-	csrf := http.NewCrossOriginProtection()
-	csrf.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		WriteError(w, r, errx.Forbidden("cross-origin request rejected"))
-	}))
-	return csrf.Handler(next)
+// CrossOrigin rejects unsafe requests a browser sends from another origin
+// (Fiber's port of http.CrossOriginProtection: same decisions).
+func CrossOrigin() fiber.Handler {
+	return csrf.NewCrossOriginProtection(csrf.CrossOriginConfig{
+		ErrorHandler: func(fiber.Ctx, error) error { return errx.Forbidden("cross-origin request rejected") },
+	})
+}
+
+// APIKeyAsBearer lets crew auth read an x-api-key header: the model
+// gateway's callers send their slot token that way.
+func APIKeyAsBearer() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		if c.Get("Authorization") == "" {
+			if key := c.Get("X-Api-Key"); key != "" {
+				c.Request().Header.Set("Authorization", "Bearer "+key)
+			}
+		}
+		return c.Next()
+	}
 }

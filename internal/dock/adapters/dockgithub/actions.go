@@ -15,7 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/text"
@@ -92,7 +92,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var in ActionMessage
-	if err := httpx.DecodeJSON(r, &in); err != nil {
+	if err := stdhttp.DecodeJSON(r, &in); err != nil {
 		return err
 	}
 	if err := in.Validate(); err != nil {
@@ -169,7 +169,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 		slog.Error("receive github action message", "dock", a.Dock, "chat", chat, "err", err)
 		return err
 	}
-	return httpx.JSON(w, http.StatusAccepted, map[string]any{
+	return stdhttp.JSON(w, http.StatusAccepted, map[string]any{
 		"status": st.Status, "ship_id": st.ID, "created": created, "conversation_id": st.Conversation, "chat": chat,
 	})
 }

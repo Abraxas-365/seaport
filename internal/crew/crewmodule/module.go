@@ -15,6 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew/crewsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -47,7 +48,7 @@ func New(db *sqlx.DB, process string, lease time.Duration, mcpURL, version strin
 // Register mounts the admin routes (GET /api/v1/crew: connected agents;
 // /api/v1/crew/tokens).
 func (m *Module) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/crew", httpx.Require(permission.CrewRead, m.Hub.StatusHandler()))
+	mux.Handle("GET /api/v1/crew", stdhttp.Require(permission.CrewRead, m.Hub.StatusHandler()))
 	m.tokens.Register(mux)
 }
 

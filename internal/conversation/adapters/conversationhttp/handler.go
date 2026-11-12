@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/conversation"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -23,21 +23,21 @@ func New(c conversation.Commands, q conversation.Queries, cc conversation.Custom
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/conversations", httpx.RequireFunc(permission.ConversationsRead, h.list))
-	mux.Handle("GET /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsRead, h.find))
-	mux.Handle("PATCH /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsWrite, h.update))
-	mux.Handle("GET /api/v1/docks/{id}/customs", httpx.RequireFunc(permission.CustomsRead, h.getCustoms))
-	mux.Handle("PATCH /api/v1/docks/{id}/customs/policy", httpx.RequireFunc(permission.CustomsWrite, h.setPolicy))
-	mux.Handle("POST /api/v1/docks/{id}/customs/rules", httpx.RequireFunc(permission.CustomsWrite, h.addRule))
-	mux.Handle("DELETE /api/v1/customs/rules/{id}", httpx.RequireFunc(permission.CustomsWrite, h.removeRule))
+	mux.Handle("GET /api/v1/conversations", stdhttp.RequireFunc(permission.ConversationsRead, h.list))
+	mux.Handle("GET /api/v1/conversations/{id}", stdhttp.RequireFunc(permission.ConversationsRead, h.find))
+	mux.Handle("PATCH /api/v1/conversations/{id}", stdhttp.RequireFunc(permission.ConversationsWrite, h.update))
+	mux.Handle("GET /api/v1/docks/{id}/customs", stdhttp.RequireFunc(permission.CustomsRead, h.getCustoms))
+	mux.Handle("PATCH /api/v1/docks/{id}/customs/policy", stdhttp.RequireFunc(permission.CustomsWrite, h.setPolicy))
+	mux.Handle("POST /api/v1/docks/{id}/customs/rules", stdhttp.RequireFunc(permission.CustomsWrite, h.addRule))
+	mux.Handle("DELETE /api/v1/customs/rules/{id}", stdhttp.RequireFunc(permission.CustomsWrite, h.removeRule))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -57,11 +57,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return stdhttp.JSON(w, http.StatusOK, c)
 }
 
 type updateRequest struct {
@@ -83,7 +83,7 @@ type updateRequest struct {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -92,18 +92,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req updateRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	c, err := h.commands.Update(r.Context(), org, id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return stdhttp.JSON(w, http.StatusOK, c)
 }
 
 func (h *Handler) getCustoms(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (h *Handler) getCustoms(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return stdhttp.JSON(w, http.StatusOK, c)
 }
 
 type policyRequest struct {
@@ -124,7 +124,7 @@ type policyRequest struct {
 }
 
 func (h *Handler) setPolicy(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -133,14 +133,14 @@ func (h *Handler) setPolicy(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req policyRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	c, err := h.customs.SetPolicy(r.Context(), org, dock, conversation.SetPolicy{Default: req.Default, GroupMode: req.GroupMode})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return stdhttp.JSON(w, http.StatusOK, c)
 }
 
 type ruleRequest struct {
@@ -149,7 +149,7 @@ type ruleRequest struct {
 }
 
 func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req ruleRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	rule, err := h.customs.AddRule(r.Context(), org, conversation.AddRule{Dock: dock, Effect: req.Effect, Pattern: req.Pattern})
@@ -166,11 +166,11 @@ func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.Header().Set("Location", "/api/v1/customs/rules/"+rule.ID.String())
-	return httpx.JSON(w, http.StatusCreated, rule)
+	return stdhttp.JSON(w, http.StatusCreated, rule)
 }
 
 func (h *Handler) removeRule(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}

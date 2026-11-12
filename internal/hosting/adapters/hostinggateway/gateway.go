@@ -20,7 +20,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
@@ -96,7 +96,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found_error", "the gateway does not serve "+r.URL.Path)
 		return
 	}
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication_error", "missing or invalid slot token")
 		return

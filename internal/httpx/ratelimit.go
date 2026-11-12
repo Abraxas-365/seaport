@@ -2,12 +2,12 @@ package httpx
 
 import (
 	"math"
-	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
+	"github.com/gofiber/fiber/v3"
 	"golang.org/x/time/rate"
 )
 
@@ -41,27 +41,25 @@ func NewRateLimit(perSecond, burst int) *RateLimit {
 		buckets: map[string]*bucket{}}
 }
 
-// Wrap refuses a caller over its rate with 429 + Retry-After. A nil
+// Middleware refuses a caller over its rate with 429 + Retry-After. A nil
 // RateLimit passes everything through.
-func (l *RateLimit) Wrap(next http.Handler) http.Handler {
+func (l *RateLimit) Middleware() fiber.Handler {
 	if l == nil {
-		return next
+		return func(c fiber.Ctx) error { return c.Next() }
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := PrincipalFrom(r.Context())
+	return func(c fiber.Ctx) error {
+		p, ok := PrincipalFrom(c.Context())
 		if !ok {
-			next.ServeHTTP(w, r)
-			return
+			return c.Next()
 		}
 		key := p.Organization.String() + "\x00" + string(p.Role) + "\x00" + p.Subject + "\x00" + p.Credential
 		if wait := l.take(key); wait > 0 {
 			s := int(math.Ceil(wait.Seconds()))
-			WriteError(w, r, errx.TooManyRequests("too many requests; retry in "+strconv.Itoa(s)+"s").
-				WithDetail("retry_after_seconds", s))
-			return
+			return errx.TooManyRequests("too many requests; retry in "+strconv.Itoa(s)+"s").
+				WithDetail("retry_after_seconds", s)
 		}
-		next.ServeHTTP(w, r)
-	})
+		return c.Next()
+	}
 }
 
 // take spends one token of key's bucket, or returns how long until one is

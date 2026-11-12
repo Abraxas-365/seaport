@@ -12,6 +12,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
 )
@@ -48,9 +49,10 @@ const (
 	requestDeadline = 5 * time.Minute
 )
 
-// newServer builds the Fiber app with fallback (the net/http routes) behind
-// its shell.
-func newServer(fallback http.Handler) *fiber.App {
+// newServer builds the Fiber app: its shell, the routes mount registers (given
+// the handler that serves a request with fallback, the net/http routes of the
+// domains not migrated yet) and fallback itself behind them all.
+func newServer(fallback http.Handler, mount func(app *fiber.App, legacy fiber.Handler)) *fiber.App {
 	app := fiber.New(fiber.Config{
 		// Pooled request buffers: what a handler keeps (a path parameter in
 		// an event, a goroutine) must not change under it.
@@ -73,7 +75,7 @@ func newServer(fallback http.Handler) *fiber.App {
 	// Public liveness: nothing about any organization (crew counts are per
 	// organization at /api/v1/crew).
 	app.Get("/healthz", func(c fiber.Ctx) error {
-		return httpx.SendJSON(c, http.StatusOK, map[string]any{"status": "ok", "version": Version})
+		return httpx.JSON(c, http.StatusOK, map[string]any{"status": "ok", "version": Version})
 	})
 	app.All("/healthz", func(c fiber.Ctx) error {
 		c.Set(fiber.HeaderAllow, "GET, HEAD")
@@ -82,7 +84,11 @@ func newServer(fallback http.Handler) *fiber.App {
 	// A route, not a Use: when fasthttp refuses a request before its handler
 	// (a body over bodyLimit) Fiber replays only the Use middleware to build
 	// the error response, and the fallback must not run a request it refused.
-	app.All("/*", httpx.Fallback(fallback))
+	legacy := stdhttp.Fallback(fallback)
+	if mount != nil {
+		mount(app, legacy)
+	}
+	app.All("/*", legacy)
 	return app
 }
 

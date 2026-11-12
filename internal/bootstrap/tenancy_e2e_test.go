@@ -15,11 +15,13 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/gofiber/fiber/v3"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -40,8 +42,8 @@ const (
 // twoOrgs authenticates bearer tokens of two organizations.
 type twoOrgs struct{}
 
-func (twoOrgs) principal(r *http.Request, admin bool) (httpx.Principal, bool) {
-	tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+func (twoOrgs) principal(c fiber.Ctx, admin bool) (httpx.Principal, bool) {
+	tok, _ := strings.CutPrefix(c.Get("Authorization"), "Bearer ")
 	byToken := map[string]httpx.Principal{
 		adminA: {Organization: orgA, Role: httpx.RoleAdmin, Subject: "a", Permissions: permission.All},
 		adminB: {Organization: orgB, Role: httpx.RoleAdmin, Subject: "b", Permissions: permission.All},
@@ -52,21 +54,21 @@ func (twoOrgs) principal(r *http.Request, admin bool) (httpx.Principal, bool) {
 	return p, ok && (p.Role == httpx.RoleAdmin) == admin
 }
 
-func (a twoOrgs) guard(admin bool, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := a.principal(r, admin)
+func (a twoOrgs) guard(admin bool) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, ok := a.principal(c, admin)
 		if !ok {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+			return c.SendStatus(http.StatusUnauthorized)
 		}
-		next.ServeHTTP(w, r.WithContext(httpx.WithPrincipal(r.Context(), p)))
-	})
+		httpx.SetPrincipal(c, p)
+		return c.Next()
+	}
 }
 
-func (a twoOrgs) Admin(next http.Handler) http.Handler { return a.guard(true, next) }
-func (a twoOrgs) Crew(next http.Handler) http.Handler  { return a.guard(false, next) }
+func (a twoOrgs) Admin() fiber.Handler { return a.guard(true) }
+func (a twoOrgs) Crew() fiber.Handler  { return a.guard(false) }
 func (twoOrgs) Session() httpx.SessionRoutes {
-	nf := http.HandlerFunc(httpx.NotFound)
+	nf := func(fiber.Ctx) error { return errx.NotFound("route not found") }
 	return httpx.SessionRoutes{Login: nf, Current: nf, Logout: nf}
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/text"
@@ -43,20 +43,20 @@ func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g,
 
 // Register mounts the admin routes (behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks/{id}/jira", httpx.RequireFunc(permission.DocksRead, h.info))
-	mux.Handle("PUT /api/v1/docks/{id}/jira", httpx.RequireFunc(permission.DocksWrite, h.link))
-	mux.Handle("POST /api/v1/docks/{id}/jira/secret", httpx.RequireFunc(permission.DocksWrite, h.rotate))
+	mux.Handle("GET /api/v1/docks/{id}/jira", stdhttp.RequireFunc(permission.DocksRead, h.info))
+	mux.Handle("PUT /api/v1/docks/{id}/jira", stdhttp.RequireFunc(permission.DocksWrite, h.link))
+	mux.Handle("POST /api/v1/docks/{id}/jira/secret", stdhttp.RequireFunc(permission.DocksWrite, h.rotate))
 }
 
 // RegisterPublic mounts the webhook Jira reaches without a Seaport
 // credential: it checks the dock's webhook secret.
 func (h *Handler) RegisterPublic(mux *http.ServeMux) {
-	mux.Handle("POST /jira/webhook/{dock}", httpx.Handle(h.webhook))
+	mux.Handle("POST /jira/webhook/{dock}", stdhttp.Handle(h.webhook))
 }
 
 // jiraDock finds the caller's dock and checks it is a Jira one.
 func (h *Handler) jiraDock(r *http.Request) (dock.Dock, error) {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -106,12 +106,12 @@ func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
 	s, err := h.g.store.Site(r.Context(), d.ID)
 	switch {
 	case errx.IsType(err, errx.TypeNotFound):
-		return httpx.JSON(w, http.StatusOK, out)
+		return stdhttp.JSON(w, http.StatusOK, out)
 	case err != nil:
 		return err
 	}
 	out.Site = siteInfo(s)
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) base(id identity.DockID) Info {
@@ -145,7 +145,7 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req linkRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	site, err := h.g.checkSite(req.Site)
@@ -186,7 +186,7 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) error {
 	slog.Info("jira dock linked", "dock", d.ID, "site", site)
 	out := h.base(d.ID)
 	out.Site, out.Secret = siteInfo(s), secret
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 // rotate replaces the webhook secret and shows the new one once.
@@ -204,7 +204,7 @@ func (h *Handler) rotate(w http.ResponseWriter, r *http.Request) error {
 	if s, err := h.g.store.Site(r.Context(), d.ID); err == nil {
 		out.Site = siteInfo(s)
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 // checkSite validates the site a dock names against the allow-list and
@@ -313,7 +313,7 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	}
 	at, ok := parse(body, s.Dock, s, team)
 	if !ok {
-		return httpx.JSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
+		return stdhttp.JSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
 	}
 	if at.in.Own {
 		// A comment Seaport sent carries its message id: the stored reply.
@@ -340,5 +340,5 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	if at.in.Own {
 		status = "recorded"
 	}
-	return httpx.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
+	return stdhttp.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
 }

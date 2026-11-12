@@ -9,7 +9,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -27,17 +27,17 @@ func New(c ship.Commands, q ship.Queries, docks dock.Queries) *Handler {
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/inbox", httpx.RequireFunc(permission.ConversationsRead, h.inbox))
-	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
-	mux.Handle("GET /api/v1/conversations/{id}/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
-	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
-	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
-	mux.Handle("GET /api/v1/attachments/{id}", httpx.RequireFunc(permission.ShipsRead, h.attachment))
+	mux.Handle("GET /api/v1/inbox", stdhttp.RequireFunc(permission.ConversationsRead, h.inbox))
+	mux.Handle("GET /api/v1/conversations/{id}/ships", stdhttp.RequireFunc(permission.ShipsRead, h.history))
+	mux.Handle("GET /api/v1/conversations/{id}/turns", stdhttp.RequireFunc(permission.ShipsRead, h.turns))
+	mux.Handle("POST /api/v1/conversations/{id}/ships", stdhttp.RequireFunc(permission.ShipsWrite, h.send))
+	mux.Handle("POST /api/v1/docks/{id}/ships", stdhttp.RequireFunc(permission.ShipsWrite, h.receive))
+	mux.Handle("GET /api/v1/attachments/{id}", stdhttp.RequireFunc(permission.ShipsRead, h.attachment))
 }
 
 // attachment serves a ship's attachment (an image shown in its bubble).
 func (h *Handler) attachment(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -50,13 +50,13 @@ func (h *Handler) attachment(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if f.Kind == ship.AttachmentDocument {
-		return httpx.Download(w, f.MIME, f.Name, f.Data)
+		return stdhttp.Download(w, f.MIME, f.Name, f.Data)
 	}
-	return httpx.File(w, f.MIME, f.Data)
+	return stdhttp.File(w, f.MIME, f.Data)
 }
 
 func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -72,13 +72,13 @@ func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 // turns lists what the agent did on each delivery of a conversation
 // (ship.Turn), newest first.
 func (h *Handler) turns(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (h *Handler) turns(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -94,17 +94,17 @@ func (h *Handler) turns(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 // inbox lists conversations with their last ship and counters
 // (?status=allowed|pending|denied&dock_id=).
 func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -125,12 +125,12 @@ func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	// The preview is message content: only for callers who may read ships.
-	if p, err := httpx.Caller(r); err != nil || !p.Can(permission.ShipsRead) {
+	if p, err := stdhttp.Caller(r); err != nil || !p.Can(permission.ShipsRead) {
 		for i := range out.Items {
 			out.Items[i].Last = nil
 		}
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type sendRequest struct {
@@ -139,7 +139,7 @@ type sendRequest struct {
 
 // send lets the owner write to a conversation as the agent would.
 func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -148,14 +148,14 @@ func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req sendRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	s, err := h.commands.Send(r.Context(), org, ship.Outbound{Conversation: id, Text: req.Text})
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, s.ID.String(), s)
+	return stdhttp.Created(w, r, s.ID.String(), s)
 }
 
 type receiveRequest struct {
@@ -188,7 +188,7 @@ type receiveResponse struct {
 
 // receive injects an inbound message into an "api" dock.
 func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req receiveRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	d, err := h.docks.Find(r.Context(), org, id)
@@ -227,7 +227,7 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if !created {
-		return httpx.JSON(w, http.StatusOK, receiveResponse{Ship: s, Duplicate: true})
+		return stdhttp.JSON(w, http.StatusOK, receiveResponse{Ship: s, Duplicate: true})
 	}
-	return httpx.JSON(w, http.StatusCreated, receiveResponse{Ship: s})
+	return stdhttp.JSON(w, http.StatusCreated, receiveResponse{Ship: s})
 }

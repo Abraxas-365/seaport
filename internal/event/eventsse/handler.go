@@ -9,6 +9,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 )
 
 // heartbeat keeps proxies from closing an idle stream.
@@ -42,12 +43,12 @@ func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) http
 		}
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok {
-			httpx.WriteError(w, r, errUnauthenticated)
+			stdhttp.WriteError(w, r, errUnauthenticated)
 			return
 		}
 		sub, replay, reset, err := bus.Subscribe(r.Context(), p.Organization, last)
 		if err != nil {
-			httpx.WriteError(w, r, err)
+			stdhttp.WriteError(w, r, err)
 			return
 		}
 		defer sub.Close()

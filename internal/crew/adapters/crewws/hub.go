@@ -27,6 +27,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/coder/websocket"
@@ -181,8 +182,8 @@ func (c *conn) deliveryList() []crew.AgentDelivery {
 
 // StatusHandler answers GET /api/v1/crew (admin).
 func (h *Hub) StatusHandler() http.Handler {
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		org, err := httpx.Organization(r)
+	return stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		org, err := stdhttp.Organization(r)
 		if err != nil {
 			return err
 		}
@@ -190,7 +191,7 @@ func (h *Hub) StatusHandler() http.Handler {
 		if err != nil {
 			return err
 		}
-		return httpx.JSON(w, http.StatusOK, st)
+		return stdhttp.JSON(w, http.StatusOK, st)
 	})
 }
 
@@ -539,19 +540,19 @@ func (h *Hub) resolveAgent(ctx context.Context, p httpx.Principal, hello crew.He
 // principal): the connection belongs to the principal's organization.
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.commands() == nil {
-		httpx.WriteError(w, r, errx.Internal("hub not ready"))
+		stdhttp.WriteError(w, r, errx.Internal("hub not ready"))
 		return
 	}
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
-		httpx.WriteError(w, r, err)
+		stdhttp.WriteError(w, r, err)
 		return
 	}
 	org := p.Organization
 	h.mu.Lock()
 	if h.closing {
 		h.mu.Unlock()
-		httpx.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
+		stdhttp.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
 		return
 	}
 	h.serving.Add(1)
@@ -565,7 +566,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	connectedAt := time.Now().UTC()
 	if err := h.presence.Open(r.Context(), org, crew.Connection{Session: session, Process: h.process,
 		Credential: p.Credential, Remote: r.RemoteAddr, ConnectedAt: connectedAt}, h.maxConns); err != nil {
-		httpx.WriteError(w, r, err)
+		stdhttp.WriteError(w, r, err)
 		return
 	}
 	dropped := false // from then on drop owns the row (it may keep it for the reaper)
@@ -584,7 +585,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	if h.closing { // Close swept while Open ran
 		h.mu.Unlock()
-		httpx.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
+		stdhttp.WriteError(w, r, errx.External("the port is shutting down; reconnect"))
 		return
 	}
 	h.opening[open] = struct{}{}

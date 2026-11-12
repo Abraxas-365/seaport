@@ -69,9 +69,10 @@ var vendorSDKs = map[string][]string{
 	// object storage (message media): one adapter for disk, S3 and memory
 	"gocloud.dev": {"blob/adapters/gocloudblob"},
 	// the HTTP server's Fiber shell (httpx/fiber.go: edges, error body,
-	// fallback; bootstrap/server.go: the app). Handlers stay net/http until
-	// their domain migrates; its adapter is added here then.
-	"github.com/gofiber/fiber":    {"httpx", "bootstrap"},
+	// deadline; bootstrap/server.go: the app) and the inbound adapters that
+	// serve Fiber handlers. Handlers stay net/http (httpx/stdhttp) until their
+	// domain migrates; its adapter is added here then.
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp"},
 	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 

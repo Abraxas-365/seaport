@@ -9,6 +9,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
@@ -89,7 +90,7 @@ func webHost(web string) string {
 // for one repository, for the caller's own agent (a crew token of an
 // agent; the open mode's local owner names none and is refused).
 func (h *Handler) Token() http.Handler {
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok || p.Role != httpx.RoleCrew {
 			return errx.Unauthorized("missing crew principal")
@@ -98,7 +99,7 @@ func (h *Handler) Token() http.Handler {
 			return errx.Forbidden("GitHub tokens go to an agent's crew token")
 		}
 		var in dock.GitHubTokenRequest
-		if err := httpx.DecodeJSON(r, &in); err != nil {
+		if err := stdhttp.DecodeJSON(r, &in); err != nil {
 			return err
 		}
 		t, err := h.g.AgentToken(r.Context(), p.Organization, p.Agent, in)
@@ -106,6 +107,6 @@ func (h *Handler) Token() http.Handler {
 			return err
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		return httpx.JSON(w, http.StatusOK, t)
+		return stdhttp.JSON(w, http.StatusOK, t)
 	})
 }

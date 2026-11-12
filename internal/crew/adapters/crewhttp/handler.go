@@ -8,6 +8,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -23,17 +24,17 @@ func New(c crew.TokenCommands, q crew.TokenQueries) *Handler {
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/crew/tokens", httpx.RequireFunc(permission.CrewTokensRead, h.list))
-	mux.Handle("POST /api/v1/crew/tokens", httpx.RequireFunc(permission.CrewTokensWrite, h.create))
-	mux.Handle("DELETE /api/v1/crew/tokens/{id}", httpx.RequireFunc(permission.CrewTokensWrite, h.revoke))
+	mux.Handle("GET /api/v1/crew/tokens", stdhttp.RequireFunc(permission.CrewTokensRead, h.list))
+	mux.Handle("POST /api/v1/crew/tokens", stdhttp.RequireFunc(permission.CrewTokensWrite, h.create))
+	mux.Handle("DELETE /api/v1/crew/tokens/{id}", stdhttp.RequireFunc(permission.CrewTokensWrite, h.revoke))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type createRequest struct {
@@ -59,12 +60,12 @@ type createRequest struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	by := p.Name
@@ -77,11 +78,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	return httpx.Created(w, r, t.ID.String(), t)
+	return stdhttp.Created(w, r, t.ID.String(), t)
 }
 
 func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}

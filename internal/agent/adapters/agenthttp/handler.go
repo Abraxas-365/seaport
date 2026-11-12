@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -19,31 +19,31 @@ func New(c agent.Commands, q agent.Queries) *Handler { return &Handler{commands:
 
 // Register mounts the routes on mux (already behind admin auth).
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/agents", httpx.RequireFunc(permission.AgentsRead, h.list))
-	mux.Handle("POST /api/v1/agents", httpx.RequireFunc(permission.AgentsWrite, h.create))
-	mux.Handle("GET /api/v1/agents/{id}", httpx.RequireFunc(permission.AgentsRead, h.find))
-	mux.Handle("PATCH /api/v1/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.update))
-	mux.Handle("DELETE /api/v1/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.delete))
-	mux.Handle("GET /api/v1/docks/{dock}/agents", httpx.RequireFunc(permission.AgentsRead, h.team))
-	mux.Handle("PUT /api/v1/docks/{dock}/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.assign))
-	mux.Handle("DELETE /api/v1/docks/{dock}/agents/{id}", httpx.RequireFunc(permission.AgentsWrite, h.unassign))
+	mux.Handle("GET /api/v1/agents", stdhttp.RequireFunc(permission.AgentsRead, h.list))
+	mux.Handle("POST /api/v1/agents", stdhttp.RequireFunc(permission.AgentsWrite, h.create))
+	mux.Handle("GET /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsRead, h.find))
+	mux.Handle("PATCH /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.update))
+	mux.Handle("DELETE /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.delete))
+	mux.Handle("GET /api/v1/docks/{dock}/agents", stdhttp.RequireFunc(permission.AgentsRead, h.team))
+	mux.Handle("PUT /api/v1/docks/{dock}/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.assign))
+	mux.Handle("DELETE /api/v1/docks/{dock}/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.unassign))
 	// Profiles and secrets: writing either can direct the agent's secrets
 	// (an MCP header naming one), so both need agents:write.
-	mux.Handle("GET /api/v1/agents/{id}/profile", httpx.RequireFunc(permission.AgentsRead, h.profile))
-	mux.Handle("PUT /api/v1/agents/{id}/profile", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
-	mux.Handle("GET /api/v1/agents/{id}/profile/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
-	mux.Handle("GET /api/v1/agents/{id}/profile/versions/{version}", httpx.RequireFunc(permission.AgentsRead, h.profile))
-	mux.Handle("GET /api/v1/agents/{id}/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
-	mux.Handle("PUT /api/v1/agents/{id}/secrets/{name}", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
-	mux.Handle("DELETE /api/v1/agents/{id}/secrets/{name}", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))
+	mux.Handle("GET /api/v1/agents/{id}/profile", stdhttp.RequireFunc(permission.AgentsRead, h.profile))
+	mux.Handle("PUT /api/v1/agents/{id}/profile", stdhttp.RequireFunc(permission.AgentsWrite, h.saveProfile))
+	mux.Handle("GET /api/v1/agents/{id}/profile/versions", stdhttp.RequireFunc(permission.AgentsRead, h.versions))
+	mux.Handle("GET /api/v1/agents/{id}/profile/versions/{version}", stdhttp.RequireFunc(permission.AgentsRead, h.profile))
+	mux.Handle("GET /api/v1/agents/{id}/secrets", stdhttp.RequireFunc(permission.AgentsRead, h.secrets))
+	mux.Handle("PUT /api/v1/agents/{id}/secrets/{name}", stdhttp.RequireFunc(permission.AgentsWrite, h.setSecret))
+	mux.Handle("DELETE /api/v1/agents/{id}/secrets/{name}", stdhttp.RequireFunc(permission.AgentsWrite, h.deleteSecret))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := stdhttp.Pagination(r)
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return stdhttp.JSON(w, http.StatusOK, out)
 }
 
 type createRequest struct {
@@ -60,12 +60,12 @@ type createRequest struct {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	by := p.Name
@@ -76,11 +76,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, a.ID.String(), a)
+	return stdhttp.Created(w, r, a.ID.String(), a)
 }
 
 func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, a)
+	return stdhttp.JSON(w, http.StatusOK, a)
 }
 
 type updateRequest struct {
@@ -101,7 +101,7 @@ type updateRequest struct {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -110,18 +110,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var req updateRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := stdhttp.DecodeJSON(r, &req); err != nil {
 		return err
 	}
 	a, err := h.commands.Update(r.Context(), org, id, agent.Update{Name: req.Name, Description: req.Description})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, a)
+	return stdhttp.JSON(w, http.StatusOK, a)
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) team(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (h *Handler) team(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, map[string]any{"agents": team})
+	return stdhttp.JSON(w, http.StatusOK, map[string]any{"agents": team})
 }
 
 type assignRequest struct {
@@ -157,7 +157,7 @@ type assignRequest struct {
 }
 
 func (h *Handler) assign(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func (h *Handler) assign(w http.ResponseWriter, r *http.Request) error {
 	}
 	var req assignRequest
 	if r.ContentLength != 0 {
-		if err := httpx.DecodeJSON(r, &req); err != nil {
+		if err := stdhttp.DecodeJSON(r, &req); err != nil {
 			return err
 		}
 	}
@@ -179,11 +179,11 @@ func (h *Handler) assign(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, a)
+	return stdhttp.JSON(w, http.StatusOK, a)
 }
 
 func (h *Handler) unassign(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+	org, err := stdhttp.Organization(r)
 	if err != nil {
 		return err
 	}
@@ -199,5 +199,5 @@ func (h *Handler) unassign(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, a)
+	return stdhttp.JSON(w, http.StatusOK, a)
 }

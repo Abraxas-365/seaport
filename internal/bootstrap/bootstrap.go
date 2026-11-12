@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent/agentmodule"
-	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
 	"github.com/Abraxas-365/seaport/internal/auth/authmodule"
 	"github.com/Abraxas-365/seaport/internal/blob/adapters/gocloudblob"
 	"github.com/Abraxas-365/seaport/internal/config"
@@ -35,6 +34,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/hosting/hostingmodule"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
@@ -315,8 +315,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			auth = authenticator(cfg, crew.Resolver)
 		}
 	}
-	session := auth.Session()
 
+	// The net/http routes of the domains not migrated to Fiber yet, behind
+	// the Fiber app (server.go): admin ones (already past the Fiber
+	// middleware of /api/) and the rest.
 	admin := http.NewServeMux()
 	docks.Register(admin)
 	convs.Register(admin)
@@ -325,52 +327,36 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	agents.Register(admin)
 	hosted.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
-	admin.Handle("DELETE /api/v1/session", session.Logout)
-	admin.HandleFunc("/", httpx.NotFound)
+	admin.HandleFunc("/", stdhttp.NotFound)
 
-	// The net/http routes: everything the Fiber shell (server.go) doesn't
-	// serve itself, mounted behind it until each domain is migrated.
-	// /healthz is the shell's own.
 	root := http.NewServeMux()
-	// Public: how the UI must sign in, and session login/state (they check
-	// credentials themselves).
-	root.Handle("GET /api/v1/config", publicConfig(cfg))
-	root.Handle("POST /api/v1/session", session.Login)
-	root.Handle("GET /api/v1/session", session.Current)
-	if session.SignIn != nil {
-		root.Handle("GET /api/v1/session/login", session.SignIn)
-		root.Handle("GET "+authhttp.CallbackPath, session.Callback)
-	}
-	// Per-caller rate limit after authentication (it keys on the principal).
-	limit := httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst)
-	root.Handle("/api/", auth.Admin(limit.Wrap(admin)))
-	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
-	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
-	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
-	root.Handle("GET /crew/attachments/{id}", auth.Crew(limit.Wrap(crew.Attachment())))
-	root.Handle("POST /crew/reply", auth.Crew(limit.Wrap(crew.Reply())))
-	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
-	// App tokens for the agent's repos (gh and git inside its slot).
-	root.Handle("POST /crew/github/token", auth.Crew(limit.Wrap(docks.GitHubToken())))
-	// The model gateway: hosted slots call their provider with their slot
-	// token (as x-api-key or bearer); not rate limited per request (one
-	// agent turn makes many calls; the provider limits the key).
-	root.Handle(hosting.GatewayPath+"/", hostingmodule.APIKeyAsBearer(auth.Crew(hosted.Gateway())))
+	root.Handle("/api/", admin)
+	root.Handle("/crew/ws", crew.WS())
+	root.Handle("/mcp", crew.MCP())
+	root.Handle("GET /crew/profile", crew.Kit())
+	root.Handle("GET /crew/attachments/{id}", crew.Attachment())
+	root.Handle("POST /crew/reply", crew.Reply())
+	root.Handle("GET /crew/workspace", hosted.Workspace())
+	root.Handle("POST /crew/github/token", docks.GitHubToken())
+	root.Handle(hosting.GatewayPath+"/", hosted.Gateway())
 	// GitHub and Slack docks: the App flows' redirects and the webhooks/events
 	// (each checks its own proof: a sealed state, the App's signature).
 	docks.RegisterPublic(root)
 	// Everything else is the admin UI (client routes fall back to index.html).
-	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
-	ui := httpx.SPA(web.Dist(), cfg.GitHubURL)
+	ui := stdhttp.SPA(web.Dist(), cfg.GitHubURL)
 	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			httpx.NotFound(w, r)
+			stdhttp.NotFound(w, r)
 			return
 		}
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{web: newServer(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
+	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
+		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst)})
+	})
+
+	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
 		blobs: blobs, sweep: sweep, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -444,15 +430,6 @@ func baseImages(cfg config.Server) map[string]string {
 		}
 	}
 	return out
-}
-
-// publicConfig is GET /api/v1/config: what the web app needs before
-// signing in (the auth mode decides between no login and the token form).
-func publicConfig(cfg config.Server) http.Handler {
-	body := map[string]any{"auth": cfg.Auth, "version": Version}
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return httpx.JSON(w, http.StatusOK, body)
-	})
 }
 
 // Start starts the crew hub (signals, presence, reaping a stopped
@@ -532,7 +509,7 @@ func (g *statusGuard) WriteHeader(status int) {
 		g.suppressed = true
 		g.Header().Del("Content-Type")
 		g.Header().Del("X-Content-Type-Options")
-		httpx.WriteError(g.ResponseWriter, g.r, errx.MethodNotAllowed("method not allowed"))
+		stdhttp.WriteError(g.ResponseWriter, g.r, errx.MethodNotAllowed("method not allowed"))
 		return
 	}
 	g.ResponseWriter.WriteHeader(status)

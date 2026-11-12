@@ -6,6 +6,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
@@ -17,7 +18,7 @@ type Reply struct {
 }
 
 func (h Reply) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok {
 			return errx.Unauthorized("missing crew principal")
@@ -26,7 +27,7 @@ func (h Reply) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return errx.Forbidden("replies need an agent's crew token")
 		}
 		var in crew.ReplyRequest
-		if err := httpx.DecodeJSONMax(r, &in, crew.MaxReplyBody); err != nil {
+		if err := stdhttp.DecodeJSONMax(r, &in, crew.MaxReplyBody); err != nil {
 			return err
 		}
 		if err := in.Validate(); err != nil {
@@ -36,6 +37,6 @@ func (h Reply) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		return httpx.JSON(w, http.StatusCreated, crew.ReplyAnswer{ShipID: s.ID.String(), Status: string(s.Status)})
+		return stdhttp.JSON(w, http.StatusCreated, crew.ReplyAnswer{ShipID: s.ID.String(), Status: string(s.Status)})
 	}).ServeHTTP(w, r)
 }
