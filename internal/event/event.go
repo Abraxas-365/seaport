@@ -158,14 +158,14 @@ func (b *Bus) Start(ctx context.Context) error {
 		b.mu.Unlock()
 		return errx.Internal("event bus already started")
 	}
-	b.started, b.head = true, head
+	ctx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	b.started, b.head, b.stop = true, head, stop // under mu: Close reads stop
 	b.mu.Unlock()
-	ctx, b.stop = context.WithCancel(context.WithoutCancel(ctx))
 	listening := make(chan struct{})
-	go func() {
+	go func(listening chan struct{}) {
 		defer close(listening)
 		b.log.Listen(ctx, b.poke)
-	}()
+	}(listening)
 	if fl, ok := b.log.(Flashes); ok {
 		flashing := make(chan struct{})
 		prev := listening
