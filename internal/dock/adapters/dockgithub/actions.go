@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
+
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/text"
@@ -71,28 +73,28 @@ var pullRef = regexp.MustCompile(`^refs/pull/([0-9]+)/(merge|head)$`)
 // the dock's App is installed on. The proof is the job's OIDC token,
 // issued by GitHub for this port (audience = SEAPORT_PUBLIC_URL); no
 // Seaport credential lives in the repository.
-func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
-	id, err := identity.ParseDockID(r.PathValue("dock"))
+func (h *Handler) action(c fiber.Ctx) error {
+	id, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return errx.NotFound("unknown dock")
 	}
-	bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer, ok := strings.CutPrefix(c.Get("Authorization"), "Bearer ")
 	if !ok || bearer == "" {
 		return errx.Unauthorized("a GitHub Actions OIDC token is required (permissions: id-token: write)")
 	}
-	a, err := h.g.store.App(r.Context(), id)
+	a, err := h.g.store.App(c.Context(), id)
 	if errx.IsType(err, errx.TypeNotFound) {
 		return errx.NotFound("unknown dock")
 	}
 	if err != nil {
 		return err
 	}
-	claims, err := h.g.oidc.verify(r.Context(), bearer, h.g.audience(), time.Now())
+	claims, err := h.g.oidc.verify(c.Context(), bearer, h.g.audience(), time.Now())
 	if err != nil {
 		return err
 	}
 	var in ActionMessage
-	if err := stdhttp.DecodeJSON(r, &in); err != nil {
+	if err := httpx.DecodeJSON(c, &in); err != nil {
 		return err
 	}
 	if err := in.Validate(); err != nil {
@@ -103,14 +105,14 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 		return errx.Unauthorized("invalid GitHub Actions token: bad repository")
 	}
 	// The repository must be one the dock's App serves now.
-	inst, err := h.g.client.installationOf(r.Context(), a, repo)
+	inst, err := h.g.client.installationOf(c.Context(), a, repo)
 	if errx.IsType(err, errx.TypeNotFound) {
 		return errx.Forbidden("this dock's GitHub App is not installed on " + repo)
 	}
 	if err != nil {
 		return errx.Wrap(err, "find the installation of "+repo, errx.TypeExternal)
 	}
-	installs, err := h.g.store.Installations(r.Context(), a.Dock)
+	installs, err := h.g.store.Installations(c.Context(), a.Dock)
 	if err != nil {
 		return err
 	}
@@ -133,7 +135,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 	body := strings.TrimSpace(text.Clean(in.Text))
 	if in.Agent != "" {
 		name := strings.TrimPrefix(in.Agent, "@")
-		team, err := teams.Team(r.Context(), a.Organization, a.Dock)
+		team, err := teams.Team(c.Context(), a.Organization, a.Dock)
 		if err != nil {
 			return err
 		}
@@ -155,7 +157,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 	header := "(GitHub Actions: " + clip(claims.Workflow, 100) + ", run " + claims.RunID + ", " + claims.Event + ")"
 	msg := ship.Inbound{
 		Dock: a.Dock, Channel: dock.ChannelGitHub,
-		ChatID: chat, ChatKind: conversation.KindGroup, ChatTitle: h.g.threadTitle(r.Context(), a, repo, number),
+		ChatID: chat, ChatKind: conversation.KindGroup, ChatTitle: h.g.threadTitle(c.Context(), a, repo, number),
 		ExternalID: "action-" + claims.RunID + "-" + claims.RunAttempt + "-" + key,
 		SenderID:   "@" + claims.Actor, SenderName: claims.Actor,
 		Text:          clip(header+"\n"+body, text.MaxMessage),
@@ -164,12 +166,12 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) error {
 		SenderHandles: []string{"@" + claims.Actor, ActionSender},
 		Addressed:     true,
 	}
-	st, created, err := receiver.Receive(r.Context(), a.Organization, msg)
+	st, created, err := receiver.Receive(c.Context(), a.Organization, msg)
 	if err != nil {
 		slog.Error("receive github action message", "dock", a.Dock, "chat", chat, "err", err)
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusAccepted, map[string]any{
+	return httpx.JSON(c, http.StatusAccepted, map[string]any{
 		"status": st.Status, "ship_id": st.ID, "created": created, "conversation_id": st.Conversation, "chat": chat,
 	})
 }

@@ -1,8 +1,8 @@
 package dockgithub
 
 import (
+	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -14,11 +14,12 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/text"
+	"github.com/gofiber/fiber/v3"
 )
 
 // Public paths GitHub calls or sends browsers to.
@@ -45,31 +46,31 @@ type Handler struct {
 func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g, docks: docks} }
 
 // Register mounts the admin routes (behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks/{id}/github", stdhttp.RequireFunc(permission.DocksRead, h.info))
-	mux.Handle("POST /api/v1/docks/{id}/github/manifest", stdhttp.RequireFunc(permission.DocksWrite, h.manifest))
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/docks/:id/github", httpx.RequireFunc(permission.DocksRead, h.info))
+	r.Post("/api/v1/docks/:id/github/manifest", httpx.RequireFunc(permission.DocksWrite, h.manifest))
 }
 
 // RegisterPublic mounts the routes GitHub reaches without a Seaport
 // credential: each checks its own proof (a sealed state, a signature).
-func (h *Handler) RegisterPublic(mux *http.ServeMux) {
-	mux.Handle("GET /github/apps/created", stdhttp.Handle(h.created))
-	mux.Handle("GET /github/apps/installed", stdhttp.Handle(h.installed))
-	mux.Handle("POST /github/webhook/{dock}", stdhttp.Handle(h.webhook))
-	mux.Handle("POST /github/actions/{dock}", stdhttp.Handle(h.action))
+func (h *Handler) RegisterPublic(r httpx.Router) {
+	r.Get("/github/apps/created", h.created)
+	r.Get("/github/apps/installed", h.installed)
+	r.Post("/github/webhook/:dock", h.webhook)
+	r.Post("/github/actions/:dock", h.action)
 }
 
 // githubDock finds the caller's dock and checks it is a GitHub one.
-func (h *Handler) githubDock(r *http.Request) (dock.Dock, error) {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) githubDock(c fiber.Ctx) (dock.Dock, error) {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	id, err := identity.ParseDockID(r.PathValue("id"))
+	id, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	d, err := h.docks.Find(r.Context(), org, id)
+	d, err := h.docks.Find(c.Context(), org, id)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -102,26 +103,26 @@ type Info struct {
 	InstallURL string `json:"install_url,omitempty"`
 }
 
-func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.githubDock(r)
+func (h *Handler) info(c fiber.Ctx) error {
+	d, err := h.githubDock(c)
 	if err != nil {
 		return err
 	}
 	out := Info{Installations: []Installation{}, WebhookURL: h.g.cfg.PublicURL + WebhookPath + d.ID.String(),
 		Reachable: reachable(h.g.cfg.PublicURL)}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	switch {
 	case errx.IsType(err, errx.TypeNotFound):
-		return stdhttp.JSON(w, http.StatusOK, out)
+		return httpx.JSON(c, http.StatusOK, out)
 	case err != nil:
 		return err
 	}
 	out.App = &AppInfo{AppID: a.AppID, Slug: a.Slug, Name: a.Name, Owner: a.Owner, OwnerType: a.OwnerType, HTMLURL: a.HTMLURL, CreatedAt: a.CreatedAt}
-	if out.Installations, err = h.g.store.Installations(r.Context(), d.ID); err != nil {
+	if out.Installations, err = h.g.store.Installations(c.Context(), d.ID); err != nil {
 		return err
 	}
 	out.InstallURL = h.installURL(a, d)
-	return stdhttp.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 func (h *Handler) installURL(a App, d dock.Dock) string {
@@ -157,13 +158,13 @@ var login = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9]|-[A-Za-z0-9]){0,38}$`
 // maxAppName is GitHub's limit on an App's name.
 const maxAppName = 34
 
-func (h *Handler) manifest(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.githubDock(r)
+func (h *Handler) manifest(c fiber.Ctx) error {
+	d, err := h.githubDock(c)
 	if err != nil {
 		return err
 	}
 	var req manifestRequest
-	if err := stdhttp.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
 	req.Organization, req.Name = text.Clean(req.Organization), text.Clean(req.Name)
@@ -200,7 +201,7 @@ func (h *Handler) manifest(w http.ResponseWriter, r *http.Request) error {
 		action = h.g.cfg.WebURL + "/organizations/" + url.PathEscape(req.Organization) + "/settings/apps/new"
 	}
 	action += "?state=" + url.QueryEscape(h.g.state(d.Organization, d.ID, "manifest"))
-	return stdhttp.JSON(w, http.StatusOK, Manifest{ActionURL: action, Manifest: string(raw)})
+	return httpx.JSON(c, http.StatusOK, Manifest{ActionURL: action, Manifest: string(raw)})
 }
 
 // flowState is what a manifest or install flow carries through GitHub.
@@ -234,8 +235,8 @@ func (g *Gateway) openState(s, kind string) (flowState, error) {
 }
 
 // flowDock is the GitHub dock a flow's state names.
-func (h *Handler) flowDock(r *http.Request, st flowState) (dock.Dock, error) {
-	d, err := h.docks.Find(r.Context(), st.Organization, st.Dock)
+func (h *Handler) flowDock(ctx context.Context, st flowState) (dock.Dock, error) {
+	d, err := h.docks.Find(ctx, st.Organization, st.Dock)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -246,136 +247,131 @@ func (h *Handler) flowDock(r *http.Request, st flowState) (dock.Dock, error) {
 }
 
 // back sends the browser to the dock's page, with an error to show.
-func (h *Handler) back(w http.ResponseWriter, r *http.Request, d identity.DockID, problem string) error {
+func (h *Handler) back(c fiber.Ctx, d identity.DockID, problem string) error {
 	target := h.g.cfg.PublicURL + "/docks/" + d.String()
 	if problem != "" {
 		target += "?github_error=" + url.QueryEscape(problem)
 	} else {
 		target += "?github=installed"
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
-	return nil
+	return c.Redirect().Status(http.StatusSeeOther).To(target)
 }
 
 // created: GitHub registered the App from the manifest; trade the code
 // for its credentials, then send the browser on to install it.
-func (h *Handler) created(w http.ResponseWriter, r *http.Request) error {
-	st, err := h.g.openState(r.URL.Query().Get("state"), "manifest")
+func (h *Handler) created(c fiber.Ctx) error {
+	st, err := h.g.openState(c.Query("state"), "manifest")
 	if err != nil {
 		return err
 	}
-	code := r.URL.Query().Get("code")
+	code := c.Query("code")
 	if code == "" || len(code) > 256 {
-		return h.back(w, r, st.Dock, "GitHub did not create the app")
+		return h.back(c, st.Dock, "GitHub did not create the app")
 	}
-	d, err := h.flowDock(r, st)
+	d, err := h.flowDock(c.Context(), st)
 	if err != nil {
 		return err
 	}
-	conv, err := h.g.client.convert(r.Context(), code)
+	conv, err := h.g.client.convert(c.Context(), code)
 	if err != nil {
 		slog.Warn("convert github app manifest", "dock", d.ID, "err", err)
-		return h.back(w, r, d.ID, "GitHub did not hand over the app's credentials: "+err.Error())
+		return h.back(c, d.ID, "GitHub did not hand over the app's credentials: "+err.Error())
 	}
-	if err := h.g.store.SaveApp(r.Context(), d.Organization, d.ID, conv); err != nil {
+	if err := h.g.store.SaveApp(c.Context(), d.Organization, d.ID, conv); err != nil {
 		return err
 	}
 	h.g.client.forget(d.ID)
 	slog.Info("github app created", "dock", d.ID, "app", conv.Slug)
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	if err != nil {
 		return err
 	}
-	http.Redirect(w, r, h.installURL(a, d), http.StatusSeeOther)
-	return nil
+	return c.Redirect().Status(http.StatusSeeOther).To(h.installURL(a, d))
 }
 
 // installed: the App was installed (or its repositories changed); check
 // the installation with GitHub and link the dock.
-func (h *Handler) installed(w http.ResponseWriter, r *http.Request) error {
-	st, err := h.g.openState(r.URL.Query().Get("state"), "install")
+func (h *Handler) installed(c fiber.Ctx) error {
+	st, err := h.g.openState(c.Query("state"), "install")
 	if err != nil {
 		return err
 	}
-	id, err := strconv.ParseInt(r.URL.Query().Get("installation_id"), 10, 64)
+	id, err := strconv.ParseInt(c.Query("installation_id"), 10, 64)
 	if err != nil || id <= 0 {
 		// e.g. an install request an organization owner must approve.
-		return h.back(w, r, st.Dock, "GitHub did not finish the installation (an owner may have to approve it)")
+		return h.back(c, st.Dock, "GitHub did not finish the installation (an owner may have to approve it)")
 	}
-	d, err := h.flowDock(r, st)
+	d, err := h.flowDock(c.Context(), st)
 	if err != nil {
 		return err
 	}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	if err != nil {
 		return err
 	}
-	inst, err := h.g.client.installation(r.Context(), a, id)
+	inst, err := h.g.client.installation(c.Context(), a, id)
 	if err != nil {
-		return h.back(w, r, d.ID, "GitHub does not know this installation of the app: "+err.Error())
+		return h.back(c, d.ID, "GitHub does not know this installation of the app: "+err.Error())
 	}
-	if err := h.g.record(r, a, inst); err != nil {
+	if err := h.g.record(c.Context(), a, inst); err != nil {
 		return err
 	}
-	return h.back(w, r, d.ID, "")
+	return h.back(c, d.ID, "")
 }
 
 // record stores an installation and updates the dock's link state.
-func (g *Gateway) record(r *http.Request, a App, inst installation) error {
+func (g *Gateway) record(ctx context.Context, a App, inst installation) error {
 	in := Installation{ID: inst.ID, Account: inst.Account.Login, AccountType: inst.Account.Type, Suspended: inst.SuspendedAt != nil}
-	if err := g.store.SaveInstallation(r.Context(), a.Organization, a.Dock, in); err != nil {
+	if err := g.store.SaveInstallation(ctx, a.Organization, a.Dock, in); err != nil {
 		return err
 	}
-	return g.relink(r, a)
+	return g.relink(ctx, a)
 }
 
 // relink sets the dock linked while one installation is active, logged
 // out when none is.
-func (g *Gateway) relink(r *http.Request, a App) error {
+func (g *Gateway) relink(ctx context.Context, a App) error {
 	links, _, _ := g.bound()
 	if links == nil {
 		return nil
 	}
-	installs, err := g.store.Installations(r.Context(), a.Dock)
+	installs, err := g.store.Installations(ctx, a.Dock)
 	if err != nil {
 		return err
 	}
 	if active(installs) > 0 {
-		return links.SetLinked(r.Context(), a.Dock, a.Slug)
+		return links.SetLinked(ctx, a.Dock, a.Slug)
 	}
-	return links.SetStatus(r.Context(), a.Dock, dock.StatusLoggedOut)
+	return links.SetStatus(ctx, a.Dock, dock.StatusLoggedOut)
 }
 
 // webhook takes GitHub's events for one dock, signed with its App's
 // webhook secret.
-func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
-	id, err := identity.ParseDockID(r.PathValue("dock"))
+func (h *Handler) webhook(c fiber.Ctx) error {
+	id, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return errx.NotFound("unknown webhook")
 	}
-	a, err := h.g.store.App(r.Context(), id)
+	a, err := h.g.store.App(c.Context(), id)
 	if errx.IsType(err, errx.TypeNotFound) {
 		return errx.NotFound("unknown webhook")
 	}
 	if err != nil {
 		return err
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxWebhook+1))
-	if err != nil {
-		return errx.Validation("could not read request body")
-	}
+	body := c.Body()
 	if len(body) > MaxWebhook {
 		return errx.PayloadTooLarge("webhook body is too large")
 	}
-	if !validSignature(a.webhookSecret, body, r.Header.Get("X-Hub-Signature-256")) {
+	if !validSignature(a.webhookSecret, body, c.Get("X-Hub-Signature-256")) {
 		return errx.Unauthorized("bad webhook signature")
 	}
-	kind := r.Header.Get("X-GitHub-Event")
+	kind := c.Get("X-GitHub-Event")
 	switch kind {
 	case "ping":
-		return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "pong"})
+		return httpx.JSON(c, http.StatusOK, map[string]string{"status": "pong"})
 	case "installation":
-		return h.installationEvent(w, r, a, body)
+		return h.installationEvent(c, a, body)
 	}
 	_, receiver, teams := h.g.bound()
 	if receiver == nil {
@@ -383,15 +379,15 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	}
 	var team []agent.Member
 	if teams != nil {
-		if team, err = teams.Team(r.Context(), a.Organization, a.Dock); err != nil {
+		if team, err = teams.Team(c.Context(), a.Organization, a.Dock); err != nil {
 			return err
 		}
 	}
 	at, ok := parse(kind, body, a.Dock, a.Slug, team)
 	if !ok {
-		return stdhttp.JSON(w, http.StatusAccepted, map[string]string{"status": "ignored"})
+		return httpx.JSON(c, http.StatusAccepted, map[string]string{"status": "ignored"})
 	}
-	st, created, err := receiver.Receive(r.Context(), a.Organization, at.in)
+	st, created, err := receiver.Receive(c.Context(), a.Organization, at.in)
 	if err != nil {
 		slog.Error("receive github message", "dock", a.Dock, "chat", at.in.ChatID, "err", err)
 		return err
@@ -403,12 +399,12 @@ func (h *Handler) webhook(w http.ResponseWriter, r *http.Request) error {
 	if at.in.Own {
 		status = "recorded"
 	}
-	return stdhttp.JSON(w, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
+	return httpx.JSON(c, http.StatusAccepted, map[string]any{"status": status, "ship_id": st.ID, "created": created})
 }
 
 // installationEvent keeps the installations in step with GitHub (also
 // installs started on GitHub rather than from Seaport).
-func (h *Handler) installationEvent(w http.ResponseWriter, r *http.Request, a App, body []byte) error {
+func (h *Handler) installationEvent(c fiber.Ctx, a App, body []byte) error {
 	var e struct {
 		Action       string       `json:"action"`
 		Installation installation `json:"installation"`
@@ -418,11 +414,11 @@ func (h *Handler) installationEvent(w http.ResponseWriter, r *http.Request, a Ap
 	}
 	switch e.Action {
 	case "deleted":
-		if err := h.g.store.DeleteInstallation(r.Context(), a.Dock, e.Installation.ID); err != nil {
+		if err := h.g.store.DeleteInstallation(c.Context(), a.Dock, e.Installation.ID); err != nil {
 			return err
 		}
 		h.g.client.forget(a.Dock)
-		if err := h.g.relink(r, a); err != nil {
+		if err := h.g.relink(c.Context(), a); err != nil {
 			return err
 		}
 	case "created", "suspend", "unsuspend", "new_permissions_accepted":
@@ -433,9 +429,9 @@ func (h *Handler) installationEvent(w http.ResponseWriter, r *http.Request, a Ap
 		if e.Action == "unsuspend" {
 			e.Installation.SuspendedAt = nil
 		}
-		if err := h.g.record(r, a, e.Installation); err != nil {
+		if err := h.g.record(c.Context(), a, e.Installation); err != nil {
 			return err
 		}
 	}
-	return stdhttp.JSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return httpx.JSON(c, http.StatusOK, map[string]string{"status": "ok"})
 }

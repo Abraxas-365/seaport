@@ -17,6 +17,10 @@ type nativeRoutes struct {
 	limit *httpx.RateLimit
 	// admin: the Register of each migrated domain's admin routes.
 	admin []func(httpx.Router)
+	// public: routes outside /api/ that carry their own proof (a sealed
+	// state, a signature): the GitHub, Jira and Slack docks'.
+	public      []func(httpx.Router)
+	githubToken fiber.Handler
 }
 
 // mountNative registers the routes served by Fiber handlers, in the order
@@ -40,6 +44,10 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 		app.Get(authhttp.CallbackPath, session.Callback)
 	}
 
+	for _, register := range r.public {
+		register(app)
+	}
+
 	// The admin API: authentication, then the per-caller rate limit (it keys
 	// on the principal).
 	app.Use("/api/", auth.Admin(), limit)
@@ -56,7 +64,7 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	app.Post("/crew/reply", auth.Crew(), limit, legacy)
 	app.Get("/crew/workspace", auth.Crew(), limit, legacy)
 	// App tokens for the agent's repos (gh and git inside its slot).
-	app.Post("/crew/github/token", auth.Crew(), limit, legacy)
+	app.Post("/crew/github/token", auth.Crew(), limit, r.githubToken)
 	// The model gateway: hosted slots call their provider with their slot
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).

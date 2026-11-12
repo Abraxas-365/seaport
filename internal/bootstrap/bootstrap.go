@@ -320,7 +320,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// the Fiber app (server.go): admin ones (already past the Fiber
 	// middleware of /api/) and the rest.
 	admin := http.NewServeMux()
-	docks.Register(admin)
 	crew.Register(admin)
 	agents.Register(admin)
 	hosted.Register(admin)
@@ -335,11 +334,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("GET /crew/attachments/{id}", crew.Attachment())
 	root.Handle("POST /crew/reply", crew.Reply())
 	root.Handle("GET /crew/workspace", hosted.Workspace())
-	root.Handle("POST /crew/github/token", docks.GitHubToken())
 	root.Handle(hosting.GatewayPath+"/", hosted.Gateway())
-	// GitHub and Slack docks: the App flows' redirects and the webhooks/events
-	// (each checks its own proof: a sealed state, the App's signature).
-	docks.RegisterPublic(root)
 	// Everything else is the admin UI (client routes fall back to index.html).
 	ui := stdhttp.SPA(web.Dist(), cfg.GitHubURL)
 	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +347,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
 		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin: []func(httpx.Router){convs.Register, ships.Register}})
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register},
+			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken()})
 	})
 
 	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,

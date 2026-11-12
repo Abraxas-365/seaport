@@ -40,6 +40,13 @@ var validRequestID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // that read the request import Fiber.
 type Router = fiber.Router
 
+// Handler and Ctx name Fiber's types for assemblers (modules), which
+// may not import Fiber themselves.
+type (
+	Handler = fiber.Handler
+	Ctx     = fiber.Ctx
+)
+
 // JSON writes body with status (Content-Type without charset, a trailing
 // newline: the bytes net/http handlers always wrote).
 func JSON(c fiber.Ctx, status int, body any) error {

@@ -111,7 +111,7 @@ func publicViolations(files []goFile) []string {
 			if strings.Contains(rc.pattern, " /api/") || strings.HasPrefix(rc.pattern, "/api/") {
 				return true
 			}
-			if _, ok := publicRoutes[rc.pattern]; ok || authedCall(rc) {
+			if _, ok := publicRoutes[bracePattern(rc.pattern)]; ok || authedCall(rc) {
 				return true
 			}
 			if f.rel == "bootstrap/bootstrap.go" && legacyRoot(rc) {
