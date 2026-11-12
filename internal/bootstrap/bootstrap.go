@@ -320,7 +320,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// the Fiber app (server.go): admin ones (already past the Fiber
 	// middleware of /api/) and the rest.
 	admin := http.NewServeMux()
-	hosted.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
 	admin.HandleFunc("/", stdhttp.NotFound)
 
@@ -328,7 +327,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	root.Handle("/api/", admin)
 	root.Handle("/crew/ws", crew.WS())
 	root.Handle("/mcp", crew.MCP())
-	root.Handle("GET /crew/workspace", hosted.Workspace())
 	root.Handle(hosting.GatewayPath+"/", hosted.Gateway())
 	// Everything else is the admin UI (client routes fall back to index.html).
 	ui := stdhttp.SPA(web.Dist(), cfg.GitHubURL)
@@ -342,9 +340,9 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
 		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register},
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(),
-			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply()})
+			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace()})
 	})
 
 	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,

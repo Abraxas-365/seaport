@@ -72,7 +72,7 @@ var vendorSDKs = map[string][]string{
 	// deadline; bootstrap/server.go: the app) and the inbound adapters that
 	// serve Fiber handlers. Handlers stay net/http (httpx/stdhttp) until their
 	// domain migrates; its adapter is added here then.
-	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "agent/adapters/agenthttp", "crew/adapters/crewhttp"},
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp"},
 	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 

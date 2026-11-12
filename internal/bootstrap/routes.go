@@ -22,7 +22,7 @@ type nativeRoutes struct {
 	public      []func(httpx.Router)
 	githubToken fiber.Handler
 	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
-	kit, attachment, reply fiber.Handler
+	kit, attachment, reply, workspace fiber.Handler
 }
 
 // mountNative registers the routes served by Fiber handlers, in the order
@@ -64,7 +64,7 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	app.Get("/crew/profile", auth.Crew(), limit, r.kit)
 	app.Get("/crew/attachments/:id", auth.Crew(), limit, r.attachment)
 	app.Post("/crew/reply", auth.Crew(), limit, r.reply)
-	app.Get("/crew/workspace", auth.Crew(), limit, legacy)
+	app.Get("/crew/workspace", auth.Crew(), limit, r.workspace)
 	// App tokens for the agent's repos (gh and git inside its slot).
 	app.Post("/crew/github/token", auth.Crew(), limit, r.githubToken)
 	// The model gateway: hosted slots call their provider with their slot

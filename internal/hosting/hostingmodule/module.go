@@ -133,10 +133,10 @@ func defaultEgressURL(agentURL string, addr net.Addr) string {
 
 // Register mounts /api/v1/environments, /api/v1/hosting,
 // /api/v1/agents/{id}/hosting and /api/v1/agents/{id}/usage.
-func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
+func (m *Module) Register(r httpx.Router) { m.http.Register(r) }
 
 // Workspace is GET /crew/workspace (mount behind crew auth).
-func (m *Module) Workspace() http.Handler { return m.http.Workspace() }
+func (m *Module) Workspace() httpx.Handler { return m.http.Workspace() }
 
 // Gateway is the model gateway (mount at hosting.GatewayPath+"/" behind
 // crew auth wrapped in APIKeyAsBearer).
