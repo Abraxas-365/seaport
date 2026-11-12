@@ -68,6 +68,11 @@ var vendorSDKs = map[string][]string{
 	"github.com/containerd/errdefs": {"hosting/adapters/hostingdocker"},
 	// object storage (message media): one adapter for disk, S3 and memory
 	"gocloud.dev": {"blob/adapters/gocloudblob"},
+	// the HTTP server's Fiber shell (httpx/fiber.go: edges, error body,
+	// fallback; bootstrap/server.go: the app). Handlers stay net/http until
+	// their domain migrates; its adapter is added here then.
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap"},
+	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 
 // forbiddenEverywhere: packages no production code may import, with why.
@@ -387,6 +392,7 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"order/order.go":            `package order`,
 		"connector/c.go":            `package connector; import (_ "net/http"; _ "github.com/coder/acp-go-sdk"; _ "` + m + `widget"; _ "` + m + `errx")`,
 		"dock/adapters/dockwa/g.go": `package dockwa; import _ "go.mau.fi/whatsmeow"`,
+		"httpx/f.go":                `package httpx; import (_ "github.com/gofiber/fiber/v3"; _ "github.com/valyala/fasthttp")`,
 
 		// violations
 		"identity/id.go":                `package identity; import _ "` + m + `widget"`,                             // foundation → domain
@@ -401,6 +407,8 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"auth/authsvc/s.go":             `package authsvc; import _ "github.com/Abraxas-365/iamkit/sdk/authclient"`, // IAMKit outside authiam
 		"widget/uses_connector.go":      `package widget; import _ "` + m + `connector"`,                            // domain → client
 		"dock/adapters/dockwa/old.go":   `package dockwa; import _ "go.mau.fi/whatsmeow/store/sqlstore"`,            // unsealed WhatsApp store
+		"dock/adapters/dockhttp/f.go":   `package dockhttp; import _ "github.com/gofiber/fiber/v3"`,                 // Fiber outside the shell
+		"order/adapters/orderhttp/f.go": `package orderhttp; import _ "github.com/valyala/fasthttp"`,                // fasthttp outside the shell
 	})
 	expectViolations(t, importViolations(files),
 		"identity/id.go: foundation packages import no domain code",
@@ -414,6 +422,8 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"auth/authsvc/s.go: github.com/Abraxas-365/iamkit is confined to",
 		"widget/uses_connector.go: only cmd may import the connector",
 		"dock/adapters/dockwa/old.go: go.mau.fi/whatsmeow/store/sqlstore must not be imported",
+		"dock/adapters/dockhttp/f.go: github.com/gofiber/fiber is confined to",
+		"order/adapters/orderhttp/f.go: github.com/valyala/fasthttp is confined to",
 	)
 	expectViolations(t, portsViolations(files),
 		"order/ports.go: ports.go declares only interfaces (Status is not one)",

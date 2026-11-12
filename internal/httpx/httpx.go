@@ -1,6 +1,8 @@
 // Package httpx holds the HTTP edges shared by every inbound adapter:
 // the one error writer, strict JSON decoding, pagination parsing, request
-// ids, security headers and bearer-token auth. stdlib net/http only.
+// ids, security headers and bearer-token auth. Handlers are stdlib
+// net/http; fiber.go is the Fiber shell around them (Edges, ErrorHandler,
+// Fallback).
 package httpx
 
 import (
@@ -111,38 +113,9 @@ func RequestID(ctx context.Context) string {
 	return id
 }
 
-// Edges wraps a handler with request id, security headers, Content-Encoding
-// rejection, panic recovery and the JSON body limit.
-func Edges(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := r.Header.Get("X-Request-ID")
-		if !validRequestID.MatchString(id) {
-			id = newRequestID()
-		}
-		r = r.WithContext(context.WithValue(r.Context(), requestIDKey, id))
-		h := w.Header()
-		h.Set("X-Request-ID", id)
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Cache-Control", "no-store")
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			h.Set("Strict-Transport-Security", "max-age=31536000")
-		}
-		if ce := r.Header.Get("Content-Encoding"); ce != "" && !strings.EqualFold(ce, "identity") {
-			WriteError(w, r, errx.UnsupportedMediaType("Content-Encoding is not supported"))
-			return
-		}
-		defer func() {
-			if rec := recover(); rec != nil {
-				if rec == http.ErrAbortHandler {
-					panic(rec)
-				}
-				slog.Error("panic", "request_id", id, "panic", rec)
-				WriteError(w, r, errx.Internal(errx.GenericMessage))
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
+// WithRequestID returns ctx carrying the request id (RequestID reads it).
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey, id)
 }
 
 func newRequestID() string {

@@ -138,7 +138,9 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
   pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
   the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`,
-  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`
+  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`,
+  Fiber and fasthttp → `httpx` and `bootstrap` (the server's shell; each
+  migrated domain's `…http` adapter is added when it moves)
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -162,8 +164,14 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `hosting/hostingsvc` and their modules) import `internal/blob`
   (`blobOwners`); everyone else reads through the owner's checked queries
   (`OpenAttachment`, `HomeFile`/`HomeArchive`).
+- Fiber contexts (`fiber_architecture_test.go`, `TestNoFiberCtxInGoroutines`):
+  a `fiber.Ctx` is pooled, so no `go` statement uses the one of its
+  function (closure, receiver or argument); hand the goroutine
+  `c.Context()` or copied values.
 - Public routes (`permission_architecture_test.go`,
-  `TestPublicRoutesAreListed`): every root route (outside `/api/v1/`) is
+  `TestPublicRoutesAreListed`; both route rules read net/http
+  registrations and Fiber's `app.Get/Post/…/All("/path", h)`, as
+  "METHOD /path"): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
   `publicRoutes` (`/`, `/healthz`, GitHub's redirects, webhook and
   Actions endpoint, Jira's webhook, which carry their own proof: a sealed
@@ -177,6 +185,32 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.
+
+## HTTP server
+
+The server is a Fiber v3 app (`bootstrap/server.go`, `httpx/fiber.go`) in
+the middle of a strangler migration (plan
+`~/.rness/plans/puerto/fiber-migration.md`). Today the shell is native
+(`Edges`: request id + security headers; `ErrorHandler`: the one JSON error
+body; `Deadline`; `/healthz`; `BodyLimit` 40 MiB = `bodyLimit`, above
+`crew.MaxReplyBody` and `hosting.MaxHomeUpload`; read/idle timeouts;
+graceful shutdown) and every other route is the old net/http mux behind it
+(`httpx.Fallback`, `app.All("/*")`), with auth, rate limit, CSRF and the SPA
+unchanged.
+
+- `Immutable: true`; a `fiber.Ctx` is never passed as a `context.Context`
+  nor kept past its handler; `c.Context()` carries the request id and
+  deadline and is *not* cancelled when the client leaves (fasthttp reads
+  nothing meanwhile): bound waits yourself.
+- Fallback handlers get `c.Context()` as `r.Context()`, not the recycled
+  `fasthttp.RequestCtx` (a streaming handler would race on it). Streams
+  (SSE, gateway, crew WebSocket) are exempt from `Deadline` (`isStream`).
+- The adaptor's hijack writes no `101`; `upgradeWriter` (in `Fallback`)
+  completes it for the crew WebSocket.
+- Shutdown: `ServeListener` ends SSE and the crew hub first (fasthttp, unlike
+  net/http, waits for hijacked connections), then drains.
+- e2e tests run the real server on a random port (`App.ServeListener`);
+  there is no `App.Handler` any more.
 
 ## Conventions
 

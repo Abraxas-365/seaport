@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,6 +40,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
 	"github.com/Abraxas-365/seaport/migrations"
 	"github.com/Abraxas-365/seaport/web"
+	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
@@ -52,14 +52,16 @@ var Version = "dev"
 
 // App is a built port, ready to serve.
 type App struct {
-	Handler http.Handler
-	db      *sqlx.DB
-	lockDB  *sqlx.DB
-	bus     *event.Bus
-	crew    *crewmodule.Module
-	docks   *dockmodule.Module
-	ships   *shipmodule.Module
-	hosted  *hostingmodule.Module
+	// web is the HTTP server: the Fiber shell with the net/http routes
+	// behind it (server.go).
+	web    *fiber.App
+	db     *sqlx.DB
+	lockDB *sqlx.DB
+	bus    *event.Bus
+	crew   *crewmodule.Module
+	docks  *dockmodule.Module
+	ships  *shipmodule.Module
+	hosted *hostingmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
 	signIn *authmodule.Module
 	// blobs keeps message media (nil: off).
@@ -326,12 +328,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	admin.Handle("DELETE /api/v1/session", session.Logout)
 	admin.HandleFunc("/", httpx.NotFound)
 
+	// The net/http routes: everything the Fiber shell (server.go) doesn't
+	// serve itself, mounted behind it until each domain is migrated.
+	// /healthz is the shell's own.
 	root := http.NewServeMux()
-	// Public liveness: nothing about any organization (crew counts are per
-	// organization at /api/v1/crew).
-	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version})
-	})
 	// Public: how the UI must sign in, and session login/state (they check
 	// credentials themselves).
 	root.Handle("GET /api/v1/config", publicConfig(cfg))
@@ -370,7 +370,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		ui.ServeHTTP(w, r)
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
+	return &App{web: newServer(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
 		blobs: blobs, sweep: sweep, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -511,31 +511,6 @@ func (a *App) Close() {
 func closeBlobs(b *gocloudblob.Store) {
 	if b != nil {
 		_ = b.Close()
-	}
-}
-
-// Serve runs the HTTP server until ctx ends.
-func (a *App) Serve(ctx context.Context) error {
-	srv := &http.Server{
-		Addr:              a.cfg.Addr,
-		Handler:           a.Handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("seaport listening", "addr", a.cfg.Addr, "public_url", a.cfg.PublicURL, "version", Version)
-	select {
-	case err := <-errc:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return errx.Wrap(err, "listen", errx.TypeInternal)
-	case <-ctx.Done():
-		a.stopOnce() // end SSE streams so Shutdown doesn't wait for them
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(sctx)
 	}
 }
 

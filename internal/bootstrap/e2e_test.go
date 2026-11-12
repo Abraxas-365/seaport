@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -47,9 +47,12 @@ func testDatabaseURL(t *testing.T) string {
 	return url
 }
 
+// testServer is where a port listens.
+type testServer struct{ URL string }
+
 type port struct {
 	t   *testing.T
-	srv *httptest.Server
+	srv *testServer
 	// stop shuts the process down (also at cleanup; idempotent).
 	stop func()
 	// token is testAgent's crew token on this process (crewToken).
@@ -83,9 +86,12 @@ func joinPort(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *
 	t.Helper()
 	url := testDatabaseURL(t)
 	ctx := context.Background()
-	srv := httptest.NewUnstartedServer(nil)
-	cfg := config.Server{Addr: srv.Listener.Addr().String(), DatabaseURL: url,
-		PublicURL: "http://" + srv.Listener.Addr().String(), AdminToken: adminToken}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	cfg := config.Server{Addr: addr, DatabaseURL: url, PublicURL: "http://" + addr, AdminToken: adminToken}
 	edit(&cfg)
 	opts.DisableWhatsApp, opts.Lease = true, 2*time.Second
 	if opts.DockLease == 0 {
@@ -93,23 +99,24 @@ func joinPort(t *testing.T, edit func(*config.Server), opts bootstrap.Options) *
 	}
 	app, err := bootstrap.Build(ctx, cfg, opts)
 	if err != nil {
+		_ = ln.Close()
 		t.Fatal(err)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	app.Start(runCtx)
-	srv.Config.Handler = app.Handler
-	srv.Start()
+	// The real server, on a random port (what `seaport serve` runs).
+	served := make(chan error, 1)
+	go func() { served <- app.ServeListener(runCtx, ln) }()
 	var once sync.Once
 	stop := func() {
 		once.Do(func() {
 			cancel()
-			app.Close() // first: connections release their deliveries
-			srv.CloseClientConnections()
-			srv.Close()
+			<-served    // streams end, in-flight requests finish
+			app.Close() // connections release their deliveries
 		})
 	}
 	t.Cleanup(stop)
-	return &port{t: t, srv: srv, stop: stop}
+	return &port{t: t, srv: &testServer{URL: "http://" + addr}, stop: stop}
 }
 
 func (p *port) call(method, path, token string, body, out any) int {

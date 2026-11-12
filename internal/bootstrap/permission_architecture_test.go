@@ -25,6 +25,9 @@ import (
 //   - Every other route (outside "/api/v1/", outside the connector, which
 //     serves its own machine) is behind auth.Admin / auth.Crew, or listed
 //     in publicRoutes with the reason: it then checks its own proof.
+//   - Both rules read net/http registrations (mux.Handle("GET /x", h)) and
+//     the Fiber app's (app.Get("/x", h), app.All("/x", h): "METHOD /x"), so
+//     a route moved to Fiber keeps being checked.
 //   - No "seaport:…" permission literal outside internal/permission (Go)
 //     or web/src/lib/permissions.gen.ts (web): a typo must not compile.
 //   - Every permission of the manifest is checked somewhere (no orphan).
@@ -43,7 +46,9 @@ var unguardedRoutes = map[string]string{
 // publicRoutes: route outside /api/v1/ → why no Seaport credential guards it.
 var publicRoutes = map[string]string{
 	"/":                           "the web UI's static files (the admin mux's catch-all 404 sits behind auth)",
-	"GET /healthz":                "public liveness: nothing about any organization",
+	"GET /healthz":                "public liveness: nothing about any organization (served by the Fiber shell, bootstrap/server.go)",
+	"ALL /healthz":                "the 405 for every other method of /healthz, as the mux answered it (Fiber shell)",
+	"ALL /*":                      "the fallback: hands every request the shell doesn't serve to the net/http routes, whose rules (this test) apply to each one",
 	"GET /github/apps/created":    "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
 	"GET /github/apps/installed":  "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
 	"POST /github/webhook/{dock}": "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
@@ -51,6 +56,43 @@ var publicRoutes = map[string]string{
 	"GET /slack/oauth/callback":   "Slack's OAuth redirect: checks a sealed, expiring state naming the dock, then the code with Slack",
 	"POST /slack/events/{dock}":   "Slack's Events API: checks the HMAC signature (and its five-minute timestamp window) with that dock's app signing secret; url_verification is answered before the secret is known",
 	"POST /github/actions/{dock}": "GitHub Actions: checks the job's OIDC token (GitHub's signature, audience = this port) and that the dock's App is installed on its repository",
+}
+
+// routeCall is one route registration found in the source: a net/http
+// mux.Handle/HandleFunc("METHOD /path", h) or a Fiber app.Get/Post/…/All
+// ("/path", h) (the pattern is then "METHOD /path": ALL for All). A Fiber
+// call is recognized by a literal path starting with "/" and a handler, so
+// c.Get("X-Header") and the like never match.
+type routeCall struct {
+	call    *ast.CallExpr
+	pattern string
+	handler ast.Expr
+}
+
+var fiberMethods = map[string]string{"Get": "GET", "Post": "POST", "Put": "PUT", "Patch": "PATCH",
+	"Delete": "DELETE", "Head": "HEAD", "Options": "OPTIONS", "All": "ALL"}
+
+func routeCallOf(n ast.Node) (routeCall, bool) {
+	call, ok := n.(*ast.CallExpr)
+	if !ok || len(call.Args) < 2 {
+		return routeCall{}, false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return routeCall{}, false
+	}
+	lit, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return routeCall{}, false
+	}
+	pattern, _ := strconv.Unquote(lit.Value)
+	if (sel.Sel.Name == "Handle" || sel.Sel.Name == "HandleFunc") && len(call.Args) == 2 {
+		return routeCall{call, pattern, call.Args[1]}, true
+	}
+	if m, ok := fiberMethods[sel.Sel.Name]; ok && strings.HasPrefix(pattern, "/") {
+		return routeCall{call, m + " " + pattern, call.Args[len(call.Args)-1]}, true
+	}
+	return routeCall{}, false
 }
 
 // publicViolations: literal routes outside /api/v1/ neither behind
@@ -62,26 +104,17 @@ func publicViolations(files []goFile) []string {
 			continue
 		}
 		ast.Inspect(f.file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 2 {
+			rc, ok := routeCallOf(n)
+			if !ok {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
+			if strings.Contains(rc.pattern, " /api/") || strings.HasPrefix(rc.pattern, "/api/") {
 				return true
 			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
+			if _, ok := publicRoutes[rc.pattern]; ok || authed(rc.handler) {
 				return true
 			}
-			pattern, _ := strconv.Unquote(lit.Value)
-			if strings.Contains(pattern, " /api/") || strings.HasPrefix(pattern, "/api/") {
-				return true
-			}
-			if _, ok := publicRoutes[pattern]; ok || authed(call.Args[1]) {
-				return true
-			}
-			out = append(out, f.fset.Position(call.Pos()).String()+": route "+pattern+
+			out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
 				" must be behind auth.Admin/auth.Crew (or listed in publicRoutes with the proof it checks)")
 			return true
 		})
@@ -106,27 +139,18 @@ func routeViolations(files []goFile) []string {
 	var out []string
 	for _, f := range files {
 		ast.Inspect(f.file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 2 {
+			rc, ok := routeCallOf(n)
+			if !ok {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
+			if !strings.Contains(rc.pattern, " /api/v1/") && !strings.HasPrefix(rc.pattern, "/api/v1/") {
 				return true
 			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
+			if _, ok := unguardedRoutes[rc.pattern]; ok {
 				return true
 			}
-			pattern, _ := strconv.Unquote(lit.Value)
-			if !strings.Contains(pattern, " /api/v1/") && !strings.HasPrefix(pattern, "/api/v1/") {
-				return true
-			}
-			if _, ok := unguardedRoutes[pattern]; ok {
-				return true
-			}
-			if !guarded(call.Args[1]) {
-				out = append(out, f.fset.Position(call.Pos()).String()+": route "+pattern+
+			if !guarded(rc.handler) {
+				out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
 					" must be wrapped in httpx.Require/RequireFunc(permission.X, …) (or listed in unguardedRoutes with the reason)")
 			}
 			return true
@@ -159,16 +183,11 @@ func guardedRoutes(files []goFile) map[string]string {
 	out := map[string]string{}
 	for _, f := range files {
 		ast.Inspect(f.file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 2 || !guarded(call.Args[1]) {
+			rc, ok := routeCallOf(n)
+			if !ok || !guarded(rc.handler) {
 				return true
 			}
-			lit, ok := call.Args[0].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
-			}
-			pattern, _ := strconv.Unquote(lit.Value)
-			out[pattern] = call.Args[1].(*ast.CallExpr).Args[0].(*ast.SelectorExpr).Sel.Name
+			out[rc.pattern] = rc.handler.(*ast.CallExpr).Args[0].(*ast.SelectorExpr).Sel.Name
 			return true
 		})
 	}
@@ -340,6 +359,15 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", h.health)
 	mux.Handle("POST /hooks/widget", httpx.Handle(h.hook))
 	mux.Handle("GET /crew/widgets", auth.Crew(h.crew))
+}
+func register(app *fiber.App) {
+	app.Get("/api/v1/gadgets", httpx.RequireFunc(permission.DocksRead, g.list))
+	app.Post("/api/v1/gadgets", g.create)
+	app.Delete("/api/v1/gadgets/:id", g.del)
+	app.Post("/hooks/gadget", g.hook)
+	app.Get("/healthz", g.health)
+	app.Get("/crew/gadgets", auth.Crew(g.crew))
+	_ = c.Get("X-Request-ID")
 }`,
 		"permission/permission_gen.go": `package permission
 const DocksRead = "seaport:docks:read"`,
@@ -347,8 +375,12 @@ const DocksRead = "seaport:docks:read"`,
 	expectViolations(t, routeViolations(files),
 		"route POST /api/v1/widgets must be wrapped",
 		"route DELETE /api/v1/widgets/{id} must be wrapped",
+		"route POST /api/v1/gadgets must be wrapped",
+		"route DELETE /api/v1/gadgets/:id must be wrapped",
 	)
-	expectViolations(t, publicViolations(files), "route POST /hooks/widget must be behind auth.Admin/auth.Crew")
+	expectViolations(t, publicViolations(files),
+		"route POST /hooks/widget must be behind auth.Admin/auth.Crew",
+		"route POST /hooks/gadget must be behind auth.Admin/auth.Crew")
 	expectViolations(t, literalViolations(files), `permission literal "seaport:widgets:write"`)
 	expectViolations(t, orphanViolations(files, map[string]string{"DocksRead": "a", "DocksWrite": "b"}),
 		"permission.DocksWrite (b) is in the manifest but no code checks it")
