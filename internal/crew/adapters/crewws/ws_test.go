@@ -273,3 +273,74 @@ func TestExpiringTokenEndsTheConnection(t *testing.T) {
 		t.Fatal("still open")
 	}
 }
+
+// admit makes the state Handle leaves behind after a successful upgrade: a
+// presence row, a registration in opening and a serving count.
+func admit(t *testing.T, r *rig) *admitted {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &admitted{p: *agentPrincipal("pm"), session: newSession(), ctx: ctx, cancel: cancel}
+	if err := r.pres.Open(ctx, org, crew.Connection{Session: a.session}, 0); err != nil {
+		t.Fatal(err)
+	}
+	a.open = &pending{organization: org, session: a.session, cancel: cancel}
+	r.hub.mu.Lock()
+	r.hub.opening[a.open] = struct{}{}
+	r.hub.mu.Unlock()
+	r.hub.serving.Add(1)
+	return a
+}
+
+func (r *rig) openingCount() int {
+	r.hub.mu.Lock()
+	defer r.hub.mu.Unlock()
+	return len(r.hub.opening)
+}
+
+// If fasthttp never calls the hijack handler, the watchdog releases the row,
+// the registration and the serving count; a late run does nothing.
+func TestWatchdogReleasesAnUpgradeThatNeverRan(t *testing.T) {
+	defer func(d time.Duration) { hijackGrace = d }(hijackGrace)
+	hijackGrace = 20 * time.Millisecond
+	r := start(t, agentPrincipal("pm"))
+	a := admit(t, r)
+	r.hub.watch(a)
+	waitFor(t, "the row to go", func() bool { return r.pres.opened() == 0 })
+	waitFor(t, "the registration to go", func() bool { return r.openingCount() == 0 })
+	if a.ctx.Err() == nil {
+		t.Fatal("the connection's context outlived the watchdog")
+	}
+	served := make(chan struct{})
+	go func() { r.hub.serving.Wait(); close(served) }()
+	select {
+	case <-served:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the serving count was not released")
+	}
+	if a.start() {
+		t.Fatal("run may start after the watchdog gave up")
+	}
+	r.hub.finish(a) // idempotent: the count must not go negative
+}
+
+// A run that started owns the cleanup: the watchdog leaves it alone, and
+// finishing twice releases once.
+func TestWatchdogLeavesARunningConnection(t *testing.T) {
+	defer func(d time.Duration) { hijackGrace = d }(hijackGrace)
+	hijackGrace = 20 * time.Millisecond
+	r := start(t, agentPrincipal("pm"))
+	a := admit(t, r)
+	if !a.start() {
+		t.Fatal("start refused")
+	}
+	r.hub.watch(a)
+	time.Sleep(150 * time.Millisecond)
+	if r.pres.opened() != 1 || r.openingCount() != 1 || a.ctx.Err() != nil {
+		t.Fatal("the watchdog released a running connection")
+	}
+	r.hub.finish(a)
+	r.hub.finish(a)
+	if r.pres.opened() != 0 || r.openingCount() != 0 {
+		t.Fatal("finish did not release")
+	}
+}

@@ -536,10 +536,76 @@ type admitted struct {
 	// dropped: drop owns the presence row from here (it may keep it for
 	// the reaper).
 	dropped bool
+	// started: run began (it owns the cleanup from then on); finished: finish
+	// ran (it runs once). Both are guarded by lifecycle.
+	lifecycle sync.Mutex
+	started   bool
+	finished  bool
+}
+
+// start marks run as begun. It reports false when finish already ran (the
+// watchdog gave up on the hijack), so run must not touch anything.
+func (a *admitted) start() bool {
+	a.lifecycle.Lock()
+	defer a.lifecycle.Unlock()
+	if a.finished {
+		return false
+	}
+	a.started = true
+	return true
+}
+
+// finishOnce marks the cleanup done and reports whether the caller must run
+// it (the first caller only).
+func (a *admitted) finishOnce() bool {
+	a.lifecycle.Lock()
+	defer a.lifecycle.Unlock()
+	if a.finished {
+		return false
+	}
+	a.finished = true
+	return true
+}
+
+// abandon is finishOnce for the watchdog: only while run hasn't started
+// (decided under the same lock as start, so run and the watchdog never both
+// own the admission).
+func (a *admitted) abandon() bool {
+	a.lifecycle.Lock()
+	defer a.lifecycle.Unlock()
+	if a.started || a.finished {
+		return false
+	}
+	a.finished = true
+	return true
+}
+
+// hijackGrace is how long after Handle returns the hijacked connection's
+// handler may take to start. fasthttp calls it right after the response is
+// written; if it never does (the write failed), the watchdog cleans up.
+var hijackGrace = 10 * time.Second
+
+// watch ends an admission whose run never started.
+func (h *Hub) watch(a *admitted) *time.Timer {
+	return time.AfterFunc(hijackGrace, func() {
+		if a.abandon() {
+			slog.Warn("crew connection never started after its upgrade", "session", a.session)
+			h.release(a)
+		}
+	})
 }
 
 // finish releases what admit took, whatever the connection's end.
+// It is idempotent: run, the error paths of Handle and the watchdog of an
+// upgrade whose hijack never ran may all call it.
 func (h *Hub) finish(a *admitted) {
+	if a.finishOnce() {
+		h.release(a)
+	}
+}
+
+// release is finish's work, for whoever won finishOnce or abandon.
+func (h *Hub) release(a *admitted) {
 	if !a.opened {
 		h.mu.Lock()
 		delete(h.opening, a.open)
@@ -625,14 +691,21 @@ func (h *Hub) Handle(c fiber.Ctx) error {
 		h.finish(a) // refused (not an upgrade request, bad handshake)
 		return err
 	}
+	// The hijacked connection is served by run, which fasthttp starts once
+	// this handler returns; if it never does, nobody else would release
+	// the row, the registration and the serving count.
+	h.watch(a)
 	return nil
 }
 
 // run serves one upgraded connection until it ends. It runs on the
 // hijacked connection's goroutine: it must not touch the Fiber context.
 func (h *Hub) run(a *admitted, raw *websocket.Conn) {
-	defer h.finish(a)
 	defer raw.Close() // the library leaves the socket open when the handler returns
+	if !a.start() {
+		return // the watchdog already gave this admission up
+	}
+	defer h.finish(a)
 	p, org, ctx, cancel, open := a.p, a.p.Organization, a.ctx, a.cancel, a.open
 	ws := newWSConn(raw, crew.MaxFrame, ctx)
 	if !p.Expires.IsZero() {
