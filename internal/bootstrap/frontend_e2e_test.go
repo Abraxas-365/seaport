@@ -282,6 +282,31 @@ func TestWebUIRoutes(t *testing.T) {
 	if resp, _ := get(http.MethodGet, "/healthz"); resp.StatusCode != http.StatusOK {
 		t.Errorf("healthz: %d", resp.StatusCode)
 	}
+	// A known path with the wrong method is not a 405 (it never was: main's
+	// "/" catch-all answered it): other methods get the JSON 404, a GET goes
+	// to the web app, which is what main answered too. /healthz alone says 405.
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, "/crew/profile"}, {http.MethodPut, "/crew/reply"}, {http.MethodPost, "/crew/workspace"},
+		{http.MethodGet, "/github/apps/created"}, {http.MethodDelete, "/jira/webhook/x"},
+	} {
+		resp, body := get(c.method, c.path)
+		if c.method == http.MethodGet {
+			built := resp.StatusCode == http.StatusOK && strings.Contains(body, `<div id="root">`)
+			unbuilt := resp.StatusCode == http.StatusNotFound && strings.Contains(body, "not built")
+			if !built && !unbuilt {
+				t.Errorf("%s %s: %d %.80s", c.method, c.path, resp.StatusCode, body)
+			}
+		} else if resp.StatusCode != http.StatusNotFound || !strings.Contains(body, `"NOT_FOUND"`) {
+			t.Errorf("%s %s: %d %.80s", c.method, c.path, resp.StatusCode, body)
+		}
+	}
+	// A wrong-method GET stays what main answered: the web app, never a 405.
+	if resp, body := get(http.MethodGet, "/crew/reply"); resp.StatusCode == http.StatusMethodNotAllowed {
+		t.Errorf("GET /crew/reply: %d %.80s", resp.StatusCode, body)
+	}
+	if resp, body := get(http.MethodPost, "/healthz"); resp.StatusCode != http.StatusMethodNotAllowed || !strings.Contains(body, `"METHOD_NOT_ALLOWED"`) {
+		t.Errorf("POST /healthz: %d %.80s", resp.StatusCode, body)
+	}
 }
 
 // What an agent does on its delivery reaches the web live (a flash: no
