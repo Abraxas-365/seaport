@@ -191,13 +191,25 @@ test together with the reason. Add a rule when you add a pattern.
 
 The server is a Fiber v3 app. `bootstrap/server.go` is its shell (`Edges`:
 request id + security headers; `ErrorHandler`: the one JSON error body;
-`Deadline`; `/healthz`; `BodyLimit` 40 MiB = `bodyLimit`, above
-`crew.MaxReplyBody` and `hosting.MaxHomeUpload`; read/idle timeouts;
+`Deadline`; `/healthz`; per-request body limits, below; read/idle timeouts;
 graceful shutdown) and `bootstrap/routes.go` (`mountNative`) registers every
 route in the order that matters. Handlers are `func(fiber.Ctx) error` that
-return their errors; unknown routes are Fiber's own 404/405 through
+return their errors; unknown routes are Fiber's own 404 through
 `ErrorHandler`, and `httpx.SPA` is the last route (GET/HEAD; other methods
-404), after an `/api/*` 404 that sits behind the admin authenticator.
+404), after an `/api/*` 404 that sits behind the admin authenticator. A known
+path with the wrong method is a 404 too (a GET goes to the web app), as on the
+net/http mux; only `/healthz` answers 405.
+
+- Body limits: fasthttp reads a body whole before any handler (before auth),
+  so `bodyLimitFor` (`Server.HeaderReceived`) picks the limit per request:
+  `httpx.MaxJSONBody` (1 MiB) unless the route is in `bodyTiers` (home upload,
+  `/crew/reply`, `/mcp`, the gateway: only with an Authorization/X-Api-Key
+  header or session cookie; webhooks at their `Max*` size). `bodyLimit` is the
+  biggest tier; `TestBodyLimitCoversTheBiggestBodies` checks every tier
+  against its handler's constant: a route with a bigger body needs a tier.
+- `/crew/ws` refuses an `Origin` whose host isn't the request's (403), before
+  anything is registered (`sameOrigin`); the connector sends none. An upgrade
+  whose hijack never runs is released by a watchdog (`Hub.watch`).
 
 - `Immutable: true`; a `fiber.Ctx` is never passed as a `context.Context`
   nor kept past its handler (`TestNoFiberCtxInGoroutines`); `c.Context()`
