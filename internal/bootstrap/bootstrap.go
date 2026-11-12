@@ -314,7 +314,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		}
 	}
 
-	srv := newServer(func(app *fiber.App) {
+	srv := newServer(cfg.Auth != config.AuthNone, func(app *fiber.App) {
 		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
 			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),

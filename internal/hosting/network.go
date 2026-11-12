@@ -15,6 +15,11 @@ const ProviderAnthropic = "anthropic"
 // harness calls GatewayPath/<provider>/... with its slot token as the key.
 const GatewayPath = "/gateway"
 
+// MaxGatewayBody is the largest request the gateway forwards (images and
+// documents travel inline in a Messages call). The HTTP server's body limit
+// for GatewayPath takes it from here.
+const MaxGatewayBody = 64 << 20
+
 // Environment of a slot's container for the network (besides Env*):
 // EnvGateway is the gateway's base URL (set when the environment names a
 // model key; the base image's harness config points the provider there).

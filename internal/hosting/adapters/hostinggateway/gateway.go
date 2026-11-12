@@ -26,8 +26,8 @@ import (
 
 // Limits of one call.
 const (
-	maxRequest = 64 << 20 // images and documents travel inline
-	maxMetered = 16 << 20 // a JSON answer read for its usage
+	maxRequest = hosting.MaxGatewayBody // images and documents travel inline
+	maxMetered = 16 << 20               // a JSON answer read for its usage
 )
 
 // Gateway serves GatewayPath/<provider>/... behind crew auth.

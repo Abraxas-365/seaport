@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/coder/websocket"
@@ -32,7 +35,7 @@ func startShell(t *testing.T, mount func(app *fiber.App)) (url string, stop func
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, newServer(mount), ln, func() {}) }()
+	go func() { done <- serve(ctx, newServer(true, mount), ln, func() {}) }()
 	var stopped bool
 	stop = func() {
 		if !stopped {
@@ -45,15 +48,52 @@ func startShell(t *testing.T, mount func(app *fiber.App)) (url string, stop func
 	return "http://" + ln.Addr().String(), stop
 }
 
-// bodyLimit covers every body a handler accepts: it is the one limit Fiber
-// applies before any handler runs.
+// Every route that takes a body bigger than httpx.MaxJSONBody has a tier that
+// covers the constant its handler checks, and bodyLimit (fasthttp's ceiling)
+// is the biggest tier, so no tier is cut short by it.
 func TestBodyLimitCoversTheBiggestBodies(t *testing.T) {
-	biggest := max(int64(crew.MaxReplyBody), int64(hosting.MaxHomeUpload), int64(httpx.MaxJSONBody))
-	if bodyLimit < biggest {
-		t.Fatalf("bodyLimit %d is below the biggest body a handler accepts (%d)", bodyLimit, biggest)
+	for _, c := range []struct {
+		name         string
+		method, path string
+		size         int
+		anonymous    bool // the route answers a caller with no credential
+	}{
+		{"home upload", "POST", "/api/v1/homes", hosting.MaxHomeUpload, false},
+		{"reply", "POST", "/crew/reply", crew.MaxReplyBody, false},
+		{"mcp", "POST", "/mcp", crew.MaxReplyBody, false},
+		{"gateway", "POST", hosting.GatewayPath + "/anthropic/v1/messages", hosting.MaxGatewayBody, false},
+		{"github webhook", "POST", dockgithub.WebhookPath + "x", dockgithub.MaxWebhook, true},
+		{"jira webhook", "POST", dockjira.WebhookPath + "x", dockjira.MaxWebhook, true},
+		{"slack events", "POST", dockslack.EventsPath + "x", dockslack.MaxEvent, true},
+		{"admin json", "POST", "/api/v1/ships", httpx.MaxJSONBody, true},
+		{"unknown", "POST", "/nope", httpx.MaxJSONBody, true},
+	} {
+		if got := bodyLimitFor(c.method, c.path, true); got < c.size {
+			t.Errorf("%s: limit %d is below its body (%d)", c.name, got, c.size)
+		}
+		if got := bodyLimitFor(c.method, c.path, false); c.anonymous && got < c.size {
+			t.Errorf("%s: an anonymous caller gets %d, below its body (%d)", c.name, got, c.size)
+		} else if !c.anonymous && got != httpx.MaxJSONBody {
+			t.Errorf("%s: an anonymous caller gets %d, want %d", c.name, got, httpx.MaxJSONBody)
+		}
+		if got := bodyLimitFor(c.method, c.path, true); got > bodyLimit {
+			t.Errorf("%s: limit %d is over the ceiling %d", c.name, got, bodyLimit)
+		}
 	}
-	if bodyLimit > 2*biggest {
-		t.Fatalf("bodyLimit %d is more than twice the biggest body (%d): tighten it", bodyLimit, biggest)
+	if bodyLimit < hosting.MaxGatewayBody || bodyLimit < crew.MaxReplyBody {
+		t.Fatalf("bodyLimit %d is below the gateway's (%d) or a reply's (%d)", bodyLimit, hosting.MaxGatewayBody, crew.MaxReplyBody)
+	}
+	// Wrong method: the small default.
+	if got := bodyLimitFor("GET", "/crew/reply", true); got != httpx.MaxJSONBody {
+		t.Errorf("GET /crew/reply: %d", got)
+	}
+	// The ceiling is some tier's own limit, not slack.
+	var top int
+	for _, tier := range bodyTiers {
+		top = max(top, tier.limit)
+	}
+	if bodyLimit != top {
+		t.Errorf("bodyLimit %d is not the biggest tier (%d)", bodyLimit, top)
 	}
 }
 
@@ -141,6 +181,26 @@ func TestShellHealthzAndEdges(t *testing.T) {
 	}
 }
 
+// refuse sends only the headers of a POST with a body of n bytes (never
+// sent) and returns the answer: the server decides from the headers, and a
+// client still writing the body may see a broken pipe instead of it.
+func refuse(t *testing.T, url, path string, n int, headers ...string) (*http.Response, string) {
+	t.Helper()
+	conn, err := net.Dial("tcp", strings.TrimPrefix(url, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_, _ = io.WriteString(conn, "POST "+path+" HTTP/1.1\r\nHost: x\r\nContent-Length: "+strconv.Itoa(n)+"\r\n"+strings.Join(headers, "")+"\r\n")
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	return resp, string(b)
+}
+
 func TestShellBodyLimit(t *testing.T) {
 	var reached bool
 	url, _ := startShell(t, func(app *fiber.App) {
@@ -158,26 +218,12 @@ func TestShellBodyLimit(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
-	if code, _ := post(bodyLimit - 1<<10); code != 200 {
+	if code, _ := post(httpx.MaxJSONBody - 1<<10); code != 200 {
 		t.Fatalf("a body under the limit: %d", code)
 	}
 	reached = false
-	// Over the limit: the server answers from the headers alone (Content-Length)
-	// and closes, without reading the body, so a client still writing it may
-	// see a broken pipe instead of the answer. Send the headers only.
-	conn, err := net.Dial("tcp", strings.TrimPrefix(url, "http://"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-	_, _ = io.WriteString(conn, "POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: "+strconv.Itoa(bodyLimit+1<<10)+"\r\n\r\n")
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(b), `"PAYLOAD_TOO_LARGE"`) {
+	resp, b := refuse(t, url, "/x", httpx.MaxJSONBody+1<<10)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(b, `"PAYLOAD_TOO_LARGE"`) {
 		t.Fatalf("a body over the limit: %d %s", resp.StatusCode, b)
 	}
 	if resp.Header.Get("X-Content-Type-Options") != "nosniff" || resp.Header.Get("X-Request-ID") == "" {
@@ -185,6 +231,70 @@ func TestShellBodyLimit(t *testing.T) {
 	}
 	if reached {
 		t.Fatal("a handler ran a request the server refused")
+	}
+}
+
+// The big tiers: a stranger can't make the server buffer an upload, a caller
+// with a credential can (up to the route's own limit), and a webhook gets its
+// own size. Refusals are the standard 413 body, before any handler.
+func TestShellBodyTiers(t *testing.T) {
+	var reached []string
+	handler := func(c fiber.Ctx) error {
+		reached = append(reached, c.Path())
+		return c.SendString("ok")
+	}
+	url, _ := startShell(t, func(app *fiber.App) {
+		app.Post("/crew/reply", handler)
+		app.Post("/api/v1/homes", handler)
+		app.Post(hosting.GatewayPath+"/*", handler)
+		app.Post("/github/webhook/:dock", handler)
+		app.Post("/other", handler)
+	})
+	auth := "Authorization: Bearer x\r\n"
+	for _, c := range []struct {
+		name, path string
+		size       int
+		headers    []string
+		want       int
+	}{
+		{"anonymous reply", "/crew/reply", 2 << 20, nil, 413},
+		{"anonymous home", "/api/v1/homes", 2 << 20, nil, 413},
+		{"anonymous gateway", hosting.GatewayPath + "/anthropic/v1/messages", 2 << 20, nil, 413},
+		{"cookie home", "/api/v1/homes", 2 << 20, []string{"Cookie: " + httpx.SessionCookie + "=x\r\n"}, 200},
+		{"x-api-key gateway", hosting.GatewayPath + "/anthropic/v1/messages", 2 << 20, []string{"X-Api-Key: x\r\n"}, 200},
+		{"reply", "/crew/reply", 2 << 20, []string{auth}, 200},
+		{"reply over", "/crew/reply", crew.MaxReplyBody + 1<<10, []string{auth}, 413},
+		{"home over", "/api/v1/homes", hosting.MaxHomeUpload + 1<<10, []string{auth}, 413},
+		{"gateway", hosting.GatewayPath + "/anthropic/v1/messages", 60 << 20, []string{auth}, 200},
+		{"gateway over", hosting.GatewayPath + "/anthropic/v1/messages", hosting.MaxGatewayBody + 1<<10, []string{auth}, 413},
+		{"webhook", "/github/webhook/x", dockgithub.MaxWebhook - 1<<10, nil, 200},
+		{"webhook over", "/github/webhook/x", dockgithub.MaxWebhook + 1<<10, nil, 413},
+		{"other route with a credential", "/other", 2 << 20, []string{auth}, 413},
+	} {
+		reached = nil
+		var resp *http.Response
+		var body string
+		if c.want == 413 {
+			resp, body = refuse(t, url, c.path, c.size, c.headers...)
+			if !strings.Contains(body, `"PAYLOAD_TOO_LARGE"`) || len(reached) != 0 {
+				t.Errorf("%s: %d %s (handler ran: %v)", c.name, resp.StatusCode, body, reached)
+			}
+		} else {
+			req, _ := http.NewRequest("POST", url+c.path, bytes.NewReader(make([]byte, c.size)))
+			for _, h := range c.headers {
+				k, v, _ := strings.Cut(strings.TrimSpace(h), ": ")
+				req.Header.Set(k, v)
+			}
+			r, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("%s: %v", c.name, err)
+			}
+			_ = r.Body.Close()
+			resp = r
+		}
+		if resp.StatusCode != c.want {
+			t.Errorf("%s: %d, want %d", c.name, resp.StatusCode, c.want)
+		}
 	}
 }
 
@@ -253,7 +363,7 @@ func TestShutdownEndsStreams(t *testing.T) {
 	defer cancel()
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, newServer(func(app *fiber.App) {
+		served <- serve(ctx, newServer(true, func(app *fiber.App) {
 			app.Get("/api/v1/events", func(c fiber.Ctx) error {
 				c.Set("Content-Type", "text/event-stream")
 				return c.SendStreamWriter(func(w *bufio.Writer) {
@@ -305,7 +415,7 @@ func TestShutdownWaitsForNoWebSocket(t *testing.T) {
 	defer cancel()
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, newServer(func(app *fiber.App) {
+		served <- serve(ctx, newServer(true, func(app *fiber.App) {
 			app.Get("/crew/ws", fws.New(func(c *fws.Conn) {
 				conn = c
 				close(ready)
