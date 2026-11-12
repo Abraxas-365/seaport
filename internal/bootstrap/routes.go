@@ -21,6 +21,8 @@ type nativeRoutes struct {
 	// state, a signature): the GitHub, Jira and Slack docks'.
 	public      []func(httpx.Router)
 	githubToken fiber.Handler
+	// events is the SSE stream (GET /api/v1/events).
+	events fiber.Handler
 	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
 	kit, attachment, reply, workspace fiber.Handler
 }
@@ -57,6 +59,7 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	for _, register := range r.admin {
 		register(app)
 	}
+	app.Get("/api/v1/events", r.events)
 
 	// The crew's endpoints: crew authentication, then the rate limit.
 	app.All("/crew/ws", auth.Crew(), limit, legacy)

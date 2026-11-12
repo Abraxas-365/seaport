@@ -2,24 +2,21 @@
 package eventsse
 
 import (
+	"bufio"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
+	"github.com/gofiber/fiber/v3"
 )
 
 // heartbeat keeps proxies from closing an idle stream.
-const heartbeat = 25 * time.Second
+var heartbeat = 25 * time.Second
 
 // maxStream is the longest a stream runs before the client must
 // reconnect (and authenticate again).
-const maxStream = 10 * time.Minute
-
-var errUnauthenticated = errx.Unauthorized("missing or invalid token")
+var maxStream = 10 * time.Minute
 
 // Handler streams events. A client reconnecting with Last-Event-ID gets
 // what it missed, or a "reset" event when that is no longer known (it must
@@ -31,90 +28,92 @@ var errUnauthenticated = errx.Unauthorized("missing or invalid token")
 // A stream ends when the principal's credential expires, and after
 // maxStream at most (the client reconnects, which authenticates again).
 // done closes every stream (server shutdown).
-func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rc := http.NewResponseController(w)
-		h := w.Header()
-		h.Set("Content-Type", "text/event-stream")
-		h.Set("X-Accel-Buffering", "no")
-		last := r.Header.Get("Last-Event-ID")
+//
+// The stream is written by c.SendStreamWriter: fasthttp runs its closure
+// while the handler returns and Fiber recycles c, so the closure touches
+// nothing of c (everything it needs is read first).
+func Handler(bus *event.Bus, done <-chan struct{}, perms map[string]string) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		last := c.Get("Last-Event-ID")
 		if last == "" {
-			last = r.URL.Query().Get("last_event_id")
+			last = c.Query("last_event_id")
 		}
-		p, ok := httpx.PrincipalFrom(r.Context())
-		if !ok {
-			stdhttp.WriteError(w, r, errUnauthenticated)
-			return
-		}
-		sub, replay, reset, err := bus.Subscribe(r.Context(), p.Organization, last)
+		p, err := httpx.Caller(c)
 		if err != nil {
-			stdhttp.WriteError(w, r, err)
-			return
+			return err
 		}
-		defer sub.Close()
-		w.WriteHeader(http.StatusOK)
-
-		write := func(e event.Event) bool {
-			if perm, ok := perms[e.Type]; !ok || !p.Can(perm) {
-				return true
-			}
-			var err error
-			if e.ID == "" {
-				// A flash: no id line, which would reset the client's
-				// Last-Event-ID (flashes are never replayed).
-				_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, e.Data)
-			} else {
-				_, err = fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data)
-			}
-			if err != nil {
-				return false
-			}
-			return rc.Flush() == nil
+		// Subscribe before the first byte: a failure is still an ordinary
+		// error response. The context only bounds the replay read.
+		sub, replay, reset, err := bus.Subscribe(c.Context(), p.Organization, last)
+		if err != nil {
+			return err
 		}
-		fmt.Fprintf(w, "retry: 3000\nevent: ready\ndata: {\"boot\":%q}\n\n", bus.Boot())
-		if reset {
-			fmt.Fprint(w, "event: reset\ndata: {}\n\n")
-		}
-		if rc.Flush() != nil {
-			return
-		}
-		for _, e := range replay {
-			if !write(e) {
-				return
-			}
-		}
-		tick := time.NewTicker(heartbeat)
-		defer tick.Stop()
-		// End at the credential's expiry, and at most after maxStream, so
-		// revoked keys and changed permissions apply on the reconnect
-		// (which resumes from Last-Event-ID: nothing is lost).
-		life := maxStream
-		if !p.Expires.IsZero() && time.Until(p.Expires) < life {
-			life = time.Until(p.Expires)
-		}
-		expiry := time.NewTimer(life)
-		defer expiry.Stop()
-		expired := expiry.C
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-expired:
-				return
-			case <-done:
-				return
-			case e, ok := <-sub.C:
-				if !ok {
-					return // too slow: the client reconnects and replays
+		c.Set("Content-Type", "text/event-stream")
+		c.Set("X-Accel-Buffering", "no")
+		// Closed by app.Shutdown (fasthttp's server done channel) and by
+		// nothing else: a dead client shows as a failed write.
+		shutdown := c.RequestCtx().Done()
+		boot := bus.Boot()
+		return c.SendStreamWriter(func(w *bufio.Writer) {
+			defer sub.Close()
+			write := func(e event.Event) bool {
+				if perm, ok := perms[e.Type]; !ok || !p.Can(perm) {
+					return true
 				}
+				var err error
+				if e.ID == "" {
+					// A flash: no id line, which would reset the client's
+					// Last-Event-ID (flashes are never replayed).
+					_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, e.Data)
+				} else {
+					_, err = fmt.Fprintf(w, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Type, e.Data)
+				}
+				return err == nil && w.Flush() == nil
+			}
+			fmt.Fprintf(w, "retry: 3000\nevent: ready\ndata: {\"boot\":%q}\n\n", boot)
+			if reset {
+				fmt.Fprint(w, "event: reset\ndata: {}\n\n")
+			}
+			if w.Flush() != nil {
+				return
+			}
+			for _, e := range replay {
 				if !write(e) {
 					return
 				}
-			case <-tick.C:
-				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil || rc.Flush() != nil {
+			}
+			tick := time.NewTicker(heartbeat)
+			defer tick.Stop()
+			// End at the credential's expiry, and at most after maxStream, so
+			// revoked keys and changed permissions apply on the reconnect
+			// (which resumes from Last-Event-ID: nothing is lost).
+			life := maxStream
+			if !p.Expires.IsZero() && time.Until(p.Expires) < life {
+				life = time.Until(p.Expires)
+			}
+			expiry := time.NewTimer(life)
+			defer expiry.Stop()
+			for {
+				select {
+				case <-expiry.C:
 					return
+				case <-done:
+					return
+				case <-shutdown:
+					return
+				case e, ok := <-sub.C:
+					if !ok {
+						return // too slow: the client reconnects and replays
+					}
+					if !write(e) {
+						return
+					}
+				case <-tick.C:
+					if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil || w.Flush() != nil {
+						return
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 }
