@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -555,6 +556,20 @@ func (h *Hub) finish(a *admitted) {
 	h.serving.Done()
 }
 
+// sameOrigin is coder/websocket's default check (authenticateOrigin with no
+// patterns), which main used: no Origin is fine (not a browser); otherwise
+// its host must equal the request's Host, case-insensitively.
+func sameOrigin(origin, host string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(host, u.Host)
+}
+
 // Handle upgrades /crew/ws. Auth is done by the router (crew principal):
 // the connection belongs to the principal's organization. Everything that
 // can refuse (hub not ready, shutting down, the organization's connection
@@ -567,6 +582,11 @@ func (h *Hub) Handle(c fiber.Ctx) error {
 	p, err := httpx.Caller(c)
 	if err != nil {
 		return err
+	}
+	// A browser always sends its Origin: one from another site must not
+	// drive an agent connection (the connector sends none).
+	if !sameOrigin(c.Get(fiber.HeaderOrigin), string(c.RequestCtx().Host())) {
+		return errx.Forbidden("the WebSocket origin is not allowed")
 	}
 	org := p.Organization
 	h.mu.Lock()
@@ -598,7 +618,8 @@ func (h *Hub) Handle(c fiber.Ctx) error {
 	}
 	h.opening[a.open] = struct{}{}
 	h.mu.Unlock()
-	// The connector (coder/websocket) sends no Origin header.
+	// The Origin was checked above (sameOrigin); the connector
+	// (coder/websocket) sends none.
 	upgrade := websocket.New(func(conn *websocket.Conn) { h.run(a, conn) }, websocket.Config{AllowEmptyOrigin: true})
 	if err := upgrade(c); err != nil {
 		h.finish(a) // refused (not an upgrade request, bad handshake)
