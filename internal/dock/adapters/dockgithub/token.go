@@ -10,6 +10,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/gofiber/fiber/v3"
 )
 
 // AgentToken mints a token for repo for the agent: the repo must be served
@@ -88,9 +89,9 @@ func webHost(web string) string {
 // Token serves POST /crew/github/token (behind crew auth): an App token
 // for one repository, for the caller's own agent (a crew token of an
 // agent; the open mode's local owner names none and is refused).
-func (h *Handler) Token() http.Handler {
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		p, ok := httpx.PrincipalFrom(r.Context())
+func (h *Handler) Token() fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, ok := httpx.PrincipalFrom(c.Context())
 		if !ok || p.Role != httpx.RoleCrew {
 			return errx.Unauthorized("missing crew principal")
 		}
@@ -98,14 +99,14 @@ func (h *Handler) Token() http.Handler {
 			return errx.Forbidden("GitHub tokens go to an agent's crew token")
 		}
 		var in dock.GitHubTokenRequest
-		if err := httpx.DecodeJSON(r, &in); err != nil {
+		if err := httpx.DecodeJSON(c, &in); err != nil {
 			return err
 		}
-		t, err := h.g.AgentToken(r.Context(), p.Organization, p.Agent, in)
+		t, err := h.g.AgentToken(c.Context(), p.Organization, p.Agent, in)
 		if err != nil {
 			return err
 		}
-		w.Header().Set("Cache-Control", "no-store")
-		return httpx.JSON(w, http.StatusOK, t)
-	})
+		c.Set("Cache-Control", "no-store")
+		return httpx.JSON(c, http.StatusOK, t)
+	}
 }

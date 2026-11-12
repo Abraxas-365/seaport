@@ -1,19 +1,24 @@
 package hostinggateway_test
 
 import (
+	"bufio"
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/hosting/adapters/hostinggateway"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/gofiber/fiber/v3"
 )
 
 // commands is the part of hosting.Commands the gateway calls.
@@ -55,18 +60,30 @@ func serve(t *testing.T, c *commands, upstream http.HandlerFunc, slot int) *http
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := hostinggateway.APIKeyAsBearer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer sp_crew_slot" {
-			http.Error(w, "no", http.StatusUnauthorized)
-			return
+	// The route as bootstrap mounts it: Fiber, x-api-key as the bearer, an
+	// authenticator, then the net/http gateway through stdhttp.Handler.
+	app := fiber.New(fiber.Config{ErrorHandler: httpx.ErrorHandler})
+	app.All(hosting.GatewayPath+"/*", httpx.APIKeyAsBearer(), func(c fiber.Ctx) error {
+		if c.Get("Authorization") != "Bearer sp_crew_slot" {
+			return errx.Unauthorized("no")
 		}
-		ctx := httpx.WithPrincipal(r.Context(), httpx.Principal{Organization: identity.MustParseOrganizationID("00000000-0000-0000-0000-000000000001"),
+		httpx.SetPrincipal(c, httpx.Principal{Organization: identity.MustParseOrganizationID("00000000-0000-0000-0000-000000000001"),
 			Role: httpx.RoleCrew, Agent: agentID, Slot: slot})
-		gw.ServeHTTP(w, r.WithContext(ctx))
-	}))
-	s := httptest.NewServer(h)
-	t.Cleanup(s.Close)
-	return s
+		return c.Next()
+	}, stdhttp.Handler(gw))
+	return listen(t, app)
+}
+
+// listen serves app on a loopback port for the test's lifetime.
+func listen(t *testing.T, app *fiber.App) *httptest.Server {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Listener(ln, fiber.ListenConfig{DisableStartupMessage: true}) }()
+	t.Cleanup(func() { _ = app.ShutdownWithTimeout(time.Second) })
+	return &httptest.Server{URL: "http://" + ln.Addr().String()}
 }
 
 func call(t *testing.T, s *httptest.Server, path, body string) (*http.Response, string) {
@@ -175,5 +192,71 @@ func TestGatewayDoesNotMeterErrors(t *testing.T) {
 	}
 	if len(c.recorded()) != 0 {
 		t.Fatal("an error was metered")
+	}
+}
+
+// A streamed answer goes out as it arrives (the adapter must not buffer it)
+// and the usage is still metered.
+func TestGatewayStreamsWithoutBuffering(t *testing.T) {
+	c := &commands{key: "k"}
+	s := serve(t, c, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		for i := 0; i < 4; i++ {
+			_, _ = io.WriteString(w, "data: {\"type\":\"ping\"}\n\n")
+			f.Flush()
+			time.Sleep(150 * time.Millisecond)
+		}
+		_, _ = io.WriteString(w, "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":4}}\n\n")
+	}, 1)
+	req, _ := http.NewRequest(http.MethodPost, s.URL+"/gateway/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+	req.Header.Set("X-Api-Key", "sp_crew_slot")
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Scan()
+	if d := time.Since(start); d > 400*time.Millisecond {
+		t.Fatalf("first chunk after %v: the stream was buffered", d)
+	}
+	for sc.Scan() {
+	}
+}
+
+// The client leaving cancels the upstream call, so the model stops running
+// (and costing tokens) for nobody.
+func TestGatewayClientLeavingCancelsUpstream(t *testing.T) {
+	c := &commands{key: "k"}
+	cancelled := make(chan struct{})
+	s := serve(t, c, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i := 0; i < 100; i++ {
+			if _, err := io.WriteString(w, "data: {}\n\n"); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			select {
+			case <-r.Context().Done():
+				close(cancelled)
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}, 1)
+	req, _ := http.NewRequest(http.MethodPost, s.URL+"/gateway/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+	req.Header.Set("X-Api-Key", "sp_crew_slot")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bufio.NewScanner(resp.Body).Scan()
+	resp.Body.Close()
+	select {
+	case <-cancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the upstream call outlived its client")
 	}
 }

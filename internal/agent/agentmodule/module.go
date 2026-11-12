@@ -2,13 +2,12 @@
 package agentmodule
 
 import (
-	"net/http"
-
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/agent/adapters/agenthttp"
 	"github.com/Abraxas-365/seaport/internal/agent/adapters/agentpg"
 	"github.com/Abraxas-365/seaport/internal/agent/agentsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/jmoiron/sqlx"
 )
@@ -38,4 +37,4 @@ func New(db *sqlx.DB, secretKey string, revoker agent.Revoker, events event.Publ
 }
 
 // Register mounts /api/v1/agents and /api/v1/docks/{dock}/agents.
-func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
+func (m *Module) Register(r httpx.Router) { m.http.Register(r) }

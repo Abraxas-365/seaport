@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/gofiber/fiber/v3"
 )
 
 type Handler struct {
@@ -25,112 +26,112 @@ func New(c ship.Commands, q ship.Queries, docks dock.Queries) *Handler {
 	return &Handler{commands: c, queries: q, docks: docks}
 }
 
-// Register mounts the routes on mux (already behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/inbox", httpx.RequireFunc(permission.ConversationsRead, h.inbox))
-	mux.Handle("GET /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
-	mux.Handle("GET /api/v1/conversations/{id}/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
-	mux.Handle("POST /api/v1/conversations/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
-	mux.Handle("POST /api/v1/docks/{id}/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
-	mux.Handle("GET /api/v1/attachments/{id}", httpx.RequireFunc(permission.ShipsRead, h.attachment))
+// Register mounts the routes on r (already behind admin auth).
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/inbox", httpx.RequireFunc(permission.ConversationsRead, h.inbox))
+	r.Get("/api/v1/conversations/:id/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
+	r.Get("/api/v1/conversations/:id/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
+	r.Post("/api/v1/conversations/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
+	r.Post("/api/v1/docks/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
+	r.Get("/api/v1/attachments/:id", httpx.RequireFunc(permission.ShipsRead, h.attachment))
 }
 
 // attachment serves a ship's attachment (an image shown in its bubble).
-func (h *Handler) attachment(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) attachment(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAttachmentID(r.PathValue("id"))
+	id, err := identity.ParseAttachmentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	f, err := h.queries.OpenAttachment(r.Context(), org, ship.OpenAttachment{ID: id})
+	f, err := h.queries.OpenAttachment(c.Context(), org, ship.OpenAttachment{ID: id})
 	if err != nil {
 		return err
 	}
 	if f.Kind == ship.AttachmentDocument {
-		return httpx.Download(w, f.MIME, f.Name, f.Data)
+		return httpx.Download(c, f.MIME, f.Name, f.Data)
 	}
-	return httpx.File(w, f.MIME, f.Data)
+	return httpx.File(c, f.MIME, f.Data)
 }
 
-func (h *Handler) history(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) history(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseConversationID(r.PathValue("id"))
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.History(r.Context(), org, id, page)
+	out, err := h.queries.History(c.Context(), org, id, page)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 // turns lists what the agent did on each delivery of a conversation
 // (ship.Turn), newest first.
-func (h *Handler) turns(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) turns(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseConversationID(r.PathValue("id"))
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.Turns(r.Context(), org, id, page)
+	out, err := h.queries.Turns(c.Context(), org, id, page)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 // inbox lists conversations with their last ship and counters
 // (?status=allowed|pending|denied&dock_id=).
-func (h *Handler) inbox(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) inbox(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
 	var f conversation.Filter
-	if raw := r.URL.Query().Get("status"); raw != "" {
+	if raw := c.Query("status"); raw != "" {
 		st := conversation.Status(raw)
 		f.Status = &st
 	}
-	if raw := r.URL.Query().Get("dock_id"); raw != "" {
+	if raw := c.Query("dock_id"); raw != "" {
 		d, err := identity.ParseDockID(raw)
 		if err != nil {
 			return err
 		}
 		f.Dock = &d
 	}
-	out, err := h.queries.Inbox(r.Context(), org, f, page)
+	out, err := h.queries.Inbox(c.Context(), org, f, page)
 	if err != nil {
 		return err
 	}
 	// The preview is message content: only for callers who may read ships.
-	if p, err := httpx.Caller(r); err != nil || !p.Can(permission.ShipsRead) {
+	if p, err := httpx.Caller(c); err != nil || !p.Can(permission.ShipsRead) {
 		for i := range out.Items {
 			out.Items[i].Last = nil
 		}
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type sendRequest struct {
@@ -138,24 +139,24 @@ type sendRequest struct {
 }
 
 // send lets the owner write to a conversation as the agent would.
-func (h *Handler) send(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) send(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseConversationID(r.PathValue("id"))
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req sendRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	s, err := h.commands.Send(r.Context(), org, ship.Outbound{Conversation: id, Text: req.Text})
+	s, err := h.commands.Send(c.Context(), org, ship.Outbound{Conversation: id, Text: req.Text})
 	if err != nil {
 		return err
 	}
-	return httpx.Created(w, r, s.ID.String(), s)
+	return httpx.Created(c, s.ID.String(), s)
 }
 
 type receiveRequest struct {
@@ -187,20 +188,20 @@ type receiveResponse struct {
 }
 
 // receive injects an inbound message into an "api" dock.
-func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) receive(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseDockID(r.PathValue("id"))
+	id, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req receiveRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	d, err := h.docks.Find(r.Context(), org, id)
+	d, err := h.docks.Find(c.Context(), org, id)
 	if err != nil {
 		return err
 	}
@@ -222,12 +223,12 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) error {
 	for _, img := range req.Images {
 		in.Media = append(in.Media, ship.Media{Kind: ship.AttachmentImage, Name: img.Name, Data: img.Data})
 	}
-	s, created, err := h.commands.Receive(r.Context(), org, in)
+	s, created, err := h.commands.Receive(c.Context(), org, in)
 	if err != nil {
 		return err
 	}
 	if !created {
-		return httpx.JSON(w, http.StatusOK, receiveResponse{Ship: s, Duplicate: true})
+		return httpx.JSON(c, http.StatusOK, receiveResponse{Ship: s, Duplicate: true})
 	}
-	return httpx.JSON(w, http.StatusCreated, receiveResponse{Ship: s})
+	return httpx.JSON(c, http.StatusCreated, receiveResponse{Ship: s})
 }

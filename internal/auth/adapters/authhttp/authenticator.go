@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/auth"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/gofiber/fiber/v3"
 )
 
 const (
@@ -47,74 +48,65 @@ func principal(who auth.Identity) httpx.Principal {
 
 // Admin: a bearer (CLI, scripts) wins over the cookie; cookie requests go
 // through cross-origin protection (CSRF).
-func (a *Authenticator) Admin(next http.Handler) http.Handler {
-	withCookie := httpx.CrossOrigin(next)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "" {
-			who, err := a.auth.Bearer(r.Context(), httpx.Bearer(r))
+func (a *Authenticator) Admin() fiber.Handler {
+	csrf := httpx.CrossOrigin()
+	return func(c fiber.Ctx) error {
+		if c.Get("Authorization") != "" {
+			who, err := a.auth.Bearer(c.Context(), httpx.Bearer(c))
 			if err != nil {
-				httpx.WriteError(w, r, err)
-				return
+				return err
 			}
-			next.ServeHTTP(w, r.WithContext(httpx.WithPrincipal(r.Context(), principal(who))))
-			return
+			httpx.SetPrincipal(c, principal(who))
+			return c.Next()
 		}
-		who, _, err := a.auth.Authenticate(r.Context(), sessionID(r))
+		who, _, err := a.auth.Authenticate(c.Context(), sessionID(c))
 		if err != nil {
 			if errx.IsType(err, errx.TypeAuthorization) {
-				a.clearSession(w)
+				a.clearSession(c)
 			}
-			httpx.WriteError(w, r, err)
-			return
+			return err
 		}
-		withCookie.ServeHTTP(w, r.WithContext(httpx.WithPrincipal(r.Context(), principal(who))))
-	})
+		httpx.SetPrincipal(c, principal(who))
+		return csrf(c)
+	}
 }
 
 // Crew: agents present a crew token of their organization.
-func (a *Authenticator) Crew(next http.Handler) http.Handler {
-	return httpx.CrewAuth(a.crew, next)
-}
+func (a *Authenticator) Crew() fiber.Handler { return httpx.CrewAuth(a.crew) }
 
 func (a *Authenticator) Session() httpx.SessionRoutes {
 	return httpx.SessionRoutes{
-		Login:    httpx.Handle(a.login),
-		Current:  httpx.Handle(a.current),
-		Logout:   httpx.Handle(a.logout),
-		SignIn:   httpx.Handle(a.signIn),
-		Callback: http.HandlerFunc(a.callback),
+		Login:    a.login,
+		Current:  a.current,
+		Logout:   a.logout,
+		SignIn:   a.signIn,
+		Callback: a.callback,
 	}
 }
 
-func sessionID(r *http.Request) string {
-	c, err := r.Cookie(httpx.SessionCookie)
-	if err != nil {
-		return ""
-	}
-	return c.Value
+func sessionID(c fiber.Ctx) string { return c.Cookies(httpx.SessionCookie) }
+
+func (a *Authenticator) cookie(name, value, path string, maxAge int, same string) *fiber.Cookie {
+	return &fiber.Cookie{Name: name, Value: value, Path: path, MaxAge: maxAge, HTTPOnly: true, Secure: a.secure, SameSite: same}
 }
 
-func (a *Authenticator) cookie(name, value, path string, maxAge int, same http.SameSite) *http.Cookie {
-	return &http.Cookie{Name: name, Value: value, Path: path, MaxAge: maxAge, HttpOnly: true, Secure: a.secure, SameSite: same}
-}
-
-func (a *Authenticator) clearSession(w http.ResponseWriter) {
-	http.SetCookie(w, a.cookie(httpx.SessionCookie, "", "/", -1, http.SameSiteStrictMode))
+func (a *Authenticator) clearSession(c fiber.Ctx) {
+	c.Cookie(a.cookie(httpx.SessionCookie, "", "/", -1, fiber.CookieSameSiteStrictMode))
 }
 
 // login is POST /api/v1/session: token mode's form has no meaning here.
-func (a *Authenticator) login(w http.ResponseWriter, r *http.Request) error {
+func (a *Authenticator) login(c fiber.Ctx) error {
 	return errx.Validation("this port signs in with IAMKit: GET /api/v1/session/login")
 }
 
 // current is GET /api/v1/session (never 401).
-func (a *Authenticator) current(w http.ResponseWriter, r *http.Request) error {
-	who, s, err := a.auth.Authenticate(r.Context(), sessionID(r))
+func (a *Authenticator) current(c fiber.Ctx) error {
+	who, s, err := a.auth.Authenticate(c.Context(), sessionID(c))
 	if errx.IsType(err, errx.TypeAuthorization) {
-		if sessionID(r) != "" {
-			a.clearSession(w)
+		if sessionID(c) != "" {
+			a.clearSession(c)
 		}
-		return httpx.JSON(w, http.StatusOK, httpx.SignedOut())
+		return httpx.JSON(c, http.StatusOK, httpx.SignedOut())
 	}
 	if err != nil {
 		return err
@@ -124,7 +116,7 @@ func (a *Authenticator) current(w http.ResponseWriter, r *http.Request) error {
 	if perms == nil {
 		perms = []string{}
 	}
-	return httpx.JSON(w, http.StatusOK, httpx.SessionState{Authenticated: true, ExpiresAt: &exp, Subject: who.Subject,
+	return httpx.JSON(c, http.StatusOK, httpx.SessionState{Authenticated: true, ExpiresAt: &exp, Subject: who.Subject,
 		Name: s.Profile.Name, Email: s.Profile.Email, Organization: who.Organization.String(),
 		OrganizationName: s.Profile.OrganizationName, Permissions: perms})
 }
@@ -134,48 +126,44 @@ type logoutResponse struct {
 	LogoutURL string `json:"logout_url"`
 }
 
-// logout is DELETE /api/v1/session (admin mux: authenticated).
-func (a *Authenticator) logout(w http.ResponseWriter, r *http.Request) error {
-	end, err := a.auth.Logout(r.Context(), sessionID(r))
+// logout is DELETE /api/v1/session (admin routes: authenticated).
+func (a *Authenticator) logout(c fiber.Ctx) error {
+	end, err := a.auth.Logout(c.Context(), sessionID(c))
 	if err != nil {
 		return err
 	}
-	a.clearSession(w)
-	return httpx.JSON(w, http.StatusOK, logoutResponse{LogoutURL: end})
+	a.clearSession(c)
+	return httpx.JSON(c, http.StatusOK, logoutResponse{LogoutURL: end})
 }
 
 // signIn is GET /api/v1/session/login?next=/path&organization=<id>&switch=1:
 // a top-level navigation to IAMKit's hosted sign-in.
-func (a *Authenticator) signIn(w http.ResponseWriter, r *http.Request) error {
-	q := r.URL.Query()
-	az, err := a.auth.Begin(r.Context(), auth.Begin{Next: q.Get("next"), Organization: q.Get("organization"),
-		SelectAccount: q.Get("switch") == "1"})
+func (a *Authenticator) signIn(c fiber.Ctx) error {
+	az, err := a.auth.Begin(c.Context(), auth.Begin{Next: c.Query("next"), Organization: c.Query("organization"),
+		SelectAccount: c.Query("switch") == "1"})
 	if err != nil {
 		return err
 	}
 	raw, _ := json.Marshal(az.Pending)
 	// Lax: the callback is a top-level navigation coming back from IAMKit.
-	http.SetCookie(w, a.cookie(pendingCookie, a.sealer.Seal(pendingPurpose, raw), CallbackPath,
-		int(auth.PendingTTL.Seconds()), http.SameSiteLaxMode))
-	http.Redirect(w, r, az.URL, http.StatusSeeOther)
-	return nil
+	c.Cookie(a.cookie(pendingCookie, a.sealer.Seal(pendingPurpose, raw), CallbackPath,
+		int(auth.PendingTTL.Seconds()), fiber.CookieSameSiteLaxMode))
+	return c.Redirect().Status(http.StatusSeeOther).To(az.URL)
 }
 
 // callback is GET /auth/callback: IAMKit's redirect. Failures go back to
 // the app with ?signin_error= (shown on the sign-in screen), never to an
 // error page the user can't leave.
-func (a *Authenticator) callback(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, a.cookie(pendingCookie, "", CallbackPath, -1, http.SameSiteLaxMode))
-	q := r.URL.Query()
-	pending, err := a.pending(r)
+func (a *Authenticator) callback(c fiber.Ctx) error {
+	c.Cookie(a.cookie(pendingCookie, "", CallbackPath, -1, fiber.CookieSameSiteLaxMode))
+	pending, err := a.pending(c)
 	if err == nil {
 		var id string
 		var s auth.Session
-		id, s, err = a.auth.Complete(r.Context(), pending, auth.Callback{Code: q.Get("code"), State: q.Get("state"), Error: q.Get("error")})
+		id, s, err = a.auth.Complete(c.Context(), pending, auth.Callback{Code: c.Query("code"), State: c.Query("state"), Error: c.Query("error")})
 		if err == nil {
-			http.SetCookie(w, a.cookie(httpx.SessionCookie, id, "/", int(time.Until(s.ExpiresAt).Seconds()), http.SameSiteStrictMode))
-			http.Redirect(w, r, pending.Next, http.StatusSeeOther)
-			return
+			c.Cookie(a.cookie(httpx.SessionCookie, id, "/", int(time.Until(s.ExpiresAt).Seconds()), fiber.CookieSameSiteStrictMode))
+			return c.Redirect().Status(http.StatusSeeOther).To(pending.Next)
 		}
 	}
 	var e *errx.Error
@@ -183,17 +171,17 @@ func (a *Authenticator) callback(w http.ResponseWriter, r *http.Request) {
 	if errx.As(err, &e) && e.HTTPStatus < 500 {
 		msg = e.Message
 	} else {
-		slog.Error("IAMKit sign-in callback", "request_id", httpx.RequestID(r.Context()), "err", err)
+		slog.Error("IAMKit sign-in callback", "request_id", httpx.RequestID(c.Context()), "err", err)
 	}
-	http.Redirect(w, r, "/?signin_error="+url.QueryEscape(msg), http.StatusSeeOther)
+	return c.Redirect().Status(http.StatusSeeOther).To("/?signin_error=" + url.QueryEscape(msg))
 }
 
-func (a *Authenticator) pending(r *http.Request) (auth.Pending, error) {
-	c, err := r.Cookie(pendingCookie)
-	if err != nil {
+func (a *Authenticator) pending(c fiber.Ctx) (auth.Pending, error) {
+	value := c.Cookies(pendingCookie)
+	if value == "" {
 		return auth.Pending{}, errx.Unauthorized("the sign-in expired or was started in another browser; start again")
 	}
-	raw, err := a.sealer.Open(pendingPurpose, c.Value)
+	raw, err := a.sealer.Open(pendingPurpose, value)
 	if err != nil {
 		return auth.Pending{}, errx.Unauthorized("the sign-in expired or was started in another browser; start again")
 	}

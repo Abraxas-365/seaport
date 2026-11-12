@@ -52,12 +52,12 @@ Domains talk to each other only through ports: `shipsvc` uses `conversation`'s p
 
 ## Composition root
 
-`internal/bootstrap` wires everything in `Build`: opens the Postgres pool (plus a pool of its own for session advisory locks), runs the embedded goose migrations, builds the event bus, picks the authenticator for the mode (`SEAPORT_AUTH`), creates every module, binds the late dependencies, and mounts the routes:
+`internal/bootstrap` wires everything in `Build`: opens the Postgres pool (plus a pool of its own for session advisory locks), runs the embedded goose migrations, builds the event bus, picks the authenticator for the mode (`SEAPORT_AUTH`), creates every module, binds the late dependencies, and mounts the routes on a Fiber app (`bootstrap/routes.go`; the shell is `bootstrap/server.go` and `httpx/fiber.go`):
 
 - `/api/` admin routes, each wrapped in `httpx.Require` with a permission.
 - `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments/{id}`, `/crew/workspace`: authenticated with a crew credential.
-- the model gateway under `hosting.GatewayPath`.
-- `/` the embedded web app (`httpx.SPA`), with client routes falling back to `index.html`.
+- the model gateway under `hosting.GatewayPath` (a net/http reverse proxy mounted on a Fiber route, like `/mcp`, through `httpx/stdhttp`).
+- `/` the embedded web app (`httpx.SPA`), with client routes falling back to `index.html`. Unknown `/api/` paths are a JSON 404 behind authentication, never the web app.
 
 `App.Close` shuts down in order: the crew hub first (releasing its claims), then dock handover, hosted builds, and finally the event bus.
 
@@ -104,7 +104,7 @@ The adapter knows the channel; nothing downstream branches on it. See [message l
 
 | Test | Rule it enforces |
 | :--- | :--- |
-| `TestLayerDependencies` | Foundation imports no domain. Only `bootstrap` imports modules. Nobody imports another domain's `*svc`: depend on its `Commands`/`Queries`. Adapters don't import other adapters. Domain roots and `*svc` never import `net/http`, `database/sql`, `sqlx`, `pgx`. `connector` imports only foundation and domain roots, and only `cmd` imports it. Vendor SDKs stay in their adapter (`vendorSDKs`: whatsmeow → `dockwa`, MCP SDK → `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose, pgx, IAMKit and JWT → `authiam`, Docker SDK → `hostingdocker`, `gocloud.dev` → `gocloudblob`, the embedded web app → `bootstrap`). whatsmeow's own `sqlstore` is banned in production code, because it keeps keys in clear. |
+| `TestLayerDependencies` | Foundation imports no domain. Only `bootstrap` imports modules. Nobody imports another domain's `*svc`: depend on its `Commands`/`Queries`. Adapters don't import other adapters. Domain roots and `*svc` never import `net/http`, `database/sql`, `sqlx`, `pgx`. `connector` imports only foundation and domain roots, and only `cmd` imports it. Vendor SDKs stay in their adapter (`vendorSDKs`: whatsmeow → `dockwa`, MCP SDK → `crewmcp`, ACP SDK → `connector`, `coder/websocket` → `connector`, Fiber's websocket → `crewws`, goose, pgx, IAMKit and JWT → `authiam`, Docker SDK → `hostingdocker`, `gocloud.dev` → `gocloudblob`, Fiber/fasthttp → `httpx`, `bootstrap` and the adapters that serve routes, the embedded web app → `bootstrap`). whatsmeow's own `sqlstore` is banned in production code, because it keeps keys in clear. |
 | `TestPortsAreInterfaces` | `ports.go` declares only interfaces. |
 | `TestServicesExportNoConstants` | `*svc` packages export no constants; they belong to the domain root. |
 | `TestErrxNoTypedNil` | A function returning `*errx.Error` never does `return nil` (no typed nils). |
@@ -114,6 +114,7 @@ The adapter knows the channel; nothing downstream branches on it. See [message l
 | `TestOnlyTheCrewEquips` | Functions that hand out agent secrets in clear are called from one package each (`secretCalls`): `Equip` only by `crewhttp`, `OpenSecrets` only by `agentsvc`, `Reveal` only by `hostingsvc`, `OpenWorkspace` only by `hostinghttp`, `ModelKey` only by `hostinggateway`. No admin handler, event or MCP tool can return a secret. |
 | `TestOnlyOwnersReachBlobs` | Only `blob`, its adapter, `bootstrap` and the services/modules that own sealed blobs (`shipsvc`, `hostingsvc`) import `internal/blob`. Others read through the owner's checked queries. |
 | `TestAdminRoutesRequirePermission` | Every admin route is wrapped in `httpx.Require` or `RequireFunc`. |
+| `TestNoNetHTTPRouting` | `http.ServeMux`, `http.Server` and `ListenAndServe` stay out of production code except the connector's loopback relay and the egress proxy; `httpx/stdhttp` is imported only by the packages that mount the MCP and gateway handlers. |
 | `TestNoPermissionLiterals` | Permissions are named through `permission.*` constants, never string literals. |
 | `TestEveryPermissionIsChecked` | Every permission in the catalog is checked somewhere. |
 | `TestWebUsesGeneratedPermissions` | The web app never writes `"seaport:…"` literals; it uses the generated `permissions.gen.ts`. |

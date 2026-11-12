@@ -2,13 +2,12 @@
 package shipmodule
 
 import (
-	"net/http"
-
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/blob"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/adapters/shiphttp"
 	"github.com/Abraxas-365/seaport/internal/ship/adapters/shippg"
@@ -48,4 +47,4 @@ func New(d Deps) (*Module, error) {
 	return &Module{Service: svc, http: shiphttp.New(svc, svc, d.Docks)}, nil
 }
 
-func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
+func (m *Module) Register(r httpx.Router) { m.http.Register(r) }

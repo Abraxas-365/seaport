@@ -43,6 +43,8 @@ func FromStatus(status int, message string) *Error {
 		return PayloadTooLarge(message)
 	case 415:
 		return UnsupportedMediaType(message)
+	case 426:
+		return UpgradeRequired(message)
 	case 422:
 		return Business(message)
 	case 429:

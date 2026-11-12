@@ -3,6 +3,8 @@ package crewhttp
 import (
 	"net/http"
 
+	"github.com/gofiber/fiber/v3"
+
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -18,22 +20,21 @@ type Kit struct {
 	Agents agent.Queries
 }
 
-func (k Kit) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		p, ok := httpx.PrincipalFrom(r.Context())
-		if !ok {
-			return errx.Unauthorized("missing crew principal")
-		}
-		id, _, err := crew.ResolveAgent(r.Context(), k.Agents,
-			crew.Caller{Organization: p.Organization, Agent: p.Agent, AgentName: p.AgentName}, r.URL.Query().Get("agent"))
-		if err != nil {
-			return err
-		}
-		kit, err := k.Kits.Equip(r.Context(), p.Organization, id)
-		if err != nil {
-			return err
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		return httpx.JSON(w, http.StatusOK, kit)
-	}).ServeHTTP(w, r)
+// Handle is the route handler.
+func (k Kit) Handle(c fiber.Ctx) error {
+	p, ok := httpx.PrincipalFrom(c.Context())
+	if !ok {
+		return errx.Unauthorized("missing crew principal")
+	}
+	id, _, err := crew.ResolveAgent(c.Context(), k.Agents,
+		crew.Caller{Organization: p.Organization, Agent: p.Agent, AgentName: p.AgentName}, c.Query("agent"))
+	if err != nil {
+		return err
+	}
+	kit, err := k.Kits.Equip(c.Context(), p.Organization, id)
+	if err != nil {
+		return err
+	}
+	c.Set("Cache-Control", "no-store")
+	return httpx.JSON(c, http.StatusOK, kit)
 }

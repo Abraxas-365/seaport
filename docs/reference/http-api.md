@@ -30,7 +30,7 @@ Admin routes (`/api/…`) take one of these, depending on `SEAPORT_AUTH`:
 - A request with a `Content-Encoding` other than identity gets `415`.
 - Ids are opaque strings. `X-Request-ID` is echoed back when it matches `^[A-Za-z0-9_-]{1,64}$`, else the port makes one.
 - Creating routes answer `201` with a `Location` header: the request path plus `/` plus the new id.
-- A route that doesn't exist under `/api/` answers `404` (`route not found`), and a wrong method answers `405` (`METHOD_NOT_ALLOWED`) in the same error shape.
+- A route that doesn't exist under `/api/` answers `404` (`route not found`), and so does a wrong method (only `/healthz` answers `405`, `METHOD_NOT_ALLOWED`), in the same error shape.
 - Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store`. Files add a sandbox `Content-Security-Policy`. `Strict-Transport-Security` is added over TLS or behind `X-Forwarded-Proto: https`.
 
 ### Errors

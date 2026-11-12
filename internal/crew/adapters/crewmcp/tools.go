@@ -16,6 +16,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -50,7 +51,7 @@ func Handler(d Deps) http.Handler {
 // the tools are scoped to it like a token's; with a token the header must
 // name the token's agent.
 func withAgent(agents agent.Queries, next http.Handler) http.Handler {
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
+	return stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		p, ok := httpx.PrincipalFrom(r.Context())
 		if !ok {
 			return errx.Unauthorized("missing crew principal")

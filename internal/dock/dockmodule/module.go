@@ -4,7 +4,6 @@ package dockmodule
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/dock"
@@ -153,41 +152,41 @@ func (m *Module) BindTeams(t dockgithub.Teams) {
 	}
 }
 
-func (m *Module) Register(mux *http.ServeMux) {
-	m.http.Register(mux)
+func (m *Module) Register(r httpx.Router) {
+	m.http.Register(r)
 	if m.ghHTTP != nil {
-		m.ghHTTP.Register(mux)
+		m.ghHTTP.Register(r)
 	}
 	if m.jiraHTTP != nil {
-		m.jiraHTTP.Register(mux)
+		m.jiraHTTP.Register(r)
 	}
 	if m.slHTTP != nil {
-		m.slHTTP.Register(mux)
+		m.slHTTP.Register(r)
 	}
 }
 
 // RegisterPublic mounts the routes GitHub calls without a Seaport
 // credential (App flows, webhooks; each checks its own proof).
-func (m *Module) RegisterPublic(mux *http.ServeMux) {
+func (m *Module) RegisterPublic(r httpx.Router) {
 	if m.ghHTTP != nil {
-		m.ghHTTP.RegisterPublic(mux)
+		m.ghHTTP.RegisterPublic(r)
 	}
 	if m.jiraHTTP != nil {
-		m.jiraHTTP.RegisterPublic(mux)
+		m.jiraHTTP.RegisterPublic(r)
 	}
 	if m.slHTTP != nil {
-		m.slHTTP.RegisterPublic(mux)
+		m.slHTTP.RegisterPublic(r)
 	}
 }
 
 // GitHubToken serves POST /crew/github/token (mounted behind crew auth):
 // App tokens for the agent's repos. Without GitHub docks (no secret key)
 // it answers 404.
-func (m *Module) GitHubToken() http.Handler {
+func (m *Module) GitHubToken() httpx.Handler {
 	if m.ghHTTP == nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			httpx.WriteError(w, r, errx.NotFound("GitHub docks are off on this port (no secret key)"))
-		})
+		return func(httpx.Ctx) error {
+			return errx.NotFound("GitHub docks are off on this port (no secret key)")
+		}
 	}
 	return m.ghHTTP.Token()
 }

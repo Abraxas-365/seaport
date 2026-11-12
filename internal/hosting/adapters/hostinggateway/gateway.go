@@ -20,14 +20,14 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
-	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 // Limits of one call.
 const (
-	maxRequest = 64 << 20 // images and documents travel inline
-	maxMetered = 16 << 20 // a JSON answer read for its usage
+	maxRequest = hosting.MaxGatewayBody // images and documents travel inline
+	maxMetered = 16 << 20               // a JSON answer read for its usage
 )
 
 // Gateway serves GatewayPath/<provider>/... behind crew auth.
@@ -66,17 +66,6 @@ func New(commands hosting.Commands, cfg Config) (*Gateway, error) {
 	return &Gateway{commands: commands, upstreams: map[string]*url.URL{hosting.ProviderAnthropic: u}, transport: t}, nil
 }
 
-// APIKeyAsBearer lets harnesses that send their key as x-api-key (the
-// Anthropic SDKs) sign in to crew auth: it becomes the bearer.
-func APIKeyAsBearer(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if k := r.Header.Get("X-Api-Key"); k != "" && r.Header.Get("Authorization") == "" {
-			r.Header.Set("Authorization", "Bearer "+k)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // allowed are the provider paths a slot may call (anything else is 404:
 // the gateway is not an open relay to the provider's whole API).
 func allowed(path string) bool {
@@ -96,7 +85,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found_error", "the gateway does not serve "+r.URL.Path)
 		return
 	}
-	p, err := httpx.Caller(r)
+	p, err := stdhttp.Caller(r)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication_error", "missing or invalid slot token")
 		return

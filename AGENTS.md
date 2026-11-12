@@ -133,12 +133,16 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   domain roots (wire types), never services/adapters/wiring; only `cmd`
   imports it (`TestLayerDependencies`, "client" role).
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
-  `crewmcp`, ACP SDK → `connector`, websocket → `crewws`/`connector`, goose →
+  `crewmcp`, ACP SDK → `connector`, `coder/websocket` → `connector`, Fiber's
+  websocket contrib → `crewws`, Fiber/fasthttp → `httpx`, `bootstrap` and the
+  adapters that serve routes (`vendorSDKs`), goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
   pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
   the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`,
-  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`
+  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`,
+  Fiber and fasthttp → `httpx` and `bootstrap` (the server's shell; each
+  migrated domain's `…http` adapter is added when it moves)
   (`vendorSDKs` in `TestLayerDependencies`).
 - Permissions (`permission_architecture_test.go`): every admin route is
   wrapped in `httpx.Require`/`RequireFunc` (`TestAdminRoutesRequirePermission`);
@@ -162,10 +166,15 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `hosting/hostingsvc` and their modules) import `internal/blob`
   (`blobOwners`); everyone else reads through the owner's checked queries
   (`OpenAttachment`, `HomeFile`/`HomeArchive`).
+- Fiber contexts (`fiber_architecture_test.go`, `TestNoFiberCtxInGoroutines`):
+  a `fiber.Ctx` is pooled, so no `go` statement uses the one of its
+  function (closure, receiver or argument); hand the goroutine
+  `c.Context()` or copied values.
 - Public routes (`permission_architecture_test.go`,
-  `TestPublicRoutesAreListed`): every root route (outside `/api/v1/`) is
+  `TestPublicRoutesAreListed`; both route rules read Fiber's
+  `app.Get/Post/…/All("/path", h)`, as "METHOD /path"): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
-  `publicRoutes` (`/`, `/healthz`, GitHub's redirects, webhook and
+  `publicRoutes` (`ALL /*` the web app, `/healthz`, GitHub's redirects, webhook and
   Actions endpoint, Jira's webhook, which carry their own proof: a sealed
   state, the App's HMAC, a GitHub Actions OIDC token for this port or the
   Jira dock's secret as HMAC/bearer).
@@ -177,6 +186,56 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.
+
+## HTTP server
+
+The server is a Fiber v3 app. `bootstrap/server.go` is its shell (`Edges`:
+request id + security headers; `ErrorHandler`: the one JSON error body;
+`Deadline`; `/healthz`; per-request body limits, below; read/idle timeouts;
+graceful shutdown) and `bootstrap/routes.go` (`mountNative`) registers every
+route in the order that matters. Handlers are `func(fiber.Ctx) error` that
+return their errors; unknown routes are Fiber's own 404 through
+`ErrorHandler`, and `httpx.SPA` is the last route (GET/HEAD; other methods
+404), after an `/api/*` 404 that sits behind the admin authenticator. A known
+path with the wrong method is a 404 too (a GET goes to the web app), as on the
+net/http mux; only `/healthz` answers 405.
+
+- Body limits: fasthttp reads a body whole before any handler (before auth),
+  so `bodyLimitFor` (`Server.HeaderReceived`) picks the limit per request:
+  `httpx.MaxJSONBody` (1 MiB) unless the route is in `bodyTiers` (home upload,
+  `/crew/reply`, `/mcp`, the gateway: only with an Authorization/X-Api-Key
+  header or session cookie; webhooks at their `Max*` size). `bodyLimit` is the
+  biggest tier; `TestBodyLimitCoversTheBiggestBodies` checks every tier
+  against its handler's constant: a route with a bigger body needs a tier.
+- `/crew/ws` refuses an `Origin` whose host isn't the request's (403), before
+  anything is registered (`sameOrigin`); the connector sends none. An upgrade
+  whose hijack never runs is released by a watchdog (`Hub.watch`).
+
+- `Immutable: true`; a `fiber.Ctx` is never passed as a `context.Context`
+  nor kept past its handler (`TestNoFiberCtxInGoroutines`); `c.Context()`
+  carries the request id and deadline and is *not* cancelled when the client
+  leaves (fasthttp reads nothing meanwhile): bound waits yourself. Streams
+  (SSE, gateway, crew WebSocket) are exempt from `Deadline` (`isStream`).
+- Fiber and fasthttp are imported only by `httpx`, `bootstrap` and the
+  adapters that serve routes (`vendorSDKs`; a new one is added there).
+  Modules name its types through `httpx.Router/Handler/Ctx`.
+- Crew WebSocket: `crewws.Hub.Handle` does everything before the upgrade
+  (quota, presence) and then `gofiber/contrib/v3/websocket` takes over in a
+  hijacked goroutine that never touches the `fiber.Ctx`. `coder/websocket`
+  is the connector's client only.
+- SSE (`eventsse`) is a `SendStreamWriter`. The model gateway
+  (`hostinggateway`, `httputil.ReverseProxy`) and `/mcp` (the MCP SDK) stay
+  net/http handlers, mounted on Fiber routes by `httpx/stdhttp.Handler`
+  (request context from `c.Context()`, edge headers, panic recovery). The
+  egress proxy (CONNECT) and the connector's loopback relay serve on ports of
+  their own with net/http. `TestNoNetHTTPRouting` keeps `http.ServeMux`,
+  `http.Server` and `ListenAndServe` out of everything else (`netHTTPServers`
+  lists the exceptions with the reason) and `httpx/stdhttp` imports to the
+  packages that build or mount those two handlers.
+- Shutdown: `ServeListener` ends SSE and the crew hub first (fasthttp, unlike
+  net/http, waits for hijacked connections), then drains.
+- e2e tests run the real server on a random port (`App.ServeListener`);
+  there is no `App.Handler`.
 
 ## Conventions
 
@@ -533,7 +592,7 @@ test together with the reason. Add a rule when you add a pattern.
 - API rate limit (`httpx.RateLimit`, `SEAPORT_API_RATE`/`_BURST`): a token
   bucket per principal (organization + role + subject + credential; agents
   sharing one crew token share its bucket) after the
-  Authenticator on `/api/`, `/crew/ws`, `/mcp`; in memory, per process
+  Authenticator on `/api/`, `/crew/ws`, `/mcp` (the limit is a Fiber middleware after `auth.Admin`/`auth.Crew`); in memory, per process
   (with N replicas a caller may get up to N× the rate: accepted). Public routes are not limited. The web app retries
   reads on 429 after `Retry-After`.
 - Live events (`/api/v1/events`): services publish after their write
@@ -585,7 +644,7 @@ test together with the reason. Add a rule when you add a pattern.
   auth is the `httpx.Authenticator` port, picked once in `bootstrap`
   (`Open` for `none`, `Tokens` for `token`, `authhttp` for `iam`); it puts an
   `httpx.Principal` (organization, role, subject, permissions) in the request
-  context. Handlers take the organization from it (`httpx.Organization(r)`)
+  context. Handlers take the organization from it (`httpx.Organization(c)`)
   and routes check permissions with `httpx.Require`; single-owner modes
   grant every permission. Services never see the mode. `none` is loopback-only: `config.Validate` refuses other listen
   addresses, and `httpx.Open` refuses foreign `Host` names (DNS rebinding)
@@ -610,7 +669,7 @@ test together with the reason. Add a rule when you add a pattern.
 - Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
   `POST /api/v1/session`; cookie writes go through
-  `http.CrossOriginProtection` (also in `none` mode, for every write).
+  `httpx.CrossOrigin` (Fiber port of `http.CrossOriginProtection`; also in `none` mode, for every write).
 - Admin auth (iam mode): `Authorization: Bearer` (IAMKit API key `ik_key_…`
   or access token, introspected per request) wins over the cookie. Browser
   sign-in is a server-side OAuth code + PKCE flow (`/api/v1/session/login` →

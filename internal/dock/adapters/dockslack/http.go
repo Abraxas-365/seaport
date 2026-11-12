@@ -3,7 +3,6 @@ package dockslack
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -19,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/text"
+	"github.com/gofiber/fiber/v3"
 )
 
 // Public paths Slack calls or sends browsers to.
@@ -52,31 +52,31 @@ type Handler struct {
 func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g, docks: docks} }
 
 // Register mounts the admin routes (behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/docks/{id}/slack", httpx.RequireFunc(permission.DocksRead, h.info))
-	mux.Handle("POST /api/v1/docks/{id}/slack/create", httpx.RequireFunc(permission.DocksWrite, h.create))
-	mux.Handle("POST /api/v1/docks/{id}/slack/install", httpx.RequireFunc(permission.DocksWrite, h.install))
-	mux.Handle("POST /api/v1/docks/{id}/slack/connect", httpx.RequireFunc(permission.DocksWrite, h.connect))
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/docks/:id/slack", httpx.RequireFunc(permission.DocksRead, h.info))
+	r.Post("/api/v1/docks/:id/slack/create", httpx.RequireFunc(permission.DocksWrite, h.create))
+	r.Post("/api/v1/docks/:id/slack/install", httpx.RequireFunc(permission.DocksWrite, h.install))
+	r.Post("/api/v1/docks/:id/slack/connect", httpx.RequireFunc(permission.DocksWrite, h.connect))
 }
 
 // RegisterPublic mounts the routes Slack reaches without a Seaport
 // credential: each checks its own proof (a sealed state, a signature).
-func (h *Handler) RegisterPublic(mux *http.ServeMux) {
-	mux.Handle("GET "+OAuthCallbackPath, httpx.Handle(h.callback))
-	mux.Handle("POST "+EventsPath+"{dock}", httpx.Handle(h.events))
+func (h *Handler) RegisterPublic(r httpx.Router) {
+	r.Get("/slack/oauth/callback", h.callback)
+	r.Post("/slack/events/:dock", h.events)
 }
 
 // slackDock finds the caller's dock and checks it is a Slack one.
-func (h *Handler) slackDock(r *http.Request) (dock.Dock, error) {
-	org, err := httpx.Organization(r)
+func (h *Handler) slackDock(c fiber.Ctx) (dock.Dock, error) {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	id, err := identity.ParseDockID(r.PathValue("id"))
+	id, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return dock.Dock{}, err
 	}
-	d, err := h.docks.Find(r.Context(), org, id)
+	d, err := h.docks.Find(c.Context(), org, id)
 	if err != nil {
 		return dock.Dock{}, err
 	}
@@ -113,23 +113,23 @@ type Info struct {
 	Reachable   bool   `json:"reachable"`
 }
 
-func (h *Handler) info(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.slackDock(r)
+func (h *Handler) info(c fiber.Ctx) error {
+	d, err := h.slackDock(c)
 	if err != nil {
 		return err
 	}
 	out := Info{Manifest: h.g.manifest(d.ID, "Seaport "+d.Name), EventsURL: h.g.eventsURL(d.ID),
 		RedirectURL: h.g.redirectURL(), Reachable: reachable(h.g.cfg.PublicURL)}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	switch {
 	case errx.IsType(err, errx.TypeNotFound):
-		return httpx.JSON(w, http.StatusOK, out)
+		return httpx.JSON(c, http.StatusOK, out)
 	case err != nil:
 		return err
 	}
 	out.App = &AppInfo{AppID: a.AppID, Name: a.Name, TeamID: a.TeamID, TeamName: a.TeamName, TeamURL: a.TeamURL,
 		BotUserID: a.BotUserID, Installed: a.Installed(), Managed: a.ClientID != "" && a.clientSecret != "", CreatedAt: a.CreatedAt}
-	return httpx.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 func (g *Gateway) eventsURL(d identity.DockID) string {
@@ -191,12 +191,12 @@ func (g *Gateway) manifest(d identity.DockID, name string) json.RawMessage {
 // install answers the URL that (re)installs an app Seaport created. Each
 // call seals a fresh state, and finishing the install replaces the bot
 // token: a write, so it is minted here (docks:write), never by info.
-func (h *Handler) install(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.slackDock(r)
+func (h *Handler) install(c fiber.Ctx) error {
+	d, err := h.slackDock(c)
 	if err != nil {
 		return err
 	}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	if errx.IsType(err, errx.TypeNotFound) {
 		return errx.Business("this dock has no Slack App yet: create or connect one first")
 	}
@@ -206,7 +206,7 @@ func (h *Handler) install(w http.ResponseWriter, r *http.Request) error {
 	if a.ClientID == "" || a.clientSecret == "" {
 		return errx.Business("this dock's app was not created by Seaport: paste its tokens instead")
 	}
-	return httpx.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
+	return httpx.JSON(c, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
 }
 
 type createRequest struct {
@@ -224,13 +224,13 @@ type Created struct {
 
 // create (flow A): register the app from the manifest with the user's
 // configuration token, keep its credentials, answer the install URL.
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.slackDock(r)
+func (h *Handler) create(c fiber.Ctx) error {
+	d, err := h.slackDock(c)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
 	req.ConfigToken, req.Name = strings.TrimSpace(req.ConfigToken), text.Clean(req.Name)
@@ -243,7 +243,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 	if req.Name == "" {
 		req.Name = clip("Seaport "+d.Name, maxAppName)
 	}
-	c, err := h.g.client.createApp(r.Context(), req.ConfigToken, string(h.g.manifest(d.ID, req.Name)))
+	made, err := h.g.client.createApp(c.Context(), req.ConfigToken, string(h.g.manifest(d.ID, req.Name)))
 	if err != nil {
 		slog.Warn("create slack app", "dock", d.ID, "err", err)
 		if code(err) == "" {
@@ -251,23 +251,23 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
 		}
 		return errx.Validation("Slack refused to create the app (" + code(err) + "): check the configuration token and that its workspace allows apps")
 	}
-	if err := h.g.store.SaveApp(r.Context(), d.Organization, d.ID, NewApp{AppID: c.AppID, Name: req.Name,
-		ClientID: c.Credentials.ClientID, ClientSecret: c.Credentials.ClientSecret, SigningSecret: c.Credentials.SigningSecret}); err != nil {
+	if err := h.g.store.SaveApp(c.Context(), d.Organization, d.ID, NewApp{AppID: made.AppID, Name: req.Name,
+		ClientID: made.Credentials.ClientID, ClientSecret: made.Credentials.ClientSecret, SigningSecret: made.Credentials.SigningSecret}); err != nil {
 		return err
 	}
 	h.g.client.forget(d.ID)
 	// The new app has no bot token yet: a dock that was linked with the
 	// old one is linking again until this one is installed.
 	if links, _, _ := h.g.bound(); links != nil {
-		if err := links.SetStatus(r.Context(), d.ID, dock.StatusLinking); err != nil {
+		if err := links.SetStatus(c.Context(), d.ID, dock.StatusLinking); err != nil {
 			return err
 		}
 	}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
+	return httpx.JSON(c, http.StatusOK, Created{InstallURL: h.g.installURL(a, d)})
 }
 
 type connectRequest struct {
@@ -277,13 +277,13 @@ type connectRequest struct {
 
 // connect (flow B): an app the user made from the manifest; check the
 // bot token with auth.test and keep both secrets.
-func (h *Handler) connect(w http.ResponseWriter, r *http.Request) error {
-	d, err := h.slackDock(r)
+func (h *Handler) connect(c fiber.Ctx) error {
+	d, err := h.slackDock(c)
 	if err != nil {
 		return err
 	}
 	var req connectRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
 	req.SigningSecret, req.BotToken = strings.TrimSpace(req.SigningSecret), strings.TrimSpace(req.BotToken)
@@ -296,7 +296,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) error {
 	if !strings.HasPrefix(req.BotToken, "xoxb-") {
 		return errx.InvalidField("bot_token", "bot_token is the Bot User OAuth Token and starts with xoxb-")
 	}
-	who, err := h.g.client.authTest(r.Context(), req.BotToken)
+	who, err := h.g.client.authTest(c.Context(), req.BotToken)
 	if err != nil {
 		if code(err) == "" {
 			return err
@@ -306,19 +306,19 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) error {
 	if who.UserID == "" {
 		return errx.InvalidField("bot_token", "this token does not belong to a bot")
 	}
-	if err := h.g.store.SaveApp(r.Context(), d.Organization, d.ID, NewApp{Name: who.Team, SigningSecret: req.SigningSecret,
+	if err := h.g.store.SaveApp(c.Context(), d.Organization, d.ID, NewApp{Name: who.Team, SigningSecret: req.SigningSecret,
 		BotToken: req.BotToken, TeamID: who.TeamID, TeamName: who.Team, TeamURL: who.URL, BotUserID: who.UserID, BotID: who.BotID}); err != nil {
 		return err
 	}
 	h.g.client.forget(d.ID)
-	if err := h.g.linked(r, d.ID, who.Team, who.URL); err != nil {
+	if err := h.g.linked(c.Context(), d.ID, who.Team, who.URL); err != nil {
 		return err
 	}
-	return h.info(w, r)
+	return h.info(c)
 }
 
 // linked marks the dock linked; its address is the workspace.
-func (g *Gateway) linked(r *http.Request, d identity.DockID, team, teamURL string) error {
+func (g *Gateway) linked(ctx context.Context, d identity.DockID, team, teamURL string) error {
 	links, _, _ := g.bound()
 	if links == nil {
 		return nil
@@ -334,7 +334,7 @@ func (g *Gateway) linked(r *http.Request, d identity.DockID, team, teamURL strin
 	if address == "" {
 		address = "slack"
 	}
-	return links.SetLinked(r.Context(), d, clip(address, text.MaxName))
+	return links.SetLinked(ctx, d, clip(address, text.MaxName))
 }
 
 // flowState is what the install flow carries through Slack.
@@ -368,82 +368,78 @@ func (g *Gateway) openState(s, kind string) (flowState, error) {
 }
 
 // back sends the browser to the dock's page, with an error to show.
-func (h *Handler) back(w http.ResponseWriter, r *http.Request, d identity.DockID, problem string) error {
+func (h *Handler) back(c fiber.Ctx, d identity.DockID, problem string) error {
 	target := h.g.cfg.PublicURL + "/docks/" + d.String()
 	if problem != "" {
 		target += "?slack_error=" + url.QueryEscape(problem)
 	} else {
 		target += "?slack=installed"
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
-	return nil
+	return c.Redirect().Status(http.StatusSeeOther).To(target)
 }
 
 // callback: the user allowed the app in Slack; trade the code for the bot
 // token and link the dock.
-func (h *Handler) callback(w http.ResponseWriter, r *http.Request) error {
-	st, err := h.g.openState(r.URL.Query().Get("state"), "install")
+func (h *Handler) callback(c fiber.Ctx) error {
+	st, err := h.g.openState(c.Query("state"), "install")
 	if err != nil {
 		return err
 	}
-	if denied := r.URL.Query().Get("error"); denied != "" {
-		return h.back(w, r, st.Dock, "Slack did not finish the installation ("+clip(denied, 64)+")")
+	if denied := c.Query("error"); denied != "" {
+		return h.back(c, st.Dock, "Slack did not finish the installation ("+clip(denied, 64)+")")
 	}
-	oauthCode := r.URL.Query().Get("code")
+	oauthCode := c.Query("code")
 	if oauthCode == "" || len(oauthCode) > 512 {
-		return h.back(w, r, st.Dock, "Slack did not hand over an installation code")
+		return h.back(c, st.Dock, "Slack did not hand over an installation code")
 	}
-	d, err := h.docks.Find(r.Context(), st.Organization, st.Dock)
+	d, err := h.docks.Find(c.Context(), st.Organization, st.Dock)
 	if err != nil {
 		return err
 	}
 	if d.Channel != dock.ChannelSlack {
 		return errx.Business("not a Slack dock")
 	}
-	a, err := h.g.store.App(r.Context(), d.ID)
+	a, err := h.g.store.App(c.Context(), d.ID)
 	if err != nil {
 		return err
 	}
 	if a.ClientID == "" || a.clientSecret == "" {
-		return h.back(w, r, d.ID, "this dock's app was not created by Seaport: paste its tokens instead")
+		return h.back(c, d.ID, "this dock's app was not created by Seaport: paste its tokens instead")
 	}
-	acc, err := h.g.client.exchange(r.Context(), a.ClientID, a.clientSecret, oauthCode, h.g.redirectURL())
+	acc, err := h.g.client.exchange(c.Context(), a.ClientID, a.clientSecret, oauthCode, h.g.redirectURL())
 	if err != nil {
 		slog.Warn("exchange slack oauth code", "dock", d.ID, "err", err)
-		return h.back(w, r, d.ID, "Slack did not hand over the bot token: "+code(err))
+		return h.back(c, d.ID, "Slack did not hand over the bot token: "+code(err))
 	}
 	if acc.AccessToken == "" || acc.BotUserID == "" {
-		return h.back(w, r, d.ID, "Slack installed the app without a bot user")
+		return h.back(c, d.ID, "Slack installed the app without a bot user")
 	}
 	// auth.test adds the bot id and the workspace's address.
-	who, err := h.g.client.authTest(r.Context(), acc.AccessToken)
+	who, err := h.g.client.authTest(c.Context(), acc.AccessToken)
 	if err != nil {
 		slog.Warn("slack auth.test after install", "dock", d.ID, "err", err)
 	}
 	in := Install{AppID: acc.AppID, BotToken: acc.AccessToken, TeamID: firstOf(acc.Team.ID, who.TeamID),
 		TeamName: firstOf(acc.Team.Name, who.Team), TeamURL: who.URL, BotUserID: acc.BotUserID, BotID: who.BotID}
-	if err := h.g.store.SaveInstall(r.Context(), d.ID, in); err != nil {
+	if err := h.g.store.SaveInstall(c.Context(), d.ID, in); err != nil {
 		return err
 	}
 	h.g.client.forget(d.ID)
-	if err := h.g.linked(r, d.ID, in.TeamName, in.TeamURL); err != nil {
+	if err := h.g.linked(c.Context(), d.ID, in.TeamName, in.TeamURL); err != nil {
 		return err
 	}
-	return h.back(w, r, d.ID, "")
+	return h.back(c, d.ID, "")
 }
 
 // events takes Slack's Events API requests for one dock, signed with its
 // app's signing secret. url_verification is answered even before the
 // signing secret is known (a dock whose app is not connected yet).
-func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
-	id, err := identity.ParseDockID(r.PathValue("dock"))
+func (h *Handler) events(c fiber.Ctx) error {
+	id, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return errx.NotFound("unknown events endpoint")
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxEvent+1))
-	if err != nil {
-		return errx.Validation("could not read request body")
-	}
+	body := c.Body()
 	if len(body) > MaxEvent {
 		return errx.PayloadTooLarge("event body is too large")
 	}
@@ -451,24 +447,24 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 	if err := json.Unmarshal(body, &env); err != nil {
 		return errx.Validation("not a Slack event")
 	}
-	a, err := h.g.store.App(r.Context(), id)
+	a, err := h.g.store.App(c.Context(), id)
 	if errx.IsType(err, errx.TypeNotFound) {
 		if env.Type == "url_verification" && env.Challenge != "" {
-			return httpx.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
+			return httpx.JSON(c, http.StatusOK, map[string]string{"challenge": env.Challenge})
 		}
 		return errx.NotFound("unknown events endpoint")
 	}
 	if err != nil {
 		return err
 	}
-	if !validSignature(a.signingSecret, body, r.Header.Get("X-Slack-Request-Timestamp"), r.Header.Get("X-Slack-Signature"), time.Now()) {
+	if !validSignature(a.signingSecret, body, c.Get("X-Slack-Request-Timestamp"), c.Get("X-Slack-Signature"), time.Now()) {
 		return errx.Unauthorized("bad event signature")
 	}
 	if env.Type == "url_verification" {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"challenge": env.Challenge})
+		return httpx.JSON(c, http.StatusOK, map[string]string{"challenge": env.Challenge})
 	}
 	if !a.Installed() {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return httpx.JSON(c, http.StatusOK, map[string]string{"status": "ignored"})
 	}
 	_, receiver, teams := h.g.bound()
 	if receiver == nil {
@@ -476,25 +472,25 @@ func (h *Handler) events(w http.ResponseWriter, r *http.Request) error {
 	}
 	var team []agent.Member
 	if teams != nil {
-		if team, err = teams.Team(r.Context(), a.Organization, a.Dock); err != nil {
+		if team, err = teams.Team(c.Context(), a.Organization, a.Dock); err != nil {
 			return err
 		}
 	}
 	known := func(channel, ts string) (bool, error) {
-		return h.g.store.KnownThread(r.Context(), a.Dock, channel, ts)
+		return h.g.store.KnownThread(c.Context(), a.Dock, channel, ts)
 	}
 	rt, ok, err := route(env, a, team, known)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return httpx.JSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return httpx.JSON(c, http.StatusOK, map[string]string{"status": "ignored"})
 	}
 	// Slack wants an answer within 3 s and retries otherwise: names, images
 	// and the ship are taken in the background (a retry is a duplicate the
 	// ship's external id drops).
 	go h.forward(a, env, rt, receiver)
-	return httpx.JSON(w, http.StatusOK, map[string]string{"status": "accepted"})
+	return httpx.JSON(c, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
 // forwardTimeout bounds the background work of one event.

@@ -8,6 +8,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
+	"github.com/gofiber/fiber/v3"
 )
 
 type Handler struct {
@@ -21,59 +22,59 @@ func New(c conversation.Commands, q conversation.Queries, cc conversation.Custom
 	return &Handler{commands: c, queries: q, customs: cc, customsQueries: cq}
 }
 
-// Register mounts the routes on mux (already behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/conversations", httpx.RequireFunc(permission.ConversationsRead, h.list))
-	mux.Handle("GET /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsRead, h.find))
-	mux.Handle("PATCH /api/v1/conversations/{id}", httpx.RequireFunc(permission.ConversationsWrite, h.update))
-	mux.Handle("GET /api/v1/docks/{id}/customs", httpx.RequireFunc(permission.CustomsRead, h.getCustoms))
-	mux.Handle("PATCH /api/v1/docks/{id}/customs/policy", httpx.RequireFunc(permission.CustomsWrite, h.setPolicy))
-	mux.Handle("POST /api/v1/docks/{id}/customs/rules", httpx.RequireFunc(permission.CustomsWrite, h.addRule))
-	mux.Handle("DELETE /api/v1/customs/rules/{id}", httpx.RequireFunc(permission.CustomsWrite, h.removeRule))
+// Register mounts the routes on r (already behind admin auth).
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/conversations", httpx.RequireFunc(permission.ConversationsRead, h.list))
+	r.Get("/api/v1/conversations/:id", httpx.RequireFunc(permission.ConversationsRead, h.find))
+	r.Patch("/api/v1/conversations/:id", httpx.RequireFunc(permission.ConversationsWrite, h.update))
+	r.Get("/api/v1/docks/:id/customs", httpx.RequireFunc(permission.CustomsRead, h.getCustoms))
+	r.Patch("/api/v1/docks/:id/customs/policy", httpx.RequireFunc(permission.CustomsWrite, h.setPolicy))
+	r.Post("/api/v1/docks/:id/customs/rules", httpx.RequireFunc(permission.CustomsWrite, h.addRule))
+	r.Delete("/api/v1/customs/rules/:id", httpx.RequireFunc(permission.CustomsWrite, h.removeRule))
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) list(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	page, err := httpx.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
 	var f conversation.Filter
-	if raw := r.URL.Query().Get("status"); raw != "" {
+	if raw := c.Query("status"); raw != "" {
 		st := conversation.Status(raw)
 		f.Status = &st
 	}
-	if raw := r.URL.Query().Get("dock_id"); raw != "" {
+	if raw := c.Query("dock_id"); raw != "" {
 		id, err := identity.ParseDockID(raw)
 		if err != nil {
 			return err
 		}
 		f.Dock = &id
 	}
-	out, err := h.queries.List(r.Context(), org, f, page)
+	out, err := h.queries.List(c.Context(), org, f, page)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
-func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) find(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseConversationID(r.PathValue("id"))
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	c, err := h.queries.Find(r.Context(), org, id)
+	out, err := h.queries.Find(c.Context(), org, id)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type updateRequest struct {
@@ -82,40 +83,40 @@ type updateRequest struct {
 	Title     *string                 `json:"title"`
 }
 
-func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) update(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseConversationID(r.PathValue("id"))
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req updateRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	c, err := h.commands.Update(r.Context(), org, id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
+	out, err := h.commands.Update(c.Context(), org, id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
-func (h *Handler) getCustoms(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) getCustoms(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("id"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	c, err := h.customsQueries.Customs(r.Context(), org, dock)
+	out, err := h.customsQueries.Customs(c.Context(), org, dock)
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type policyRequest struct {
@@ -123,24 +124,24 @@ type policyRequest struct {
 	GroupMode *conversation.GroupMode     `json:"group_mode"`
 }
 
-func (h *Handler) setPolicy(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) setPolicy(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("id"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req policyRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	c, err := h.customs.SetPolicy(r.Context(), org, dock, conversation.SetPolicy{Default: req.Default, GroupMode: req.GroupMode})
+	out, err := h.customs.SetPolicy(c.Context(), org, dock, conversation.SetPolicy{Default: req.Default, GroupMode: req.GroupMode})
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(w, http.StatusOK, c)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type ruleRequest struct {
@@ -148,39 +149,38 @@ type ruleRequest struct {
 	Pattern string              `json:"pattern"`
 }
 
-func (h *Handler) addRule(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) addRule(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("id"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req ruleRequest
-	if err := httpx.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	rule, err := h.customs.AddRule(r.Context(), org, conversation.AddRule{Dock: dock, Effect: req.Effect, Pattern: req.Pattern})
+	rule, err := h.customs.AddRule(c.Context(), org, conversation.AddRule{Dock: dock, Effect: req.Effect, Pattern: req.Pattern})
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Location", "/api/v1/customs/rules/"+rule.ID.String())
-	return httpx.JSON(w, http.StatusCreated, rule)
+	c.Set("Location", "/api/v1/customs/rules/"+rule.ID.String())
+	return httpx.JSON(c, http.StatusCreated, rule)
 }
 
-func (h *Handler) removeRule(w http.ResponseWriter, r *http.Request) error {
-	org, err := httpx.Organization(r)
+func (h *Handler) removeRule(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseRuleID(r.PathValue("id"))
+	id, err := identity.ParseRuleID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	if err := h.customs.RemoveRule(r.Context(), org, id); err != nil {
+	if err := h.customs.RemoveRule(c.Context(), org, id); err != nil {
 		return err
 	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	return c.SendStatus(http.StatusNoContent)
 }

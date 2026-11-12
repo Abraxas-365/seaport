@@ -51,8 +51,11 @@ var vendorSDKs = map[string][]string{
 	"github.com/yuin/goldmark":               {"dock/adapters/dockjira"},
 	"github.com/modelcontextprotocol/go-sdk": {"crew/adapters/crewmcp"},
 	"github.com/coder/acp-go-sdk":            {"connector"},
-	"github.com/coder/websocket":             {"crew/adapters/crewws", "connector"},
-	"github.com/pressly/goose":               {"bootstrap"},
+	// the client side of /crew/ws (the hub serves it with Fiber's websocket)
+	"github.com/coder/websocket": {"connector"},
+	// the server side of /crew/ws
+	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws"},
+	"github.com/pressly/goose":                {"bootstrap"},
 	// IAMKit (iam mode) and the JWT library that verifies its id_tokens
 	"github.com/Abraxas-365/iamkit": {"auth/adapters/authiam"},
 	"github.com/golang-jwt/jwt":     {"auth/adapters/authiam"},
@@ -68,6 +71,12 @@ var vendorSDKs = map[string][]string{
 	"github.com/containerd/errdefs": {"hosting/adapters/hostingdocker"},
 	// object storage (message media): one adapter for disk, S3 and memory
 	"gocloud.dev": {"blob/adapters/gocloudblob"},
+	// the HTTP server's Fiber shell (httpx/fiber.go: edges, error body,
+	// deadline; bootstrap/server.go: the app) and the inbound adapters that
+	// serve Fiber handlers (crewws: the hub's WebSocket upgrade, eventsse:
+	// the stream writer). A new adapter that serves routes is added here.
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp", "event/eventsse", "crew/adapters/crewws"},
+	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 
 // forbiddenEverywhere: packages no production code may import, with why.
@@ -81,7 +90,7 @@ var forbiddenEverywhere = map[string]string{
 // or SQL; that is the adapters' job.
 var forbiddenInCore = []string{
 	"net/http", "database/sql", "github.com/jmoiron/sqlx", "github.com/lib/pq",
-	"github.com/jackc/pgx", "github.com/gofiber/fiber", "github.com/labstack/echo",
+	"github.com/jackc/pgx", "github.com/gofiber/fiber/v3", "github.com/labstack/echo",
 	"github.com/gin-gonic/gin", "google.golang.org/grpc",
 }
 
@@ -387,6 +396,7 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"order/order.go":            `package order`,
 		"connector/c.go":            `package connector; import (_ "net/http"; _ "github.com/coder/acp-go-sdk"; _ "` + m + `widget"; _ "` + m + `errx")`,
 		"dock/adapters/dockwa/g.go": `package dockwa; import _ "go.mau.fi/whatsmeow"`,
+		"httpx/f.go":                `package httpx; import (_ "github.com/gofiber/fiber/v3"; _ "github.com/valyala/fasthttp")`,
 
 		// violations
 		"identity/id.go":                `package identity; import _ "` + m + `widget"`,                             // foundation → domain
@@ -401,6 +411,8 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"auth/authsvc/s.go":             `package authsvc; import _ "github.com/Abraxas-365/iamkit/sdk/authclient"`, // IAMKit outside authiam
 		"widget/uses_connector.go":      `package widget; import _ "` + m + `connector"`,                            // domain → client
 		"dock/adapters/dockwa/old.go":   `package dockwa; import _ "go.mau.fi/whatsmeow/store/sqlstore"`,            // unsealed WhatsApp store
+		"order/adapters/orderapi/f.go":  `package orderapi; import _ "github.com/gofiber/fiber/v3"`,                 // Fiber outside the shell
+		"order/adapters/orderhttp/f.go": `package orderhttp; import _ "github.com/valyala/fasthttp"`,                // fasthttp outside the shell
 	})
 	expectViolations(t, importViolations(files),
 		"identity/id.go: foundation packages import no domain code",
@@ -414,6 +426,8 @@ import (_ "` + m + `widget/widgetsvc"; _ "` + m + `widget/adapters/widgetpg")`,
 		"auth/authsvc/s.go: github.com/Abraxas-365/iamkit is confined to",
 		"widget/uses_connector.go: only cmd may import the connector",
 		"dock/adapters/dockwa/old.go: go.mau.fi/whatsmeow/store/sqlstore must not be imported",
+		"order/adapters/orderapi/f.go: github.com/gofiber/fiber is confined to",
+		"order/adapters/orderhttp/f.go: github.com/valyala/fasthttp is confined to",
 	)
 	expectViolations(t, portsViolations(files),
 		"order/ports.go: ports.go declares only interfaces (Status is not one)",

@@ -1,7 +1,7 @@
 package crewhttp
 
 import (
-	"net/http"
+	"github.com/gofiber/fiber/v3"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
@@ -17,27 +17,26 @@ type Attachment struct {
 	Ships ship.Queries
 }
 
-func (a Attachment) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		p, ok := httpx.PrincipalFrom(r.Context())
-		if !ok {
-			return errx.Unauthorized("missing crew principal")
-		}
-		id, err := identity.ParseAttachmentID(r.PathValue("id"))
-		if err != nil {
-			return err
-		}
-		in := ship.OpenAttachment{ID: id}
-		if !p.Agent.IsZero() {
-			in.Agent = &p.Agent
-		}
-		f, err := a.Ships.OpenAttachment(r.Context(), p.Organization, in)
-		if err != nil {
-			return err
-		}
-		if f.Kind == ship.AttachmentDocument {
-			return httpx.Download(w, f.MIME, f.Name, f.Data)
-		}
-		return httpx.File(w, f.MIME, f.Data)
-	}).ServeHTTP(w, r)
+// Handle is the route handler.
+func (a Attachment) Handle(c fiber.Ctx) error {
+	p, ok := httpx.PrincipalFrom(c.Context())
+	if !ok {
+		return errx.Unauthorized("missing crew principal")
+	}
+	id, err := identity.ParseAttachmentID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	in := ship.OpenAttachment{ID: id}
+	if !p.Agent.IsZero() {
+		in.Agent = &p.Agent
+	}
+	f, err := a.Ships.OpenAttachment(c.Context(), p.Organization, in)
+	if err != nil {
+		return err
+	}
+	if f.Kind == ship.AttachmentDocument {
+		return httpx.Download(c, f.MIME, f.Name, f.Data)
+	}
+	return httpx.File(c, f.MIME, f.Data)
 }

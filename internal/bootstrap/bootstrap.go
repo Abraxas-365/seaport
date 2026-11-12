@@ -7,10 +7,8 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/netip"
 	"os"
 	"strings"
@@ -18,7 +16,6 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent/agentmodule"
-	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
 	"github.com/Abraxas-365/seaport/internal/auth/authmodule"
 	"github.com/Abraxas-365/seaport/internal/blob/adapters/gocloudblob"
 	"github.com/Abraxas-365/seaport/internal/config"
@@ -41,6 +38,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
 	"github.com/Abraxas-365/seaport/migrations"
 	"github.com/Abraxas-365/seaport/web"
+	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
@@ -52,14 +50,16 @@ var Version = "dev"
 
 // App is a built port, ready to serve.
 type App struct {
-	Handler http.Handler
-	db      *sqlx.DB
-	lockDB  *sqlx.DB
-	bus     *event.Bus
-	crew    *crewmodule.Module
-	docks   *dockmodule.Module
-	ships   *shipmodule.Module
-	hosted  *hostingmodule.Module
+	// web is the HTTP server: the Fiber shell with the net/http routes
+	// behind it (server.go).
+	web    *fiber.App
+	db     *sqlx.DB
+	lockDB *sqlx.DB
+	bus    *event.Bus
+	crew   *crewmodule.Module
+	docks  *dockmodule.Module
+	ships  *shipmodule.Module
+	hosted *hostingmodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
 	signIn *authmodule.Module
 	// blobs keeps message media (nil: off).
@@ -313,64 +313,17 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			auth = authenticator(cfg, crew.Resolver)
 		}
 	}
-	session := auth.Session()
 
-	admin := http.NewServeMux()
-	docks.Register(admin)
-	convs.Register(admin)
-	ships.Register(admin)
-	crew.Register(admin)
-	agents.Register(admin)
-	hosted.Register(admin)
-	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
-	admin.Handle("DELETE /api/v1/session", session.Logout)
-	admin.HandleFunc("/", httpx.NotFound)
-
-	root := http.NewServeMux()
-	// Public liveness: nothing about any organization (crew counts are per
-	// organization at /api/v1/crew).
-	root.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		_ = httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version})
-	})
-	// Public: how the UI must sign in, and session login/state (they check
-	// credentials themselves).
-	root.Handle("GET /api/v1/config", publicConfig(cfg))
-	root.Handle("POST /api/v1/session", session.Login)
-	root.Handle("GET /api/v1/session", session.Current)
-	if session.SignIn != nil {
-		root.Handle("GET /api/v1/session/login", session.SignIn)
-		root.Handle("GET "+authhttp.CallbackPath, session.Callback)
-	}
-	// Per-caller rate limit after authentication (it keys on the principal).
-	limit := httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst)
-	root.Handle("/api/", auth.Admin(limit.Wrap(admin)))
-	root.Handle("/crew/ws", auth.Crew(limit.Wrap(crew.WS())))
-	root.Handle("/mcp", auth.Crew(limit.Wrap(crew.MCP())))
-	root.Handle("GET /crew/profile", auth.Crew(limit.Wrap(crew.Kit())))
-	root.Handle("GET /crew/attachments/{id}", auth.Crew(limit.Wrap(crew.Attachment())))
-	root.Handle("POST /crew/reply", auth.Crew(limit.Wrap(crew.Reply())))
-	root.Handle("GET /crew/workspace", auth.Crew(limit.Wrap(hosted.Workspace())))
-	// App tokens for the agent's repos (gh and git inside its slot).
-	root.Handle("POST /crew/github/token", auth.Crew(limit.Wrap(docks.GitHubToken())))
-	// The model gateway: hosted slots call their provider with their slot
-	// token (as x-api-key or bearer); not rate limited per request (one
-	// agent turn makes many calls; the provider limits the key).
-	root.Handle(hosting.GatewayPath+"/", hostingmodule.APIKeyAsBearer(auth.Crew(hosted.Gateway())))
-	// GitHub and Slack docks: the App flows' redirects and the webhooks/events
-	// (each checks its own proof: a sealed state, the App's signature).
-	docks.RegisterPublic(root)
-	// Everything else is the admin UI (client routes fall back to index.html).
-	// One "/" pattern: "GET /" would conflict with the method-less "/api/".
-	ui := httpx.SPA(web.Dist(), cfg.GitHubURL)
-	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			httpx.NotFound(w, r)
-			return
-		}
-		ui.ServeHTTP(w, r)
+	srv := newServer(cfg.Auth != config.AuthNone, func(app *fiber.App) {
+		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
+			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
+			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
+			// Everything else is the admin UI (client routes fall back to index.html).
+			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})
 
-	return &App{Handler: httpx.Edges(methodErrors(root)), db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
+	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
 		blobs: blobs, sweep: sweep, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -446,15 +399,6 @@ func baseImages(cfg config.Server) map[string]string {
 	return out
 }
 
-// publicConfig is GET /api/v1/config: what the web app needs before
-// signing in (the auth mode decides between no login and the token form).
-func publicConfig(cfg config.Server) http.Handler {
-	body := map[string]any{"auth": cfg.Auth, "version": Version}
-	return httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		return httpx.JSON(w, http.StatusOK, body)
-	})
-}
-
 // Start starts the crew hub (signals, presence, reaping a stopped
 // process's connections), dock ownership (this process takes and connects
 // the docks no live process runs) and the sweepers. It returns at once;
@@ -513,63 +457,3 @@ func closeBlobs(b *gocloudblob.Store) {
 		_ = b.Close()
 	}
 }
-
-// Serve runs the HTTP server until ctx ends.
-func (a *App) Serve(ctx context.Context) error {
-	srv := &http.Server{
-		Addr:              a.cfg.Addr,
-		Handler:           a.Handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-	slog.Info("seaport listening", "addr", a.cfg.Addr, "public_url", a.cfg.PublicURL, "version", Version)
-	select {
-	case err := <-errc:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return errx.Wrap(err, "listen", errx.TypeInternal)
-	case <-ctx.Done():
-		a.stopOnce() // end SSE streams so Shutdown doesn't wait for them
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(sctx)
-	}
-}
-
-// methodErrors turns the mux's plain-text 405 into the standard error body.
-func methodErrors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(&statusGuard{ResponseWriter: w, r: r}, r)
-	})
-}
-
-type statusGuard struct {
-	http.ResponseWriter
-	r          *http.Request
-	suppressed bool
-}
-
-func (g *statusGuard) WriteHeader(status int) {
-	if status == http.StatusMethodNotAllowed && g.Header().Get("Content-Type") == "text/plain; charset=utf-8" {
-		g.suppressed = true
-		g.Header().Del("Content-Type")
-		g.Header().Del("X-Content-Type-Options")
-		httpx.WriteError(g.ResponseWriter, g.r, errx.MethodNotAllowed("method not allowed"))
-		return
-	}
-	g.ResponseWriter.WriteHeader(status)
-}
-
-func (g *statusGuard) Write(b []byte) (int, error) {
-	if g.suppressed {
-		return len(b), nil
-	}
-	return g.ResponseWriter.Write(b)
-}
-
-// Unwrap lets http.ResponseController (and the WebSocket upgrade) reach
-// the underlying writer.
-func (g *statusGuard) Unwrap() http.ResponseWriter { return g.ResponseWriter }
