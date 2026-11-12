@@ -3,12 +3,12 @@ package conversationmodule
 
 import (
 	"database/sql"
-	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/conversation/adapters/conversationhttp"
 	"github.com/Abraxas-365/seaport/internal/conversation/adapters/conversationpg"
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -25,4 +25,4 @@ func New(db *sqlx.DB, lockDB *sql.DB, events event.Publisher) *Module {
 	return &Module{Service: svc, http: conversationhttp.New(svc, svc, svc, svc)}
 }
 
-func (m *Module) Register(mux *http.ServeMux) { m.http.Register(mux) }
+func (m *Module) Register(r httpx.Router) { m.http.Register(r) }

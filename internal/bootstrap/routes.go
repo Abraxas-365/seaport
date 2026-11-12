@@ -15,6 +15,8 @@ type nativeRoutes struct {
 	cfg   config.Server
 	auth  httpx.Authenticator
 	limit *httpx.RateLimit
+	// admin: the Register of each migrated domain's admin routes.
+	admin []func(httpx.Router)
 }
 
 // mountNative registers the routes served by Fiber handlers, in the order
@@ -42,6 +44,9 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	// on the principal).
 	app.Use("/api/", auth.Admin(), limit)
 	app.Delete("/api/v1/session", session.Logout)
+	for _, register := range r.admin {
+		register(app)
+	}
 
 	// The crew's endpoints: crew authentication, then the rate limit.
 	app.All("/crew/ws", auth.Crew(), limit, legacy)

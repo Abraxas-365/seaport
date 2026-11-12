@@ -251,6 +251,18 @@ func guarded(e ast.Expr) bool {
 	return ok && id.Name == "permission"
 }
 
+// bracePattern spells Fiber's :param as net/http's {param}, so both routers'
+// routes compare (and the IAM e2e list reads) one way.
+func bracePattern(pattern string) string {
+	parts := strings.Split(pattern, "/")
+	for i, part := range parts {
+		if name, ok := strings.CutPrefix(part, ":"); ok {
+			parts[i] = "{" + name + "}"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
 // guardedRoutes maps each guarded "/api/v1/" route pattern to the
 // permission constant name it requires (e2e tests check every one).
 func guardedRoutes(files []goFile) map[string]string {
@@ -261,7 +273,7 @@ func guardedRoutes(files []goFile) map[string]string {
 			if !ok || !guarded(rc.handler) {
 				return true
 			}
-			out[rc.pattern] = rc.handler.(*ast.CallExpr).Args[0].(*ast.SelectorExpr).Sel.Name
+			out[bracePattern(rc.pattern)] = rc.handler.(*ast.CallExpr).Args[0].(*ast.SelectorExpr).Sel.Name
 			return true
 		})
 	}
