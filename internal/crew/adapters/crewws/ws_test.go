@@ -231,7 +231,7 @@ func TestRefusedBeforeTheUpgrade(t *testing.T) {
 	}
 	r.pres.refuse = nil
 	resp, err = http.Get("http://" + r.addr + "/crew/ws")
-	if err != nil || resp.StatusCode != http.StatusBadRequest { // was a plain 426
+	if err != nil || resp.StatusCode != http.StatusUpgradeRequired {
 		t.Fatalf("plain GET: %v %v", err, resp)
 	}
 	if r.pres.opened() != 0 {

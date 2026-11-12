@@ -48,6 +48,10 @@ func PayloadTooLarge(message string) *Error {
 	return withStatus(TypeValidation, "PAYLOAD_TOO_LARGE", 413, message)
 }
 
+func UpgradeRequired(message string) *Error {
+	return withStatus(TypeValidation, "UPGRADE_REQUIRED", 426, message)
+}
+
 func UnsupportedMediaType(message string) *Error {
 	return withStatus(TypeValidation, "UNSUPPORTED_MEDIA_TYPE", 415, message)
 }
