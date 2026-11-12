@@ -2,8 +2,9 @@
 // Fiber: the one error body, strict JSON decoding, pagination parsing,
 // request ids, the principal and bearer-token auth. Handlers are Fiber
 // handlers (func(fiber.Ctx) error) that return their errors; fiber.go is the
-// server shell (Edges, ErrorHandler, Deadline), stdhttp the net/http form of
-// the helpers for handlers that haven't moved yet.
+// server shell (Edges, ErrorHandler, Deadline), spa.go the web app's handler;
+// stdhttp mounts the two vendor net/http handlers (MCP, model gateway) on
+// Fiber routes.
 package httpx
 
 import (

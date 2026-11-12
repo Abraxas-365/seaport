@@ -16,14 +16,15 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/coder/websocket"
+	fws "github.com/gofiber/contrib/v3/websocket"
+	"github.com/gofiber/fiber/v3"
 )
 
-// These tests run the Fiber shell (newServer) over a real listener with a
-// small net/http handler as the fallback: no database needed.
+// These tests run the Fiber shell (newServer) over a real listener with a few
+// routes of their own: no database needed.
 
-func startShell(t *testing.T, fallback http.Handler) (url string, stop func()) {
+func startShell(t *testing.T, mount func(app *fiber.App)) (url string, stop func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -31,7 +32,7 @@ func startShell(t *testing.T, fallback http.Handler) (url string, stop func()) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, newServer(fallback, nil), ln, func() {}) }()
+	go func() { done <- serve(ctx, newServer(mount), ln, func() {}) }()
 	var stopped bool
 	stop = func() {
 		if !stopped {
@@ -57,19 +58,14 @@ func TestBodyLimitCoversTheBiggestBodies(t *testing.T) {
 }
 
 func TestShellHealthzAndEdges(t *testing.T) {
-	url, _ := startShell(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/own-cache":
-			w.Header().Set("Cache-Control", "public, max-age=60")
-			_, _ = io.WriteString(w, "static")
-		case "/id":
-			_, _ = io.WriteString(w, httpx.RequestID(r.Context()))
-		case "/panic":
-			panic("boom")
-		default:
-			stdhttp.NotFound(w, r)
-		}
-	}))
+	url, _ := startShell(t, func(app *fiber.App) {
+		app.Get("/own-cache", func(c fiber.Ctx) error {
+			c.Set("Cache-Control", "public, max-age=60")
+			return c.SendString("static")
+		})
+		app.Get("/id", func(c fiber.Ctx) error { return c.SendString(httpx.RequestID(c.Context())) })
+		app.Get("/panic", func(fiber.Ctx) error { panic("boom") })
+	})
 	get := func(method, path string, hdr map[string]string) (*http.Response, string) {
 		req, _ := http.NewRequest(method, url+path, nil)
 		for k, v := range hdr {
@@ -103,7 +99,7 @@ func TestShellHealthzAndEdges(t *testing.T) {
 		t.Error("HSTS on plain http")
 	}
 
-	// Fallback requests get the same headers, once; a handler's own win.
+	// Routes get the same headers, once; a handler's own win.
 	resp, _ = get("GET", "/id", map[string]string{"X-Forwarded-Proto": "https"})
 	once(resp, "X-Content-Type-Options", "nosniff")
 	once(resp, "Cache-Control", "no-store")
@@ -112,17 +108,17 @@ func TestShellHealthzAndEdges(t *testing.T) {
 	once(resp, "Cache-Control", "public, max-age=60")
 	once(resp, "X-Content-Type-Options", "nosniff")
 
-	// The fallback sees the request id the edges made (valid ones kept, others replaced).
+	// A handler sees the request id the edges made (valid ones kept, others replaced).
 	_, body = get("GET", "/id", map[string]string{"X-Request-ID": "mine_1"})
 	if body != "mine_1" {
-		t.Errorf("fallback request id = %q", body)
+		t.Errorf("handler request id = %q", body)
 	}
 	resp, body = get("GET", "/id", map[string]string{"X-Request-ID": "no spaces allowed"})
 	if id := resp.Header.Get("X-Request-ID"); len(id) != 32 || body != id {
 		t.Errorf("replaced request id = %q (handler saw %q)", id, body)
 	}
 
-	// Error bodies: the shell's and the fallback's are the same shape.
+	// Error bodies: the shell's and a handler's are the same shape.
 	var e struct {
 		Error struct{ Code, Message string }
 	}
@@ -147,11 +143,12 @@ func TestShellHealthzAndEdges(t *testing.T) {
 
 func TestShellBodyLimit(t *testing.T) {
 	var reached bool
-	url, _ := startShell(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reached = true
-		n, _ := io.Copy(io.Discard, r.Body)
-		_, _ = io.WriteString(w, string(rune('0'+n%10)))
-	}))
+	url, _ := startShell(t, func(app *fiber.App) {
+		app.Post("/x", func(c fiber.Ctx) error {
+			reached = true
+			return c.SendString(string(rune('0' + len(c.Body())%10)))
+		})
+	})
 	post := func(n int) (int, string) {
 		resp, err := http.Post(url+"/x", "application/octet-stream", bytes.NewReader(make([]byte, n)))
 		if err != nil {
@@ -187,25 +184,26 @@ func TestShellBodyLimit(t *testing.T) {
 		t.Errorf("the refusal lacks the edge headers: %v", resp.Header)
 	}
 	if reached {
-		t.Fatal("the fallback ran a request the server refused")
+		t.Fatal("a handler ran a request the server refused")
 	}
 }
 
-// A streaming handler's first event reaches the client while the handler is
-// still running (the adaptor must not buffer it until the end).
-func TestFallbackStreamsIncrementally(t *testing.T) {
+// A streamed response's first event reaches the client while the handler's
+// writer is still running.
+func TestShellStreamsIncrementally(t *testing.T) {
 	release := make(chan struct{})
-	url, _ := startShell(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		rc := http.NewResponseController(w)
-		_, _ = io.WriteString(w, "event: ready\ndata: 1\n\n")
-		_ = rc.Flush()
-		select {
-		case <-release:
-		case <-r.Context().Done():
-		}
-		_, _ = io.WriteString(w, "event: end\ndata: 2\n\n")
-	}))
+	url, _ := startShell(t, func(app *fiber.App) {
+		app.Get("/stream", func(c fiber.Ctx) error {
+			c.Set("Content-Type", "text/event-stream")
+			return c.SendStreamWriter(func(w *bufio.Writer) {
+				_, _ = io.WriteString(w, "event: ready\ndata: 1\n\n")
+				_ = w.Flush()
+				<-release
+				_, _ = io.WriteString(w, "event: end\ndata: 2\n\n")
+				_ = w.Flush()
+			})
+		})
+	})
 	resp, err := http.Get(url + "/stream")
 	if err != nil {
 		t.Fatal(err)
@@ -243,60 +241,6 @@ func TestFallbackStreamsIncrementally(t *testing.T) {
 	}
 }
 
-// A WebSocket upgrade works through the adaptor, with the request's
-// context and remote address, and the connection lives on after the Fiber
-// handler returned.
-func TestFallbackWebSocket(t *testing.T) {
-	url, _ := startShell(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/crew/ws" {
-			stdhttp.NotFound(w, r)
-			return
-		}
-		c, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer c.CloseNow()
-		if r.RemoteAddr == "" || httpx.RequestID(r.Context()) == "" {
-			_ = c.Close(websocket.StatusInternalError, "no remote address or request id")
-			return
-		}
-		ctx := r.Context()
-		for {
-			typ, b, err := c.Read(ctx)
-			if err != nil {
-				return
-			}
-			if err := c.Write(ctx, typ, append([]byte("echo:"), b...)); err != nil {
-				return
-			}
-		}
-	}))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	c, resp, err := websocket.Dial(ctx, url+"/crew/ws", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.CloseNow()
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("upgrade status %d", resp.StatusCode)
-	}
-	for _, msg := range []string{"one", "two"} {
-		if err := c.Write(ctx, websocket.MessageText, []byte(msg)); err != nil {
-			t.Fatal(err)
-		}
-		_, b, err := c.Read(ctx)
-		if err != nil || string(b) != "echo:"+msg {
-			t.Fatalf("read: %q %v", b, err)
-		}
-	}
-	// A plain request on the same server still works afterwards.
-	if resp, err := http.Get(url + "/healthz"); err != nil || resp.StatusCode != 200 {
-		t.Fatalf("healthz after upgrade: %v", err)
-	}
-}
-
 // Shutdown: once the streams are told to end (what App.Close's first step
 // does for SSE), the drain returns, within the timeout.
 func TestShutdownEndsStreams(t *testing.T) {
@@ -309,12 +253,16 @@ func TestShutdownEndsStreams(t *testing.T) {
 	defer cancel()
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = io.WriteString(w, "event: ready\n\n")
-			_ = http.NewResponseController(w).Flush()
-			<-end
-		}), nil), ln, func() { close(end) })
+		served <- serve(ctx, newServer(func(app *fiber.App) {
+			app.Get("/api/v1/events", func(c fiber.Ctx) error {
+				c.Set("Content-Type", "text/event-stream")
+				return c.SendStreamWriter(func(w *bufio.Writer) {
+					_, _ = io.WriteString(w, "event: ready\n\n")
+					_ = w.Flush()
+					<-end
+				})
+			})
+		}), ln, func() { close(end) })
 	}()
 	resp, err := http.Get("http://" + ln.Addr().String() + "/api/v1/events")
 	if err != nil {
@@ -351,21 +299,23 @@ func TestShutdownWaitsForNoWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var conn *websocket.Conn
+	var conn *fws.Conn
 	ready := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	served := make(chan error, 1)
 	go func() {
-		served <- serve(ctx, newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			c, err := websocket.Accept(w, r, nil)
-			if err != nil {
-				return
-			}
-			conn = c
-			close(ready)
-			_, _, _ = c.Read(context.WithoutCancel(r.Context())) // until closed
-		}), nil), ln, func() { conn.CloseNow() }) // what Hub.Close does
+		served <- serve(ctx, newServer(func(app *fiber.App) {
+			app.Get("/crew/ws", fws.New(func(c *fws.Conn) {
+				conn = c
+				close(ready)
+				for { // until closed
+					if _, _, err := c.ReadMessage(); err != nil {
+						return
+					}
+				}
+			}))
+		}), ln, func() { _ = conn.Close() }) // what Hub.Close does
 	}()
 	dctx, dcancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer dcancel()

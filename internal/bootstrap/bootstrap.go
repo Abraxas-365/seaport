@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/netip"
 	"os"
 	"strings"
@@ -34,7 +33,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/hosting/hostingmodule"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
@@ -316,29 +314,13 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		}
 	}
 
-	// The net/http routes of the domains not migrated to Fiber yet, behind
-	// the Fiber app (server.go): admin ones (already past the Fiber
-	// middleware of /api/) and the rest.
-	admin := http.NewServeMux()
-	admin.HandleFunc("/", stdhttp.NotFound)
-
-	root := http.NewServeMux()
-	root.Handle("/api/", admin)
-	// Everything else is the admin UI (client routes fall back to index.html).
-	ui := stdhttp.SPA(web.Dist(), cfg.GitHubURL)
-	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			stdhttp.NotFound(w, r)
-			return
-		}
-		ui.ServeHTTP(w, r)
-	})
-
-	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
-		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
+	srv := newServer(func(app *fiber.App) {
+		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
 			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
-			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace()})
+			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
+			// Everything else is the admin UI (client routes fall back to index.html).
+			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})
 
 	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
@@ -475,38 +457,3 @@ func closeBlobs(b *gocloudblob.Store) {
 		_ = b.Close()
 	}
 }
-
-// methodErrors turns the mux's plain-text 405 into the standard error body.
-func methodErrors(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(&statusGuard{ResponseWriter: w, r: r}, r)
-	})
-}
-
-type statusGuard struct {
-	http.ResponseWriter
-	r          *http.Request
-	suppressed bool
-}
-
-func (g *statusGuard) WriteHeader(status int) {
-	if status == http.StatusMethodNotAllowed && g.Header().Get("Content-Type") == "text/plain; charset=utf-8" {
-		g.suppressed = true
-		g.Header().Del("Content-Type")
-		g.Header().Del("X-Content-Type-Options")
-		stdhttp.WriteError(g.ResponseWriter, g.r, errx.MethodNotAllowed("method not allowed"))
-		return
-	}
-	g.ResponseWriter.WriteHeader(status)
-}
-
-func (g *statusGuard) Write(b []byte) (int, error) {
-	if g.suppressed {
-		return len(b), nil
-	}
-	return g.ResponseWriter.Write(b)
-}
-
-// Unwrap lets http.ResponseController (and the WebSocket upgrade) reach
-// the underlying writer.
-func (g *statusGuard) Unwrap() http.ResponseWriter { return g.ResponseWriter }

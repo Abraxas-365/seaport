@@ -25,9 +25,10 @@ import (
 //   - Every other route (outside "/api/v1/", outside the connector, which
 //     serves its own machine) is behind auth.Admin / auth.Crew, or listed
 //     in publicRoutes with the reason: it then checks its own proof.
-//   - Both rules read net/http registrations (mux.Handle("GET /x", h)) and
-//     the Fiber app's (app.Get("/x", h), app.All("/x", h): "METHOD /x"), so
-//     a route moved to Fiber keeps being checked.
+//   - Both rules read the Fiber app's registrations (app.Get("/x", h),
+//     app.All("/x", h): "METHOD /x") and, should one ever come back, a
+//     net/http mux's (mux.Handle("GET /x", h)); TestNoNetHTTPRouting keeps
+//     those out.
 //   - No "seaport:…" permission literal outside internal/permission (Go)
 //     or web/src/lib/permissions.gen.ts (web): a typo must not compile.
 //   - Every permission of the manifest is checked somewhere (no orphan).
@@ -45,10 +46,9 @@ var unguardedRoutes = map[string]string{
 
 // publicRoutes: route outside /api/v1/ → why no Seaport credential guards it.
 var publicRoutes = map[string]string{
-	"/":                           "the web UI's static files (the admin mux's catch-all 404 sits behind auth)",
 	"GET /healthz":                "public liveness: nothing about any organization (served by the Fiber shell, bootstrap/server.go)",
-	"ALL /healthz":                "the 405 for every other method of /healthz, as the mux answered it (Fiber shell)",
-	"ALL /*":                      "the fallback: hands every request the shell doesn't serve to the net/http routes, whose rules (this test) apply to each one",
+	"ALL /healthz":                "the 405 for every other method of /healthz (Fiber shell)",
+	"ALL /*":                      "the web UI's static files and its client routes (GET/HEAD), a 404 for everything else: the last route, behind the /api/ 404 that sits behind auth",
 	"GET /github/apps/created":    "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
 	"GET /github/apps/installed":  "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
 	"POST /github/webhook/{dock}": "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
@@ -114,16 +114,6 @@ func publicViolations(files []goFile) []string {
 			if _, ok := publicRoutes[bracePattern(rc.pattern)]; ok || authedCall(rc) {
 				return true
 			}
-			if f.rel == "bootstrap/bootstrap.go" && legacyRoot(rc) {
-				// A route of the net/http mux behind the Fiber app: Fiber
-				// authenticates it first (routes.go), which the check below
-				// requires for each of them (removed with the mux).
-				if !hasNativeTwin(files, rc.pattern) {
-					out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
-						" of the legacy mux needs a Fiber route behind auth.Admin/auth.Crew in bootstrap/routes.go")
-				}
-				return true
-			}
 			out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
 				" must be behind auth.Admin/auth.Crew (or listed in publicRoutes with the proof it checks)")
 			return true
@@ -131,56 +121,6 @@ func publicViolations(files []goFile) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// legacyRoot: mux.Handle on the net/http mux the Fiber app falls back to.
-func legacyRoot(rc routeCall) bool {
-	sel, ok := rc.call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	id, ok := sel.X.(*ast.Ident)
-	return ok && id.Name == "root" && (sel.Sel.Name == "Handle" || sel.Sel.Name == "HandleFunc")
-}
-
-// routeKey is the form routes of both routers compare in: path only, with
-// {param} for :param and a trailing "/" for "/*".
-func routeKey(pattern string) string {
-	_, p, ok := strings.Cut(pattern, " /")
-	if ok {
-		p = "/" + p
-	} else {
-		p = pattern
-	}
-	if strings.HasSuffix(p, "/*") {
-		p = strings.TrimSuffix(p, "*")
-	}
-	parts := strings.Split(p, "/")
-	for i, part := range parts {
-		if name, ok := strings.CutPrefix(part, ":"); ok {
-			parts[i] = "{" + name + "}"
-		}
-	}
-	return strings.Join(parts, "/")
-}
-
-// hasNativeTwin: routes.go registers pattern's path behind auth.
-func hasNativeTwin(files []goFile, pattern string) bool {
-	for _, f := range files {
-		if f.rel != "bootstrap/routes.go" {
-			continue
-		}
-		found := false
-		ast.Inspect(f.file, func(n ast.Node) bool {
-			rc, ok := routeCallOf(n)
-			if ok && authedCall(rc) && routeKey(rc.pattern) == routeKey(pattern) {
-				found = true
-			}
-			return !found
-		})
-		return found
-	}
-	return false
 }
 
 // authedCall: the registration (a Fiber one lists middleware before its
@@ -237,10 +177,7 @@ func guarded(e ast.Expr) bool {
 	if !ok || len(call.Args) != 2 {
 		return false
 	}
-	// stdhttp.Require is the net/http form, for the handlers not migrated to
-	// Fiber yet (removed with the last of them).
-	if !isSelector(call.Fun, "httpx", "Require") && !isSelector(call.Fun, "httpx", "RequireFunc") &&
-		!isSelector(call.Fun, "stdhttp", "Require") && !isSelector(call.Fun, "stdhttp", "RequireFunc") {
+	if !isSelector(call.Fun, "httpx", "Require") && !isSelector(call.Fun, "httpx", "RequireFunc") {
 		return false
 	}
 	sel, ok := call.Args[0].(*ast.SelectorExpr)

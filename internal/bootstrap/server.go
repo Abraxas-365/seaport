@@ -12,17 +12,13 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
 )
 
-// The HTTP server is a Fiber app (AGENTS.md, "HTTP server"). While the
-// domains migrate (docs: plans/puerto/fiber-migration.md) it serves natively
-// only its shell: the edge headers and request ids, the error body, /healthz,
-// the limits and the shutdown. Every other request goes to the net/http
-// routes built in Build (the strangler), which keep authentication, rate
-// limit, CSRF, the SPA and every handler as they were.
+// The HTTP server is a Fiber app (AGENTS.md, "HTTP server"): this file is its
+// shell (the edge headers and request ids, the error body, /healthz, the
+// limits and the shutdown) and routes.go its routes.
 
 // bodyLimit is the largest request body the server accepts. Fiber buffers a
 // body whole before any handler runs, so it is one limit for every route; the
@@ -49,10 +45,8 @@ const (
 	requestDeadline = 5 * time.Minute
 )
 
-// newServer builds the Fiber app: its shell, the routes mount registers (given
-// the handler that serves a request with fallback, the net/http routes of the
-// domains not migrated yet) and fallback itself behind them all.
-func newServer(fallback http.Handler, mount func(app *fiber.App, legacy fiber.Handler)) *fiber.App {
+// newServer builds the Fiber app: its shell and the routes mount registers.
+func newServer(mount func(app *fiber.App)) *fiber.App {
 	app := fiber.New(fiber.Config{
 		// Pooled request buffers: what a handler keeps (a path parameter in
 		// an event, a goroutine) must not change under it.
@@ -81,14 +75,9 @@ func newServer(fallback http.Handler, mount func(app *fiber.App, legacy fiber.Ha
 		c.Set(fiber.HeaderAllow, "GET, HEAD")
 		return errx.MethodNotAllowed("method not allowed")
 	})
-	// A route, not a Use: when fasthttp refuses a request before its handler
-	// (a body over bodyLimit) Fiber replays only the Use middleware to build
-	// the error response, and the fallback must not run a request it refused.
-	legacy := stdhttp.Fallback(fallback)
 	if mount != nil {
-		mount(app, legacy)
+		mount(app)
 	}
-	app.All("/*", legacy)
 	return app
 }
 
@@ -111,11 +100,10 @@ func (a *App) Serve(ctx context.Context) error {
 
 // ServeListener serves on ln until ctx ends, then shuts down. First the
 // long-lived connections end: SSE streams, and the crew's WebSockets through
-// Hub.Close (which releases their deliveries; App.Close runs it again, as it
-// always did, harmlessly). That is needed now: net/http's Shutdown ignored
-// hijacked connections, but fasthttp's waits for them, so with one open it
-// would sit out its whole timeout. Then in-flight requests finish (10 s at
-// most).
+// Hub.Close (which releases their deliveries; App.Close runs it again,
+// harmlessly). fasthttp's shutdown waits for hijacked connections, so with
+// one open it would sit out its whole timeout. Then in-flight requests
+// finish (10 s at most).
 func (a *App) ServeListener(ctx context.Context, ln net.Listener) error {
 	return serve(ctx, a.web, ln, func() {
 		a.stopOnce()

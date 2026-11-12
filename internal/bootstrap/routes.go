@@ -5,6 +5,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/auth/adapters/authhttp"
 	"github.com/Abraxas-365/seaport/internal/config"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/gofiber/fiber/v3"
@@ -30,15 +31,15 @@ type nativeRoutes struct {
 	mcp, gateway fiber.Handler
 	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
 	kit, attachment, reply, workspace fiber.Handler
+	// ui is the admin web app: every GET the routes above leave unanswered.
+	ui fiber.Handler
 }
 
-// mountNative registers the routes served by Fiber handlers, in the order
-// that matters (Fiber routes by registration order): the public ones, then
-// the admin middleware of /api/ and everything behind it, then the crew
-// routes. What a domain hasn't moved yet is reached through the fallback
-// registered after this (server.go) with the principal already in the
-// request's context.
-func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
+// mountNative registers every route of the server, in the order that matters
+// (Fiber routes by registration order): the public ones, then the admin
+// middleware of /api/ and everything behind it, then the crew routes, then
+// the web app for what is left.
+func mountNative(app *fiber.App, r nativeRoutes) {
 	auth := r.auth
 	session := auth.Session()
 	limit := r.limit.Middleware()
@@ -79,4 +80,13 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).
 	app.All(hosting.GatewayPath+"/*", httpx.APIKeyAsBearer(), auth.Crew(), r.gateway)
+
+	// What no route answered. Under /api/ (past the admin authenticator, so
+	// a stranger learns nothing about which routes exist) it is a 404 in the
+	// standard body, never the web app; the rest is the web app's: GETs get
+	// index.html or a static file, other methods 404. Any method matches
+	// these catch-alls, so a known path with the wrong method is a 404 too,
+	// as it has been since the mux.
+	app.All("/api/*", func(fiber.Ctx) error { return errx.NotFound("route not found") })
+	app.All("/*", r.ui)
 }

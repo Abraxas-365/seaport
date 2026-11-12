@@ -22,7 +22,7 @@ import (
 // and turns a panic of a native handler into the generic 500.
 //
 // The headers are set after the rest of the chain ran, and only where the
-// response has none: a handler served through Fallback sets its own (the SPA's
+// response has none: a handler that sets its own (the SPA's
 // Cache-Control), and the adaptor adds a handler's headers to the response
 // instead of replacing them, so setting first would send both.
 func Edges() fiber.Handler {
@@ -109,7 +109,7 @@ func transportMessage(fe *fiber.Error) string {
 // cancelled when the handler returns; when the response is still being
 // produced (a body stream, a hijacked connection) it ends at its deadline,
 // or earlier when the code producing the response cancels its own copy
-// (Fallback does).
+// (stdhttp.Handler does).
 func Deadline(d time.Duration, skip func(fiber.Ctx) bool) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		if skip != nil && skip(c) {
