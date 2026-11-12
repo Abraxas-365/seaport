@@ -321,7 +321,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	// middleware of /api/) and the rest.
 	admin := http.NewServeMux()
 	crew.Register(admin)
-	agents.Register(admin)
 	hosted.Register(admin)
 	admin.Handle("GET /api/v1/events", eventsse.Handler(bus, done, EventPermissions))
 	admin.HandleFunc("/", stdhttp.NotFound)
@@ -347,7 +346,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
 		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register},
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken()})
 	})
 

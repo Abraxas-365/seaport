@@ -5,9 +5,10 @@ import (
 	"net/http"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
+	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
+	"github.com/gofiber/fiber/v3"
 )
 
 type Handler struct {
@@ -17,41 +18,41 @@ type Handler struct {
 
 func New(c agent.Commands, q agent.Queries) *Handler { return &Handler{commands: c, queries: q} }
 
-// Register mounts the routes on mux (already behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/agents", stdhttp.RequireFunc(permission.AgentsRead, h.list))
-	mux.Handle("POST /api/v1/agents", stdhttp.RequireFunc(permission.AgentsWrite, h.create))
-	mux.Handle("GET /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsRead, h.find))
-	mux.Handle("PATCH /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.update))
-	mux.Handle("DELETE /api/v1/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.delete))
-	mux.Handle("GET /api/v1/docks/{dock}/agents", stdhttp.RequireFunc(permission.AgentsRead, h.team))
-	mux.Handle("PUT /api/v1/docks/{dock}/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.assign))
-	mux.Handle("DELETE /api/v1/docks/{dock}/agents/{id}", stdhttp.RequireFunc(permission.AgentsWrite, h.unassign))
+// Register mounts the routes on r (already behind admin auth).
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/agents", httpx.RequireFunc(permission.AgentsRead, h.list))
+	r.Post("/api/v1/agents", httpx.RequireFunc(permission.AgentsWrite, h.create))
+	r.Get("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsRead, h.find))
+	r.Patch("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.update))
+	r.Delete("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.delete))
+	r.Get("/api/v1/docks/:dock/agents", httpx.RequireFunc(permission.AgentsRead, h.team))
+	r.Put("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.assign))
+	r.Delete("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.unassign))
 	// Profiles and secrets: writing either can direct the agent's secrets
 	// (an MCP header naming one), so both need agents:write.
-	mux.Handle("GET /api/v1/agents/{id}/profile", stdhttp.RequireFunc(permission.AgentsRead, h.profile))
-	mux.Handle("PUT /api/v1/agents/{id}/profile", stdhttp.RequireFunc(permission.AgentsWrite, h.saveProfile))
-	mux.Handle("GET /api/v1/agents/{id}/profile/versions", stdhttp.RequireFunc(permission.AgentsRead, h.versions))
-	mux.Handle("GET /api/v1/agents/{id}/profile/versions/{version}", stdhttp.RequireFunc(permission.AgentsRead, h.profile))
-	mux.Handle("GET /api/v1/agents/{id}/secrets", stdhttp.RequireFunc(permission.AgentsRead, h.secrets))
-	mux.Handle("PUT /api/v1/agents/{id}/secrets/{name}", stdhttp.RequireFunc(permission.AgentsWrite, h.setSecret))
-	mux.Handle("DELETE /api/v1/agents/{id}/secrets/{name}", stdhttp.RequireFunc(permission.AgentsWrite, h.deleteSecret))
+	r.Get("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	r.Put("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
+	r.Get("/api/v1/agents/:id/profile/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
+	r.Get("/api/v1/agents/:id/profile/versions/:version", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	r.Get("/api/v1/agents/:id/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
+	r.Put("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
+	r.Delete("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) list(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	page, err := stdhttp.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.List(r.Context(), org, page)
+	out, err := h.queries.List(c.Context(), org, page)
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type createRequest struct {
@@ -59,40 +60,40 @@ type createRequest struct {
 	Description string `json:"description"`
 }
 
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	p, err := stdhttp.Caller(r)
+func (h *Handler) create(c fiber.Ctx) error {
+	p, err := httpx.Caller(c)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := stdhttp.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
 	by := p.Name
 	if by == "" {
 		by = p.Subject
 	}
-	a, err := h.commands.Create(r.Context(), p.Organization, agent.Create{Name: req.Name, Description: req.Description, CreatedBy: by})
+	a, err := h.commands.Create(c.Context(), p.Organization, agent.Create{Name: req.Name, Description: req.Description, CreatedBy: by})
 	if err != nil {
 		return err
 	}
-	return stdhttp.Created(w, r, a.ID.String(), a)
+	return httpx.Created(c, a.ID.String(), a)
 }
 
-func (h *Handler) find(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) find(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAgentID(r.PathValue("id"))
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	a, err := h.queries.Find(r.Context(), org, id)
+	a, err := h.queries.Find(c.Context(), org, id)
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, a)
+	return httpx.JSON(c, http.StatusOK, a)
 }
 
 type updateRequest struct {
@@ -100,104 +101,103 @@ type updateRequest struct {
 	Description *string `json:"description"`
 }
 
-func (h *Handler) update(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) update(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAgentID(r.PathValue("id"))
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req updateRequest
-	if err := stdhttp.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	a, err := h.commands.Update(r.Context(), org, id, agent.Update{Name: req.Name, Description: req.Description})
+	a, err := h.commands.Update(c.Context(), org, id, agent.Update{Name: req.Name, Description: req.Description})
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, a)
+	return httpx.JSON(c, http.StatusOK, a)
 }
 
-func (h *Handler) delete(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) delete(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAgentID(r.PathValue("id"))
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	if err := h.commands.Delete(r.Context(), org, id); err != nil {
+	if err := h.commands.Delete(c.Context(), org, id); err != nil {
 		return err
 	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	return c.SendStatus(http.StatusNoContent)
 }
 
-func (h *Handler) team(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) team(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("dock"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return err
 	}
-	team, err := h.queries.Team(r.Context(), org, dock)
+	team, err := h.queries.Team(c.Context(), org, dock)
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, map[string]any{"agents": team})
+	return httpx.JSON(c, http.StatusOK, map[string]any{"agents": team})
 }
 
 type assignRequest struct {
 	Default bool `json:"default"`
 }
 
-func (h *Handler) assign(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) assign(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("dock"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAgentID(r.PathValue("id"))
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
 	var req assignRequest
-	if r.ContentLength != 0 {
-		if err := stdhttp.DecodeJSON(r, &req); err != nil {
+	if c.Request().Header.ContentLength() != 0 {
+		if err := httpx.DecodeJSON(c, &req); err != nil {
 			return err
 		}
 	}
-	a, err := h.commands.Assign(r.Context(), org, agent.Assign{Dock: dock, Agent: id, Default: req.Default})
+	a, err := h.commands.Assign(c.Context(), org, agent.Assign{Dock: dock, Agent: id, Default: req.Default})
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, a)
+	return httpx.JSON(c, http.StatusOK, a)
 }
 
-func (h *Handler) unassign(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) unassign(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	dock, err := identity.ParseDockID(r.PathValue("dock"))
+	dock, err := identity.ParseDockID(httpx.Param(c, "dock"))
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseAgentID(r.PathValue("id"))
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	a, err := h.commands.Unassign(r.Context(), org, dock, id)
+	a, err := h.commands.Unassign(c.Context(), org, dock, id)
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, a)
+	return httpx.JSON(c, http.StatusOK, a)
 }
