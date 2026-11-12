@@ -15,7 +15,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew/crewsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -30,9 +29,9 @@ type Module struct {
 	Resolver httpx.CrewResolver
 	tokens   *crewhttp.Handler
 	mcp      http.Handler
-	kit      http.Handler
-	media    http.Handler
-	reply    http.Handler
+	kit      crewhttp.Kit
+	media    crewhttp.Attachment
+	reply    crewhttp.Reply
 	version  string
 }
 
@@ -47,9 +46,9 @@ func New(db *sqlx.DB, process string, lease time.Duration, mcpURL, version strin
 
 // Register mounts the admin routes (GET /api/v1/crew: connected agents;
 // /api/v1/crew/tokens).
-func (m *Module) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/crew", stdhttp.Require(permission.CrewRead, m.Hub.StatusHandler()))
-	m.tokens.Register(mux)
+func (m *Module) Register(r httpx.Router) {
+	r.Get("/api/v1/crew", httpx.RequireFunc(permission.CrewRead, crewhttp.ServeStatus(m.Hub)))
+	m.tokens.Register(r)
 }
 
 // Bind connects the crew to the ship, conversation and agent domains
@@ -70,8 +69,8 @@ func (m *Module) Bind(ships interface {
 
 // WS is the /crew/ws handler, MCP the /mcp handler, Kit GET /crew/profile,
 // Attachment GET /crew/attachments/{id}, Reply POST /crew/reply.
-func (m *Module) WS() http.Handler         { return m.Hub }
-func (m *Module) MCP() http.Handler        { return m.mcp }
-func (m *Module) Kit() http.Handler        { return m.kit }
-func (m *Module) Attachment() http.Handler { return m.media }
-func (m *Module) Reply() http.Handler      { return m.reply }
+func (m *Module) WS() http.Handler          { return m.Hub }
+func (m *Module) MCP() http.Handler         { return m.mcp }
+func (m *Module) Kit() httpx.Handler        { return m.kit.Handle }
+func (m *Module) Attachment() httpx.Handler { return m.media.Handle }
+func (m *Module) Reply() httpx.Handler      { return m.reply.Handle }

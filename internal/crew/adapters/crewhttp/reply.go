@@ -3,10 +3,11 @@ package crewhttp
 import (
 	"net/http"
 
+	"github.com/gofiber/fiber/v3"
+
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
@@ -17,26 +18,25 @@ type Reply struct {
 	Ships ship.Commands
 }
 
-func (h Reply) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		p, ok := httpx.PrincipalFrom(r.Context())
-		if !ok {
-			return errx.Unauthorized("missing crew principal")
-		}
-		if p.Agent.IsZero() {
-			return errx.Forbidden("replies need an agent's crew token")
-		}
-		var in crew.ReplyRequest
-		if err := stdhttp.DecodeJSONMax(r, &in, crew.MaxReplyBody); err != nil {
-			return err
-		}
-		if err := in.Validate(); err != nil {
-			return err
-		}
-		s, err := h.Ships.Send(r.Context(), p.Organization, ship.Outbound{Conversation: in.ConversationID, Text: in.Text, Agent: &p.Agent, Files: in.Files})
-		if err != nil {
-			return err
-		}
-		return stdhttp.JSON(w, http.StatusCreated, crew.ReplyAnswer{ShipID: s.ID.String(), Status: string(s.Status)})
-	}).ServeHTTP(w, r)
+// Handle is the route handler.
+func (h Reply) Handle(c fiber.Ctx) error {
+	p, ok := httpx.PrincipalFrom(c.Context())
+	if !ok {
+		return errx.Unauthorized("missing crew principal")
+	}
+	if p.Agent.IsZero() {
+		return errx.Forbidden("replies need an agent's crew token")
+	}
+	var in crew.ReplyRequest
+	if err := httpx.DecodeJSONMax(c, &in, crew.MaxReplyBody); err != nil {
+		return err
+	}
+	if err := in.Validate(); err != nil {
+		return err
+	}
+	s, err := h.Ships.Send(c.Context(), p.Organization, ship.Outbound{Conversation: in.ConversationID, Text: in.Text, Agent: &p.Agent, Files: in.Files})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusCreated, crew.ReplyAnswer{ShipID: s.ID.String(), Status: string(s.Status)})
 }

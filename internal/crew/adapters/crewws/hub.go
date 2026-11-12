@@ -180,21 +180,6 @@ func (c *conn) deliveryList() []crew.AgentDelivery {
 	return out
 }
 
-// StatusHandler answers GET /api/v1/crew (admin).
-func (h *Hub) StatusHandler() http.Handler {
-	return stdhttp.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		org, err := stdhttp.Organization(r)
-		if err != nil {
-			return err
-		}
-		st, err := h.Status(r.Context(), org)
-		if err != nil {
-			return err
-		}
-		return stdhttp.JSON(w, http.StatusOK, st)
-	})
-}
-
 // Start listens to the other processes' signals and keeps this process's
 // connections alive (reaping dead processes') until ctx ends or Close.
 func (h *Hub) Start(ctx context.Context) {

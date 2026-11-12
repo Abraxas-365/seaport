@@ -21,6 +21,8 @@ type nativeRoutes struct {
 	// state, a signature): the GitHub, Jira and Slack docks'.
 	public      []func(httpx.Router)
 	githubToken fiber.Handler
+	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
+	kit, attachment, reply fiber.Handler
 }
 
 // mountNative registers the routes served by Fiber handlers, in the order
@@ -59,9 +61,9 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	// The crew's endpoints: crew authentication, then the rate limit.
 	app.All("/crew/ws", auth.Crew(), limit, legacy)
 	app.All("/mcp", auth.Crew(), limit, legacy)
-	app.Get("/crew/profile", auth.Crew(), limit, legacy)
-	app.Get("/crew/attachments/:id", auth.Crew(), limit, legacy)
-	app.Post("/crew/reply", auth.Crew(), limit, legacy)
+	app.Get("/crew/profile", auth.Crew(), limit, r.kit)
+	app.Get("/crew/attachments/:id", auth.Crew(), limit, r.attachment)
+	app.Post("/crew/reply", auth.Crew(), limit, r.reply)
 	app.Get("/crew/workspace", auth.Crew(), limit, legacy)
 	// App tokens for the agent's repos (gh and git inside its slot).
 	app.Post("/crew/github/token", auth.Crew(), limit, r.githubToken)

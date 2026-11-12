@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
+
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/httpx"
-	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 )
@@ -22,35 +23,35 @@ func New(c crew.TokenCommands, q crew.TokenQueries) *Handler {
 	return &Handler{commands: c, queries: q}
 }
 
-// Register mounts the routes on mux (already behind admin auth).
-func (h *Handler) Register(mux *http.ServeMux) {
-	mux.Handle("GET /api/v1/crew/tokens", stdhttp.RequireFunc(permission.CrewTokensRead, h.list))
-	mux.Handle("POST /api/v1/crew/tokens", stdhttp.RequireFunc(permission.CrewTokensWrite, h.create))
-	mux.Handle("DELETE /api/v1/crew/tokens/{id}", stdhttp.RequireFunc(permission.CrewTokensWrite, h.revoke))
+// Register mounts the routes on r (already behind admin auth).
+func (h *Handler) Register(r httpx.Router) {
+	r.Get("/api/v1/crew/tokens", httpx.RequireFunc(permission.CrewTokensRead, h.list))
+	r.Post("/api/v1/crew/tokens", httpx.RequireFunc(permission.CrewTokensWrite, h.create))
+	r.Delete("/api/v1/crew/tokens/:id", httpx.RequireFunc(permission.CrewTokensWrite, h.revoke))
 }
 
-func (h *Handler) list(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) list(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	page, err := stdhttp.Pagination(r)
+	page, err := httpx.Pagination(c)
 	if err != nil {
 		return err
 	}
 	var filter crew.TokenFilter
-	if raw := r.URL.Query().Get("agent_id"); raw != "" {
+	if raw := c.Query("agent_id"); raw != "" {
 		id, err := identity.ParseAgentID(raw)
 		if err != nil {
 			return err
 		}
 		filter.Agent = &id
 	}
-	out, err := h.queries.List(r.Context(), org, filter, page)
+	out, err := h.queries.List(c.Context(), org, filter, page)
 	if err != nil {
 		return err
 	}
-	return stdhttp.JSON(w, http.StatusOK, out)
+	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type createRequest struct {
@@ -59,42 +60,61 @@ type createRequest struct {
 	ExpiresAt *time.Time       `json:"expires_at"`
 }
 
-func (h *Handler) create(w http.ResponseWriter, r *http.Request) error {
-	p, err := stdhttp.Caller(r)
+func (h *Handler) create(c fiber.Ctx) error {
+	p, err := httpx.Caller(c)
 	if err != nil {
 		return err
 	}
 	var req createRequest
-	if err := stdhttp.DecodeJSON(r, &req); err != nil {
+	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
 	by := p.Name
 	if by == "" {
 		by = p.Subject
 	}
-	t, err := h.commands.Create(r.Context(), p.Organization,
+	t, err := h.commands.Create(c.Context(), p.Organization,
 		crew.CreateToken{Name: req.Name, Agent: req.Agent, ExpiresAt: req.ExpiresAt, CreatedBy: by})
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	return stdhttp.Created(w, r, t.ID.String(), t)
+	c.Set("Cache-Control", "no-store")
+	return httpx.Created(c, t.ID.String(), t)
 }
 
-func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) error {
-	org, err := stdhttp.Organization(r)
+func (h *Handler) revoke(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := identity.ParseCrewTokenID(r.PathValue("id"))
+	id, err := identity.ParseCrewTokenID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	if err := h.commands.Revoke(r.Context(), org, id); err != nil {
+	if err := h.commands.Revoke(c.Context(), org, id); err != nil {
 		return err
 	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	return c.SendStatus(http.StatusNoContent)
+}
+
+// Status is the live agent connections of every process (the hub).
+type Status interface {
+	Status(ctx context.Context, organization identity.OrganizationID) (crew.Status, error)
+}
+
+// ServeStatus serves GET /api/v1/crew: who is connected (admin).
+func ServeStatus(s Status) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		org, err := httpx.Organization(c)
+		if err != nil {
+			return err
+		}
+		st, err := s.Status(c.Context(), org)
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(c, http.StatusOK, st)
+	}
 }
 
 // Resolver authenticates agents with crew tokens (httpx.CrewResolver).
