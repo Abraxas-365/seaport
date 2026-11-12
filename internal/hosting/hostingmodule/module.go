@@ -24,6 +24,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting/adapters/hostingpg"
 	"github.com/Abraxas-365/seaport/internal/hosting/hostingsvc"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/jmoiron/sqlx"
 )
@@ -138,13 +139,9 @@ func (m *Module) Register(r httpx.Router) { m.http.Register(r) }
 // Workspace is GET /crew/workspace (mount behind crew auth).
 func (m *Module) Workspace() httpx.Handler { return m.http.Workspace() }
 
-// Gateway is the model gateway (mount at hosting.GatewayPath+"/" behind
-// crew auth wrapped in APIKeyAsBearer).
-func (m *Module) Gateway() http.Handler { return m.gateway }
-
-// APIKeyAsBearer lets crew auth read an x-api-key header (the gateway's
-// callers send their slot token so).
-func APIKeyAsBearer(next http.Handler) http.Handler { return hostinggateway.APIKeyAsBearer(next) }
+// Gateway is the model gateway (mount at hosting.GatewayPath+"/*" behind
+// crew auth, with httpx.APIKeyAsBearer before it; net/http inside, see stdhttp.Handler).
+func (m *Module) Gateway() httpx.Handler { return stdhttp.Handler(m.gateway) }
 
 // Notify pokes the slot supervisor: the agent has new work (a
 // ship.Notifier).

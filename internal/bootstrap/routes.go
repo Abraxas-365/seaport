@@ -25,6 +25,9 @@ type nativeRoutes struct {
 	events fiber.Handler
 	// ws is the crew hub's WebSocket (GET /crew/ws).
 	ws fiber.Handler
+	// mcp is the MCP SDK's handler (POST /mcp) and gateway the model
+	// gateway's ReverseProxy: net/http inside (stdhttp.Handler).
+	mcp, gateway fiber.Handler
 	// The crew's own endpoints (GET /crew/profile, GET /crew/attachments/:id, POST /crew/reply).
 	kit, attachment, reply, workspace fiber.Handler
 }
@@ -65,7 +68,7 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 
 	// The crew's endpoints: crew authentication, then the rate limit.
 	app.Get("/crew/ws", auth.Crew(), limit, r.ws)
-	app.All("/mcp", auth.Crew(), limit, legacy)
+	app.All("/mcp", auth.Crew(), limit, r.mcp)
 	app.Get("/crew/profile", auth.Crew(), limit, r.kit)
 	app.Get("/crew/attachments/:id", auth.Crew(), limit, r.attachment)
 	app.Post("/crew/reply", auth.Crew(), limit, r.reply)
@@ -75,5 +78,5 @@ func mountNative(app *fiber.App, legacy fiber.Handler, r nativeRoutes) {
 	// The model gateway: hosted slots call their provider with their slot
 	// token (as x-api-key or bearer); not rate limited per request (one
 	// agent turn makes many calls; the provider limits the key).
-	app.All(hosting.GatewayPath+"/*", httpx.APIKeyAsBearer(), auth.Crew(), legacy)
+	app.All(hosting.GatewayPath+"/*", httpx.APIKeyAsBearer(), auth.Crew(), r.gateway)
 }

@@ -324,8 +324,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	root := http.NewServeMux()
 	root.Handle("/api/", admin)
-	root.Handle("/mcp", crew.MCP())
-	root.Handle(hosting.GatewayPath+"/", hosted.Gateway())
 	// Everything else is the admin UI (client routes fall back to index.html).
 	ui := stdhttp.SPA(web.Dist(), cfg.GitHubURL)
 	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +337,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	srv := newServer(methodErrors(root), func(app *fiber.App, legacy fiber.Handler) {
 		mountNative(app, legacy, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
 			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
-			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(),
+			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace()})
 	})
 

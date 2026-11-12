@@ -66,17 +66,6 @@ func New(commands hosting.Commands, cfg Config) (*Gateway, error) {
 	return &Gateway{commands: commands, upstreams: map[string]*url.URL{hosting.ProviderAnthropic: u}, transport: t}, nil
 }
 
-// APIKeyAsBearer lets harnesses that send their key as x-api-key (the
-// Anthropic SDKs) sign in to crew auth: it becomes the bearer.
-func APIKeyAsBearer(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if k := r.Header.Get("X-Api-Key"); k != "" && r.Header.Get("Authorization") == "" {
-			r.Header.Set("Authorization", "Bearer "+k)
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // allowed are the provider paths a slot may call (anything else is 404:
 // the gateway is not an open relay to the provider's whole API).
 func allowed(path string) bool {

@@ -15,6 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew/crewsvc"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
+	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/jmoiron/sqlx"
@@ -70,7 +71,7 @@ func (m *Module) Bind(ships interface {
 // WS is the /crew/ws handler, MCP the /mcp handler, Kit GET /crew/profile,
 // Attachment GET /crew/attachments/{id}, Reply POST /crew/reply.
 func (m *Module) WS() httpx.Handler         { return m.Hub.Handle }
-func (m *Module) MCP() http.Handler         { return m.mcp }
+func (m *Module) MCP() httpx.Handler        { return stdhttp.Handler(m.mcp) }
 func (m *Module) Kit() httpx.Handler        { return m.kit.Handle }
 func (m *Module) Attachment() httpx.Handler { return m.media.Handle }
 func (m *Module) Reply() httpx.Handler      { return m.reply.Handle }
