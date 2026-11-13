@@ -64,10 +64,10 @@ type CustomsRepository interface {
 }
 
 // Gate lets through what waited at customs for the owner's decision:
-// when a direct chat becomes allowed, its messages held while it was
-// pending go on to the crew (ship.Commands.ReleaseHeld; bound late, the
-// ship service is built after this one). Groups are left alone: whether a
-// held group message addressed the account isn't stored.
+// when a chat becomes allowed, its messages held while it was pending go
+// on to the crew (ship.Commands.ReleaseHeld; bound late, the ship service
+// is built after this one), through Admit first: each ship stored whether
+// it addressed the account and its sender's handles.
 type Gate interface {
 	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (int, error)
 }

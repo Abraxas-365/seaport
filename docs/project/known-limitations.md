@@ -14,7 +14,7 @@ Where you may run into limits, what to expect and what you can do about it. It d
 ## Customs and routing
 
 - **Routing is decided once, at arrival.** A message is routed to an agent (or held) when it arrives. Assigning an agent to a dock later, or mentioning one afterwards, does not release ships already held with `no agent is assigned to this dock` or `no agent was called`. The agent can still read them with the `history` tool, and new messages route normally. See [agents and routing](../guides/agents-and-routing.md).
-- **Allowing a chat releases a limited backlog.** When a direct chat becomes allowed, only ships held by customs as pending, from the last 24 hours and at most the newest 50, are delivered. Older ones, those held for another reason, and everything held in a group stay held. Whether a group message addressed your number isn't stored. See [customs](../guides/customs.md).
+- **Allowing a chat releases a limited backlog.** When a chat becomes allowed, only ships held by customs as pending, from the last 24 hours and at most the newest 50, are delivered. Older ones and those held for another reason stay held. See [customs](../guides/customs.md).
 - **One agent works a conversation at a time, in arrival order.** A conversation waits while the agent it owes a message is offline; another agent doesn't skip ahead.
 
 ## Agents and connectors
