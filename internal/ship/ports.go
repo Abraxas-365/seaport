@@ -41,10 +41,10 @@ type Commands interface {
 	// ReleaseSession puts back every ship claimed by a connection
 	// (Claim.Session) that is gone, and says how many.
 	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
-	// ReleaseHeld routes a now-allowed direct conversation's ships held
-	// while it was pending (conversation.HoldPending, within
-	// ReleaseWindow) to the crew, as if they had just arrived, and says
-	// how many it queued (conversation.Gate).
+	// ReleaseHeld routes a now-allowed conversation's ships held while it
+	// was pending (conversation.HoldPending, within ReleaseWindow) to the
+	// crew, as if they had just arrived (customs' message-level checks
+	// included), and says how many it queued (conversation.Gate).
 	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (int, error)
 	// ReleaseExpired requeues every delivery whose lease ended, in every
 	// organization (system: sweeper).
@@ -116,10 +116,14 @@ type Repository interface {
 	ReleaseSession(ctx context.Context, organization identity.OrganizationID, session string) (int, error)
 	// ReleaseHeld routes the conversation's ships held with
 	// conversation.HoldPending since since, oldest first (each sees the
-	// agent the one before went to), if the conversation is an allowed
-	// direct chat; the team is locked as in CreateInbound. It returns the
-	// ships it changed (queued, or held again with route's reason).
-	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, since time.Time, route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]Ship, error)
+	// agent the one before went to), if the conversation is allowed; the
+	// team is locked as in CreateInbound. admit gives each ship's
+	// message-level customs decision from what it stored at arrival
+	// (addressed, sender handles; conversation.Customs.Admit): a non-empty
+	// reason holds it again with that reason, unrouted. It returns the
+	// ships it changed (queued, or held again with admit's or route's
+	// reason).
+	ReleaseHeld(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, since time.Time, admit func(addressed bool, senders []string) string, route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]Ship, error)
 	// ReleaseExpired spans every organization and reports the requeued
 	// ships of each (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)

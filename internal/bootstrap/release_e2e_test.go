@@ -13,9 +13,9 @@ import (
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
-// Allowing a pending direct chat delivers what it sent while it waited at
-// customs (oldest first, within ship.ReleaseWindow); a denied chat's
-// messages and a group's stay held.
+// Allowing a pending chat delivers what it sent while it waited at
+// customs (oldest first, within ship.ReleaseWindow), through customs'
+// message-level checks again; a denied chat's messages stay held.
 func TestAllowingDeliversWhatWaited(t *testing.T) {
 	p := startPort(t)
 	d := p.apiDock("t")
@@ -40,6 +40,8 @@ func TestAllowingDeliversWhatWaited(t *testing.T) {
 	}
 	group := p.injectWith(d, map[string]any{"chat_id": "777@g.us", "chat_kind": "group",
 		"message_id": "g1", "sender_id": "+34600000000", "text": "@seaport hola", "addressed": true})
+	chatter := p.injectWith(d, map[string]any{"chat_id": "777@g.us", "chat_kind": "group",
+		"message_id": "g2", "sender_id": "+34600000001", "text": "nos vemos luego"})
 	c.quiet(200 * time.Millisecond)
 
 	// The owner allows the chat: the recent two go out, in order, at once.
@@ -53,11 +55,20 @@ func TestAllowingDeliversWhatWaited(t *testing.T) {
 		t.Fatalf("a message older than the window must stay held: %+v", s)
 	}
 
-	// A group allowed by a rule: its held message stays held (whether it
-	// addressed us isn't stored).
+	// A group allowed by a rule (a GitHub pull request, a Slack thread): the
+	// message that addressed us goes out; the one that didn't stays held,
+	// now for not mentioning us (the group is in mentions mode).
 	p.admin(http.MethodPost, base+"/rules", map[string]string{"effect": "allow", "pattern": "777@g.us"}, nil)
 	if st := p.conversation(group.Conversation).Status; st != conversation.StatusAllowed {
 		t.Fatalf("group: %s", st)
+	}
+	if f := c.read(); f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].ID != group.ID {
+		t.Fatalf("released group delivery: %+v", f)
+	} else {
+		c.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
+	}
+	if s := find(p.history(group.Conversation), chatter.ID); s.Status != ship.StatusHeld || s.HoldReason != conversation.HoldNotMentioned {
+		t.Fatalf("a group message without a mention must stay held: %+v", s)
 	}
 	c.quiet(300 * time.Millisecond)
 

@@ -3,10 +3,12 @@ package shippg
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -75,11 +77,12 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 	}
 	err = tx.GetContext(ctx, &s, `
 		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text,
-			status, agent_id, hold_reason, sent_at)
-		VALUES ($1, $2, $3, 'in', $4, $5, $6, $7, $8, $9, $10, $11)
+			status, agent_id, hold_reason, sent_at, addressed, sender_handles)
+		VALUES ($1, $2, $3, 'in', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
 		ON CONFLICT (conversation_id, external_id) DO NOTHING
 		RETURNING `+columns,
-		id, org, conv.ID, in.ExternalID, in.SenderID, in.SenderName, in.Text, status, target, hold, in.SentAt)
+		id, org, conv.ID, in.ExternalID, in.SenderID, in.SenderName, in.Text, status, target, hold, in.SentAt,
+		in.Addressed, senderHandles(in))
 	if pgerr.IsNoRows(err) {
 		_ = tx.Rollback()
 		s, found, err := r.FindExternal(ctx, org, conv.ID, in.ExternalID)
@@ -95,6 +98,13 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 		return s, false, err
 	}
 	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
+}
+
+// senderHandles is the JSON of the handles customs matches the sender by,
+// kept so a held message can be admitted later (ReleaseHeld).
+func senderHandles(in ship.Inbound) string {
+	raw, _ := json.Marshal(conversation.CleanHandles(in.Arrival().Senders))
+	return string(raw)
 }
 
 // insertAttachments stores a new ship's attachments in its transaction;
@@ -370,21 +380,20 @@ func (r *Repository) ReleaseSession(ctx context.Context, org identity.Organizati
 }
 
 func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationID, convID identity.ConversationID, since time.Time,
+	admit func(addressed bool, senders []string) string,
 	route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]ship.Ship, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, pgerr.Map(err, "begin release held")
 	}
 	defer func() { _ = tx.Rollback() }()
-	// The conversation must still be an allowed direct chat (FOR SHARE: a
-	// status change waits for this release, so a chat denied meanwhile
-	// releases nothing).
+	// The conversation must still be allowed (FOR SHARE: a status change
+	// waits for this release, so a chat denied meanwhile releases nothing).
 	var conv struct {
 		Dock   identity.DockID     `db:"dock_id"`
-		Kind   conversation.Kind   `db:"kind"`
 		Status conversation.Status `db:"status"`
 	}
-	err = tx.GetContext(ctx, &conv, `SELECT dock_id, kind, status FROM conversations
+	err = tx.GetContext(ctx, &conv, `SELECT dock_id, status FROM conversations
 		WHERE organization_id = $1 AND id = $2 FOR SHARE`, org, convID)
 	if pgerr.IsNoRows(err) {
 		return nil, nil
@@ -392,11 +401,15 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 	if err != nil {
 		return nil, pgerr.Map(err, "find released conversation")
 	}
-	if conv.Status != conversation.StatusAllowed || conv.Kind != conversation.KindDirect {
+	if conv.Status != conversation.StatusAllowed {
 		return nil, nil
 	}
-	held := []ship.Ship{}
-	if err := tx.SelectContext(ctx, &held, `SELECT `+columns+` FROM ships
+	held := []struct {
+		ship.Ship
+		Addressed bool   `db:"addressed"`
+		Senders   []byte `db:"sender_handles"`
+	}{}
+	if err := tx.SelectContext(ctx, &held, `SELECT `+columns+`, addressed, sender_handles FROM ships
 		WHERE organization_id = $1 AND conversation_id = $2 AND direction = 'in' AND status = 'held'
 		  AND hold_reason = $3 AND created_at >= $4
 		ORDER BY created_at DESC, id DESC LIMIT $5 FOR UPDATE`,
@@ -424,7 +437,16 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 	out := make([]ship.Ship, 0, len(held))
 	for i := len(held) - 1; i >= 0; i-- { // oldest first
 		s := held[i]
-		picked, reason := route(team, s.Text, previous)
+		var senders []string
+		if err := json.Unmarshal(s.Senders, &senders); err != nil {
+			return nil, errx.Wrap(err, "held ship senders", errx.TypeInternal)
+		}
+		// Customs at message level first (a group message that didn't
+		// address the account, a denied sender), then routing.
+		picked, reason := identity.AgentID{}, admit(s.Addressed, senders)
+		if reason == conversation.HoldNone {
+			picked, reason = route(team, s.Text, previous)
+		}
 		var updated ship.Ship
 		if picked.IsZero() {
 			err = tx.GetContext(ctx, &updated, `UPDATE ships SET hold_reason = $3

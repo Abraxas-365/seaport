@@ -20,6 +20,8 @@ type Deps struct {
 	Conversations interface {
 		conversation.Commands
 		conversation.Queries
+		// CustomsQueries: what customs says of a held message on release.
+		conversation.CustomsQueries
 	}
 	Docks     dock.Queries
 	Messenger dock.Messenger

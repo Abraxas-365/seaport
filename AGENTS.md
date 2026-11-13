@@ -260,16 +260,19 @@ net/http mux; only `/healthz` answers 405.
   a per-dock lock (`conversation.DockLocker`, shared by every process). Adapters report normalized handles
   (`+<digits>`, JIDs) and `Addressed`; the engine knows no channel.
 - Ship status: inbound `held` (customs or routing, `hold_reason`) | `queued` → `claimed`
-  → `handled`; outbound `pending` → `sent|failed`. A direct chat that
+  → `handled`; outbound `pending` → `sent|failed`. A chat that
   becomes allowed (`redecide`: override, rule or policy) releases its ships
   held with `conversation.HoldPending` within `ship.ReleaseWindow` (newest
   `ship.MaxRelease`) through `conversation.Gate` (= `ship.Commands.ReleaseHeld`,
   bound late): `shippg.ReleaseHeld` re-checks the chat `FOR SHARE`, locks
   the ships and the team like `CreateInbound` and routes them oldest first.
   `Receive` releases too when the chat turned allowed between customs and
-  its insert. `HoldDenied` ships, older ones and groups' stay held (whether
-  a group message addressed us isn't stored); the agent reads them with
-  `history`.
+  its insert. Each inbound ship stores `addressed` and `sender_handles`
+  (migration 00027), so a released ship passes `Customs.Admit` again (the
+  `admit` func `shipsvc` hands the repository): a group message that didn't
+  address us in mentions mode, or a denied sender's, is held again with
+  that reason. `HoldDenied` ships and older ones stay held; the agent reads
+  them with `history`.
 - At most one delivery in flight per conversation (claim under
   `pg_advisory_xact_lock`), so an agent session never gets two prompts at once.
   For steering connectors (`hello.steer`) new ships of that conversation

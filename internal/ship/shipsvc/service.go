@@ -26,6 +26,8 @@ type Deps struct {
 	Conversations interface {
 		conversation.Commands
 		conversation.Queries
+		// CustomsQueries: what customs says of a held message on release.
+		conversation.CustomsQueries
 	}
 	Messenger dock.Messenger
 	Notifier  ship.Notifier
@@ -45,6 +47,7 @@ type Service struct {
 	convs interface {
 		conversation.Commands
 		conversation.Queries
+		conversation.CustomsQueries
 	}
 	messenger dock.Messenger
 	notifier  ship.Notifier
@@ -255,7 +258,16 @@ func (s *Service) ReleaseHeld(ctx context.Context, org identity.OrganizationID, 
 	if conv.IsZero() {
 		return 0, errx.InvalidField("conversation", "conversation is required")
 	}
-	changed, err := s.repo.ReleaseHeld(ctx, org, conv, s.now().Add(-ship.ReleaseWindow), agent.Route)
+	c, err := s.convs.Find(ctx, org, conv)
+	if err != nil {
+		return 0, errx.Wrap(err, "find released conversation", errx.TypeInternal)
+	}
+	customs, err := s.convs.Customs(ctx, org, c.Dock)
+	if err != nil {
+		return 0, errx.Wrap(err, "load customs", errx.TypeInternal)
+	}
+	admit := func(addressed bool, senders []string) string { return customs.Admit(c, senders, addressed) }
+	changed, err := s.repo.ReleaseHeld(ctx, org, conv, s.now().Add(-ship.ReleaseWindow), admit, agent.Route)
 	if err != nil {
 		return 0, errx.Wrap(err, "release held ships", errx.TypeInternal)
 	}

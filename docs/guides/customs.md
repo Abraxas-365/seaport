@@ -85,7 +85,7 @@ Messages that don't pass are never dropped. They are stored **held**, with a rea
 | `sender denied by a rule` | a deny rule matches the sender (groups) |
 | `group message without a mention` | a group in `mentions` mode, not addressed to you |
 
-When a pending **direct** chat becomes allowed (by you, a rule or the default), what it sent while it waited goes to the agent, oldest first: messages of the last 24 hours, the newest 50 at most. Older messages, a denied chat's messages and a group's held messages stay held; the agent can still read them with the `history` tool.
+When a pending chat becomes allowed (by you, a rule or the default), what it sent while it waited goes to the agent, oldest first: messages of the last 24 hours, the newest 50 at most. In a group (a GitHub pull request, a Slack thread, a WhatsApp group) only the messages that would have woken the agent go: those that mentioned it in mentions mode, from senders no rule denies. Older messages and a denied chat's messages stay held; the agent can still read them with the `history` tool.
 
 Routing can hold messages too (no agent on the dock, or nobody called); see [Agents and routing](agents-and-routing.md#routing).
 

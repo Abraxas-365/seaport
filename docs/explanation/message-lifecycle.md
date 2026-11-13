@@ -61,7 +61,7 @@ A held ship keeps its reason, which the web app shows when you hover the message
 
 ### Release on allow
 
-When a **direct** chat that was pending becomes allowed (you allowed it, a rule matches, or the policy changed), the ships held as `conversation pending` are routed and queued, oldest first. Only messages from the **last 24 hours** go, and at most the **newest 50**. Everything else stays held: older messages, a denied chat's messages, a group's held messages (whether a group message addressed you isn't stored), and ships held by routing, which is decided once.
+When a chat that was pending becomes allowed (you allowed it, a rule matches, or the policy changed), the ships held as `conversation pending` go through customs again and are routed and queued, oldest first. Only messages from the **last 24 hours** go, and at most the **newest 50**. In a group, a message that didn't mention you (in mentions mode) or whose sender a rule denies is held again with that reason. Everything else stays held: older messages, a denied chat's messages, and ships held by routing, which is decided once.
 
 ## Outbound: replies
 
