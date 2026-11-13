@@ -36,11 +36,12 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock add whatsapp [-name N]   link a WhatsApp number (shows a QR to scan)
   seaport dock add api [-name N]        a dock fed through the HTTP API
   seaport dock add github [-name N]     a GitHub App (created and installed from the web)
+  seaport dock add jira [-name N]       a Jira Cloud service account (site and API token entered in the web)
   seaport dock add slack [-name N]      a Slack App (created or pasted in the web)
   seaport dock list
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
-  seaport dock unlink <dock-id>         log the number out (keeps history; relink to pair again)
+  seaport dock unlink <dock-id>         disconnect the channel (keeps history; relink to connect again)
   seaport dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
   seaport crew                          connected agents and what they are working on
   seaport agents [list]                 your organization's agents and the docks they work

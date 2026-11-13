@@ -51,7 +51,7 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 
 ## Secret key
 
-`SEAPORT_SECRET_KEY` is the key that seals secrets at rest: the WhatsApp store (private keys, sessions), GitHub Apps' private keys and webhook secrets, Jira API tokens and webhook secrets, agent secrets, message images, harness homes and, in `iam` mode, the IAMKit tokens of browser sessions. A random value of at least 32 characters, for example `openssl rand -base64 32`; shorter keys and placeholder-looking ones (fewer than 12 distinct characters) are refused.
+`SEAPORT_SECRET_KEY` is the key that seals secrets at rest: the WhatsApp store (private keys, sessions), GitHub Apps' private keys, webhook secrets and client secrets, Jira API tokens and webhook secrets, Slack apps' client secrets, signing secrets and bot tokens, agent secrets, message attachments (images and files), harness homes and, in `iam` mode, the IAMKit tokens of browser sessions. A random value of at least 32 characters, for example `openssl rand -base64 32`; shorter keys and placeholder-looking ones (fewer than 12 distinct characters) are refused.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
@@ -60,22 +60,22 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 
 Things to know:
 
-- **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, linking every Jira dock again, setting every agent secret again and losing every stored image and harness home; in `iam` mode it also signs everyone out.
-- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps` or `jira_sites` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
+- **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, connecting every Jira and Slack dock again, setting every agent secret again and losing every stored attachment and harness home; in `iam` mode it also signs everyone out.
+- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites` or `slack_apps` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
 - **With several processes, set it explicitly** (same value everywhere) instead of letting each generate its own file. See [Several processes](../guides/operations/several-processes.md).
 - **Changing it** makes sealed values unreadable. The start checks one WhatsApp device first, so a changed key stops the start instead of failing every dock.
 - In the image, `/data` holds the generated key: mount a volume.
 
 ## Storage
 
-Message images and harness homes go to a blob store, sealed with the secret key.
+Message attachments (images and files) and harness homes go to a blob store, sealed with the secret key.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
-| `SEAPORT_BLOB_URL` | `blobs/` next to the key file (`/data/blobs` in the image) | `file:///dir` (one server), `s3://bucket?region=…` (AWS credentials from the usual `AWS_*` variables), an S3-compatible store with `s3://bucket?region=…&endpoint=http://host:9000&use_path_style=true`, or `off`. `mem://` also parses but keeps data in memory only (tests). With `off`, or with no key file path and no URL, no images are kept: they arrive as a note in the message text. |
+| `SEAPORT_BLOB_URL` | `blobs/` next to the key file (`/data/blobs` in the image) | `file:///dir` (one server), `s3://bucket?region=…` (AWS credentials from the usual `AWS_*` variables), an S3-compatible store with `s3://bucket?region=…&endpoint=http://host:9000&use_path_style=true`, or `off`. `mem://` also parses but keeps data in memory only (tests). With `off`, or with no key file path and no URL, no attachments are kept: inbound images arrive as a note in the message text. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, … | none | Credentials for `s3://` URLs, read by the S3 client from the standard AWS environment. |
 
-Several Seaport processes need one shared store (S3 or compatible); with local directories each process sees only the images it received. Hosted-agent environments with a harness home (`home:`) need the blob store too.
+Several Seaport processes need one shared store (S3 or compatible); with local directories each process sees only the attachments it received. Hosted-agent environments with a harness home (`home:`) need the blob store too.
 
 ## WhatsApp
 
@@ -83,15 +83,13 @@ WhatsApp docks have no variables of their own. They use `DATABASE_URL` (the seal
 
 ## GitHub
 
-[GitHub docks](../guides/github.md) need the [secret key](#secret-key) (it seals each App's private key and webhook secret) and a public `https` `SEAPORT_PUBLIC_URL`, which GitHub calls back. Without a secret key the `github` channel is off.
+[GitHub docks](../guides/github.md) need the [secret key](#secret-key) (it seals each App's private key, webhook secret and client secret) and a public `https` `SEAPORT_PUBLIC_URL`, which GitHub calls back. Without a secret key the `github` channel is off.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
 | `SEAPORT_GITHUB_URL` | `https://github.com` | GitHub's web address, where the App is created and installed. Set it for GitHub Enterprise Server (`https://github.example.com`). The web app's form policy (CSP `form-action`) allows it. |
 | `SEAPORT_GITHUB_API_URL` | `https://api.github.com` | GitHub's REST API (`https://github.example.com/api/v3` on Enterprise Server). |
 | `SEAPORT_GITHUB_OIDC_URL` | `https://token.actions.githubusercontent.com` | The issuer of GitHub Actions' OIDC tokens, which [workflows](../guides/github.md#trigger-an-agent-from-a-workflow) send (`https://github.example.com/_services/token` on Enterprise Server). Seaport reads its keys from `/.well-known/openid-configuration`. |
-| `SEAPORT_SLACK_URL` | `https://slack.com` | Slack's web address, where the app's OAuth install page lives (`<url>/oauth/v2/authorize`). Rarely changed (tests point it at a fake). |
-| `SEAPORT_SLACK_API_URL` | `https://slack.com/api` | Slack's Web API. |
 
 ## Jira
 
@@ -101,9 +99,18 @@ WhatsApp docks have no variables of their own. They use `DATABASE_URL` (the seal
 | :--- | :--- | :--- |
 | `SEAPORT_JIRA_HOSTS` | `*.atlassian.net` | Comma-separated allow-list of the Jira sites a dock may name. An entry is an exact host (`jira.example.com`) or `*.domain` for every subdomain; both match only the https default port (none written, or `443`). A site on another port needs its own exact `host:port` entry. Seaport sends the account's credentials only to these hosts, checking the list again before each request, so a host removed later gets none (the request fails with `403`); a dock naming another one is refused (`400`). |
 
+## Slack
+
+[Slack docks](../guides/slack.md) need the [secret key](#secret-key) (it seals each app's client secret, signing secret and bot token) and a public `https` `SEAPORT_PUBLIC_URL`, which Slack calls back. Without a secret key the `slack` channel is off.
+
+| Variable | Default | Meaning |
+| :--- | :--- | :--- |
+| `SEAPORT_SLACK_URL` | `https://slack.com` | Slack's web address, where the app's OAuth install page lives (`<url>/oauth/v2/authorize`). Rarely changed (tests point it at a fake). |
+| `SEAPORT_SLACK_API_URL` | `https://slack.com/api` | Slack's Web API. |
+
 ## Outbound limits
 
-WhatsApp bans numbers that send in bursts, so replies over a limit are refused with `429` (`RATE_LIMITED`, with `Retry-After`) and nothing is sent or stored; the MCP `reply` tool returns the same message to the agent. Windows slide over the last minute or hour and count every reply of the dock (agents, the web app, the API). Failed sends count too, so an agent retrying against a broken dock slows down as well.
+WhatsApp bans numbers that send in bursts, so replies over a limit are refused with `429` (`RATE_LIMITED`, with `Retry-After`) and nothing is sent or stored; the MCP `reply` tool returns the same message to the agent. Windows slide over the last minute or hour and count every reply of the dock (agents, the web app, the API), whatever its channel: the limits apply to every dock, not only WhatsApp. Failed sends count too, so an agent retrying against a broken dock slows down as well.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |

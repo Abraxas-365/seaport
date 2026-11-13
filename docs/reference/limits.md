@@ -42,6 +42,20 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Markdown of one comment (longer replies are split) | 24000 bytes | `dockjira.MaxComment` | No |
 | Jira API call | 30 s, no redirects, answers read up to 1 MiB | `dockjira` | No |
 
+## GitHub docks
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Webhook body | 5 MiB | `dockgithub.MaxWebhook` | No |
+| Manifest or install flow started from the web | 1 h | `dockgithub.stateTTL` | No |
+| Installation token renewed when closer than this to its expiry | 5 min | `dockgithub.tokenMargin` | No |
+| Clock skew tolerated in a workflow's OIDC token | 1 min | `dockgithub.oidcLeeway` | No |
+| OIDC issuer keys trusted before a refetch | 1 h | `dockgithub.jwksTTL` | No |
+| GitHub API call | 30 s, answers read up to 4 MiB | `dockgithub` | No |
+| App name | 34 characters | `dockgithub.maxAppName` | No |
+
+Comments and workflow messages are cut to `text.MaxMessage`. Files an agent sends are committed to the `seaport-files` branch (`dockgithub.FilesBranch`); see [Messages and images](../guides/messages-and-images.md#files-agents-send).
+
 ## API requests
 
 | Limit | Value | Constant | Configurable |
@@ -81,6 +95,10 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Image size | 3.75 MiB | `ship.MaxImage` | No |
 | Attachments per message | 10 | `ship.MaxAttachments` | No |
 | Attachment name | 200 characters | `ship.MaxAttachmentName` | No |
+| Files in one reply | 10 | `ship.MaxAttachments` | No |
+| One file in a reply | 10 MiB | `ship.MaxFile` | No |
+| All files of a reply | 25 MiB | `ship.MaxFiles` | No |
+| Body of `POST /crew/reply` and of `/mcp` (files as base64) | 25 MiB as base64 plus 1 MiB | `crew.MaxReplyBody` | No |
 | Images in one prompt (connector) | 8 | `connector.maxPromptImages` | No |
 | Messages per history page | 100 | `ship.MaxHistory` | No |
 | Held messages released when a chat is allowed | newest 50 | `ship.MaxRelease` | No |
@@ -91,7 +109,7 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Slack: age of a signed event | 5 min | `dockslack.SignatureWindow` | No |
 | Slack: event body | 3 MiB | `dockslack.MaxEvent` | No |
 
-Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are replaced by a note in the text.
+Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are replaced by a note in the text. Outbound files are refused when storage is off.
 
 ## Delivery and crew
 

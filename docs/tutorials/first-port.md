@@ -12,7 +12,7 @@ You will end with a port that holds one allowed conversation, ready for the [fir
 
 ## 1. Start Postgres
 
-Seaport keeps everything in Postgres: docks, conversations, messages, agents, customs and the WhatsApp keys (sealed). From a checkout of the repository, the compose file starts one on `127.0.0.1:5449`:
+Seaport keeps everything in Postgres: docks, conversations, messages, agents, customs and channel credentials (sealed). From a checkout of the repository, the compose file starts one on `127.0.0.1:5449`:
 
 ```sh
 docker compose up -d
@@ -36,7 +36,7 @@ level=INFO msg="seaport listening" addr=127.0.0.1:8740 public_url=http://127.0.0
 Leave it running and use a second terminal for the rest.
 
 > [!NOTE]
-> On first start Seaport generates a secret key next to its configuration (`~/.config/seaport/secret.key` on Linux, `~/Library/Application Support/seaport/secret.key` on macOS). It seals WhatsApp keys, agent secrets and images. Keep it: see [Configuration](../reference/configuration.md#secret-key).
+> On first start Seaport generates a secret key next to its configuration (`~/.config/seaport/secret.key` on Linux, `~/Library/Application Support/seaport/secret.key` on macOS). It seals channel credentials (WhatsApp keys, GitHub, Jira and Slack secrets), agent secrets, images and harness homes. Keep it: see [Configuration](../reference/configuration.md#secret-key).
 
 ## 3. Open the web app
 
@@ -110,4 +110,4 @@ You should see Ana's message, inbound. The web app's **Bandeja** (Inbox) shows t
 
 - [Your first agent](first-agent.md): connect rness or Claude Code and let it answer Ana.
 - [Customs](../guides/customs.md): rules, group modes and overrides.
-- [Link a WhatsApp number](../guides/whatsapp.md) when you want a real channel.
+- Connect a real channel: [Slack](../guides/slack.md), [GitHub](../guides/github.md), [Jira](../guides/jira.md) or [WhatsApp](../guides/whatsapp.md).

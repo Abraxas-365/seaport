@@ -101,7 +101,17 @@ func TestExec(t *testing.T) {
 	var out strings.Builder
 	code, err := r.Exec(ctx, ref, "run-1", []string{"sh", "-c", "read x; echo got $x; id -u; echo oops >&2; exit 3"},
 		strings.NewReader("hello\n"), &out)
-	if err != nil || code != 3 || out.String() != "got hello\n1000\noops\n" {
+	// stdout and stderr are two pipes Docker reads concurrently: each keeps
+	// its order, but not their order relative to each other.
+	var stdout, stderr []string
+	for _, l := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
+		if l == "oops" {
+			stderr = append(stderr, l)
+		} else {
+			stdout = append(stdout, l)
+		}
+	}
+	if err != nil || code != 3 || strings.Join(stdout, ",") != "got hello,1000" || len(stderr) != 1 {
 		t.Fatalf("exec: %d %q %v", code, out.String(), err)
 	}
 	if _, err := r.Exec(ctx, ref, "run-2", []string{"true"}, nil, io.Discard); !errx.IsType(err, errx.TypeBusiness) {

@@ -32,7 +32,7 @@ The website build depends on these:
 
 ### Vocabulary
 
-Use the product's terms: **port** (the Seaport server), **dock** (a channel account: a WhatsApp number or `api`), **ship** (a message), **crew** (connected agents), **customs** (who may wake an agent), **harness** (the coding agent program: rness, Claude Code). The web app is in Spanish, so name its screens as they appear: **Muelles** (Docks), **Aduana** (Customs), **Bandeja** (Inbox), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew), **Tokens de agentes** (Agent tokens).
+Use the product's terms: **port** (the Seaport server), **dock** (a channel account: a WhatsApp number, a GitHub App, a Jira service account, a Slack app, or `api`), **ship** (a message), **crew** (connected agents), **customs** (who may wake an agent), **harness** (the coding agent program: rness, Claude Code). The web app is in Spanish, so name its screens as they appear: **Muelles** (Docks), **Aduana** (Customs), **Bandeja** (Inbox), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew), **Tokens de agentes** (Agent tokens).
 
 ## Public repository rules
 

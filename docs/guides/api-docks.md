@@ -1,6 +1,6 @@
 # Feed messages from your own systems
 
-An `api` dock is a channel with no phone behind it: your systems post messages to it over HTTP, customs and routing treat them like any chat, an agent answers, and you read the answers from the history or the live event stream. Use it for a support form, a ticket queue, a Slack bridge you write yourself, or to try Seaport without a WhatsApp number.
+An `api` dock is a channel with no phone behind it: your systems post messages to it over HTTP, customs and routing treat them like any chat, an agent answers, and you read the answers from the history or the live event stream. Use it for a support form, a ticket queue, a bridge to a system Seaport has no dock for (Slack has its own, see [Slack](slack.md)), or to try Seaport without a WhatsApp number.
 
 ## Create the dock
 
