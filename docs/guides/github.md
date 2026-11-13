@@ -162,6 +162,7 @@ The step's outputs are `ship-id` and `status`: `queued`, or `held` when customs 
 
 ## Where to read more
 
+- [Example: a pull request reviewer](../../examples/github-reviewer/README.md), ready to load as a profile
 - [Customs](customs.md)
 - [Agents and routing](agents-and-routing.md)
 - [HTTP API](../reference/http-api.md#github-docks)

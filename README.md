@@ -200,6 +200,8 @@ seaport agents profile versions pm                                       # every
 
 A saved change reaches the agent at once: each connector finishes what it is doing, restarts its harness with the new profile and resumes its sessions.
 
+For a complete one, see [`examples/github-reviewer`](examples/github-reviewer/): a `qa` agent that reviews pull requests when someone writes `@qa review this`, with its instructions, two skills and an optional workflow.
+
 ## Let the port host them
 
 Don't want to keep a laptop open? The port can run the agent itself — **rness** or **Claude Code** in a hardened container per slot, started when messages arrive and stopped when idle.

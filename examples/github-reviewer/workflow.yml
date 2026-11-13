@@ -1,0 +1,21 @@
+# Hands a pull request to the qa agent when it gets the "review" label.
+# Copy to .github/workflows/seaport-review.yml and set port-url and dock.
+name: Seaport review
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  review:
+    if: github.event.label.name == 'review'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # the OIDC token that proves this run to Seaport
+    steps:
+      - uses: Abraxas-365/seaport/action@main
+        with:
+          port-url: https://seaport.example.com
+          dock: <github-dock-id>
+          agent: qa
+          text: |
+            Please review this pull request (it was labeled "review").
