@@ -28,7 +28,7 @@ You need a running port with a public URL and a GitHub dock whose App is install
    seaport agents assign qa <github-dock-id>
    ```
 
-2. Give it this profile. The agent acts through `gh`, so let the connector approve its commands:
+2. Give it this profile. The agent acts through `gh`, so let the connector approve its commands. `-approve allow` means it runs whatever it decides to, including a pull request's tests; the profile tells it never to run code from a fork, but a hosted slot (below), whose network and tokens are fenced, is the safer place for it:
 
    ```sh
    seaport agents profile set qa \
@@ -50,16 +50,16 @@ You need a running port with a public URL and a GitHub dock whose App is install
    seaport crew tokens create qa -agent qa      # shows the token once
    cd ~/code/my-repo
    SEAPORT_URL=https://seaport.example.com SEAPORT_CREW_TOKEN=sp_crew_… \
-     seaport connect -name qa -- rness --acp -m anthropic/claude-sonnet-4-5
+     seaport connect -name qa -concurrency 1 -- rness --acp -m anthropic/claude-sonnet-4-5
    ```
 
-   Or host it on the port ([hosted agents](../../docs/guides/hosting/hosted-agents.md)) with the repository under `repos` and `api.github.com` in `network.egress`.
+   `-concurrency 1` keeps two reviews from checking out branches in the same directory at once. Or host it on the port ([hosted agents](../../docs/guides/hosting/hosted-agents.md)) with the repository under `repos` and `api.github.com` in `network.egress`.
 
 5. Open a pull request and write `@qa review this`.
 
 ## Review by label (optional)
 
-Copy `workflow.yml` to `.github/workflows/seaport-review.yml` and set `port-url` and `dock`. Adding the `review` label to a pull request then hands it to `qa`. The job proves itself with GitHub's OIDC token; Seaport checks it names your port and that your App is installed on the repository ([details](../../docs/guides/github.md#trigger-an-agent-from-a-workflow)).
+Copy `workflow.yml` to `.github/workflows/seaport-review.yml` and set `port-url` and `dock`. Adding the `review` label to a pull request then hands it to `qa`. It works for branches of the repository only: GitHub gives runs from fork pull requests no OIDC token, so for those write `@qa review this` instead. The job proves itself with GitHub's OIDC token; Seaport checks it names your port and that your App is installed on the repository ([details](../../docs/guides/github.md#trigger-an-agent-from-a-workflow)).
 
 ## Make it yours
 
