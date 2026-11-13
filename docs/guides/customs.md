@@ -1,6 +1,6 @@
 # Customs
 
-Customs decides which chats may wake an agent. Anyone can write to a WhatsApp number; customs keeps strangers, spam and noisy groups away from your agents, while every message is still stored and visible to you.
+Customs decides which conversations may wake an agent. Anyone can reach a dock, from a public repository to a WhatsApp number; customs keeps strangers, spam and noisy groups away from your agents, while every message is still stored and visible to you.
 
 Each dock has its own customs: a **default** for chats nothing else covers, a **group mode**, and **rules**. You can also decide one conversation by hand (an **override**).
 
@@ -10,8 +10,8 @@ Each dock has its own customs: a **default** for chats nothing else covers, a **
 
 | Default | A new chat is | Use it when |
 | :--- | :--- | :--- |
-| `ask` (initial) | **pending**: its messages wait until you allow or deny it | a public number; you review who gets in |
-| `allow` | **allowed** | an `api` dock fed only by your systems; a number only known to your team |
+| `ask` (initial) | **pending**: its messages wait until you allow or deny it | a public number or repository; you review who gets in |
+| `allow` | **allowed** | an `api` dock fed only by your systems; a private repository, your own Slack workspace or Jira site; a number only known to your team |
 | `deny` | **denied** | only chats you allow by rule or by hand may get in |
 
 ```sh
@@ -64,7 +64,7 @@ In an allowed group, the **group mode** decides which messages wake an agent:
 
 | Mode | Wakes the agent |
 | :--- | :--- |
-| `mentions` (initial) | messages that @mention the number or reply to one of its messages |
+| `mentions` (initial) | messages that mention the account (the number, the App, the bot) or an `@agent`; on WhatsApp, also a reply to one of its messages |
 | `all` | every message |
 
 ```sh

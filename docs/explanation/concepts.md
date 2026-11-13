@@ -1,12 +1,12 @@
 # Concepts
 
-Seaport sits between the places people write to you (WhatsApp, your own systems) and the coding agents that answer. This page names the parts and how they fit, so the rest of the docs read easily.
+Seaport sits between the places people work (Slack, GitHub, Jira, WhatsApp, your own systems) and the AI agents that answer. This page names the parts and how they fit, so the rest of the docs read easily.
 
 ## The picture
 
 ```text
  people ──▶ dock ──▶ customs ──▶ routing ──▶ queue ──▶ crew connection ──▶ harness (agent)
- (chats)   (channel)  (may it     (which     (ships)   (seaport connect)     │
+ (threads) (channel)  (may it     (which     (ships)   (seaport connect)     │
                        wake an    agent?)                                    │ replies via MCP
                        agent?)                                               ▼
  people ◀── dock ◀────────────────────────── port ◀────────────────────── reply
@@ -24,13 +24,13 @@ A **dock** is one channel account: a WhatsApp number you linked, a GitHub App yo
 
 ## Conversations and ships
 
-A **conversation** is a chat on a dock: one person, or a group. It has a status (allowed, pending or denied) that customs decides.
+A **conversation** is a thread on a dock: a Slack thread or DM, a pull request or issue, a Jira issue, a WhatsApp chat, an `api` chat id. It is **direct** (one person) or a **group** (several people, where agents wake on mentions by default). It has a status (allowed, pending or denied) that customs decides.
 
 A **ship** is a message. Inbound ships come from people; outbound ships are replies. A ship is text plus optional image attachments. Every ship is stored, whether or not an agent ever sees it. See [Messages and images](../guides/messages-and-images.md).
 
 ## Customs
 
-**Customs** decides which chats may wake an agent. Anyone can write to your number; customs keeps strangers and noisy groups away from your agents while every message is still stored and visible to you. It has a default policy, rules and per-chat overrides. A ship that doesn't pass is **held**, never dropped. See [Customs](../guides/customs.md).
+**Customs** decides which conversations may wake an agent. Anyone can write to a dock (a WhatsApp number, a public repository, a busy Slack channel); customs keeps strangers and noisy groups away from your agents while every message is still stored and visible to you. It has a default policy, rules and per-chat overrides. A ship that doesn't pass is **held**, never dropped. See [Customs](../guides/customs.md).
 
 ## Agents
 

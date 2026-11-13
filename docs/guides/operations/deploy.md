@@ -2,7 +2,7 @@
 
 Run Seaport on a single server with a public name, automatic HTTPS, Postgres and daily backups, using the `deploy/` Docker Compose file.
 
-WhatsApp keeps a long connection, agents connect over WebSockets and browsers need HTTPS, so the port belongs on a server with a stable address, not on a laptop. The compose file in `deploy/` gives you the whole stack with one command.
+WhatsApp keeps a long connection, agents connect over WebSockets, browsers need HTTPS, and GitHub, Jira and Slack call the port's webhooks at a public `https` URL (`SEAPORT_PUBLIC_URL`), so the port belongs on a server with a stable address, not on a laptop. The compose file in `deploy/` gives you the whole stack with one command.
 
 ## What you get
 
@@ -45,7 +45,7 @@ docker compose logs -f seaport
 
 Seaport applies its database migrations at start, and tells you which setting a mode is missing if the configuration is incomplete.
 
-Open `https://port.example.com` and sign in with the admin token. From there, link a WhatsApp number, create an agent and assign it to the dock, then create a crew token for it. The [first port tutorial](../../tutorials/first-port.md) walks through it, and [first agent](../../tutorials/first-agent.md) connects one. On the machine that runs the agent:
+Open `https://port.example.com` and sign in with the admin token. From there, create a dock for a channel (link a WhatsApp number, or connect a GitHub App, a Jira account or a Slack app), create an agent and assign it to the dock, then create a crew token for it. The [first port tutorial](../../tutorials/first-port.md) walks through it, and [first agent](../../tutorials/first-agent.md) connects one. On the machine that runs the agent:
 
 ```sh
 SEAPORT_URL=https://port.example.com SEAPORT_CREW_TOKEN=sp_crew_… seaport connect -- rness --acp
@@ -53,7 +53,7 @@ SEAPORT_URL=https://port.example.com SEAPORT_CREW_TOKEN=sp_crew_… seaport conn
 
 ## The secret key
 
-`SEAPORT_SECRET_KEY` seals WhatsApp keys, agent secrets, message images and harness homes in the database. In token mode it is optional: if you leave it unset, Seaport generates one on first start into the `seaport_data` volume (`/data/secret.key`).
+`SEAPORT_SECRET_KEY` seals WhatsApp keys, the GitHub App, Jira and Slack credentials, agent secrets, message attachments and harness homes in the database. In token mode it is optional: if you leave it unset, Seaport generates one on first start into the `seaport_data` volume (`/data/secret.key`).
 
 Either way, keep a copy apart from your backups. A database dump without it is useless. See [Backups and upgrades](backups-and-upgrades.md).
 

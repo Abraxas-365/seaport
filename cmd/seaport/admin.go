@@ -351,12 +351,13 @@ func patchConversation(ctx context.Context, id string, body map[string]any) erro
 
 const customsUsage = `usage: seaport customs [-dock ID] [command]
   (no command)               show the dock's policy and rules
-  default ask|allow|deny     what to do with chats no rule covers (ask = hold until you allow)
+  default ask|allow|deny     what to do with conversations no rule covers (ask = hold until you allow)
   groups mentions|all        which messages of allowed groups wake the agent
-  allow <pattern>            allow chats/senders matching the pattern
+  allow <pattern>            allow conversations/senders matching the pattern
   deny <pattern>             deny them (deny wins over allow; denied group members are ignored)
   rm <rule-id>               remove a rule
-patterns: phone numbers (51999123436, +51*), WhatsApp ids (…@lid, …@g.us), * matches anything`
+patterns: the channel's handles: numbers (+34600000001, +34*), WhatsApp ids (…@g.us), Slack ids (C0123ABCD),
+  GitHub (owner/repo, owner/repo#12, @login, github:outsider), Jira (PROJ, PROJ-123); * matches anything`
 
 func customs(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("customs", flag.ContinueOnError)
@@ -388,7 +389,7 @@ func customs(ctx context.Context, args []string) error {
 	case len(rest) == 0:
 	case len(rest) == 2 && rest[0] == "default":
 		if rest[1] == string(conversation.DefaultAllow) {
-			fmt.Fprintln(os.Stderr, "warning: every chat that writes to this number will wake the agent and get answers from it")
+			fmt.Fprintln(os.Stderr, "warning: every conversation that reaches this dock will wake the agent and get answers from it")
 		}
 		if err := a.do(ctx, http.MethodPatch, base+"/policy", map[string]string{"default": rest[1]}, nil); err != nil {
 			return err
@@ -432,7 +433,7 @@ func pickDock(ctx context.Context, a *admin, id string) (dock.Dock, error) {
 	}
 	switch len(page.Items) {
 	case 0:
-		return d, errx.Validation("no docks yet: seaport dock add whatsapp")
+		return d, errx.Validation("no docks yet: seaport dock add slack|github|jira|whatsapp|api")
 	case 1:
 		return page.Items[0], nil
 	}

@@ -33,10 +33,11 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock add api [-name N]` | Creates an `api` dock, fed through the [HTTP API](../guides/api-docks.md). |
 | `seaport dock add github [-name N]` | Creates a `github` dock and prints its page in the web app, where you create and install its [GitHub App](../guides/github.md). |
 | `seaport dock add jira [-name N]` | Creates a `jira` dock and prints its page in the web app, where you enter the site, the service account's email and its API token (see [Jira](../guides/jira.md)). |
+| `seaport dock add slack [-name N]` | Creates a `slack` dock and prints its page in the web app, where you create or paste its [Slack app](../guides/slack.md). |
 | `seaport dock list` | Table of docks: ID, channel, name, status, address (up to 100). |
-| `seaport dock relink <dock-id>` | Pairs the dock again (shows the QR code). |
+| `seaport dock relink <dock-id>` | Pairs a WhatsApp dock again (shows the QR code). The other channels are reconnected from the dock's page in the web app. |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |
-| `seaport dock unlink <dock-id>` | Logs the number out. History stays; `relink` to pair again. |
+| `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. |
 | `seaport dock delete <dock-id> -yes` | Unlinks and deletes the dock with all its conversations and ships. `-yes` must be the second argument. |
 
 See [WhatsApp](../guides/whatsapp.md).
@@ -51,7 +52,7 @@ See [WhatsApp](../guides/whatsapp.md).
 | `seaport auto <conversation-id>` | Remove the override: the dock's rules decide again. |
 | `seaport mode <conversation-id> mentions\|all\|default` | A group's mode: wake the agent on mentions only, on everything, or follow the dock's `groups` setting. |
 | `seaport customs [-dock ID]` | Shows the dock's policy and rules. `-dock` is optional when you have one dock. |
-| `seaport customs [-dock ID] default ask\|allow\|deny` | What to do with chats no rule covers (`ask` holds them until you allow). `allow` prints a warning: every chat that writes to the number wakes the agent. |
+| `seaport customs [-dock ID] default ask\|allow\|deny` | What to do with chats no rule covers (`ask` holds them until you allow). `allow` prints a warning: every chat that writes to the dock wakes the agent. |
 | `seaport customs [-dock ID] groups mentions\|all` | Which messages of allowed groups wake the agent. |
 | `seaport customs [-dock ID] allow <pattern>` | Adds an allow rule. |
 | `seaport customs [-dock ID] deny <pattern>` | Adds a deny rule (deny wins over allow). |
@@ -59,7 +60,7 @@ See [WhatsApp](../guides/whatsapp.md).
 | `seaport history <conversation-id> [-limit N]` | The last `N` messages (default 20), oldest first: time, status, sender, text. |
 | `seaport send <conversation-id> <text>` | Sends a reply as the port (the rest of the arguments make the text). Subject to the [outbound limits](configuration.md#outbound-limits). |
 
-Patterns are phone numbers (`51999123436`, `+51*`), WhatsApp ids (`…@lid`, `…@g.us`) and `*`. See [Customs](../guides/customs.md).
+Patterns match the handles the channel reports: phone numbers (`34600000001`, `+34*`), WhatsApp ids (`…@lid`, `…@g.us`), Slack channel and user ids (`C0123ABCD`, `U0123ABCD`), GitHub threads and authors (`owner/repo#12`, `@login`), Jira issue keys and projects (`PROJ-123`, `PROJ`), the `chat_handles` of an `api` dock, and `*`. See [Customs](../guides/customs.md#rules).
 
 ## Agents
 

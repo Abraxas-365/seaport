@@ -109,7 +109,7 @@ export function DocksPage() {
           <EmptyState
             icon={Anchor}
             title="El puerto no tiene muelles"
-            description={write ? "Crea uno para empezar a recibir mensajes de WhatsApp." : "Aún no hay muelles en tu organización."}
+            description={write ? "Crea uno para recibir mensajes de Slack, GitHub, Jira, WhatsApp o tus sistemas." : "Aún no hay muelles en tu organización."}
             action={write && <NewDockDialog />}
           />
         ) : (

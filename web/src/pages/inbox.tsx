@@ -68,7 +68,7 @@ export function InboxPage() {
             <InputGroupAddon>
               <Search />
             </InputGroupAddon>
-            <InputGroupInput placeholder="Buscar chat, número…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <InputGroupInput placeholder="Buscar conversación, persona…" value={q} onChange={(e) => setQ(e.target.value)} />
           </InputGroup>
           <div className="flex gap-2">
             <Tabs value={tab} onValueChange={(v) => setTab(v as StatusTab)} className="min-w-0 flex-1">
@@ -106,7 +106,7 @@ export function InboxPage() {
               <EmptyState
                 icon={InboxIcon}
                 title={q ? "Nada coincide" : emptyTitle[tab]}
-                description={q ? "Prueba con otro nombre o número." : emptyHint[tab]}
+                description={q ? "Prueba con otro nombre." : emptyHint[tab]}
               />
             ) : (
               items.map((c) => (
@@ -148,10 +148,10 @@ const emptyTitle: Record<StatusTab, string> = {
 }
 
 const emptyHint: Record<StatusTab, string> = {
-  allowed: "Cuando permitas un chat, sus mensajes despiertan a tu agente y aparecen aquí.",
-  pending: "Los chats nuevos esperan aquí hasta que decidas si entran.",
-  denied: "Los chats bloqueados se guardan pero nunca llegan al agente.",
-  all: "Vincula un muelle y escribe al número para ver el primer mensaje.",
+  allowed: "Cuando permitas una conversación, sus mensajes despiertan a tu agente y aparecen aquí.",
+  pending: "Las conversaciones nuevas esperan aquí hasta que decidas si entran.",
+  denied: "Las conversaciones bloqueadas se guardan pero nunca llegan al agente.",
+  all: "Conecta un muelle y llama a un agente con @nombre (o escribe al número de WhatsApp) para ver el primer mensaje.",
 }
 
 function RowSkeleton() {

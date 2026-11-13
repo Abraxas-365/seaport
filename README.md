@@ -1,18 +1,18 @@
 <div align="center">
 
-<img src="docs/assets/seaport-banner.svg" alt="Seaport — Messages arrive. Your agents work them. An illustrated port log: a WhatsApp message passes customs, wakes an agent, and gets a reply." width="1200" />
+<img src="docs/assets/seaport-banner.svg" alt="Seaport — Messages arrive. Your agents work them. An illustrated port log: a message passes customs, wakes an agent, and gets a reply." width="1200" />
 
 # Seaport
 
 **A port for your agents.**
 
-Messages (ships) arrive from channels — WhatsApp first. Your agents (the crew) are woken by each one and answer with the port's tools.<br />
-Run the agent on your laptop, or let the port host it. Either way, you decide who gets through.
+Your company's agents, defined once and called from wherever people already work: Slack, GitHub, Jira, WhatsApp or your own systems.<br />
+Each message (a ship) wakes the right agent (the crew), which answers in the same thread with the port's tools. Run the agent on a laptop or let the port host it. Either way, you decide who gets through.
 
 <p>
   <a href="go.mod"><img src="https://img.shields.io/badge/Server-Go-1f4f99?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go server" /></a>
   <a href="https://agentclientprotocol.com"><img src="https://img.shields.io/badge/Agents-ACP-3d6fc4?style=flat-square" alt="Any ACP agent" /></a>
-  <a href="docs/guides/whatsapp.md"><img src="https://img.shields.io/badge/Channel-WhatsApp-25d366?style=flat-square&amp;logo=whatsapp&amp;logoColor=white" alt="WhatsApp channel" /></a>
+  <a href="#channels"><img src="https://img.shields.io/badge/Channels-Slack_·_GitHub_·_Jira_·_WhatsApp_·_HTTP-25a18e?style=flat-square" alt="Channels: Slack, GitHub, Jira, WhatsApp, HTTP" /></a>
   <a href="https://github.com/Abraxas-365/seaport/releases"><img src="https://img.shields.io/github/v/release/Abraxas-365/seaport?style=flat-square&amp;color=6fa3f0" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/Status-Early_stage-8fa3c4?style=flat-square" alt="Early-stage software" />
 </p>
@@ -29,13 +29,23 @@ Run the agent on your laptop, or let the port host it. Either way, you decide wh
 
 ## Your agents, open for business
 
-**Put an agent behind a phone number.** Seaport links a WhatsApp number as a device (a QR, like WhatsApp Web), decides which chats may reach your agents, and wakes the right one for each message. The agent answers through Seaport's MCP tools — from wherever it runs.
+**Put your agents where the work is.** Write `@qa review this` on a pull request, `@pm` in a Slack thread or a Jira issue, or message a WhatsApp number: Seaport takes the message, decides whether it may reach your agents, and wakes the right one. The agent answers in the same thread through Seaport's MCP tools, from wherever it runs. You define each agent once in the port (instructions, skills, MCP servers, secrets) and it works on every channel you assign it to.
 
 ```text
-WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ seaport connect ──ACP──▶ rness --acp
-                                   ▲                                                 │
-                                   └──────────── MCP: reply / history ◀──────────────┘
+Slack · GitHub · Jira ──▶ seaport serve ──WebSocket──▶ seaport connect ──ACP──▶ rness --acp
+WhatsApp · HTTP api   ──▶      ▲                        (or a slot the port hosts)   │
+                               └────────────── MCP: reply / history ◀────────────────┘
 ```
+
+### Channels
+
+| Channel | What a dock is | Wakes an agent when | Guide |
+| :--- | :--- | :--- | :--- |
+| Slack | a Slack app in your workspace | someone mentions it or `@agent` in a channel, follows up in its thread, or sends it a DM | [Slack](docs/guides/slack.md) |
+| GitHub | a GitHub App on your repositories | a pull request or issue (description, comment or review) mentions the App or `@agent`; a workflow can hand it work too | [GitHub](docs/guides/github.md) |
+| Jira | a Jira Cloud service account | an issue or a comment mentions the account or `@agent` | [Jira](docs/guides/jira.md) |
+| WhatsApp | a number linked as a device (a QR, like WhatsApp Web) | a chat that customs lets in writes; groups by mention | [WhatsApp](docs/guides/whatsapp.md) |
+| `api` | an endpoint you post to from your own systems | you post a message | [api docks](docs/guides/api-docks.md) |
 
 <table>
 <tr>
@@ -63,7 +73,7 @@ WhatsApp ──(linked device)──▶ seaport serve ──WebSocket──▶ s
 **Channels bring the ships. Customs decides. Your agents do the work.**
 
 > [!IMPORTANT]
-> **Early-stage software.** Linking a WhatsApp number as a device uses an unofficial client ([whatsmeow](https://github.com/tulir/whatsmeow)); numbers that send in bursts get banned, which is why outbound limits are on by default. Review the [configuration](docs/reference/configuration.md) before pointing it at a number you care about.
+> **Early-stage software.** The WhatsApp channel links a number as a device through an unofficial client ([whatsmeow](https://github.com/tulir/whatsmeow)); numbers that send in bursts get banned, which is why outbound limits are on by default. Review the [configuration](docs/reference/configuration.md) before pointing it at a number you care about. Slack, GitHub and Jira use their official APIs.
 
 ## From one laptop to many organizations
 
@@ -114,17 +124,25 @@ Open **http://127.0.0.1:8740**: inbox, customs, docks, agents and crew — all l
 > [!TIP]
 > **Going beyond your computer?** Use `token` mode (`SEAPORT_ADMIN_TOKEN=$(openssl rand -hex 24) seaport serve`) and sign in with that token. A `none` port refuses anything relayed by a reverse proxy or tunnel (cloudflared, ngrok, `tailscale serve`). For HTTPS on a server, see [Deploy](docs/guides/operations/deploy.md).
 
-### 3. Link a number and let chats in
+### 3. Add a dock and let messages in
 
-In the web app (Docks) or from the CLI:
+In the web app (Docks) or from the CLI. The quickest to try needs nothing outside your computer: an `api` dock you post to.
 
 ```sh
-seaport dock add whatsapp          # scan the QR: WhatsApp → Linked devices → Link a device
-seaport conversations              # chats that wrote to the number
-seaport allow <conversation-id>    # or a rule: seaport customs allow "+34*"
+seaport dock add api -name try                 # prints the dock id
+seaport customs -dock <dock-id> default allow  # api chats are yours: let them all in
 ```
 
-Your own "message yourself" chat is always allowed — the easiest way to try it.
+For a real channel, add `slack`, `github` or `jira` (they need the port on a public `https` URL, since those services call it by webhook) or `whatsapp` (scan a QR; nothing public needed):
+
+```sh
+seaport dock add slack       # then create or paste the app in the web app
+seaport dock add github      # creates a GitHub App from the web app; install it on your repositories
+seaport dock add jira        # then enter the site and the service account's API token in the web app
+seaport dock add whatsapp    # scan the QR: WhatsApp → Linked devices → Link a device
+```
+
+GitHub and Jira forward only messages that mention the App or account or an agent; Slack also forwards DMs and follow-ups in threads an agent was called into. Every new dock asks first (`default ask`): a new conversation waits at customs until you allow it in the web app (Customs), with `seaport allow <conversation-id>`, or with a rule (`seaport customs -dock <dock-id> default allow` lets every conversation of the dock in; on a public GitHub repository add `deny github:outsider`). On WhatsApp your own "message yourself" chat is always allowed.
 
 ### 4. Put an agent to work
 
@@ -136,7 +154,7 @@ seaport agents assign pm <dock-id> -default
 seaport connect -agent pm -- rness --acp -m anthropic/claude-sonnet-4-5
 ```
 
-Now write to the number. `pm` wakes, reads the message, and answers with the `reply` tool.
+Now send it a message: post to the `api` dock (below), or write `@pm` in Slack, GitHub or Jira, or message the WhatsApp number. `pm` wakes, reads the message, and answers in the same thread with the `reply` tool.
 
 <details>
 <summary><strong>Ways to connect · token mode, flags, other agents</strong></summary>
@@ -246,10 +264,15 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | :--- | :--- |
 | Run your first port and see a message arrive | [Your first port](docs/tutorials/first-port.md) |
 | Find your way around the web app | [Web app tour](docs/guides/web-app.md) |
+| Put an agent in Slack, GitHub or Jira | [Slack](docs/guides/slack.md), [GitHub](docs/guides/github.md), [Jira](docs/guides/jira.md) |
+| Hand work to an agent from a GitHub workflow | [GitHub Actions](docs/guides/github.md#trigger-an-agent-from-a-workflow) |
+| Put an agent behind a WhatsApp number | [WhatsApp](docs/guides/whatsapp.md) |
+| Feed messages from your own systems | [api docks](docs/guides/api-docks.md) |
+| Copy a complete agent | [`examples/github-reviewer`](examples/github-reviewer/) |
 | Decide who reaches your agents | [Customs](docs/guides/customs.md) |
 | Route messages between agents | [Agents and routing](docs/guides/agents-and-routing.md) |
 | Write profiles: instructions, skills, MCP, secrets | [Agent profiles](docs/guides/profiles.md) |
-| Send and read images | [Messages and images](docs/guides/messages-and-images.md) |
+| Send and receive images and files | [Messages and images](docs/guides/messages-and-images.md) |
 | Host agents on the port | [Hosted agents](docs/guides/hosting/hosted-agents.md) |
 | Tune limits, quotas and storage | [Configuration](docs/reference/configuration.md) |
 | Serve many organizations | [IAM mode](docs/guides/operations/iam-mode.md) |
@@ -263,7 +286,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | Path | Responsibility |
 | :--- | :--- |
 | `cmd/seaport` | One binary: `serve`, the admin CLI, `connect` |
-| `internal/dock` | Channels: WhatsApp (whatsmeow), GitHub Apps, Jira service accounts, Slack apps and `api` docks, ownership across processes |
+| `internal/dock` | Channels: Slack apps, GitHub Apps, Jira service accounts, WhatsApp (whatsmeow) and `api` docks, ownership across processes |
 | `internal/conversation` | Chats and customs |
 | `internal/ship` | Messages, images and the delivery queue |
 | `internal/agent` | Agent library, routing, profiles and secrets |
@@ -273,6 +296,10 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | `internal/auth` | iam mode: IAMKit sign-in and sessions |
 | `web/` | React web app, embedded into the binary |
 | `images/` | Base images of hosted agents (`ghcr.io/abraxas-365/seaport-rness`, `seaport-claude-code`) |
+| `action/` | GitHub Action: a workflow hands a message to a GitHub dock (OIDC, no secret) |
+| `examples/` | Complete agents to copy (`github-reviewer`) |
+| `iam/` | Permissions and roles, the source of the generated code |
+| `website/` | The landing page and these docs on GitHub Pages |
 | `deploy/` | Production compose: Postgres, Seaport, Caddy, backups |
 | `migrations/` | SQL migrations, applied at start |
 

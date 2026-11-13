@@ -12,9 +12,9 @@ arrives ─▶ customs ─┬─▶ held (customs reason)
 
 ### 1. Arrival
 
-A channel hands the port a message: a WhatsApp event, or a `POST` to an `api` dock. It carries the chat, the sender, the text, any images and a channel message id. Images are downloaded, checked and stored first (see [Messages and images](../guides/messages-and-images.md)).
+A channel hands the port a message: a WhatsApp event, a `POST` to an `api` dock, a GitHub webhook or a workflow run through the GitHub Action, a Jira webhook, or a Slack event. Webhooks and events are checked first (HMAC signature or OIDC token). From GitHub, Jira and Slack the port forwards only messages that mention the dock's App, account or bot, or an agent of its team, are forwarded; Slack also forwards direct messages and follow-ups in a thread an agent was called into. A message carries the chat, the sender, the text, any images and a channel message id. Images (WhatsApp, `api` and Slack bring them) are downloaded, checked and stored first (see [Messages and images](../guides/messages-and-images.md)).
 
-**Duplicates** are dropped by that message id: the same message twice (a redelivery, WhatsApp's echo of your own send) stores one ship. The `api` endpoint answers a repeat with `200` and `"duplicate": true` instead of `201`.
+**Duplicates** are dropped by that message id: the same message twice (a redelivery, Slack's retries, WhatsApp's echo of your own send) stores one ship. On GitHub and Jira, the dock's own comments come back by webhook as `Own`: they are recorded as sent messages, wake no agent, and a reply Seaport stored before sending is recognized as a duplicate. The `api` endpoint answers a repeat with `200` and `"duplicate": true` instead of `201`.
 
 ### 2. Customs
 
@@ -44,6 +44,10 @@ A connection **claims** queued ships of its agent. A claim becomes a **delivery*
 The connector sends the prompt to the harness. When the turn ends, it **acks** the delivery naming the ships the agent saw, and those become **handled**. Ships of the delivery that the ack doesn't name, for example a steer that arrived just as the turn ended, are requeued and form the next delivery.
 
 If the turn fails, the connector **releases** the delivery instead, after a pause that grows with each failure in a row, and the ships are retried.
+
+### 6. Turn summary
+
+When a delivery ends (acked, released, or dropped because the connection closed), the port stores a summary of what the agent did: the tools it called, with title, kind, status and timing, up to 200 per turn (the rest are counted). Titles are redacted for credential-looking strings; thoughts, message text and tool input and output are never stored. Nothing is stored for a turn without tool calls or for a delivery whose lease expired. Read the summaries with `GET /api/v1/conversations/{id}/turns` (needs `ships:read`); the web app folds each one under the messages it answered, and a `ship.turn` event announces it.
 
 ## Held reasons
 

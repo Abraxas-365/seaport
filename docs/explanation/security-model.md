@@ -2,13 +2,13 @@
 
 What Seaport protects, who it trusts, and where each guarantee comes from, so you can judge whether it fits your deployment.
 
-Seaport sits between strangers who send messages and agents that can act on them. The design assumes two things: anyone can message a connected number, and the text of a message is untrusted input to an agent. Most of the model follows from that.
+Seaport sits between strangers who send messages and agents that can act on them. The design assumes two things: anyone can message a connected dock (a number, a GitHub repository, a Jira project, a Slack workspace), and the text of a message is untrusted input to an agent. Most of the model follows from that.
 
 ## Threats it is built for
 
 | Threat | What stops it |
 | :--- | :--- |
-| A stranger messages a number and wakes your agent. | [Customs](#customs-are-the-gate): nothing reaches an agent until you allow the chat. |
+| A stranger messages a dock and wakes your agent. | [Customs](#customs-are-the-gate): nothing reaches an agent until you allow the chat. |
 | A prompt-injected agent changes who can reach it. | Agents have no tool that edits customs, docks or tokens. |
 | A secret leaks through the admin API, an event or an agent tool. | Secrets are sealed and never returned. |
 | One customer reads another's data. | Every row belongs to an organization, and other organizations' objects are `NotFound`. |
@@ -44,7 +44,7 @@ Agents can't move this gate. The tools they get (`reply`, `history`, `attachment
 
 ## Secrets
 
-Secrets are the WhatsApp session keys, agent secrets (such as repo credentials or model keys), message images, harness homes, and, in `iam` mode, IAMKit tokens of browser sessions. They are sealed in the database with `SEAPORT_SECRET_KEY` (AES-GCM), and each value is sealed for its own place, so a value copied to another row doesn't open.
+Secrets are the WhatsApp session keys, the GitHub App's private key, webhook secret and client secret, the Jira API token and webhook secret, the Slack app's client secret, signing secret and bot token, agent secrets (such as repo credentials or model keys), message attachments (images and files), harness homes, and, in `iam` mode, IAMKit tokens of browser sessions. They are sealed in the database with `SEAPORT_SECRET_KEY` (AES-GCM), and each value is sealed for its own place, so a value copied to another row doesn't open.
 
 - **Never returned.** The admin API answers secret names and flags, never values. The code that opens an agent's secrets is limited by tests to one caller: the agent's own crew connection when it fetches its profile (`Equip`). No admin handler, event or agent tool can hand a secret back.
 - **Never in events.** Events are stored in clear for an hour, so services never publish secrets. The WhatsApp pairing QR code is dropped from dock events too; the web app fetches it separately.
@@ -66,7 +66,7 @@ Secrets are the WhatsApp session keys, agent secrets (such as repo credentials o
 
 ## Limits and quotas
 
-Per-organization quotas (docks, crew tokens, live agent connections, hosted slots) bound what one tenant can use. Outbound sends are limited per minute and hour for a dock, a chat, and an organization, so a compromised agent can't spam through a linked number. The API itself has a per-caller token bucket. It is kept per process, so with several processes a caller may get up to that many times the rate. Message images are checked by their bytes, not the sender's declared type, and served with `nosniff` and a sandbox policy. See [Limits](../reference/limits.md).
+Per-organization quotas (docks, crew tokens, live agent connections, hosted slots) bound what one tenant can use. Outbound sends are limited per minute and hour for a dock, a chat, and an organization, so a compromised agent can't spam through a linked dock. The API itself has a per-caller token bucket. It is kept per process, so with several processes a caller may get up to that many times the rate. Message images are checked by their bytes, not the sender's declared type, and served with `nosniff` and a sandbox policy. See [Limits](../reference/limits.md).
 
 ## Tenancy
 
@@ -76,7 +76,18 @@ Every row belongs to an organization, and rows that reference each other must sh
 
 Two routes need no credentials: `/healthz`, and `/api/v1/config`, which tells the web app the auth mode and the version before sign-in. Neither reveals anything about an organization, a dock or an agent.
 
-The routes GitHub calls are public too, each with its own proof instead of a credential: the App's redirects (`/github/apps/created`, `/github/apps/installed`) need the state Seaport signed for that dock an hour earlier at most, a webhook (`/github/webhook/{dock}`) needs the HMAC signature of that dock's App secret, and a workflow's message (`/github/actions/{dock}`) needs an OIDC token GitHub signed for this port's URL, from a repository the dock's App is installed on. No Seaport credential is stored in repositories. A test in the build keeps the list of public routes explicit.
+The routes that channels call are public too, each with its own proof instead of a credential:
+
+| Route | Proof |
+| :--- | :--- |
+| `GET /github/apps/created`, `GET /github/apps/installed` | the state Seaport signed for that dock an hour earlier at most |
+| `POST /github/webhook/{dock}` | the HMAC signature of that dock's App secret |
+| `POST /github/actions/{dock}` | an OIDC token GitHub signed for this port's URL, from a repository the dock's App is installed on |
+| `POST /jira/webhook/{dock}` | the HMAC signature (`X-Hub-Signature`) or the bearer secret of that dock, compared in constant time |
+| `POST /slack/events/{dock}` | the Slack v0 HMAC signature of that dock's signing secret, within a five-minute window (`url_verification` is answered before the secret is known) |
+| `GET /slack/oauth/callback` | the state Seaport signed for that dock an hour earlier at most, then the code, checked with Slack |
+
+No Seaport credential is stored in repositories. A test in the build keeps the list of public routes explicit.
 
 ## Where to read more
 

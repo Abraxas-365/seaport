@@ -254,7 +254,7 @@ function RulesEditor({
       <div>
         <h3 className="text-sm font-medium">Reglas</h3>
         <p className="text-xs text-muted-foreground">
-          Números (<code>+51999…</code>), IDs de chat o patrones con <code>*</code> (<code>+51*</code>). Bloquear gana
+          Números (<code>+34600…</code>), repositorios (<code>acme/*</code>), canales de Slack, proyectos de Jira, <code>github:outsider</code> o patrones con <code>*</code>. Bloquear gana
           sobre permitir; un permiso o bloqueo manual en el chat gana sobre todo.
         </p>
       </div>

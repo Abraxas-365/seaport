@@ -1,6 +1,6 @@
 # Messages and images
 
-A message in Seaport is text plus attachments. Whatever the channel sends (a WhatsApp photo with a caption, an `api` post with images) is turned into that, and from there on everything treats it the same. This page covers what is kept, what isn't, how agents see images, and the limits on what you send back.
+A message in Seaport is text plus attachments. Whatever the channel sends (a WhatsApp photo with a caption, a Slack message with an image, an `api` post with images, a GitHub comment) is turned into that, and from there on everything treats it the same. This page covers what is kept, what isn't, how agents see images, and the limits on what you send back.
 
 ![A conversation with an image](../assets/screenshots/inbox-image.png)
 
@@ -10,7 +10,7 @@ A message's text is up to 64 KiB. For a photo, the caption is the text. On Whats
 
 ## Images
 
-Images arrive with their message. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then checks it:
+Images arrive with their message on **WhatsApp**, **Slack** (image files attached to the message) and **`api`** docks. GitHub and Jira messages arrive as text only: images in a comment are not fetched. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then checks it:
 
 | Check | Rule |
 | :--- | :--- |
@@ -33,7 +33,7 @@ An image that doesn't pass, or can't be kept, doesn't lose the message. A note i
 
 ### Other media
 
-Only images are supported. On WhatsApp, a video, document, audio, sticker, location or contact arrives as text only: `[video] caption` when it has a caption, otherwise `[video received; media is not supported yet]` (with the matching word). The file itself is not downloaded or kept.
+Only images are supported. On Slack, only image files are fetched, and only from Slack's own hosts; other attached files are named in the text as `[file: name]` and not downloaded. On WhatsApp, a video, document, audio, sticker, location or contact arrives as text only: `[video] caption` when it has a caption, otherwise `[video received; media is not supported yet]` (with the matching word). The file itself is not downloaded or kept.
 
 ### On an `api` dock
 
@@ -64,6 +64,8 @@ Seaport keeps each file sealed as an attachment of the outbound message, like in
 | :--- | :--- |
 | GitHub | One commit to the `seaport-files` branch of the repository (made on first use, without history from your code) under `pr-<number>/<message id>/`. The comment shows the images and links the other files at that commit, so links keep working. Readers need access to the repository. |
 | WhatsApp | The text, then each file as its own message: an image message or a document with its name. |
+| Slack | Uploaded to the conversation's thread after the text. The app needs the `files:write` scope; without it the reply fails with a message saying to add the scope and install the app again. |
+| Jira | Refused: a reply with files fails and nothing is sent. Reply with text and link to the files with full URLs. |
 | `api` | Kept with the message; your client reads them from `GET /api/v1/attachments/{id}`. |
 
 Files need blob storage: on a port without it (`SEAPORT_BLOB_URL=off` or no secret key) a reply with files is refused, not sent without them. The `seaport-files` branch grows with each file. Links point at the commit that added a file, so deleting old folders in a later commit doesn't break them (nor shrink the repository: the history keeps them). To reclaim the space, delete the branch; the links of its files then stop working once GitHub drops the unreachable commits.
@@ -87,7 +89,7 @@ Images and documents are served only to people with the permission to read messa
 
 ## Sending limits
 
-Replies go out through the channel, so Seaport limits how fast you send. WhatsApp can suspend a number that sends too much, and a loop in an agent shouldn't be able to trigger that. The limits apply to every reply: an agent's `reply` tool, `seaport send`, and the composer in the web app.
+Replies go out through the channel, so Seaport limits how fast you send. WhatsApp can suspend a number that sends too much, and a loop in an agent shouldn't flood a channel. The limits apply to every dock, whatever its channel, and to every reply: an agent's `reply` tool, `seaport send`, and the composer in the web app.
 
 | Limit | Default | Setting |
 | :--- | :--- | :--- |
