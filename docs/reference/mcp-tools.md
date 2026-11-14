@@ -41,7 +41,7 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 
 ### reply
 
-Sends a message to a Seaport conversation, with files if needed. Only allowed conversations accept replies.
+Sends a message to a Seaport conversation, with files if needed. Only allowed conversations accept replies, and only on docks that take them: a reply to a conversation of a dock with [replies off](../guides/linked-conversations.md#docks-that-only-trigger) is refused (the delivery names such conversations in `read_only`).
 
 Arguments:
 

@@ -161,7 +161,7 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | `GET` | `/docks` | `docks:read` | Paginated docks. |
 | `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github"\|"jira"\|"slack","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
 | `GET` | `/docks/{id}` | `docks:read` | The dock, with `qr_code` while a WhatsApp dock is linking. |
-| `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`. The dock. |
+| `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`, `{"replies":false}` or both (at least one). The dock. `replies: false` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, a reply there is refused (`422`). |
 | `DELETE` | `/docks/{id}` | `docks:write` | `204`. Deletes its conversations and ships. |
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
 | `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret; a Slack dock: uninstalls the app it created and forgets it). The dock. |
@@ -176,13 +176,14 @@ A dock:
   "name": "Support line",
   "address": "34600000000:12@s.whatsapp.net",
   "status": "linked",
+  "replies": true,
   "created_at": "2025-01-15T10:30:00Z",
   "updated_at": "2025-01-15T10:31:00Z",
   "qr_code": "2@…"
 }
 ```
 
-`status` is `linking`, `linked`, `logged_out` or `failed`. `qr_code` appears only while linking.
+`status` is `linking`, `linked`, `logged_out` or `failed`. `qr_code` appears only while linking. `replies` is the owner's switch (default `true`): off, nothing can be posted on the dock, its messages only trigger the agent.
 
 **Inject a message** (`POST /docks/{id}/ships`) only works on `api` docks (else `422`):
 

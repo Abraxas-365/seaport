@@ -97,8 +97,20 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 	if err := input.Validate(); err != nil {
 		return dock.Dock{}, err
 	}
-	name := text.Clean(*input.Name)
-	input.Name = &name
+	if input.Name != nil {
+		name := text.Clean(*input.Name)
+		input.Name = &name
+	}
+	if input.Replies != nil && *input.Replies {
+		// Turning replies on needs a channel that carries them.
+		d, err := s.repo.Find(ctx, org, id)
+		if err != nil {
+			return dock.Dock{}, errx.Wrap(err, "find dock", errx.TypeInternal)
+		}
+		if !d.Channel.Replies() {
+			return dock.Dock{}, errx.Business(string(d.Channel) + " docks only trigger: nothing can be posted there")
+		}
+	}
 	d, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {
 		return dock.Dock{}, errx.Wrap(err, "update dock", errx.TypeInternal)
@@ -231,11 +243,28 @@ func (s *Service) NewMessageID(ctx context.Context, org identity.OrganizationID,
 	if err != nil {
 		return "", errx.Wrap(err, "find dock", errx.TypeInternal)
 	}
+	// Refused here, before the caller stores the outbound ship: a dock
+	// that doesn't reply keeps no failed replies.
+	if err := replies(d); err != nil {
+		return "", err
+	}
 	g, err := s.gateway(d.Channel)
 	if err != nil {
 		return "", err
 	}
 	return g.NewMessageID(id)
+}
+
+// replies refuses a send on a dock the crew may not answer on: the
+// channel only triggers, or the owner turned replies off.
+func replies(d dock.Dock) error {
+	switch {
+	case !d.Channel.Replies():
+		return errx.Business(string(d.Channel) + " docks only trigger: nothing can be posted there; answer on another conversation of the thread")
+	case !d.Replies:
+		return errx.Business("replies are off on dock " + d.Name + ": answer on another conversation of the thread, or stay silent")
+	}
+	return nil
 }
 
 func (s *Service) Send(ctx context.Context, org identity.OrganizationID, msg dock.Outgoing) error {
@@ -245,6 +274,9 @@ func (s *Service) Send(ctx context.Context, org identity.OrganizationID, msg doc
 	d, err := s.repo.Find(ctx, org, msg.Dock)
 	if err != nil {
 		return errx.Wrap(err, "find dock", errx.TypeInternal)
+	}
+	if err := replies(d); err != nil {
+		return err
 	}
 	if d.Status != dock.StatusLinked {
 		return errx.Business("dock is not linked (status " + string(d.Status) + ")")

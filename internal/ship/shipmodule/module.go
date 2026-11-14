@@ -41,7 +41,7 @@ type Module struct {
 
 func New(d Deps) (*Module, error) {
 	svc, err := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
-		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents,
+		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents, Docks: d.Docks,
 		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}})
 	if err != nil {
 		return nil, err

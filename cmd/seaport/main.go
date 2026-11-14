@@ -41,6 +41,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock list
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
+  seaport dock replies <dock-id> on|off  whether the crew may answer on it (off: a trigger; it still wakes the agent)
   seaport dock unlink <dock-id>         disconnect the channel (keeps history; relink to connect again)
   seaport dock delete <dock-id> -yes    unlink and delete with all its conversations and ships
   seaport crew                          connected agents and what they are working on
@@ -183,7 +184,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	case "dock":
 		if len(rest) == 0 {
-			return errx.Validation("usage: seaport dock add|list|relink|rename|unlink|delete")
+			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|unlink|delete")
 		}
 		switch rest[0] {
 		case "add":
@@ -194,6 +195,8 @@ func run(ctx context.Context, args []string) error {
 			return dockRelink(ctx, rest[1:])
 		case "rename":
 			return dockRename(ctx, rest[1:])
+		case "replies":
+			return dockReplies(ctx, rest[1:])
 		case "unlink":
 			return dockUnlink(ctx, rest[1:])
 		case "delete":

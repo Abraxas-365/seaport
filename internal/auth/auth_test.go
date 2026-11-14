@@ -51,7 +51,14 @@ func TestSealer(t *testing.T) {
 	if _, err := other.Open("a", sealed); err == nil {
 		t.Fatal("opened with another key")
 	}
-	if _, err := s.Open("a", sealed[:len(sealed)-2]+"AA"); err == nil {
+	// Flip a bit of the ciphertext (replacing the last base64 characters
+	// with "AA" is a no-op now and then: the random nonce makes them "AA").
+	raw, err := base64.RawURLEncoding.DecodeString(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)-1] ^= 1
+	if _, err := s.Open("a", base64.RawURLEncoding.EncodeToString(raw)); err == nil {
 		t.Fatal("tampered value opened")
 	}
 }

@@ -465,8 +465,11 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	}
 	agent.succeeded()
 	if cfg.AutoReply && strings.TrimSpace(answer) != "" {
-		conv := d.Conversation.ID
-		send(crew.Frame{Type: crew.FrameReply, ConversationID: &conv, Text: strings.TrimSpace(answer)})
+		if conv, ok := answerDoor(d); ok {
+			send(crew.Frame{Type: crew.FrameReply, ConversationID: &conv, Text: strings.TrimSpace(answer)})
+		} else {
+			log.Info("answer not sent: no door of the thread takes replies")
+		}
 	}
 	send(crew.Frame{Type: crew.FrameAck, DeliveryID: &id, ShipIDs: handled})
 	log.Info("delivery handled", "ships", len(handled))
@@ -482,8 +485,26 @@ func SteerPrompt(d ship.Delivery, ok shown) string {
 		fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
 	}
 	writeShips(&b, d.Ships, doorLabels(d), ok)
-	b.WriteString("\nTake them into account; reply to the conversation as before.")
+	if _, ok := answerDoor(d); ok {
+		b.WriteString("\nTake them into account; reply to the conversation as before.")
+	} else {
+		b.WriteString("\nTake them into account; no door of this thread takes replies.")
+	}
 	return b.String()
+}
+
+// answerDoor is where an auto-reply goes: the delivery's conversation,
+// else the first door of the thread that takes replies (none: nowhere).
+func answerDoor(d ship.Delivery) (identity.ConversationID, bool) {
+	if d.CanReply(d.Conversation.ID) {
+		return d.Conversation.ID, true
+	}
+	for _, c := range d.Thread {
+		if d.CanReply(c.ID) {
+			return c.ID, true
+		}
+	}
+	return identity.ConversationID{}, false
 }
 
 // doorLabels names each door of a multi-door thread for the ships' lines
@@ -535,13 +556,20 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 		title = c.ExternalID
 	}
 	fmt.Fprintf(&b, "conversation: %s (%s)\n", title, c.Kind)
+	if !d.CanReply(c.ID) {
+		b.WriteString("This conversation is read-only: nothing can be posted there (its dock only triggers, or replies are off).\n")
+	}
 	if len(d.Thread) > 1 {
 		b.WriteString("This conversation is one door of a thread; the others, where the same matter is discussed:\n")
 		for _, door := range d.Thread {
 			if door.ID == c.ID {
 				continue
 			}
-			fmt.Fprintf(&b, "- %s (%s): conversation_id %s\n", doorName(door), door.Kind, door.ID)
+			note := ""
+			if !d.CanReply(door.ID) {
+				note = ", read-only"
+			}
+			fmt.Fprintf(&b, "- %s (%s%s): conversation_id %s\n", doorName(door), door.Kind, note, door.ID)
 		}
 	}
 	b.WriteString("\n")
@@ -556,15 +584,31 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	if c.Channel == dock.ChannelSlack {
 		b.WriteString(slackHint(c.ExternalID, title))
 	}
-	if autoReply {
+	answer, answerable := answerDoor(d)
+	switch {
+	case autoReply && !answerable:
+		b.WriteString("No conversation of this thread takes replies: your final answer is not sent to anyone. " +
+			"Do what the message asks and keep the answer short.")
+	case autoReply && answer != c.ID:
+		fmt.Fprintf(&b, "Your final answer will be sent as a message to conversation %s (the first door of the "+
+			"thread that takes replies). Keep it short and conversational.", answer)
+	case autoReply:
 		b.WriteString("Your final answer will be sent to this conversation as a message. " +
 			"Keep it short and conversational.")
-	} else {
+	case !answerable:
+		b.WriteString("No conversation of this thread takes replies: the `reply` tool is refused everywhere here. " +
+			"Do what the message asks (its dock is a trigger) and stay silent, or use `history` for earlier context. " +
+			"Your final text is not sent to anyone.")
+	case !d.CanReply(c.ID):
+		fmt.Fprintf(&b, "A reply to this conversation is refused; answer with the seaport `reply` tool on a door that "+
+			"takes replies (conversation_id %s, or another listed above) when a reply is needed; use `history` for "+
+			"earlier context (`thread: true` reads every door together). Your final text is not sent to anyone.", answer)
+	default:
 		b.WriteString("Reply with the seaport `reply` tool (conversation_id above) when a reply is needed; " +
 			"use `history` for earlier context. Your final text is not sent to anyone.")
 		if len(d.Thread) > 1 {
 			b.WriteString(" Answer on the door each message came from (its conversation_id) unless asked to " +
-				"post elsewhere; `history` with `thread: true` reads every door of the thread together.")
+				"post elsewhere, or it is read-only; `history` with `thread: true` reads every door of the thread together.")
 		}
 	}
 	return b.String()

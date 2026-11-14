@@ -164,6 +164,26 @@ func dockRename(ctx context.Context, args []string) error {
 	return nil
 }
 
+func dockReplies(ctx context.Context, args []string) error {
+	if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+		return errx.Validation("usage: seaport dock replies <dock-id> on|off")
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	var d dock.Dock
+	if err := a.do(ctx, http.MethodPatch, "/api/v1/docks/"+url.PathEscape(args[0]), map[string]bool{"replies": args[1] == "on"}, &d); err != nil {
+		return err
+	}
+	if d.Replies {
+		fmt.Printf("dock %s (%s) takes replies again\n", d.ID, d.Name)
+	} else {
+		fmt.Printf("dock %s (%s) is a trigger now: its messages wake the crew, nothing is posted there\n", d.ID, d.Name)
+	}
+	return nil
+}
+
 func dockUnlink(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return errx.Validation("usage: seaport dock unlink <dock-id>")
@@ -264,9 +284,13 @@ func dockList(ctx context.Context) error {
 		return err
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tCHANNEL\tNAME\tSTATUS\tADDRESS")
+	fmt.Fprintln(w, "ID\tCHANNEL\tNAME\tSTATUS\tREPLIES\tADDRESS")
 	for _, d := range page.Items {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", d.ID, d.Channel, d.Name, d.Status, d.Address)
+		replies := "on"
+		if !d.CanReply() {
+			replies = "off"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", d.ID, d.Channel, d.Name, d.Status, replies, d.Address)
 	}
 	return w.Flush()
 }
