@@ -141,6 +141,17 @@ type Server struct {
 	// (SEAPORT_JIRA_HOSTS, comma separated, "*.domain" for every
 	// subdomain; default *.atlassian.net).
 	JiraHosts []string
+	// EmailPrivate (SEAPORT_EMAIL_PRIVATE=true) lets email docks name IMAP
+	// and SMTP servers on private, loopback or link-local addresses; off,
+	// only public servers are reachable.
+	EmailPrivate bool
+	// EmailHosts is the allow-list of IMAP/SMTP server names a dock may
+	// name (SEAPORT_EMAIL_HOSTS: globs, default *).
+	EmailHosts []string
+	// EmailRequireAuth (SEAPORT_EMAIL_REQUIRE_AUTH, default true) skips
+	// mail whose sender the mailbox's server didn't authenticate (no
+	// Authentication-Results header, or no SPF/DKIM/DMARC pass).
+	EmailRequireAuth bool
 	// Slack docks: SEAPORT_SLACK_URL (default https://slack.com, where the
 	// app is installed) and SEAPORT_SLACK_API_URL (default
 	// https://slack.com/api).
@@ -211,6 +222,9 @@ func LoadServer() (Server, error) {
 		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
 		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
 		JiraHosts:           splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
+		EmailPrivate:        os.Getenv("SEAPORT_EMAIL_PRIVATE") == "true" || os.Getenv("SEAPORT_EMAIL_PRIVATE") == "1",
+		EmailHosts:          splitList(env("SEAPORT_EMAIL_HOSTS", "*")),
+		EmailRequireAuth:    !isOff(os.Getenv("SEAPORT_EMAIL_REQUIRE_AUTH")),
 		SlackURL:            strings.TrimRight(env("SEAPORT_SLACK_URL", "https://slack.com"), "/"),
 		SlackAPIURL:         strings.TrimRight(env("SEAPORT_SLACK_API_URL", "https://slack.com/api"), "/"),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
@@ -461,4 +475,14 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// isOff reads an on-by-default switch: only an explicit false/0/no/off
+// turns it off.
+func isOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "false", "0", "no", "off":
+		return true
+	}
+	return false
 }

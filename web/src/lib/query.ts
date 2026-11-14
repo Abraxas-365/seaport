@@ -29,6 +29,7 @@ export const keys = {
   dock: (id: string) => ["docks", id] as const,
   github: (dock: string) => ["github", dock] as const,
   jira: (dock: string) => ["jira", dock] as const,
+  email: (dock: string) => ["email", dock] as const,
   slack: (dock: string) => ["slack", dock] as const,
   webhook: (dock: string) => ["webhook", dock] as const,
   inboxAll: ["inbox"] as const,

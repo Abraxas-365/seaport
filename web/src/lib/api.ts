@@ -7,6 +7,8 @@ import type {
   Conversation,
   GitHubInfo,
   GitHubManifest,
+  EmailInfo,
+  EmailLink,
   JiraInfo,
   SlackInfo,
   WebhookInfo,
@@ -180,6 +182,8 @@ export const api = {
   jira: (id: string) => request<JiraInfo>("GET", `${v1}/docks/${id}/jira`),
   linkJira: (id: string, body: { site: string; email: string; api_token: string }) =>
     request<JiraInfo>("PUT", `${v1}/docks/${id}/jira`, body),
+  email: (id: string) => request<EmailInfo>("GET", `${v1}/docks/${id}/email`),
+  linkEmail: (id: string, body: EmailLink) => request<EmailInfo>("PUT", `${v1}/docks/${id}/email`, body),
   rotateJiraSecret: (id: string) => request<JiraInfo>("POST", `${v1}/docks/${id}/jira/secret`),
   webhook: (id: string) => request<WebhookInfo>("GET", `${v1}/docks/${id}/webhook`),
   saveWebhook: (id: string, body: { template: WebhookTemplate; sample?: unknown }) =>

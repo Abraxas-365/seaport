@@ -26,7 +26,7 @@ Dumps cover Postgres only. For the rest:
 - **Off the server.** A backup on the same disk is not a backup. Copy dumps to another machine or storage.
 
 > [!WARNING]
-> Keep the key and the dumps in different places. A dump without the key is useless, and that is also what makes a stolen dump harmless: the WhatsApp keys, the GitHub, Jira and Slack credentials, agent secrets, and in iam mode the IAMKit tokens of browser sessions inside it are sealed.
+> Keep the key and the dumps in different places. A dump without the key is useless, and that is also what makes a stolen dump harmless: the WhatsApp keys, the GitHub, Jira, Slack and email credentials, agent secrets, and in iam mode the IAMKit tokens of browser sessions inside it are sealed.
 
 ## Restore
 
@@ -47,7 +47,7 @@ You can't recover sealed values without the key. A new key can't open them, so S
 If the key is truly gone, you start over for what it sealed:
 
 - Every WhatsApp dock must be linked again.
-- Every GitHub, Jira and Slack dock must be connected again: its App, API token and webhook secret, or app tokens and signing secret, are gone.
+- Every GitHub, Jira, Slack and email dock must be connected again: its App, API token and webhook secret, app tokens and signing secret, or mailbox password, are gone.
 - Every agent secret must be set again.
 - Message attachments (images and files) and harness homes can't be opened. Upload homes again.
 - In iam mode, browser sessions are signed out, and people sign in again.

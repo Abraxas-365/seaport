@@ -22,6 +22,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockemail"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
@@ -100,6 +101,9 @@ type Options struct {
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
+	// Email sets the test-only knobs of email docks (TLS roots of the fake
+	// servers, poll and recheck intervals); Private comes from the config.
+	Email dockemail.Config
 }
 
 // OpenDB opens Postgres with session timeouts and UTC.
@@ -233,7 +237,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		GitHub:  dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL},
 		Jira:    dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
 		Slack:   dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL},
-		Webhook: dockwebhook.Config{PublicURL: cfg.PublicURL}})
+		Webhook: dockwebhook.Config{PublicURL: cfg.PublicURL},
+		Email:   dockemail.Config{Private: cfg.EmailPrivate, Hosts: cfg.EmailHosts, AllowUnverified: !cfg.EmailRequireAuth, TLS: opts.Email.TLS, Poll: opts.Email.Poll, Recheck: opts.Email.Recheck}})
 	if err != nil {
 		bus.Close()
 		closeDBs()

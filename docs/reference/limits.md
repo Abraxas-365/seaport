@@ -49,6 +49,21 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Tags per message | 10 | `dockwebhook.MaxTags` | No |
 | Work of one event | 10 s | `dockwebhook.receiveWithin` | No |
 
+## Email docks
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Message read whole (bigger: headers only, the text says so) | 30 MiB | `dockemail.MaxRaw` | No |
+| Messages fetched per round | 50 | `dockemail.maxBatch` | No |
+| Poll interval when the server has no IDLE | 60 s | `dockemail.defaultPoll` | No |
+| Reconnect pause | 1 s doubling to 5 min | `dockemail.maxBackoff` | No |
+| Check of a mailbox when linking | 45 s | `dockemail.checkWithin` | No |
+| Subject match joins a thread (no `In-Reply-To`) | 14 days | `dockemail.subjectWindow` | No |
+| Participants / references kept per thread | 20 / 20 | `dockemail.MaxParticipants`, `MaxRefs` | No |
+| Dial / one network operation / one send | 15 s / 60 s / 2 min | `dockemail` | No |
+
+Text is cut to `text.MaxMessage`. Images follow the [media limits](#messages-and-media).
+
 ## Jira docks
 
 | Limit | Value | Constant | Configurable |

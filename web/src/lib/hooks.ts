@@ -165,6 +165,12 @@ export function useJira(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.jira(dock), queryFn: () => api.jira(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+/** An email dock's mailbox (the password never comes back). */
+export function useEmail(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.email(dock), queryFn: () => api.email(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 /** A Slack dock's App (refetched when the dock changes). */
 export function useSlack(dock: string, enabled = true) {
   const can = useCan()

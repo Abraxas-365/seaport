@@ -91,6 +91,8 @@ function patchDock(qc: QueryClient, dock: Dock) {
   // A GitHub dock's state follows its installations: refetch them.
   if (dock.channel === "github") void qc.invalidateQueries({ queryKey: keys.github(dock.id) })
   if (dock.channel === "jira") void qc.invalidateQueries({ queryKey: keys.jira(dock.id) })
+  // An email dock's connection state (connected, last error) follows its dock.
+  if (dock.channel === "email") void qc.invalidateQueries({ queryKey: keys.email(dock.id) })
   // So does a Slack dock's: its app is installed or forgotten.
   if (dock.channel === "slack") void qc.invalidateQueries({ queryKey: keys.slack(dock.id) })
   if (dock.channel === "webhook") void qc.invalidateQueries({ queryKey: keys.webhook(dock.id) })

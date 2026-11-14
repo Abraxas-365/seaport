@@ -53,7 +53,7 @@ SEAPORT_URL=https://port.example.com SEAPORT_CREW_TOKEN=sp_crew_… seaport conn
 
 ## The secret key
 
-`SEAPORT_SECRET_KEY` seals WhatsApp keys, the GitHub App, Jira and Slack credentials, agent secrets, message attachments and harness homes in the database. In token mode it is optional: if you leave it unset, Seaport generates one on first start into the `seaport_data` volume (`/data/secret.key`).
+`SEAPORT_SECRET_KEY` seals WhatsApp keys, the GitHub App, Jira, Slack and email credentials, agent secrets, message attachments and harness homes in the database. In token mode it is optional: if you leave it unset, Seaport generates one on first start into the `seaport_data` volume (`/data/secret.key`).
 
 Either way, keep a copy apart from your backups. A database dump without it is useless. See [Backups and upgrades](backups-and-upgrades.md).
 

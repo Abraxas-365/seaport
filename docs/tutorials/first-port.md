@@ -110,4 +110,4 @@ You should see Ana's message, inbound. The web app's **Bandeja** (Inbox) shows t
 
 - [Your first agent](first-agent.md): connect rness or Claude Code and let it answer Ana.
 - [Customs](../guides/customs.md): rules, group modes and overrides.
-- Connect a real channel: [Slack](../guides/slack.md), [GitHub](../guides/github.md), [Jira](../guides/jira.md) or [WhatsApp](../guides/whatsapp.md).
+- Connect a real channel: [Slack](../guides/slack.md), [GitHub](../guides/github.md), [Jira](../guides/jira.md), [email](../guides/email.md) or [WhatsApp](../guides/whatsapp.md).

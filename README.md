@@ -6,13 +6,13 @@
 
 **A port for your agents.**
 
-Your company's agents, defined once and called from wherever people already work: Slack, GitHub, Jira, WhatsApp or your own systems.<br />
+Your company's agents, defined once and called from wherever people already work: Slack, GitHub, Jira, email, WhatsApp or your own systems.<br />
 Each message (a ship) wakes the right agent (the crew), which answers in the same thread with the port's tools. Run the agent on a laptop or let the port host it. Either way, you decide who gets through.
 
 <p>
   <a href="go.mod"><img src="https://img.shields.io/badge/Server-Go-1f4f99?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go server" /></a>
   <a href="https://agentclientprotocol.com"><img src="https://img.shields.io/badge/Agents-ACP-3d6fc4?style=flat-square" alt="Any ACP agent" /></a>
-  <a href="#channels"><img src="https://img.shields.io/badge/Channels-Slack_·_GitHub_·_Jira_·_WhatsApp_·_HTTP-25a18e?style=flat-square" alt="Channels: Slack, GitHub, Jira, WhatsApp, HTTP" /></a>
+  <a href="#channels"><img src="https://img.shields.io/badge/Channels-Slack_·_GitHub_·_Jira_·_Email_·_WhatsApp_·_HTTP-25a18e?style=flat-square" alt="Channels: Slack, GitHub, Jira, email, WhatsApp, HTTP" /></a>
   <a href="https://github.com/Abraxas-365/seaport/releases"><img src="https://img.shields.io/github/v/release/Abraxas-365/seaport?style=flat-square&amp;color=6fa3f0" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/Status-Early_stage-8fa3c4?style=flat-square" alt="Early-stage software" />
 </p>
@@ -44,6 +44,7 @@ WhatsApp · HTTP api   ──▶      ▲                        (or a slot the 
 | Slack | a Slack app in your workspace | someone mentions it or `@agent` in a channel, follows up in its thread, or sends it a DM | [Slack](docs/guides/slack.md) |
 | GitHub | a GitHub App on your repositories | a pull request or issue (description, comment or review) mentions the App or `@agent`; a workflow can hand it work too | [GitHub](docs/guides/github.md) |
 | Jira | a Jira Cloud service account | an issue or a comment mentions the account or `@agent` | [Jira](docs/guides/jira.md) |
+| Email | a mailbox read over IMAP and answered over SMTP | a message arrives in the folder after linking; one thread is one conversation | [Email](docs/guides/email.md) |
 | WhatsApp | a number linked as a device (a QR, like WhatsApp Web) | a chat that customs lets in writes; groups by mention | [WhatsApp](docs/guides/whatsapp.md) |
 | `api` | an endpoint you post to from your own systems | you post a message | [api docks](docs/guides/api-docks.md) |
 | Webhook | an endpoint any system POSTs JSON to (alerts, CI, payments); a trigger, it takes no replies | a call with the dock's secret; a template shapes the message | [Webhooks](docs/guides/webhooks.md) |
@@ -52,7 +53,7 @@ WhatsApp · HTTP api   ──▶      ▲                        (or a slot the 
 <tr>
 <td width="50%" valign="top">
 <h3>01 · Docks</h3>
-<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, a Slack app in your workspace, a webhook endpoint any system can call, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
+<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, a Slack app in your workspace, a webhook endpoint any system can call, a mailbox, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
 </td>
 <td width="50%" valign="top">
 <h3>02 · Customs</h3>
@@ -74,7 +75,7 @@ WhatsApp · HTTP api   ──▶      ▲                        (or a slot the 
 **Channels bring the ships. Customs decides. Your agents do the work.**
 
 > [!IMPORTANT]
-> **Early-stage software.** The WhatsApp channel links a number as a device through an unofficial client ([whatsmeow](https://github.com/tulir/whatsmeow)); numbers that send in bursts get banned, which is why outbound limits are on by default. Review the [configuration](docs/reference/configuration.md) before pointing it at a number you care about. Slack, GitHub and Jira use their official APIs.
+> **Early-stage software.** The WhatsApp channel links a number as a device through an unofficial client ([whatsmeow](https://github.com/tulir/whatsmeow)); numbers that send in bursts get banned, which is why outbound limits are on by default. Review the [configuration](docs/reference/configuration.md) before pointing it at a number you care about. Slack, GitHub and Jira use their official APIs, and email speaks plain IMAP and SMTP.
 
 ## From one laptop to many organizations
 
@@ -134,13 +135,14 @@ seaport dock add api -name try                 # prints the dock id
 seaport customs -dock <dock-id> default allow  # api chats are yours: let them all in
 ```
 
-For a real channel, add `slack`, `github` or `jira` (they need the port on a public `https` URL, since those services call it by webhook) or `whatsapp` (scan a QR; nothing public needed):
+For a real channel, add `slack`, `github` or `jira` (they need the port on a public `https` URL, since those services call it by webhook) `email` (connects out to your mail servers) or `whatsapp` (scan a QR; nothing public needed):
 
 ```sh
 seaport dock add slack       # then create or paste the app in the web app
 seaport dock add github      # creates a GitHub App from the web app; install it on your repositories
 seaport dock add jira        # then enter the site and the service account's API token in the web app
 seaport dock add webhook     # an endpoint for alerts, CI or any system; then make its secret: seaport dock webhook <dock-id> -rotate
+seaport dock add email       # then seaport dock email <dock-id> -address support@example.com -provider gmail
 seaport dock add whatsapp    # scan the QR: WhatsApp → Linked devices → Link a device
 ```
 
@@ -266,7 +268,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | :--- | :--- |
 | Run your first port and see a message arrive | [Your first port](docs/tutorials/first-port.md) |
 | Find your way around the web app | [Web app tour](docs/guides/web-app.md) |
-| Put an agent in Slack, GitHub or Jira | [Slack](docs/guides/slack.md), [GitHub](docs/guides/github.md), [Jira](docs/guides/jira.md) |
+| Put an agent in Slack, GitHub, Jira or a mailbox | [Slack](docs/guides/slack.md), [GitHub](docs/guides/github.md), [Jira](docs/guides/jira.md), [Email](docs/guides/email.md) |
 | Hand work to an agent from a GitHub workflow | [GitHub Actions](docs/guides/github.md#trigger-an-agent-from-a-workflow) |
 | Put an agent behind a WhatsApp number | [WhatsApp](docs/guides/whatsapp.md) |
 | Feed messages from your own systems | [api docks](docs/guides/api-docks.md) |

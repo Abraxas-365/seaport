@@ -42,6 +42,9 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock webhook <dock-id> [-template F.json [-sample B.json]] [-rotate]
                                         show its URL and template; set the template (a preview of the sample is
                                         shown); -rotate makes a new secret and prints it once
+  seaport dock add email [-name N]      a mailbox read over IMAP and answered over SMTP (connect it with dock email)
+  seaport dock email <dock-id> -address A -provider gmail|outlook|icloud | -imap H[:P] -smtp H[:P]  [-username U] [-folder F]
+                                        connect an email dock (the password is read from the terminal or stdin)
   seaport dock list
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
@@ -204,13 +207,15 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	case "dock":
 		if len(rest) == 0 {
-			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|webhook|unlink|delete")
+			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|webhook|email|unlink|delete")
 		}
 		switch rest[0] {
 		case "add":
 			return dockAdd(ctx, rest[1:])
 		case "list":
 			return dockList(ctx)
+		case "email":
+			return dockEmail(ctx, rest[1:])
 		case "relink":
 			return dockRelink(ctx, rest[1:])
 		case "rename":

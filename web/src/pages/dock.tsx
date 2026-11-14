@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Link2,
   Link2Off,
+  Mail,
   MessageSquareOff,
   MoreHorizontal,
   Pencil,
@@ -36,6 +37,7 @@ import {
   useDockAction,
   useDockTeam,
   useGitHub,
+  useEmail,
   useJira,
   useSlack,
   useWebhook,
@@ -44,7 +46,7 @@ import {
 } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
-import type { Dock, WebhookPreview, WebhookTemplate } from "@/lib/types"
+import type { Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -187,6 +189,27 @@ function DockDetail({ dock }: { dock: Dock }) {
                     onConfirm={() => actions.unlink.mutateAsync(dock.id)}
                   />
                 )}
+                {dock.channel === "email" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Desconectar el buzón
+                      </DropdownMenuItem>
+                    }
+                    title="¿Desconectar el buzón?"
+                    description={
+                      <>
+                        <p>Seaport olvida la contraseña y deja de leer y de responder correo.</p>
+                        <p>
+                          No se borra nada del buzón. Si usaste una contraseña de aplicación, revócala en tu proveedor.
+                          Las conversaciones se conservan; puedes conectar el buzón de nuevo.
+                        </p>
+                      </>
+                    }
+                    actionLabel="Desconectar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
                 {dock.channel === "slack" && (
                   <ConfirmAction
                     trigger={
@@ -306,6 +329,7 @@ function DockDetail({ dock }: { dock: Dock }) {
         {dock.channel === "jira" && <JiraDockCard dock={dock} write={write} />}
         {dock.channel === "slack" && <SlackDockCard dock={dock} write={write} />}
         {dock.channel === "webhook" && <WebhookDockCard dock={dock} write={write} />}
+        {dock.channel === "email" && <EmailDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
 
@@ -591,7 +615,9 @@ function DockConversations({ dock }: { dock: Dock }) {
                     ? "Menciona a un agente del equipo (o a la cuenta de servicio) en un comentario de un issue de Jira."
                     : dock.channel === "slack"
                       ? "Invita a la App a un canal y menciónala (@app o @agente), o escríbele por mensaje directo."
-                      : "Envía un mensaje de prueba con el formulario de arriba."
+                      : dock.channel === "email"
+                        ? "Envía un correo al buzón conectado: solo se leen los mensajes que llegan después de conectarlo."
+                        : "Envía un mensaje de prueba con el formulario de arriba."
             }
           />
         ) : (
@@ -1495,6 +1521,239 @@ function SlackDockCard({ dock, write }: { dock: Dock; write: boolean }) {
           Consejo: en Aduana, permite el muelle por defecto; los canales solo despiertan a un agente cuando lo mencionan
           o escriben en un hilo donde ya participa.
         </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+type EmailPreset = { imap: string; smtp: string; hint: string }
+const emailPresets: Record<string, EmailPreset> = {
+  gmail: {
+    imap: "imap.gmail.com",
+    smtp: "smtp.gmail.com",
+    hint: "Gmail pide una contraseña de aplicación (verificación en dos pasos activada) y IMAP habilitado.",
+  },
+  outlook: {
+    imap: "outlook.office365.com",
+    smtp: "smtp.office365.com",
+    hint: "Outlook y Microsoft 365 pueden exigir una contraseña de aplicación o tener la autenticación básica desactivada.",
+  },
+  icloud: {
+    imap: "imap.mail.me.com",
+    smtp: "smtp.mail.me.com",
+    hint: "iCloud pide una contraseña específica de la app, creada en la cuenta de Apple.",
+  },
+}
+
+/** "host" or "host:port"; 143 and 587 are STARTTLS, everything else implicit TLS. */
+function emailEndpoint(spec: string, tlsPort: number, startPort: number): EmailEndpoint {
+  const [host, port] = spec.trim().split(":")
+  const n = port ? Number(port) : tlsPort
+  return { host, port: n, tls: n === startPort ? "starttls" : "tls" }
+}
+
+const showEndpoint = (e: EmailEndpoint) => `${e.host}:${e.port}${e.tls === "starttls" ? " (STARTTLS)" : ""}`
+
+function EmailDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useEmail(dock.id)
+  const qc = useQueryClient()
+  const [preset, setPreset] = React.useState("gmail")
+  const [address, setAddress] = React.useState("")
+  const [displayName, setDisplayName] = React.useState("")
+  const [imap, setImap] = React.useState(emailPresets.gmail.imap)
+  const [smtp, setSmtp] = React.useState(emailPresets.gmail.smtp)
+  const [username, setUsername] = React.useState("")
+  const [folder, setFolder] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
+  const [editing, setEditing] = React.useState(false)
+
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const account = info.data.account
+  const form = !account || editing
+  const custom = preset === "other"
+
+  const pick = (value: string) => {
+    setPreset(value)
+    const p = emailPresets[value]
+    if (p) {
+      setImap(p.imap)
+      setSmtp(p.smtp)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="size-4" /> {account ? account.address : "Conectar un buzón"}
+        </CardTitle>
+        <CardDescription>
+          {account
+            ? "Cada hilo de correo es una conversación; la respuesta sale por SMTP en el mismo hilo. Solo se leen los mensajes que llegan después de conectar."
+            : "Seaport lee la carpeta por IMAP y responde por SMTP. Comprueba el acceso a ambos servidores antes de guardar la contraseña."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {account && (
+          <DataList>
+            <DataItem label="Estado">
+              <StatusBadge tone={account.connected ? "success" : dock.status === "linked" ? "warning" : "neutral"}>
+                {account.connected ? "Conectado" : dock.status === "linked" ? "Reconectando" : dockLabel[dock.status]}
+              </StatusBadge>
+            </DataItem>
+            {account.last_error && !account.connected && <DataItem label="Último error">{account.last_error}</DataItem>}
+            <DataItem label="Entrada (IMAP)">
+              <Mono>{showEndpoint(account.imap)}</Mono> · {account.folder}
+            </DataItem>
+            <DataItem label="Salida (SMTP)">
+              <Mono>{showEndpoint(account.smtp)}</Mono>
+            </DataItem>
+            <DataItem label="Usuario">
+              <Mono>{account.username}</Mono>
+            </DataItem>
+            {account.display_name && <DataItem label="Nombre en las respuestas">{account.display_name}</DataItem>}
+            {account.seen_at && <DataItem label="Última conexión">{formatFull(account.seen_at)}</DataItem>}
+          </DataList>
+        )}
+        {write && form && (
+          <form
+            className="space-y-4"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setBusy(true)
+              try {
+                const next = await api.linkEmail(dock.id, {
+                  address: address.trim(),
+                  display_name: displayName.trim(),
+                  imap: emailEndpoint(imap, 993, 143),
+                  smtp: emailEndpoint(smtp, 465, 587),
+                  username: username.trim(),
+                  folder: folder.trim(),
+                  password,
+                })
+                qc.setQueryData(keys.email(dock.id), next)
+                void qc.invalidateQueries({ queryKey: keys.docks, exact: true })
+                void qc.invalidateQueries({ queryKey: keys.dock(dock.id) })
+                setPassword("")
+                setEditing(false)
+                toast.success("Buzón conectado")
+              } catch (err) {
+                toast.error("No se pudo conectar", { description: (err as Error).message })
+              } finally {
+                setBusy(false)
+              }
+            }}
+          >
+            <FieldGroup className="grid gap-3 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="email-preset">Proveedor</FieldLabel>
+                <Select value={preset} onValueChange={pick}>
+                  <SelectTrigger id="email-preset" aria-label="Proveedor">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gmail">Gmail</SelectItem>
+                    <SelectItem value="outlook">Outlook / Microsoft 365</SelectItem>
+                    <SelectItem value="icloud">iCloud</SelectItem>
+                    <SelectItem value="other">Otro (IMAP/SMTP)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="email-address">Dirección</FieldLabel>
+                <Input
+                  id="email-address"
+                  type="email"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder={account?.address ?? "soporte@example.com"}
+                  required
+                />
+              </Field>
+              {custom && (
+                <>
+                  <Field>
+                    <FieldLabel htmlFor="email-imap">Servidor IMAP</FieldLabel>
+                    <Input
+                      id="email-imap"
+                      value={imap}
+                      onChange={(e) => setImap(e.target.value)}
+                      placeholder="imap.example.com:993"
+                      className="font-mono text-sm"
+                      required
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="email-smtp">Servidor SMTP</FieldLabel>
+                    <Input
+                      id="email-smtp"
+                      value={smtp}
+                      onChange={(e) => setSmtp(e.target.value)}
+                      placeholder="smtp.example.com:465"
+                      className="font-mono text-sm"
+                      required
+                    />
+                  </Field>
+                </>
+              )}
+              <Field>
+                <FieldLabel htmlFor="email-password">Contraseña</FieldLabel>
+                <Input
+                  id="email-password"
+                  type="password"
+                  autoComplete="off"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="email-name">Nombre en las respuestas (opcional)</FieldLabel>
+                <Input
+                  id="email-name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Soporte"
+                />
+              </Field>
+              {custom && (
+                <>
+                  <Field>
+                    <FieldLabel htmlFor="email-user">Usuario (si no es la dirección)</FieldLabel>
+                    <Input id="email-user" value={username} onChange={(e) => setUsername(e.target.value)} />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="email-folder">Carpeta (INBOX por defecto)</FieldLabel>
+                    <Input id="email-folder" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="INBOX" />
+                  </Field>
+                </>
+              )}
+            </FieldGroup>
+            <p className="text-xs text-muted-foreground">
+              {emailPresets[preset]?.hint ??
+                "Solo se aceptan conexiones cifradas: TLS (993, 465) o STARTTLS (143, 587). Usa una contraseña de aplicación si tu proveedor la ofrece."}{" "}
+              La contraseña se guarda cifrada y no se vuelve a mostrar.
+            </p>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={busy || !address.trim() || !password}>
+                {busy ? <Spinner /> : <Mail className="size-4" />} {account ? "Guardar cambios" : "Conectar"}
+              </Button>
+              {editing && (
+                <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
+          </form>
+        )}
+        {account && write && !editing && (
+          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+            <RefreshCw /> Cambiar credenciales
+          </Button>
+        )}
+        {!account && !write && <p className="text-sm text-muted-foreground">Este muelle aún no tiene un buzón conectado.</p>}
       </CardContent>
     </Card>
   )
