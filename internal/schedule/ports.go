@@ -50,8 +50,8 @@ type Repository interface {
 	// locked FOR UPDATE SKIP LOCKED, so two processes never take one),
 	// asks plan what to do with each, stores the new next_at in the same
 	// transaction and returns the ones to fire plus how many it claimed
-	// (limit claimed: there may be more).
-	Due(ctx context.Context, now time.Time, limit int, plan func(Schedule) Advance) (fire []Due, claimed int, err error)
+	// (limit claimed: there may be more) and the ones it switched off.
+	Due(ctx context.Context, now time.Time, limit int, plan func(Schedule) Advance) (Claim, error)
 }
 
 // Deliverer hands the message of a schedule to the ship domain (bound

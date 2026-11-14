@@ -97,7 +97,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `environment.deleted` | `seaport:environments:read` | `{"id"}` | An environment was deleted. |
 | `slot.updated` | `seaport:environments:read` | Hosted agent (`agent`, `slots`) | An agent was hosted, moved or unhosted, or one of its slots changed state. When the agent is no longer hosted the payload has no environment and no slots. |
 | `schedule.created` | `seaport:schedules:read` | [Schedule](http-api.md#schedules) | A schedule was created. |
-| `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner. |
+| `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, or the agent it names is gone). |
 | `schedule.deleted` | `seaport:schedules:read` | Schedule | A schedule was deleted. |
 | `schedule.fired` | `seaport:schedules:read` | Schedule | A schedule posted its message (by the runner or **run now**); `last_at` and `next_at` are current. |
 | `environment.build` | `seaport:environments:read` | Build, without its log | An environment version's build started, finished or failed. |

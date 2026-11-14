@@ -54,7 +54,7 @@ var vendorSDKs = map[string][]string{
 	// the client side of /crew/ws (the hub serves it with Fiber's websocket)
 	"github.com/coder/websocket": {"connector"},
 	// the server side of /crew/ws
-	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws", "schedule/adapters/schedulehttp"},
+	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws"},
 	"github.com/pressly/goose":                {"bootstrap"},
 	// IAMKit (iam mode) and the JWT library that verifies its id_tokens
 	"github.com/Abraxas-365/iamkit": {"auth/adapters/authiam"},

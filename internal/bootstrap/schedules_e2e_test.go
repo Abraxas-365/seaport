@@ -236,3 +236,35 @@ func TestSchedulesQuota(t *testing.T) {
 		}
 	}
 }
+
+// A schedule whose agent was deleted is switched off at its next slot
+// instead of failing every time; editing only the text keeps the next slot.
+func TestSchedulesAgentGoneDisables(t *testing.T) {
+	p := startPortWith(t, fastTick, bootstrap.Options{ScheduleTick: 200 * time.Millisecond})
+	d := p.openDock("gone")
+	pm, tmp := p.agent("pm"), p.agent("temp")
+	p.assignAs(adminToken, d.ID, pm.ID, true)
+	p.assignAs(adminToken, d.ID, tmp.ID, false)
+	conv := p.inject(d, "950", "g0", "hola").Conversation.String()
+	var sc schedule.Schedule
+	if code := p.admin(http.MethodPost, "/api/v1/schedules", map[string]any{"name": "orphan", "conversation_id": conv,
+		"agent_id": tmp.ID.String(), "cron": "0 9 * * *", "text": "x"}, &sc); code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	var edited schedule.Schedule
+	if code := p.admin(http.MethodPatch, "/api/v1/schedules/"+sc.ID.String(), map[string]any{"text": "y"}, &edited); code != http.StatusOK ||
+		!edited.NextAt.Equal(sc.NextAt) {
+		t.Fatalf("text edit moved the slot: %d %v -> %v", code, sc.NextAt, edited.NextAt)
+	}
+	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+tmp.ID.String(), nil, nil); code != http.StatusNoContent {
+		t.Fatalf("delete agent: %d", code)
+	}
+	dueNow(t, sc.ID, time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	for scheduleOf(t, p, sc.ID).Enabled {
+		if time.Now().After(deadline) {
+			t.Fatal("schedule of a deleted agent stayed enabled")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}

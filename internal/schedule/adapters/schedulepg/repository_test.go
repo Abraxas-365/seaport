@@ -102,14 +102,14 @@ func TestDueNeverGivesARowTwice(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			fire, _, err := repo.Due(ctx, time.Now(), 3, plan)
+			claim, err := repo.Due(ctx, time.Now(), 3, plan)
 			if err != nil {
 				t.Error(err)
 				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			for _, d := range fire {
+			for _, d := range claim.Fire {
 				seen[d.ID]++
 			}
 		}()
@@ -122,25 +122,25 @@ func TestDueNeverGivesARowTwice(t *testing.T) {
 	}
 	// Drain what the four callers left.
 	for {
-		fire, claimed, err := repo.Due(ctx, time.Now(), 5, func(schedule.Schedule) schedule.Advance { return schedule.Advance{Next: next, Fire: true} })
+		claim, err := repo.Due(ctx, time.Now(), 5, func(schedule.Schedule) schedule.Advance { return schedule.Advance{Next: next, Fire: true} })
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, d := range fire {
+		for _, d := range claim.Fire {
 			seen[d.ID]++
 			if seen[d.ID] != 1 {
 				t.Fatalf("schedule %s claimed twice", d.ID)
 			}
 		}
-		if claimed == 0 {
+		if claim.Claimed == 0 {
 			break
 		}
 	}
 	if len(seen) != n {
 		t.Fatalf("claimed %d schedules, want %d", len(seen), n)
 	}
-	if fire, claimed, err := repo.Due(ctx, time.Now(), 5, plan); err != nil || claimed != 0 || len(fire) != 0 {
-		t.Fatalf("after the claims: %d %d %v", claimed, len(fire), err)
+	if claim, err := repo.Due(ctx, time.Now(), 5, plan); err != nil || claim.Claimed != 0 || len(claim.Fire) != 0 {
+		t.Fatalf("after the claims: %d %d %v", claim.Claimed, len(claim.Fire), err)
 	}
 }
 
@@ -155,14 +155,17 @@ func TestDueAdvancesSkippedAndDisablesBroken(t *testing.T) {
 	skipped, _ := repo.Create(ctx, org, row(conv, "skipped", past), 0)
 	broken, _ := repo.Create(ctx, org, row(conv, "broken", past), 0)
 	next := time.Now().Add(time.Hour)
-	fire, claimed, err := repo.Due(ctx, time.Now(), 10, func(s schedule.Schedule) schedule.Advance {
+	claim, err := repo.Due(ctx, time.Now(), 10, func(s schedule.Schedule) schedule.Advance {
 		if s.ID == skipped.ID {
 			return schedule.Advance{Next: next}
 		}
 		return schedule.Advance{}
 	})
-	if err != nil || claimed != 2 || len(fire) != 0 {
-		t.Fatalf("due: %d %d %v", claimed, len(fire), err)
+	if err != nil || claim.Claimed != 2 || len(claim.Fire) != 0 {
+		t.Fatalf("due: %d %d %v", claim.Claimed, len(claim.Fire), err)
+	}
+	if len(claim.Disabled) != 1 || claim.Disabled[0].ID != broken.ID || claim.Disabled[0].Enabled {
+		t.Fatalf("disabled: %+v", claim.Disabled)
 	}
 	got, err := repo.Find(ctx, org, skipped.ID)
 	if err != nil || !got.Enabled || got.NextAt.Before(time.Now()) {

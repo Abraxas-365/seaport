@@ -67,6 +67,15 @@ type Due struct {
 	Slot time.Time
 }
 
+// Claim is what one Repository.Due call took: the schedules to fire, the
+// ones plan could not evaluate and the repository switched off (Enabled
+// already false), and how many rows it claimed in all.
+type Claim struct {
+	Fire     []Due
+	Disabled []Schedule
+	Claimed  int
+}
+
 // Advance is the runner's decision about a claimed schedule: when it runs
 // next and whether the claimed slot is fired (one missed by more than
 // MissedGrace is not).

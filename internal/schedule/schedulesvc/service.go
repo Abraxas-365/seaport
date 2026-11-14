@@ -26,6 +26,10 @@ const batch = 20
 // advanced, so the loop ends by itself).
 const maxBatches = 50
 
+// fireTimeout bounds posting one claimed batch, which runs to its end even
+// while the process shuts down.
+const fireTimeout = 10 * time.Second
+
 type Service struct {
 	repo   schedule.Repository
 	convs  conversation.Queries
@@ -125,7 +129,13 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 	if input.Timezone != nil {
 		input.Timezone = &tz
 	}
-	out, err := s.repo.Update(ctx, org, id, input, cron.Next(s.now(), loc))
+	// The slot moves only when what decides it changed: the expression, the
+	// zone, or switching on (an old next_at would fire a stale slot).
+	next := cur.NextAt
+	if cron.String() != cur.Cron || tz != cur.Timezone || (input.Enabled != nil && *input.Enabled != cur.Enabled) {
+		next = cron.Next(s.now(), loc)
+	}
+	out, err := s.repo.Update(ctx, org, id, input, next)
 	if err != nil {
 		return schedule.Schedule{}, errx.Wrap(err, "update schedule", errx.TypeInternal)
 	}
@@ -231,21 +241,29 @@ func (s *Service) Run(ctx context.Context, org identity.OrganizationID, id ident
 func (s *Service) FireDue(ctx context.Context, now time.Time) (int, error) {
 	fired := 0
 	for range maxBatches {
-		due, claimed, err := s.repo.Due(ctx, now, batch, func(sc schedule.Schedule) schedule.Advance {
+		claim, err := s.repo.Due(ctx, now, batch, func(sc schedule.Schedule) schedule.Advance {
 			return s.plan(sc, now)
 		})
 		if err != nil {
 			return fired, errx.Wrap(err, "claim due schedules", errx.TypeInternal)
 		}
-		for _, d := range due {
+		for _, sc := range claim.Disabled {
+			s.events.Publish(sc.Organization, schedule.EventUpdated, sc)
+		}
+		// The slots are claimed (committed): post them even if the process
+		// is shutting down, or they would be lost (a claimed slot never
+		// comes back).
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fireTimeout)
+		for _, d := range claim.Fire {
 			slot := strconv.FormatInt(d.Slot.Unix(), 10)
-			if _, _, err := s.fire(ctx, d.Schedule, d.Slot, slot); err != nil {
+			if _, _, err := s.fire(fctx, d.Schedule, d.Slot, slot); err != nil {
 				slog.Error("fire schedule", "schedule", d.ID, "name", d.Name, "err", err)
 				continue
 			}
 			fired++
 		}
-		if claimed < batch {
+		cancel()
+		if claim.Claimed < batch {
 			break
 		}
 	}
@@ -273,6 +291,19 @@ func (s *Service) plan(sc schedule.Schedule, now time.Time) schedule.Advance {
 	return schedule.Advance{}
 }
 
+// disable switches off a schedule that can't run as it is (the agent it
+// names is gone) instead of failing at every slot, and tells the web.
+func (s *Service) disable(ctx context.Context, sc schedule.Schedule) {
+	off := false
+	out, err := s.repo.Update(ctx, sc.Organization, sc.ID, schedule.Update{Enabled: &off}, sc.NextAt)
+	if err != nil {
+		slog.Error("disable schedule", "schedule", sc.ID, "name", sc.Name, "err", err)
+		return
+	}
+	slog.Error("schedule's agent is gone, disabled", "schedule", sc.ID, "name", sc.Name)
+	s.events.Publish(sc.Organization, schedule.EventUpdated, out)
+}
+
 // fire hands the schedule's message to the ship domain. slot names it
 // ("schedule-<id>-<slot>"), so firing the same slot twice is one ship.
 func (s *Service) fire(ctx context.Context, sc schedule.Schedule, at time.Time, slot string) (ship.Ship, bool, error) {
@@ -287,6 +318,9 @@ func (s *Service) fire(ctx context.Context, sc schedule.Schedule, at time.Time, 
 	if sc.Agent != nil {
 		a, err := s.agents.Find(ctx, sc.Organization, *sc.Agent)
 		if err != nil {
+			if errx.IsType(err, errx.TypeNotFound) {
+				s.disable(ctx, sc)
+			}
 			return ship.Ship{}, false, errx.Wrap(err, "find schedule agent", errx.TypeInternal)
 		}
 		body = "@" + a.Name + " " + body

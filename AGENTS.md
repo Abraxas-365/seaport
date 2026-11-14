@@ -120,7 +120,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   (`TestLayerDependencies`).
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
-- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting` `Commands`,
+- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting`/`schedule` `Commands`,
   `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
   `Relay`, `Gate` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide

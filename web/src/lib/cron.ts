@@ -22,12 +22,12 @@ export function describeCron(cron: string): string {
   if (month !== "*") return cron
 
   const step = /^\*\/(\d+)$/.exec(min)
-  if (step && hour === "*" && dom === "*" && dow === "*") return `Cada ${step[1]} minutos`
+  if (step && hour === "*" && dom === "*" && dow === "*") return step[1] === "1" ? "Cada minuto" : `Cada ${step[1]} minutos`
   const m = int(min)
   if (Number.isNaN(m)) return cron
   if (hour === "*" && dom === "*" && dow === "*") return m === 0 ? "Cada hora" : `Cada hora, al minuto ${m}`
   const hstep = /^\*\/(\d+)$/.exec(hour)
-  if (hstep && m === 0 && dom === "*" && dow === "*") return `Cada ${hstep[1]} horas`
+  if (hstep && m === 0 && dom === "*" && dow === "*") return hstep[1] === "1" ? "Cada hora" : `Cada ${hstep[1]} horas`
   const h = int(hour)
   if (Number.isNaN(h)) return cron
   const at = `a las ${two(h)}:${two(m)}`

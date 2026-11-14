@@ -60,7 +60,7 @@ Every process of the port checks for due schedules every 30 seconds. Due schedul
 
 - **Missed slots are skipped.** If the port was down at 09:00 and comes back at 09:30, the 09:00 slot is not run (the grace is 2 minutes). The schedule simply continues with its next time. Nothing is queued up and replayed.
 - **No duplicates.** The message's external id is `schedule-<id>-<slot>`, and the message pipeline drops an external id it already stored, so a retried slot never posts twice.
-- **A broken schedule turns itself off.** If its expression can't be evaluated (for example a zone that the host no longer knows), the schedule is disabled rather than retried forever.
+- **A broken schedule turns itself off.** If its expression can't be evaluated (for example a zone that the host no longer knows), or the agent it names was deleted, the schedule is disabled rather than failing at every slot, and a `schedule.updated` event tells the web. Fix it (pick another agent) and switch it on again.
 - **Run now** (`POST /schedules/{id}/run`, **Ahora**, `seaport schedules run`) posts the message immediately through the same path and returns the stored message. It doesn't change the schedule's next time.
 
 The message is subject to everything a message is. If the conversation is **pending** or **denied** in customs, the message is stored but held; if the conversation has no agent to route to, it is held for routing. Both show up in the conversation like any held message.
@@ -78,4 +78,4 @@ The agent answers like it does to any message: on the conversation the schedule 
 - At most 100 schedules per organization (`SEAPORT_MAX_SCHEDULES`, `0` = no limit); another is refused with `422 QUOTA_EXCEEDED`. See [Limits](../reference/limits.md).
 - Names are unique per organization; the text is up to 65,280 characters.
 - Reading needs `seaport:schedules:read`, writing needs `seaport:schedules:write` (Admin and Operator roles; Viewer reads). See [Permissions](../reference/permissions.md).
-- Deleting a conversation (or its dock) deletes its schedules. Deleting the agent a schedule names doesn't: that schedule then fails at each run (logged, nothing posted) until you change its agent.
+- Deleting a conversation (or its dock) deletes its schedules. Deleting the agent a schedule names switches that schedule off at its next slot (nothing is posted); give it another agent and switch it on.

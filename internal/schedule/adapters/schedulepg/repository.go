@@ -128,34 +128,37 @@ func (r *Repository) Record(ctx context.Context, org identity.OrganizationID, id
 	return nil
 }
 
-func (r *Repository) Due(ctx context.Context, now time.Time, limit int, plan func(schedule.Schedule) schedule.Advance) ([]schedule.Due, int, error) {
+func (r *Repository) Due(ctx context.Context, now time.Time, limit int, plan func(schedule.Schedule) schedule.Advance) (schedule.Claim, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return nil, 0, pgerr.Map(err, "begin due schedules")
+		return schedule.Claim{}, pgerr.Map(err, "begin due schedules")
 	}
 	defer func() { _ = tx.Rollback() }()
 	var rows []schedule.Schedule
 	if err := tx.SelectContext(ctx, &rows, `SELECT `+columns+` FROM schedules
 		WHERE enabled AND next_at <= $1 ORDER BY next_at, id LIMIT $2 FOR UPDATE SKIP LOCKED`, now, limit); err != nil {
-		return nil, 0, pgerr.Map(err, "claim due schedules")
+		return schedule.Claim{}, pgerr.Map(err, "claim due schedules")
 	}
-	var fire []schedule.Due
+	var out schedule.Claim
 	for _, s := range rows {
 		adv := plan(s)
 		next, enabled := adv.Next, true
 		if next.IsZero() { // it can never run again: switch it off
 			next, enabled = s.NextAt, false
+			s.Enabled = false
+			out.Disabled = append(out.Disabled, s)
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE schedules SET next_at = $3, enabled = $4, updated_at = now()
 			WHERE organization_id = $1 AND id = $2`, s.Organization, s.ID, next, enabled); err != nil {
-			return nil, 0, pgerr.Map(err, "advance schedule")
+			return schedule.Claim{}, pgerr.Map(err, "advance schedule")
 		}
 		if adv.Fire {
-			fire = append(fire, schedule.Due{Schedule: s, Slot: s.NextAt})
+			out.Fire = append(out.Fire, schedule.Due{Schedule: s, Slot: s.NextAt})
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, 0, pgerr.Map(err, "commit due schedules")
+		return schedule.Claim{}, pgerr.Map(err, "commit due schedules")
 	}
-	return fire, len(rows), nil
+	out.Claimed = len(rows)
+	return out, nil
 }
