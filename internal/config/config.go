@@ -92,6 +92,9 @@ type Server struct {
 	// Outbound limits per dock (0 disables one): SEAPORT_SEND_PER_MINUTE
 	// (20), SEAPORT_SEND_PER_HOUR (300), SEAPORT_SEND_PER_CHAT_MINUTE (8).
 	SendPerMinute, SendPerHour, SendPerChatMinute int
+	// ApprovalTTL (SEAPORT_APPROVAL_TTL, a Go duration, default 24h) is how
+	// long an approval waits for its answer before it expires.
+	ApprovalTTL time.Duration
 	// Per-organization quotas (0 disables one; same for every organization
 	// until plans exist): SEAPORT_MAX_DOCKS (10),
 	// SEAPORT_MAX_CREW_CONNECTIONS (20 live agents),
@@ -242,6 +245,9 @@ func LoadServer() (Server, error) {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err
 		}
+	}
+	if c.ApprovalTTL, err = envDuration("SEAPORT_APPROVAL_TTL", 24*time.Hour); err != nil {
+		return c, err
 	}
 	if c.PublicURL == "" {
 		c.PublicURL = "http://" + c.Addr
@@ -424,6 +430,19 @@ func envInt(key string, def int) (int, error) {
 		return 0, errx.InvalidField(key, key+" must be a whole number ≥ 0 (0 disables the limit)")
 	}
 	return n, nil
+}
+
+// envDuration reads a Go duration (30m, 24h) of at least a minute.
+func envDuration(key string, def time.Duration) (time.Duration, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < time.Minute {
+		return 0, errx.InvalidField(key, key+" must be a duration of at least 1m (for example 24h)")
+	}
+	return d, nil
 }
 
 func env(key, def string) string {

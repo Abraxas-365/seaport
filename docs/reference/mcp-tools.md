@@ -37,6 +37,8 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `history` | yes | Reads the latest messages of a conversation. |
 | `attachment` | yes | Returns a file attached to a message (an image or a document). |
 | `conversations` | yes | Lists the allowed conversations of the agent's docks. |
+| `ask_approval` | yes | Asks people to choose between options before the agent acts. |
+| `approval` | yes | Reads an approval the agent asked, optionally waiting while it is pending. |
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
 
 ### reply
@@ -68,6 +70,31 @@ Errors:
 - The dock, conversation or organization sent too much lately: a rate-limit error. See [Limits](limits.md).
 - The channel failed to send: the message is stored as `failed` and the tool returns an error.
 - Files on a port without blob storage: `this port keeps no files`. Invalid files (a path as name, empty, too large, two with one name, bad base64) are refused and nothing is sent.
+
+### ask_approval
+
+Sends a question with numbered options to a conversation and records an [approval](../guides/approvals.md). The same rules as `reply` apply to the card (allowed conversation, dock takes replies, outbound limits).
+
+Arguments:
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `conversation_id` | string | yes | The `conversation_id` given in the Seaport prompt. |
+| `text` | string | yes | The question. At most 4000 characters. |
+| `options` | array | yes | 2 to 6 choices, at most 64 characters each, unique ignoring case, none starting with a digit. |
+| `wait_seconds` | number | no | Block up to this many seconds for the answer. At most 290, and always less than the server's request deadline. `0` (default) returns at once. |
+
+Result:
+
+```json
+{ "approval_id": "…", "status": "answered", "answer": "Approve", "answered_by": "Ana", "options": ["Approve", "Reject"], "expires_at": "2026-01-02T15:04:05Z" }
+```
+
+`status` is `pending`, `answered`, `expired` or `cancelled`; `answer` is one of the options once answered. A second pending approval for the same conversation is refused (`422`).
+
+### approval
+
+Reads one approval the agent asked. Arguments: `approval_id` (required) and `wait_seconds` (optional, same cap as above: blocks while it is pending). Result as `ask_approval`. Another agent's approval is `not found`.
 
 ### history
 

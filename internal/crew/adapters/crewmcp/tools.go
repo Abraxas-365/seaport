@@ -76,7 +76,9 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "seaport", Title: "Seaport", Version: d.Version}, &mcp.ServerOptions{
 		Instructions: "Seaport is the port where your messages (WhatsApp and other channels) arrive. " +
 			"Each prompt from seaport names a conversation_id. Answer people with the reply tool; " +
-			"use history to read earlier messages of a conversation.",
+			"use history to read earlier messages of a conversation. Before anything consequential or irreversible " +
+			"(deploy, delete, spend, send on someone's behalf), ask people with ask_approval and act only on the " +
+			"option they choose; if it expires or is cancelled, do not do it.",
 	})
 	t := tools{d: d}
 	mcp.AddTool(srv, &mcp.Tool{
@@ -91,6 +93,18 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 			"With thread: true, the messages of every conversation linked with it (the same matter seen from " +
 			"other channels: a pull request and the Slack thread about it), each naming its conversation_id.",
 	}, t.history)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "ask_approval",
+		Description: "Ask the people of a conversation to choose between 2 to 6 options before you do something consequential. " +
+			"The question goes out as a message with numbered options; they answer in the channel or in the web app. " +
+			"With wait_seconds (at most 290) the call blocks for the answer; otherwise, or when it times out, it returns " +
+			"status pending: stop there (an answer comes back to you as a message) or read it later with approval. " +
+			"One pending question per conversation; it expires after a day. Act only on status answered.",
+	}, t.askApproval)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "approval",
+		Description: "Read an approval you asked (status pending | answered | expired | cancelled, and the answer); wait_seconds blocks while it is pending.",
+	}, t.approval)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "attachment",
 		Description: "Look at a file attached to a message (an image, a document), by the attachment id that history lists.",

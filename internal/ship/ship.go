@@ -218,7 +218,11 @@ type Delivery struct {
 	// turned replies off. A reply there is refused; the agent answers on
 	// another door or stays silent.
 	ReadOnly []identity.ConversationID `json:"read_only,omitempty"`
-	Ships    []Ship                    `json:"ships"`
+	// Approvals are the agent's approvals of the thread that are still
+	// pending, and those answered by a ship of this delivery (see
+	// approval.go).
+	Approvals []Approval `json:"approvals,omitempty"`
+	Ships     []Ship     `json:"ships"`
 }
 
 // CanReply: the crew may answer on this door of the delivery.

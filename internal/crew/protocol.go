@@ -66,6 +66,28 @@ type ReplyAnswer struct {
 	Status string `json:"status"`
 }
 
+// ApprovalsPath is where an agent asks people for an approval over HTTP
+// (crew auth): `seaport ask`. POST asks (and, with wait_seconds, blocks for
+// the answer); GET ApprovalsPath/{id}[?wait_seconds=N] reads one, blocking
+// the same way.
+const ApprovalsPath = "/crew/approvals"
+
+// AskRequest is the body of POST ApprovalsPath.
+type AskRequest struct {
+	ConversationID identity.ConversationID `json:"conversation_id"`
+	Text           string                  `json:"text"`
+	Options        []string                `json:"options"`
+	WaitSeconds    int                     `json:"wait_seconds,omitempty"`
+}
+
+// Ask is the request as the ship domain's input, for agent (the caller's).
+func (r AskRequest) Ask(agent identity.AgentID) ship.AskApproval {
+	return ship.AskApproval{Conversation: r.ConversationID, Agent: agent, Text: r.Text, Options: r.Options,
+		Wait: time.Duration(r.WaitSeconds) * time.Second}
+}
+
+func (r AskRequest) Validate() error { return r.Ask(identity.NewAgentID()).Validate() }
+
 // FrameType names a frame.
 type FrameType string
 

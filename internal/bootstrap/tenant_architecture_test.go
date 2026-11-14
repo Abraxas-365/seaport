@@ -43,6 +43,8 @@ var systemWide = map[string]string{
 	"crew.TokenRepository.Touch":      "records a use of the token just authenticated (keyed by its id)",
 	"ship.Commands.ReleaseExpired":    "lease sweeper requeues every organization",
 	"ship.Repository.ReleaseExpired":  "lease sweeper requeues every organization",
+	"ship.Commands.SweepApprovals":    "approval sweeper expires the pending approvals of every organization",
+	"ship.Repository.ExpireApprovals": "approval sweeper expires the pending approvals of every organization",
 	"ship.Commands.SweepTrash":        "blob sweeper deletes unused media of every organization",
 	"ship.Repository.DueTrash":        "blob sweeper deletes unused media of every organization",
 	"ship.Repository.DropTrash":       "blob sweeper forgets the blobs it deleted (keyed by blob key)",

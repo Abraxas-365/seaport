@@ -110,6 +110,8 @@ type (
 	attachmentTag   struct{}
 	threadTag       struct{}
 	scheduleTag     struct{}
+
+	approvalTag struct{}
 )
 
 func tagName[T any]() string {
@@ -139,6 +141,8 @@ func tagName[T any]() string {
 		return "thread_id"
 	case scheduleTag:
 		return "schedule_id"
+	case approvalTag:
+		return "approval_id"
 	default:
 		return "id"
 	}
@@ -237,3 +241,10 @@ type ScheduleID = ID[scheduleTag]
 func NewScheduleID() ScheduleID                      { return NewID[scheduleTag]() }
 func ParseScheduleID(raw string) (ScheduleID, error) { return ParseID[scheduleTag](raw) }
 func MustParseScheduleID(raw string) ScheduleID      { return MustParseID[scheduleTag](raw) }
+
+// ApprovalID identifies a question an agent asked people before doing
+// something consequential (ship.Approval).
+type ApprovalID = ID[approvalTag]
+
+func NewApprovalID() ApprovalID                      { return NewID[approvalTag]() }
+func ParseApprovalID(raw string) (ApprovalID, error) { return ParseID[approvalTag](raw) }

@@ -119,6 +119,12 @@ WhatsApp bans numbers that send in bursts, so replies over a limit are refused w
 | `SEAPORT_SEND_PER_CHAT_MINUTE` | `8` | Outbound messages per conversation per minute. |
 | `SEAPORT_SEND_ORG_PER_HOUR` | `1000` | Outbound messages per organization per hour, across its docks. |
 
+## Approvals
+
+| Variable | Default | Meaning |
+| :--- | :--- | :--- |
+| `SEAPORT_APPROVAL_TTL` | `24h` | How long an [approval](../guides/approvals.md) waits for an answer before it expires. A Go duration of at least `1m` (`30m`, `48h`). |
+
 ## Quotas
 
 Each organization gets the same limits (one organization in `none` and `token` mode, many in `iam` mode). Going over a count is refused with `422` `QUOTA_EXCEEDED` (details `quota` and `limit`). A connector over the agent limit keeps retrying with backoff. `SEAPORT_SEND_ORG_PER_HOUR` above is the third quota.

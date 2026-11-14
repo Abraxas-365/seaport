@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Build, Schedule, Conversation, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
+import type { Agent, Approval, Build, Conversation, Dock, InboxItem, Schedule, Ship, Slot, Turn, UsageDay } from "@/lib/types"
 import type { Activity } from "@/lib/activity"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   AgentActivity,
   TurnSummary,
+  ApprovalCard,
   AgentCard,
   AgentChip,
   AccountBadge,
@@ -375,6 +376,18 @@ const sampleTurn: Turn = {
   ],
 }
 
+const sampleApproval: Approval = {
+  id: "ap-1",
+  conversation_id: "c-ana",
+  agent_id: "a1",
+  ship_id: "s-card",
+  text: "¿Reservo la unidad?",
+  options: ["Reservar", "Esperar"],
+  status: "pending",
+  expires_at: iso(-3600),
+  created_at: iso(60),
+}
+
 const threadDoors: Conversation[] = [
   { ...inboxItemBase, id: "c-pr", thread_id: "c-pr", channel: "github", kind: "group", title: "acme/web#42", external_id: "acme/web#42" },
   { ...inboxItemBase, id: "c-slack", thread_id: "c-pr", channel: "slack", kind: "group", title: "#dev", external_id: "C1/1.0" },
@@ -675,6 +688,10 @@ function Conversation() {
           />
           {/* What the agent did for that answer, stored when the turn ended (tools only, folded). */}
           <TurnSummary turn={sampleTurn} className="mt-1" />
+          {/* A question the agent asked people: options while pending, then the choice. */}
+          <ApprovalCard approval={sampleApproval} canAnswer onAnswer={() => {}} onCancel={() => {}} />
+          <ApprovalCard approval={{ ...sampleApproval, status: "answered", answer: "Reservar", answered_by: "Ana" }} />
+          <ApprovalCard approval={{ ...sampleApproval, status: "expired" }} />
           <ShipBubble ship={sampleShip({ text: "Mensaje en grupo sin mención", status: "held", sender_name: "Pedro", sent_at: ago(6) })} showSender />
           <ShipBubble ship={sampleShip({ direction: "out", status: "failed", error: "not connected", text: "Esto no salió", sent_at: ago(2) })} />
           <ShipBubble ship={sampleShip({ text: "Perfecto, resérvame una 🙌", status: "claimed", sent_at: ago(1) })} />

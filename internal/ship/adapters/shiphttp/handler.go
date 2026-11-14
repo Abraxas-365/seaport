@@ -33,6 +33,11 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/conversations/:id/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
 	r.Post("/api/v1/conversations/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
 	r.Post("/api/v1/docks/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
+	r.Get("/api/v1/approvals", httpx.RequireFunc(permission.ShipsRead, h.approvals))
+	r.Get("/api/v1/approvals/:id", httpx.RequireFunc(permission.ShipsRead, h.approval))
+	r.Post("/api/v1/approvals/:id/answer", httpx.RequireFunc(permission.ShipsWrite, h.answer))
+	r.Post("/api/v1/approvals/:id/cancel", httpx.RequireFunc(permission.ShipsWrite, h.cancel))
+	r.Get("/api/v1/conversations/:id/approvals", httpx.RequireFunc(permission.ShipsRead, h.conversationApprovals))
 	r.Get("/api/v1/attachments/:id", httpx.RequireFunc(permission.ShipsRead, h.attachment))
 }
 

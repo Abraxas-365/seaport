@@ -15,6 +15,7 @@ import { Perm, type Permission } from "./permissions.gen"
 import { keys } from "./query"
 import type {
   Access,
+  Approval,
   Channel,
   CustomsStatus,
   DefaultAccess,
@@ -93,6 +94,40 @@ export function useTurns(conversation: string) {
     enabled: can(Perm.ShipsRead),
     queryKey: keys.turns(conversation),
     queryFn: () => api.turns(conversation),
+  })
+}
+
+/** A conversation's approvals (newest first); live through ship.approval. */
+export function useApprovals(conversation: string) {
+  const can = useCan()
+  return useQuery({
+    enabled: can(Perm.ShipsRead),
+    queryKey: keys.approvals(conversation),
+    queryFn: () => api.approvals(conversation),
+  })
+}
+
+function patchApproval(qc: ReturnType<typeof useQueryClient>, a: Approval) {
+  qc.setQueryData<Paginated<Approval>>(keys.approvals(a.conversation_id), (old) =>
+    old ? { ...old, items: old.items.map((x) => (x.id === a.id ? a : x)) } : old,
+  )
+}
+
+export function useAnswerApproval() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, option }: { id: string; option: string }) => api.answerApproval(id, option),
+    onSuccess: (a) => patchApproval(qc, a),
+    onError: fail("No se pudo responder la aprobación"),
+  })
+}
+
+export function useCancelApproval() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.cancelApproval(id),
+    onSuccess: (a) => patchApproval(qc, a),
+    onError: fail("No se pudo cancelar la aprobación"),
   })
 }
 

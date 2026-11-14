@@ -43,6 +43,12 @@ type Deps struct {
 	Limits *ship.Limits
 	// Media keeps message media (zero value: off, media become notes).
 	Media Media
+	// ApprovalTTL is how long an approval waits for its answer (zero:
+	// ship.ApprovalTTL).
+	ApprovalTTL time.Duration
+	// ApprovalPoll is how often a blocked ask looks for its answer (zero:
+	// ship.ApprovalPoll).
+	ApprovalPoll time.Duration
 }
 
 type Service struct {
@@ -60,6 +66,8 @@ type Service struct {
 	now       func() time.Time
 	limits    ship.Limits
 	media     media
+	// approvalTTL and poll: see Deps.
+	approvalTTL, poll time.Duration
 }
 
 func New(d Deps) (*Service, error) {
@@ -79,8 +87,16 @@ func New(d Deps) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	ttl, poll := d.ApprovalTTL, d.ApprovalPoll
+	if ttl <= 0 {
+		ttl = ship.ApprovalTTL
+	}
+	if poll <= 0 {
+		poll = ship.ApprovalPoll
+	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
-		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m}, nil
+		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m,
+		approvalTTL: ttl, poll: poll}, nil
 }
 
 var (
@@ -130,6 +146,9 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		slog.Debug("ship held", "conversation", conv.ID, "reason", st.HoldReason)
 	}
 	s.events.Publish(org, ship.EventCreated, st)
+	// A person's answer to an approval is stored as the ship's answer
+	// before the agent is woken, so its delivery already carries it.
+	s.answerFromChat(ctx, org, st, input)
 	if st.Status == ship.StatusQueued && st.Agent != nil {
 		s.notifier.Notify(org, *st.Agent)
 	}
@@ -200,6 +219,12 @@ func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id 
 	d.ReadOnly, err = s.readOnly(ctx, org, doors)
 	if err != nil {
 		return ship.Delivery{}, err
+	}
+	if len(ships) > 0 && ships[0].Agent != nil {
+		d.Approvals, err = s.repo.DeliveryApprovals(ctx, org, convID, *ships[0].Agent, idsOf(ships), s.now())
+		if err != nil {
+			return ship.Delivery{}, errx.Wrap(err, "delivery approvals", errx.TypeInternal)
+		}
 	}
 	return d, nil
 }

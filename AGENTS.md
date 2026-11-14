@@ -249,7 +249,7 @@ net/http mux; only `/healthz` answers 405.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `ApprovalID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -313,6 +313,29 @@ net/http mux; only `/healthz` answers 405.
   `dock.Queries`); the connector marks them in the prompt, sends the agent
   to a door that takes replies (or tells it to stay silent) and auto-replies
   go to the first such door (`answerDoor`).
+- Approvals (human in the loop; `ship/approval.go`, migration 00033,
+  `shipsvc/approvals.go`, `shippg/approvals.go`): an agent asks people to
+  choose (`ask_approval` MCP tool, `POST /crew/approvals` = `seaport ask`):
+  2–6 options (≤ 64 chars, unique ignoring case, one line, none starting
+  with a digit), at most one `pending` approval per conversation and agent
+  (unique partial index; `Conflict`). The card is an ordinary outbound ship
+  through `Send` (replies-off docks, allowed-only and send limits apply);
+  `ship_approvals` holds the question, status
+  (`pending|answered|cancelled|expired`; `SEAPORT_APPROVAL_TTL`, default
+  24 h, swept with the claims) and the answer. Answers: web/API
+  (`POST /approvals/{id}/answer`, `ships:write`, by the caller) or the
+  channel: `Receive` matches an inbound ship (queued, not `Own`, sender not
+  `system:`) against the agent's pending approval of that conversation with
+  `ship.MatchOption` (exact option, number or "opción N"; extra words never
+  match) before notifying the agent, so that delivery carries it. The answer
+  is first-come (`AnswerApproval` is one conditional UPDATE). A blocked ask
+  (`wait_seconds`, ≤ `MaxApprovalWait` and always short of the request
+  deadline: `/mcp` and `/crew/approvals` are not exempt from `Deadline`)
+  marks `waiting_until` and polls; an answer, cancel or expiry nobody waits
+  on is `resume`d: a system inbound ship (`system:approval`, external id
+  `approval-<id>`, addressed to the agent by `@mention`) wakes it.
+  `Delivery.Approvals` lists the pending ones and those answered by or
+  woken through the delivery's ships. Event `ship.approval` (`ships:read`).
 - Agents (`agent`, migration 00013): an organization's library
   (`agents`, soft delete, unique live name = its `@mention` handle, at
   most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)
