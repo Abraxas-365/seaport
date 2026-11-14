@@ -8,6 +8,7 @@ import {
   Link2,
   Link2Off,
   Mail,
+  MapPin,
   MessageSquareOff,
   MoreHorizontal,
   Pencil,
@@ -33,6 +34,8 @@ import {
   useAssignAgent,
   useCan,
   useCrew,
+  useDestinationActions,
+  useDestinations,
   useDock,
   useDockAction,
   useDockTeam,
@@ -46,7 +49,7 @@ import {
 } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
-import type { Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
+import type { Destination, Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -353,6 +356,8 @@ function DockDetail({ dock }: { dock: Dock }) {
           </Card>
         )}
 
+        {channelReplies[dock.channel] && dock.replies && <DestinationsCard dock={dock} write={write} />}
+
         <Card>
           <CardHeader>
             <CardTitle>Detalles</CardTitle>
@@ -415,6 +420,238 @@ function RepliesCard({ dock, write }: { dock: Dock; write: boolean }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * The places where agents may open conversations on this dock: a name, the
+ * channel's id of the place (Slack channel, WhatsApp number or group, api
+ * chat id) and what it is for. Agents see them in the MCP `destinations`
+ * tool and start conversations there with `open`.
+ */
+function DestinationsCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const can = useCan()
+  const { data, isLoading, error, refetch } = useDestinations(dock.id)
+  const actions = useDestinationActions(dock.id)
+  const [adding, setAdding] = React.useState(false)
+  const list = data ?? []
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="size-4" /> Destinos
+            </CardTitle>
+            <CardDescription>
+              Lugares donde los agentes pueden abrir una conversación: un canal de Slack, un número o grupo de
+              WhatsApp, un chat de la API. El agente los ve por nombre y abre la conversación con su primer mensaje.
+            </CardDescription>
+          </div>
+          {write && !adding && (
+            <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
+              <Plus /> Añadir
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {adding && (
+          <DestinationForm
+            channel={dock.channel}
+            busy={actions.put.isPending}
+            onCancel={() => setAdding(false)}
+            onSubmit={(d) => actions.put.mutateAsync(d).then(() => setAdding(false))}
+          />
+        )}
+        {isLoading ? (
+          <Skeleton className="h-12" />
+        ) : error ? (
+          <ErrorState error={error} onRetry={() => refetch()} />
+        ) : list.length === 0 && !adding ? (
+          <EmptyState
+            icon={MapPin}
+            title="Sin destinos"
+            description="Sin destinos el agente solo responde donde le escriben. Añade uno para que pueda abrir conversaciones aquí."
+          />
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {list.map((d) => (
+              <DestinationRow
+                key={d.name}
+                destination={d}
+                write={write}
+                canOpen={can(Perm.ShipsWrite)}
+                onRemove={() => actions.remove.mutateAsync(d.name)}
+                onOpen={(text) => actions.open.mutateAsync({ name: d.name, text })}
+              />
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const targetHint: Record<Dock["channel"], string> = {
+  slack: "ID del canal (C0123…), en los detalles del canal en Slack",
+  whatsapp: "+34600000000 o el JID de un grupo (…@g.us)",
+  api: "chat_id que leerá tu sistema",
+  github: "Los muelles de GitHub aún no tienen destinos",
+  jira: "Los muelles de Jira aún no tienen destinos",
+  webhook: "Los muelles webhook no tienen destinos: solo disparan",
+  email: "Los muelles de correo aún no tienen destinos",
+}
+
+function DestinationForm({
+  channel,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  channel: Dock["channel"]
+  busy: boolean
+  onCancel: () => void
+  onSubmit: (d: { name: string; target: string; title: string }) => Promise<unknown>
+}) {
+  const [name, setName] = React.useState("")
+  const [target, setTarget] = React.useState("")
+  const [title, setTitle] = React.useState("")
+  const valid = /^[a-z0-9][a-z0-9_-]{0,63}$/.test(name) && target.trim() !== ""
+  return (
+    <form
+      className="space-y-3 rounded-md border bg-muted/30 p-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!valid) return
+        void onSubmit({ name, target: target.trim(), title: title.trim() }).catch(() => {})
+      }}
+    >
+      <FieldGroup className="grid gap-3 sm:grid-cols-2">
+        <Field>
+          <FieldLabel htmlFor="d-name">Nombre</FieldLabel>
+          <Input
+            id="d-name"
+            placeholder="ops"
+            value={name}
+            onChange={(e) => setName(e.target.value.toLowerCase())}
+            className="font-mono text-sm"
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">Minúsculas, dígitos, guiones; así lo nombra el agente.</p>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="d-target">Lugar</FieldLabel>
+          <Input
+            id="d-target"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">{targetHint[channel]}</p>
+        </Field>
+      </FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="d-title">Para qué es</FieldLabel>
+        <Input
+          id="d-title"
+          placeholder="El canal de guardia: alertas y su seguimiento"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+          Cancelar
+        </Button>
+        <Button type="submit" size="sm" disabled={!valid || busy}>
+          {busy ? <Spinner /> : <Check />} Guardar
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+function DestinationRow({
+  destination: d,
+  write,
+  canOpen,
+  onRemove,
+  onOpen,
+}: {
+  destination: Destination
+  write: boolean
+  canOpen: boolean
+  onRemove: () => Promise<unknown>
+  onOpen: (text: string) => Promise<unknown>
+}) {
+  const [opening, setOpening] = React.useState(false)
+  const [text, setText] = React.useState("")
+  const [busy, setBusy] = React.useState(false)
+  return (
+    <li className="space-y-2 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm">
+            <Mono>{d.name}</Mono>
+            <span className="text-muted-foreground">→</span>
+            <Mono title={d.target}>{d.target}</Mono>
+          </div>
+          {d.title && <div className="truncate text-xs text-muted-foreground">{d.title}</div>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {canOpen && (
+            <Button variant="ghost" size="sm" onClick={() => setOpening((o) => !o)} aria-label="Abrir conversación">
+              <Send /> Abrir
+            </Button>
+          )}
+          {write && (
+            <ConfirmAction
+              trigger={
+                <Button variant="ghost" size="icon-sm" aria-label="Eliminar destino">
+                  <Trash2 />
+                </Button>
+              }
+              title={`¿Eliminar el destino ${d.name}?`}
+              description={<p>Los agentes dejarán de poder abrir conversaciones ahí. Las ya abiertas se conservan.</p>}
+              actionLabel="Eliminar"
+              destructive
+              onConfirm={onRemove}
+            />
+          )}
+        </div>
+      </div>
+      {opening && (
+        <form
+          className="flex gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            if (!text.trim()) return
+            setBusy(true)
+            try {
+              await onOpen(text.trim())
+              setText("")
+              setOpening(false)
+            } catch {
+              // the hook reports it
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <Input
+            placeholder="Primer mensaje"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            autoFocus
+            disabled={busy}
+          />
+          <Button type="submit" size="sm" disabled={!text.trim() || busy}>
+            {busy ? <Spinner /> : <Send />} Enviar
+          </Button>
+        </form>
+      )}
+    </li>
   )
 }
 

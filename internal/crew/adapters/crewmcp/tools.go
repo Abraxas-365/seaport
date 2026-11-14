@@ -1,6 +1,7 @@
 // Package crewmcp exposes the port's tools to agents over MCP (streamable
-// HTTP at /mcp, crew token): reply, history, conversations, and skill when
-// the agent's profile has skills.
+// HTTP at /mcp, crew token): reply, history, conversations, skill when
+// the agent's profile has skills, destinations and open when its docks
+// have destinations.
 package crewmcp
 
 import (
@@ -14,6 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
@@ -28,7 +30,10 @@ type Deps struct {
 	History       ship.Queries
 	Conversations conversation.Queries
 	// Agents scopes a token's tools to its agent's docks.
-	Agents  agent.Queries
+	Agents agent.Queries
+	// Docks lists the destinations the agent may open conversations at
+	// (nil: no open tool).
+	Docks   dock.Queries
 	Version string
 }
 
@@ -114,6 +119,7 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 		Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
 	}, t.conversations)
 	t.addSkill(ctx, srv)
+	t.addOpen(ctx, srv)
 	return srv
 }
 

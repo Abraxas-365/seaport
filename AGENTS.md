@@ -130,10 +130,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   are listed with their reason in `systemWide` (`TestTenantFirstPorts`).
 - Exported service methods call `Validate()` on their inputs
   (`TestServicesValidateInputs`).
-- In `docksvc`, gateway `Link`/`Unlink`/`Restore`/`Send` are called only
-  from the functions that run where ownership was checked (`ownerOnly`:
-  `local`, `sendHere`, `ensureRunning`, `restore`); everything else goes
-  through `route` (`TestOnlyTheOwnerDrivesADock`).
+- In `docksvc`, gateway `Link`/`Unlink`/`Restore`/`Send`/`Open` are called
+  only from the functions that run where ownership was checked
+  (`ownerOnly`: `local`, `sendHere`, `openHere`, `ensureRunning`,
+  `restore`); everything else goes through `route`
+  (`TestOnlyTheOwnerDrivesADock`).
 - `connector` runs on the user's machine: it imports only foundation and
   domain roots (wire types), never services/adapters/wiring; only `cmd`
   imports it (`TestLayerDependencies`, "client" role).
@@ -350,6 +351,26 @@ net/http mux; only `/healthz` answers 405.
   the dock's team is not woken (the mention would route elsewhere).
   `Delivery.Approvals` lists the pending ones and those answered by or
   woken through the delivery's ships. Event `ship.approval` (`ships:read`).
+- Destinations (`dock/destination.go`, migration 00034,
+  `dock_destinations`): the owner names per dock the places where agents
+  may open a conversation (`name` `^[a-z0-9][a-z0-9_-]{0,63}$`, `target` in
+  the channel's ids, `title`; at most `dock.MaxDestinations` = 64, counted
+  under the dock row's `FOR UPDATE`; refused on a dock whose replies are
+  off). `ship.Commands.Open` (`shipsvc/open.go`: MCP `open`, `POST
+  /docks/{id}/destinations/{name}/ships`, `seaport dock open`) asks
+  `dock.Messenger.Open` (routed to the owner like `Send`; `Gateway.Open`:
+  Slack posts the first message to the channel and `<channel>/<ts>` is the
+  chat, remembered in `slack_threads`; WhatsApp and `api` name the chat by
+  the target and send the message there; GitHub, Jira, webhook and email refuse). The send
+  goes *first* (a Slack thread's ts exists only once posted; limits are
+  checked before, `OutboundCounts`), then `conversation.Commands.Open`
+  upserts the conversation under the dock's customs lock with `Access =
+  allow` and links it to `thread_of` when given (the caller's agent must
+  work that door too), and `CreateOutbound` records the ship as sent:
+  nothing fails quietly after the message is out. `crewmcp.addOpen`
+  registers `destinations`/`open` only when the agent's docks have one
+  (like `skill`); `open` resolves the name among the agent's docks only
+  (`dock_id` breaks ties).
 - Agents (`agent`, migration 00013): an organization's library
   (`agents`, soft delete, unique live name = its `@mention` handle, at
   most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)

@@ -21,6 +21,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -611,6 +612,49 @@ func TestSlackDock(t *testing.T) {
 	sl.mu.Unlock()
 	if !strings.Contains(uploads, "bytes:all green") || !strings.Contains(uploads, "complete:C0SUP/1700000000.000100:") {
 		t.Fatalf("uploads = %s", uploads)
+	}
+
+	// A destination is a channel: open posts a new top-level message there
+	// and the thread under it is the conversation, remembered so answers
+	// in it are accepted; the opened conversation is linked to thread_of.
+	if code := p.admin(http.MethodPut, "/api/v1/docks/"+d.ID.String()+"/destinations/alerts",
+		map[string]string{"target": "C0ALERT", "title": "the on-call channel"}, nil); code != http.StatusOK {
+		t.Fatalf("put destination: %d", code)
+	}
+	if code := p.admin(http.MethodPut, "/api/v1/docks/"+d.ID.String()+"/destinations/bad",
+		map[string]string{"target": "C0ALERT/1.0"}, nil); code != http.StatusOK {
+		t.Fatalf("put destination with a thread: %d", code)
+	}
+	session = mcpSession(t, p, p.crewToken())
+	res, err = session.CallTool(t.Context(), &mcp.CallToolParams{Name: "open",
+		Arguments: map[string]any{"destination": "alerts", "text": "PR 7 is failing", "thread_of": thread.String()}})
+	if err != nil || res.IsError {
+		t.Fatalf("open: %v %+v", err, res)
+	}
+	var opened struct {
+		ConversationID identity.ConversationID `json:"conversation_id"`
+	}
+	decodeResult(t, res, &opened)
+	if last := sl.posted()[len(sl.posted())-1]; last["channel"] != "C0ALERT" || last["thread_ts"] != nil {
+		t.Fatalf("open post = %v", last)
+	}
+	oc := p.conversation(opened.ConversationID)
+	if oc.ExternalID != "C0ALERT/1700000100.000200" || oc.Kind != conversation.KindGroup || oc.Title != "#support" || !oc.Allowed() || oc.Thread != p.conversation(thread).Thread {
+		t.Fatalf("opened conversation = %+v", oc)
+	}
+	// An answer in that thread (no mention) is accepted and lands there.
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("message", "C0ALERT", "1700000101.000100", "1700000100.000200", "on it", nil)); code != http.StatusOK || out["status"] != "accepted" {
+		t.Fatalf("answer in the opened thread: %d %v", code, out)
+	}
+	f = c.read()
+	if f.Type != crew.FrameDelivery || f.Delivery.Ships[0].Conversation != opened.ConversationID || len(f.Delivery.Thread) != 2 {
+		t.Fatalf("opened thread delivery = %+v", f)
+	}
+	ack(c, f)
+	// A destination whose target names a thread is refused when opened.
+	if res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "open",
+		Arguments: map[string]any{"destination": "bad", "text": "x"}}); err != nil || !res.IsError {
+		t.Fatalf("open at a thread target must be refused: %v %+v", err, res)
 	}
 
 	// Unlink uninstalls the app and forgets it: events are unknown.

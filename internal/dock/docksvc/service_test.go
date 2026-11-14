@@ -22,6 +22,7 @@ var org = identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001
 type memRepo struct {
 	mu    sync.Mutex
 	docks map[identity.DockID]dock.Dock
+	dests map[identity.DockID]map[string]dock.Destination
 }
 
 func (r *memRepo) Create(_ context.Context, o identity.OrganizationID, id identity.DockID, in dock.Create, st dock.Status, _ int) (dock.Dock, error) {
@@ -95,6 +96,53 @@ func (r *memRepo) SetLinked(_ context.Context, id identity.DockID, address strin
 	return nil
 }
 
+func (r *memRepo) PutDestination(_ context.Context, o identity.OrganizationID, in dock.AddDestination, _ int) (dock.Destination, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if d, ok := r.docks[in.Dock]; !ok || d.Organization != o {
+		return dock.Destination{}, errx.NotFound("dock not found")
+	}
+	if r.dests == nil {
+		r.dests = map[identity.DockID]map[string]dock.Destination{}
+	}
+	if r.dests[in.Dock] == nil {
+		r.dests[in.Dock] = map[string]dock.Destination{}
+	}
+	d := dock.Destination{Organization: o, Dock: in.Dock, Name: in.Name, Target: in.Target, Title: in.Title}
+	r.dests[in.Dock][in.Name] = d
+	return d, nil
+}
+
+func (r *memRepo) RemoveDestination(_ context.Context, _ identity.OrganizationID, id identity.DockID, name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.dests[id][name]; !ok {
+		return errx.NotFound("destination not found")
+	}
+	delete(r.dests[id], name)
+	return nil
+}
+
+func (r *memRepo) Destinations(_ context.Context, _ identity.OrganizationID, id identity.DockID) ([]dock.Destination, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := []dock.Destination{}
+	for _, d := range r.dests[id] {
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (r *memRepo) Destination(_ context.Context, _ identity.OrganizationID, id identity.DockID, name string) (dock.Destination, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.dests[id][name]
+	if !ok {
+		return dock.Destination{}, errx.NotFound("destination not found")
+	}
+	return d, nil
+}
+
 // qrGateway is a WhatsApp-like gateway that always has a pairing code.
 type qrGateway struct{}
 
@@ -111,6 +159,9 @@ func (qrGateway) Stop(identity.DockID)                                {}
 func (qrGateway) Unlink(context.Context, dock.Dock) error             { return nil }
 func (qrGateway) NewMessageID(identity.DockID) (string, error)        { return "m", nil }
 func (qrGateway) Send(context.Context, dock.Outgoing) error           { return nil }
+func (qrGateway) Open(_ context.Context, o dock.Opening) (dock.Opened, error) {
+	return dock.Opened{ChatID: o.Target, Kind: "direct", Handles: []string{o.Target}}, nil
+}
 
 type recorder struct {
 	mu       sync.Mutex

@@ -51,6 +51,11 @@ type Commands interface {
 	ReleaseExpired(ctx context.Context, before time.Time) (int, error)
 	// Send delivers a reply to an allowed conversation.
 	Send(ctx context.Context, organization identity.OrganizationID, input Outbound) (Ship, error)
+	// Open starts a conversation at a destination of a dock (the owner's
+	// named places; the agent must work on that dock): sends the first
+	// message there, stores the conversation the channel made (allowed,
+	// linked to the thread of Open.ThreadOf) and the ship, sent.
+	Open(ctx context.Context, organization identity.OrganizationID, input Open) (Ship, error)
 	// SweepTrash deletes the blobs whose attachment is gone (or never
 	// came), in every organization (system: sweeper), and says how many.
 	SweepTrash(ctx context.Context, now time.Time) (int, error)
@@ -139,6 +144,10 @@ type Repository interface {
 	// attachments (blobs already stored) are inserted with it and leave
 	// the trash.
 	CreateOutbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, input Outbound, dock identity.DockID, externalID string, attachments []Attachment, admit func(OutboundCounts) error) (Ship, error)
+	// OutboundCounts reads the counts CreateOutbound would hand admit, for
+	// a send that must go out before its conversation exists (Open);
+	// conversation may be zero.
+	OutboundCounts(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, conversation identity.ConversationID) (OutboundCounts, error)
 	SetOutcome(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, status Status, errMsg string) (Ship, error)
 	// Record stores the dock's own message sent outside Seaport
 	// (Inbound.Own) as an outbound ship already sent, by the agent

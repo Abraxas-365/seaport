@@ -183,6 +183,48 @@ export function useWebhook(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.webhook(dock), queryFn: () => api.webhook(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+export function useDestinations(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.destinations(dock),
+    queryFn: () => api.destinations(dock),
+    enabled: enabled && can(Perm.DocksRead),
+  })
+}
+
+/** The owner's destinations of a dock: set (upsert by name), remove, open a conversation at one. */
+export function useDestinationActions(dock: string) {
+  const qc = useQueryClient()
+  const changed = () => qc.invalidateQueries({ queryKey: keys.destinations(dock) })
+  return {
+    put: useMutation({
+      mutationFn: ({ name, target, title }: { name: string; target: string; title: string }) =>
+        api.putDestination(dock, name, { target, title }),
+      onSuccess: (d) => {
+        changed()
+        toast.success("Destino guardado", { description: `${d.name} → ${d.target}` })
+      },
+      onError: fail("No se pudo guardar el destino"),
+    }),
+    remove: useMutation({
+      mutationFn: (name: string) => api.removeDestination(dock, name),
+      onSuccess: () => {
+        changed()
+        toast.success("Destino eliminado")
+      },
+      onError: fail("No se pudo eliminar el destino"),
+    }),
+    open: useMutation({
+      mutationFn: ({ name, text }: { name: string; text: string }) => api.openDestination(dock, name, { text }),
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: keys.inboxAll })
+        toast.success("Conversación abierta")
+      },
+      onError: fail("No se pudo abrir la conversación"),
+    }),
+  }
+}
+
 export function useCustoms(dock: string | undefined) {
   const can = useCan()
   return useQuery({

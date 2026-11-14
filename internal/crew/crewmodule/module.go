@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewpg"
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewws"
 	"github.com/Abraxas-365/seaport/internal/crew/crewsvc"
+	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
@@ -61,8 +62,8 @@ func (m *Module) Bind(ships interface {
 }, convs conversation.Queries, agents interface {
 	agent.Queries
 	agent.Kits
-}) {
-	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Version: m.version})
+}, docks dock.Queries) {
+	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Docks: docks, Version: m.version})
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}
 	m.reply = crewhttp.Reply{Ships: ships}

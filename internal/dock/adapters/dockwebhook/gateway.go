@@ -126,3 +126,8 @@ func (*Gateway) NewMessageID(identity.DockID) (string, error) {
 func (*Gateway) Send(context.Context, dock.Outgoing) error {
 	return errx.Business("webhook docks only trigger: nothing can be posted there")
 }
+
+// Open: likewise, a webhook dock has nowhere to post a first message.
+func (*Gateway) Open(context.Context, dock.Opening) (dock.Opened, error) {
+	return dock.Opened{}, errx.Business("webhook docks only trigger: nothing can be posted there")
+}

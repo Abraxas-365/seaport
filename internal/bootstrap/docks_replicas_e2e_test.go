@@ -136,6 +136,11 @@ func (g exclusiveGateway) Send(_ context.Context, msg dock.Outgoing) error {
 	return nil
 }
 
+func (g exclusiveGateway) Open(ctx context.Context, o dock.Opening) (dock.Opened, error) {
+	err := g.Send(ctx, dock.Outgoing{Dock: o.Dock, ChatID: o.Target, MessageID: o.MessageID, Text: o.Text, Files: o.Files})
+	return dock.Opened{ChatID: o.Target, Kind: "direct", Handles: []string{o.Target}}, err
+}
+
 func (w *world) owner(id identity.DockID) string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

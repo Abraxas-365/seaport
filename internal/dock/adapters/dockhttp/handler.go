@@ -27,6 +27,7 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Patch("/api/v1/docks/:id", httpx.RequireFunc(permission.DocksWrite, h.update))
 	r.Post("/api/v1/docks/:id/unlink", httpx.RequireFunc(permission.DocksWrite, h.unlink))
 	r.Delete("/api/v1/docks/:id", httpx.RequireFunc(permission.DocksWrite, h.delete))
+	h.registerDestinations(r)
 }
 
 type updateRequest struct {

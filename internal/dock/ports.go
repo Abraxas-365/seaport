@@ -31,11 +31,18 @@ type Commands interface {
 	SetLinked(ctx context.Context, dock identity.DockID, address string) error
 	// SetStatus records a link state change (system: called by gateways).
 	SetStatus(ctx context.Context, dock identity.DockID, status Status) error
+	// PutDestination adds a destination of the dock, or changes the target
+	// and title of the one with that name (at most MaxDestinations).
+	PutDestination(ctx context.Context, organization identity.OrganizationID, input AddDestination) (Destination, error)
+	RemoveDestination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) error
 }
 
 type Queries interface {
 	Find(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (Dock, error)
 	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Dock], error)
+	// Destinations lists the dock's destinations by name.
+	Destinations(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]Destination, error)
+	Destination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) (Destination, error)
 }
 
 // Messenger sends messages through a dock; other domains use it.
@@ -44,6 +51,10 @@ type Messenger interface {
 	// so callers can store it first and recognize the echo.
 	NewMessageID(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (string, error)
 	Send(ctx context.Context, organization identity.OrganizationID, msg Outgoing) error
+	// Open posts the first message of a new conversation at a place of the
+	// dock's channel (a destination's target) and answers the conversation
+	// the channel made for it. Refused like Send on a dock that can't reply.
+	Open(ctx context.Context, organization identity.OrganizationID, opening Opening) (Opened, error)
 }
 
 type Repository interface {
@@ -60,6 +71,13 @@ type Repository interface {
 	Get(ctx context.Context, dock identity.DockID) (Dock, error)
 	SetStatus(ctx context.Context, dock identity.DockID, status Status) error
 	SetLinked(ctx context.Context, dock identity.DockID, address string) error
+	// PutDestination inserts or updates (by name) unless the dock already
+	// has limit destinations (count and insert are atomic; QuotaExceeded
+	// when full). The dock must be the organization's (else NotFound).
+	PutDestination(ctx context.Context, organization identity.OrganizationID, input AddDestination, limit int) (Destination, error)
+	RemoveDestination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) error
+	Destinations(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]Destination, error)
+	Destination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) (Destination, error)
 }
 
 // Owners leases the docks of exclusive channels (Gateway.Exclusive) to
@@ -120,4 +138,9 @@ type Gateway interface {
 	// NewMessageID needs no connection: any process may call it.
 	NewMessageID(dock identity.DockID) (string, error)
 	Send(ctx context.Context, msg Outgoing) error
+	// Open sends the first message of a new conversation to a place of the
+	// channel (Opening.Target: what a destination names) and describes the
+	// conversation it made, as an inbound message would (external id, kind,
+	// title, handles). Channels with nowhere to open answer Business.
+	Open(ctx context.Context, opening Opening) (Opened, error)
 }

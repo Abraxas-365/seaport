@@ -40,6 +40,8 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `ask_approval` | yes | Asks people to choose between options before the agent acts. |
 | `approval` | yes | Reads an approval the agent asked, optionally waiting while it is pending. |
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
+| `destinations` | only with destinations | Lists the places where the agent may open a conversation. |
+| `open` | only with destinations | Opens a conversation at a destination with a first message, optionally in the thread of another conversation. |
 
 ### reply
 
@@ -182,6 +184,46 @@ Result:
 ```
 
 Errors: `no skill named <name>`, and `no agent: skills belong to an agent's profile` when the call has no agent.
+
+### destinations
+
+Only added, with `open`, when a dock the agent works on has at least one [destination](../guides/destinations.md). Its description lists them as `name (channel): title`, so the model knows where it may speak up without a call. Without an agent (`none` mode, no header) it lists the destinations of every dock.
+
+Arguments: none.
+
+Result:
+
+```json
+{
+  "destinations": [
+    { "dock_id": "…", "name": "ops", "channel": "slack", "title": "the on-call channel" }
+  ]
+}
+```
+
+### open
+
+Opens a conversation at a destination and sends its first message. The conversation is allowed from the start (the owner chose the place), its first ship goes out as the agent's, and people's answers there come back to the agent like any message. Opening again at the same destination continues the same conversation on channels where the place is the chat (WhatsApp, `api`); on Slack each `open` posts a new top-level message in the channel and its thread is the conversation.
+
+Arguments:
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `destination` | string | yes | The destination's name, from `destinations`. |
+| `dock_id` | string | no | The destination's dock; needed only when two of the agent's docks name a destination the same. |
+| `text` | string | no* | The first message. |
+| `files` | array | no* | Files sent with it, as in `reply`. |
+| `thread_of` | string | no | A `conversation_id` whose [thread](../guides/linked-conversations.md) the new conversation joins. It must be a conversation of the agent's docks. |
+
+\* `text` or `files` must be given.
+
+Result:
+
+```json
+{ "conversation_id": "…", "ship_id": "…", "status": "sent" }
+```
+
+Errors: `no destination named <name> on your docks`, `several docks have a destination named <name>: give dock_id too`, the dock's replies are off, the dock isn't linked, the limits of `reply`, and a `thread_of` the agent can't see (not found).
 
 ## Errors
 

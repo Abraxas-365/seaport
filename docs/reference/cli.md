@@ -42,6 +42,10 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock relink <dock-id>` | Pairs a WhatsApp dock again (shows the QR code). The other channels are reconnected from the dock's page in the web app. |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |
 | `seaport dock replies <dock-id> on\|off` | Whether the crew may answer on it. `off` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, nothing is posted there. `dock list` shows it in the `REPLIES` column. |
+| `seaport dock destinations <dock-id>` | Lists the dock's [destinations](../guides/destinations.md): name, channel, target, title. |
+| `seaport dock destination set <dock-id> <name> <target> [-title T]` | Creates or updates a destination: a Slack channel id, a WhatsApp `+number` or group JID, an `api` chat id. |
+| `seaport dock destination rm <dock-id> <name>` | Removes it; conversations opened there stay. |
+| `seaport dock open <dock-id> <name> [-thread-of CONV] <text>` | Opens (or continues) the conversation at a destination with `text`; `-thread-of` links it to that conversation's thread. Prints the conversation and ship ids. |
 | `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. Webhook: deletes the secret and template (the URL answers `404`). Email: deletes the stored password, thread records and folder position (nothing is deleted from the mailbox). |
 | `seaport dock delete <dock-id> -yes` | Unlinks and deletes the dock with all its conversations and ships. `-yes` must be the second argument. |
 

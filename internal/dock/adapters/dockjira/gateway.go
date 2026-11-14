@@ -160,6 +160,12 @@ func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
 // stamped on the comment (a property) so its webhook is recognized.
 func (*Gateway) NewMessageID(identity.DockID) (string, error) { return "jira-" + uuid.NewString(), nil }
 
+// Open: Jira conversations start from an issue or pull request people
+// make; opening one from the crew is not supported yet.
+func (*Gateway) Open(context.Context, dock.Opening) (dock.Opened, error) {
+	return dock.Opened{}, errx.Business("Jira docks have no destinations yet: open the conversation on another channel")
+}
+
 // Send posts the text as comments on the issue, in ADF converted from
 // Markdown (a long reply is several comments, all stamped with the
 // message id).

@@ -8,13 +8,13 @@ import (
 
 // ownerOnly: in docksvc, the gateway calls that open, drive or close a
 // dock's connection run only where ownership was checked (cluster.go):
-// route sends work to the owner, which runs it in local/sendHere; the
+// route sends work to the owner, which runs it in local/sendHere/openHere; the
 // owner's reconcile restores in restore/ensureRunning. A direct call
 // elsewhere would let a non-owner connect a WhatsApp account a second
 // time, which replaces the owner's connection.
 var ownerOnly = struct{ methods, callers map[string]bool }{
-	methods: map[string]bool{"Link": true, "Unlink": true, "Restore": true, "Send": true},
-	callers: map[string]bool{"local": true, "sendHere": true, "ensureRunning": true, "restore": true},
+	methods: map[string]bool{"Link": true, "Unlink": true, "Restore": true, "Send": true, "Open": true},
+	callers: map[string]bool{"local": true, "sendHere": true, "openHere": true, "ensureRunning": true, "restore": true},
 }
 
 func ownerViolations(files []goFile) []string {

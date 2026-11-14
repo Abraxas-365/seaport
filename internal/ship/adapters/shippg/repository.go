@@ -182,43 +182,9 @@ func (r *Repository) CreateOutbound(ctx context.Context, org identity.Organizati
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, outboundLock, org); err != nil {
 		return s, pgerr.Map(err, "lock outbound")
 	}
-	// Failed sends count too (conservative: most failures did reach the
-	// channel, and an agent retrying in a loop must still be slowed down).
-	var c struct {
-		At          time.Time  `db:"at"`
-		DockMinute  int        `db:"dock_minute"`
-		DockHour    int        `db:"dock_hour"`
-		ConvMinute  int        `db:"conv_minute"`
-		OrgHour     int        `db:"org_hour"`
-		OldDockMin  *time.Time `db:"old_dock_minute"`
-		OldDockHour *time.Time `db:"old_dock_hour"`
-		OldConvMin  *time.Time `db:"old_conv_minute"`
-		OldOrgHour  *time.Time `db:"old_org_hour"`
-	}
-	err = tx.GetContext(ctx, &c, `
-		SELECT now() AS at,
-		       count(*) FILTER (WHERE c.dock_id = $2 AND s.created_at > now() - interval '1 minute') AS dock_minute,
-		       count(*) FILTER (WHERE c.dock_id = $2) AS dock_hour,
-		       count(*) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS conv_minute,
-		       count(*) AS org_hour,
-		       min(s.created_at) FILTER (WHERE c.dock_id = $2 AND s.created_at > now() - interval '1 minute') AS old_dock_minute,
-		       min(s.created_at) FILTER (WHERE c.dock_id = $2) AS old_dock_hour,
-		       min(s.created_at) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS old_conv_minute,
-		       min(s.created_at) AS old_org_hour
-		FROM ships s JOIN conversations c ON c.organization_id = s.organization_id AND c.id = s.conversation_id
-		WHERE s.organization_id = $1 AND s.direction = 'out'
-		  AND s.created_at > now() - interval '1 hour'`, org, dock, in.Conversation)
+	counts, err := outboundCounts(ctx, tx, org, dock, in.Conversation)
 	if err != nil {
-		return s, pgerr.Map(err, "count outbound")
-	}
-	counts := ship.OutboundCounts{At: c.At, DockLastMinute: c.DockMinute, DockLastHour: c.DockHour,
-		ConversationLastMinute: c.ConvMinute, OrganizationLastHour: c.OrgHour}
-	for dst, src := range map[*time.Time]*time.Time{&counts.OldestDockMinute: c.OldDockMin,
-		&counts.OldestDockHour: c.OldDockHour, &counts.OldestConversationMinute: c.OldConvMin,
-		&counts.OldestOrganizationHour: c.OldOrgHour} {
-		if src != nil {
-			*dst = *src
-		}
+		return s, err
 	}
 	if err := admit(counts); err != nil {
 		return s, err
@@ -234,6 +200,54 @@ func (r *Repository) CreateOutbound(ctx context.Context, org identity.Organizati
 		return s, err
 	}
 	return s, pgerr.Map(tx.Commit(), "commit outbound")
+}
+
+// OutboundCounts reads the counts Limits.Check judges, outside any lock
+// (a pre-check before a send that stores its ship afterwards).
+func (r *Repository) OutboundCounts(ctx context.Context, org identity.OrganizationID, dock identity.DockID, conv identity.ConversationID) (ship.OutboundCounts, error) {
+	return outboundCounts(ctx, r.db, org, dock, conv)
+}
+
+func outboundCounts(ctx context.Context, q sqlx.QueryerContext, org identity.OrganizationID, dock identity.DockID, conv identity.ConversationID) (ship.OutboundCounts, error) {
+	// Failed sends count too (conservative: most failures did reach the
+	// channel, and an agent retrying in a loop must still be slowed down).
+	var c struct {
+		At          time.Time  `db:"at"`
+		DockMinute  int        `db:"dock_minute"`
+		DockHour    int        `db:"dock_hour"`
+		ConvMinute  int        `db:"conv_minute"`
+		OrgHour     int        `db:"org_hour"`
+		OldDockMin  *time.Time `db:"old_dock_minute"`
+		OldDockHour *time.Time `db:"old_dock_hour"`
+		OldConvMin  *time.Time `db:"old_conv_minute"`
+		OldOrgHour  *time.Time `db:"old_org_hour"`
+	}
+	err := sqlx.GetContext(ctx, q, &c, `
+		SELECT now() AS at,
+		       count(*) FILTER (WHERE c.dock_id = $2 AND s.created_at > now() - interval '1 minute') AS dock_minute,
+		       count(*) FILTER (WHERE c.dock_id = $2) AS dock_hour,
+		       count(*) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS conv_minute,
+		       count(*) AS org_hour,
+		       min(s.created_at) FILTER (WHERE c.dock_id = $2 AND s.created_at > now() - interval '1 minute') AS old_dock_minute,
+		       min(s.created_at) FILTER (WHERE c.dock_id = $2) AS old_dock_hour,
+		       min(s.created_at) FILTER (WHERE s.created_at > now() - interval '1 minute' AND s.conversation_id = $3) AS old_conv_minute,
+		       min(s.created_at) AS old_org_hour
+		FROM ships s JOIN conversations c ON c.organization_id = s.organization_id AND c.id = s.conversation_id
+		WHERE s.organization_id = $1 AND s.direction = 'out'
+		  AND s.created_at > now() - interval '1 hour'`, org, dock, conv)
+	if err != nil {
+		return ship.OutboundCounts{}, pgerr.Map(err, "count outbound")
+	}
+	counts := ship.OutboundCounts{At: c.At, DockLastMinute: c.DockMinute, DockLastHour: c.DockHour,
+		ConversationLastMinute: c.ConvMinute, OrganizationLastHour: c.OrgHour}
+	for dst, src := range map[*time.Time]*time.Time{&counts.OldestDockMinute: c.OldDockMin,
+		&counts.OldestDockHour: c.OldDockHour, &counts.OldestConversationMinute: c.OldConvMin,
+		&counts.OldestOrganizationHour: c.OldOrgHour} {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	return counts, nil
 }
 
 func (r *Repository) SetOutcome(ctx context.Context, org identity.OrganizationID, id identity.ShipID, status ship.Status, errMsg string) (ship.Ship, error) {
