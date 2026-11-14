@@ -7,6 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/text"
@@ -61,6 +62,14 @@ const (
 // any channel.
 const ApprovalTrailer = "Responde con el número o la opción."
 
+// An approval that ended wakes its agent with a system message; one whose
+// wake failed is retried by the sweeper once it is ApprovalWakeRetry old,
+// until it is ApprovalWakeWindow old.
+const (
+	ApprovalWakeRetry  = 10 * time.Second
+	ApprovalWakeWindow = 24 * time.Hour
+)
+
 // System senders: messages Seaport itself puts in a conversation. They
 // never answer approvals and customs rules don't see people in them.
 const (
@@ -84,13 +93,19 @@ type Approval struct {
 	Status  ApprovalStatus  `db:"status" json:"status"`
 	// Answer is one of Options, once answered.
 	Answer *string `db:"answer" json:"answer,omitempty"`
-	// AnsweredBy is the web user (subject) or the channel sender (handle).
+	// AnsweredBy is the web user (subject) or the channel sender (its
+	// handle, then its display name in parentheses).
 	AnsweredBy string `db:"answered_by" json:"answered_by,omitempty"`
 	// AnsweredShip is the inbound ship that answered from the channel.
 	AnsweredShip *identity.ShipID `db:"answered_ship_id" json:"answered_ship_id,omitempty"`
 	ExpiresAt    time.Time        `db:"expires_at" json:"expires_at"`
 	CreatedAt    time.Time        `db:"created_at" json:"created_at"`
 	AnsweredAt   *time.Time       `db:"answered_at" json:"answered_at,omitempty"`
+	// EndedAt is when it stopped being pending (answered, cancelled or
+	// expired); WokenAt when its agent was told, or needed no telling
+	// (nil: not yet, the sweeper retries).
+	EndedAt *time.Time `db:"ended_at" json:"-"`
+	WokenAt *time.Time `db:"woken_at" json:"-"`
 }
 
 // Option resolves an option by its text (case-insensitive) to the stored
@@ -231,14 +246,29 @@ func (a AskApproval) Validate() error {
 	return ValidateOptions(a.Options)
 }
 
-// Answer is a person's choice. Ship is the inbound message that made it
-// (answers from the channel); nil for the web.
+// Answer is a person's choice from the web or the API.
 type Answer struct {
 	Option string
-	// By names who answered (a web user, a channel sender).
-	By   string
-	Ship *identity.ShipID
+	// By names who answered (a web user).
+	By string
 }
+
+// Answering is the approval an inbound message answers from the channel
+// (Answerer): the message goes to Agent, whichever way it was routed, and
+// the repository records the answer in the message's own transaction, so
+// no delivery shows the message without it.
+type Answering struct {
+	Approval identity.ApprovalID
+	Agent    identity.AgentID
+	Option   string
+	By       string
+}
+
+// Answerer decides, in CreateInbound's transaction, whether a person's
+// message answers one of the conversation's pending approvals (oldest
+// first, locked), given the dock's team and the agent routing picked
+// (zero when nobody takes it).
+type Answerer func(pending []Approval, team []agent.Member, routed identity.AgentID) (Answering, bool)
 
 func (a Answer) Validate() error {
 	if err := text.Required("option", a.Option, MaxApprovalOption); err != nil {

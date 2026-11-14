@@ -63,19 +63,20 @@ type Commands interface {
 	// input.Wait it blocks for the answer. One pending approval per
 	// conversation and agent (Business).
 	AskApproval(ctx context.Context, organization identity.OrganizationID, input AskApproval) (Approval, error)
-	// AnswerApproval records the choice (Business when the approval is no
-	// longer pending). An answer that didn't come from the channel wakes
-	// an agent that isn't waiting for it with a system message.
+	// AnswerApproval records a choice made on the web or the API (Business
+	// when the approval is no longer pending) and wakes the agent with a
+	// system message (idempotent: an agent still blocked on the question
+	// gets the answer from that call too).
 	AnswerApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, answer Answer) (Approval, error)
 	// CancelApproval withdraws a pending approval (Business otherwise).
 	CancelApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID) (Approval, error)
 	// AwaitApproval blocks up to wait (cut to the context's deadline and
 	// ship.MaxApprovalWait) while the approval is pending and returns it as
-	// it is then. While it blocks, an answer doesn't wake the agent with a
-	// system message: the caller gets it here.
+	// it is then.
 	AwaitApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, wait time.Duration) (Approval, error)
-	// SweepApprovals expires the pending approvals past their time, in
-	// every organization (system: sweeper), and says how many.
+	// SweepApprovals expires the pending approvals past their time, wakes
+	// the agents whose wake failed before, in every organization (system:
+	// sweeper), and says how many it expired.
 	SweepApprovals(ctx context.Context, now time.Time) (int, error)
 }
 
@@ -107,6 +108,14 @@ type Notifier interface {
 	Notify(organization identity.OrganizationID, agent identity.AgentID)
 }
 
+// ApprovalLocker serializes the asks of one conversation across
+// processes: the check for a pending approval, the card's send and the
+// insert happen under it, so two asks can't both send a card.
+type ApprovalLocker interface {
+	// Lock waits for the conversation's lock and returns its release.
+	Lock(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (unlock func(), err error)
+}
+
 type Repository interface {
 	// CreateInbound stores an inbound ship (idempotent on its channel
 	// message id). With a hold reason (customs) it is held; else route
@@ -115,7 +124,11 @@ type Repository interface {
 	// agent that just left the dock (no agent: held with route's reason).
 	// Its attachments (blobs already stored) are inserted with it and
 	// their keys leave the trash; a duplicate stores none of them.
-	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation conversation.Conversation, input Inbound, attachments []Attachment, hold string, route Router) (s Ship, created bool, err error)
+	// A message that is no hold's (customs) and that answer takes for the
+	// reply to a pending approval of the conversation goes to the
+	// approval's agent, and the answer is stored in the same transaction
+	// (answered: the approval, nil otherwise; answer may be nil).
+	CreateInbound(ctx context.Context, organization identity.OrganizationID, ship identity.ShipID, conversation conversation.Conversation, input Inbound, attachments []Attachment, hold string, route Router, answer Answerer) (s Ship, created bool, answered *Approval, err error)
 	// FindExternal finds the conversation's ship with that channel message
 	// id (in or out: our own sends come back as echoes), so a redelivery's
 	// media isn't fetched again.
@@ -173,29 +186,33 @@ type Repository interface {
 	// since stay).
 	DropTrash(ctx context.Context, keys []string, now time.Time) error
 	// CreateApproval stores a pending approval, noting the delivery the
-	// agent is working on in the conversation's thread; waitUntil marks an
-	// ask that blocks for the answer.
-	CreateApproval(ctx context.Context, organization identity.OrganizationID, approval Approval, waitUntil *time.Time) (Approval, error)
+	// agent is working on in the conversation's thread.
+	CreateApproval(ctx context.Context, organization identity.OrganizationID, approval Approval) (Approval, error)
+	// ExpireAgentApprovals expires the agent's pending approvals of the
+	// conversation that are past now (they would block a new one; the
+	// agent is the one asking again, so it needs no wake) and returns them.
+	ExpireAgentApprovals(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, agent identity.AgentID, now time.Time) ([]Approval, error)
 	FindApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID) (Approval, error)
 	// PendingApprovals lists the conversation's pending approvals (not
 	// past now), oldest first: at most one per agent.
 	PendingApprovals(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, now time.Time) ([]Approval, error)
 	// AnswerApproval answers a pending approval not past now; found is
-	// false when it isn't pending. waited says an ask was blocked for the
-	// answer at that moment.
-	AnswerApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, answer Answer, now time.Time) (a Approval, waited, found bool, err error)
+	// false when it isn't pending.
+	AnswerApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, answer Answer, now time.Time) (a Approval, found bool, err error)
 	// CancelApproval cancels a pending approval; found is false otherwise.
 	CancelApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID) (a Approval, found bool, err error)
-	// WaitApproval marks (until) or clears (nil) that an ask is blocked on
-	// a pending approval.
-	WaitApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, until *time.Time) error
+	// WakeApproval records that the agent was told how the approval ended.
+	WakeApproval(ctx context.Context, organization identity.OrganizationID, id identity.ApprovalID, now time.Time) error
+	// UnwokenApprovals lists approvals that ended in (since, before] and
+	// whose agent wasn't told, of every organization (system: sweeper).
+	UnwokenApprovals(ctx context.Context, since, before time.Time, limit int) ([]Approval, error)
 	// ExpireApprovals expires the pending approvals past now, in every
 	// organization (system: sweeper), and returns them.
 	ExpireApprovals(ctx context.Context, now time.Time) ([]Approval, error)
 	Approvals(ctx context.Context, organization identity.OrganizationID, filter ApprovalFilter, page query.Pagination) (query.Paginated[Approval], error)
 	ConversationApprovals(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Approval], error)
 	// DeliveryApprovals lists the agent's approvals of the thread that
-	// are pending (not past now), or answered by one of ships (the
-	// message that answered, or the system message that woke the agent).
+	// are pending (not past now), or ended by one of ships (the message
+	// that answered, or the system message that woke the agent).
 	DeliveryApprovals(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, agent identity.AgentID, ships []identity.ShipID, now time.Time) ([]Approval, error)
 }

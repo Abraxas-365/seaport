@@ -154,8 +154,9 @@ func TestApprovals(t *testing.T) {
 	ack(conn, rf)
 	conn.quiet(300 * time.Millisecond)
 
-	// Blocking: the ask returns the answer given meanwhile and no system
-	// message follows it.
+	// Blocking: the ask returns the answer given meanwhile (the system
+	// message that follows is a harmless repeat: its external id is the
+	// approval's).
 	done := make(chan ship.Approval, 1)
 	go func() {
 		c, _ := ask(t, session, conv, "¿Ahora?", 20, "Aprobar", "Rechazar")
@@ -184,9 +185,11 @@ func TestApprovals(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("the blocked ask did not return the answer")
 	}
-	if f, ok := conn.try(300 * time.Millisecond); ok {
-		t.Fatalf("unexpected: %+v", f.Delivery.Ships)
+	repeat := conn.read()
+	if repeat.Type != crew.FrameDelivery || !strings.Contains(repeat.Delivery.Ships[0].Text, "answered \"Aprobar\"") {
+		t.Fatalf("repeat: %+v", repeat)
 	}
+	ack(conn, repeat)
 
 	// Cancelling tells the agent; a system sender's message never answers.
 	c, _ := ask(t, session, conv, "¿Borro?", 0, "Sí", "No")
@@ -230,6 +233,10 @@ func TestApprovals(t *testing.T) {
 	}
 	if code := p.call(http.MethodPost, "/crew/approvals", p.crewToken(), body, &viaHTTP); code != http.StatusCreated || viaHTTP.Status != ship.ApprovalPending {
 		t.Fatalf("POST /crew/approvals: %d %+v", code, viaHTTP)
+	}
+	// A second pending one is a business refusal (422), not a conflict.
+	if code := p.call(http.MethodPost, "/crew/approvals", p.crewToken(), body, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("second pending approval over HTTP: %d", code)
 	}
 	var read ship.Approval
 	if code := p.call(http.MethodGet, "/crew/approvals/"+viaHTTP.ID.String(), p.crewToken(), nil, &read); code != http.StatusOK || read.ID != viaHTTP.ID {
@@ -307,4 +314,136 @@ func TestApprovalsExpire(t *testing.T) {
 	if _, isErr := ask(t, session, first.Conversation, "¿Otra vez?", 0, "Sí", "No"); isErr {
 		t.Fatal("a new approval after expiry")
 	}
+}
+
+// A web answer wakes the agent even when its blocked ask is gone (the
+// client left; the server only notices when the wait ends).
+func TestApprovalAnsweredAfterTheAskerLeft(t *testing.T) {
+	p := startPort(t)
+	d := p.apiDock("left")
+	p.letIn(d)
+	conn := p.dialCrewAs(p.crewToken(), crew.Frame{Type: crew.FrameHello, Agent: "test-laptop", Concurrency: 1})
+	first := p.inject(d, "100", "m1", "hola")
+	ack(conn, delivered(t, conn, first))
+
+	// The client asks with a long wait and drops after a moment.
+	body, _ := json.Marshal(map[string]any{"conversation_id": first.Conversation.String(), "text": "¿Sí?",
+		"options": []string{"Sí", "No"}, "wait_seconds": 60})
+	req, _ := http.NewRequest(http.MethodPost, p.srv.URL+"/crew/approvals", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+p.crewToken())
+	req.Header.Set("Content-Type", "application/json")
+	if resp, err := (&http.Client{Timeout: time.Second}).Do(req); err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("the ask should still be blocked")
+	}
+	var list query.Paginated[ship.Approval]
+	p.admin(http.MethodGet, "/api/v1/approvals?status=pending", nil, &list)
+	if len(list.Items) != 1 {
+		t.Fatalf("pending: %+v", list)
+	}
+	if code := p.admin(http.MethodPost, "/api/v1/approvals/"+list.Items[0].ID.String()+"/answer", map[string]string{"option": "Sí"}, nil); code != http.StatusOK {
+		t.Fatalf("answer: %d", code)
+	}
+	f := conn.read()
+	if f.Type != crew.FrameDelivery || !strings.Contains(f.Delivery.Ships[0].Text, "answered \"Sí\"") {
+		t.Fatalf("the agent was not woken: %+v", f)
+	}
+	ack(conn, f)
+}
+
+// Two asks of one agent in one conversation at once: one card, one
+// approval, the other refused.
+func TestConcurrentAsksSendOneCard(t *testing.T) {
+	p := startPort(t)
+	d := p.apiDock("race")
+	p.letIn(d)
+	conn := p.dialCrewAs(p.crewToken(), crew.Frame{Type: crew.FrameHello, Agent: "test-laptop", Concurrency: 1})
+	first := p.inject(d, "100", "m1", "hola")
+	ack(conn, delivered(t, conn, first))
+	session := mcpSession(t, p, p.crewToken())
+
+	const n = 6
+	results := make(chan bool, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			_, isErr := ask(t, session, first.Conversation, "¿Sí?", 0, "Sí", "No")
+			results <- isErr
+		}()
+	}
+	refused := 0
+	for i := 0; i < n; i++ {
+		if <-results {
+			refused++
+		}
+	}
+	if refused != n-1 {
+		t.Fatalf("refused %d of %d asks, want %d", refused, n, n-1)
+	}
+	var hist query.Paginated[ship.Ship]
+	p.admin(http.MethodGet, "/api/v1/conversations/"+first.Conversation.String()+"/ships", nil, &hist)
+	cards := 0
+	for _, s := range hist.Items {
+		if s.Direction == ship.DirectionOut && strings.Contains(s.Text, ship.ApprovalTrailer) {
+			cards++
+		}
+	}
+	if cards != 1 {
+		t.Fatalf("%d cards sent, want 1", cards)
+	}
+}
+
+// On a team of several, a bare "2" answers the approval of the agent that
+// asked (not the default's) and goes to it, with the answer in the very
+// delivery; when that agent left the team nobody is woken.
+func TestApprovalAnswerRoutesToItsAgent(t *testing.T) {
+	p := startPort(t)
+	d := p.openDock("team")
+	pm, reviewer := p.agent("pm"), p.agent("reviewer")
+	pmTok, revTok := p.issueAs(adminToken, pm.ID, "pm"), p.issueAs(adminToken, reviewer.ID, "reviewer")
+	p.assignAs(adminToken, d.ID, pm.ID, true)
+	p.assignAs(adminToken, d.ID, reviewer.ID, false)
+	pmConn := p.dialCrewAs(pmTok.Value, crew.Frame{Type: crew.FrameHello, Agent: "pm-laptop", As: "pm", Concurrency: 2})
+	revConn := p.dialCrewAs(revTok.Value, crew.Frame{Type: crew.FrameHello, Agent: "rev-laptop", Concurrency: 2})
+	rev := mcpSession(t, p, revTok.Value)
+
+	first := p.inject(d, "300", "a1", "@reviewer revisa el PR")
+	ack(revConn, delivered(t, revConn, first))
+	a, isErr := ask(t, rev, first.Conversation, "¿Mergeo?", 0, "Sí", "No")
+	if isErr {
+		t.Fatal("ask refused")
+	}
+	// Another agent takes the chat meanwhile: the thread's previous agent
+	// is pm now, and a bare reply would route to it.
+	other := p.inject(d, "300", "a2", "@pm una cosa")
+	ack(pmConn, delivered(t, pmConn, other))
+
+	reply := p.inject(d, "300", "a3", "2")
+	if reply.Agent == nil || *reply.Agent != reviewer.ID {
+		t.Fatalf("the answer goes to the asking agent: %+v", reply)
+	}
+	rf := delivered(t, revConn, reply)
+	if len(rf.Delivery.Approvals) != 1 || rf.Delivery.Approvals[0].ID != a.ID || rf.Delivery.Approvals[0].Answer == nil ||
+		*rf.Delivery.Approvals[0].Answer != "No" {
+		t.Fatalf("delivery approvals: %+v", rf.Delivery.Approvals)
+	}
+	if got := p.approval(a.ID); got.Status != ship.ApprovalAnswered || got.AnsweredBy != "300 (Ana)" {
+		t.Fatalf("approval: %+v", got)
+	}
+	ack(revConn, rf)
+	pmConn.quiet(200 * time.Millisecond)
+
+	// The asking agent leaves the team: a web answer is stored, nobody is
+	// woken (the mention would fall to someone else).
+	b, isErr := ask(t, rev, first.Conversation, "¿Y ahora?", 0, "Sí", "No")
+	if isErr {
+		t.Fatal("ask refused")
+	}
+	if code := p.admin(http.MethodDelete, "/api/v1/docks/"+d.ID.String()+"/agents/"+reviewer.ID.String(), nil, nil); code != http.StatusOK {
+		t.Fatalf("unassign: %d", code)
+	}
+	if code := p.admin(http.MethodPost, "/api/v1/approvals/"+b.ID.String()+"/answer", map[string]string{"option": "Sí"}, nil); code != http.StatusOK {
+		t.Fatalf("answer: %d", code)
+	}
+	pmConn.quiet(500 * time.Millisecond)
+	revConn.quiet(100 * time.Millisecond)
 }

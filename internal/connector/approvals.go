@@ -53,7 +53,7 @@ const approvalHint = "Before anything consequential or irreversible, ask people 
 // `<approval-id> <status> [answer]` (with -wait it blocks for the answer,
 // at most ship.MaxApprovalWait; the status is pending when none came).
 func AskCommand(ctx context.Context, args []string, out io.Writer) error {
-	const usage = "usage: seaport ask <conversation-id> -option TEXT -option TEXT... [-wait SECONDS] <question>"
+	const usage = "usage: seaport ask <conversation-id> -option TEXT -option TEXT... [-wait SECONDS] [--] <question>"
 	if len(args) == 0 {
 		return errx.Validation(usage)
 	}
@@ -64,6 +64,11 @@ func AskCommand(ctx context.Context, args []string, out io.Writer) error {
 	in := crew.AskRequest{ConversationID: conv}
 	var words []string
 	for i := 1; i < len(args); i++ {
+		if args[i] == "--" {
+			// The rest is the question, even a word that starts with a dash.
+			words = append(words, args[i+1:]...)
+			break
+		}
 		switch a := args[i]; a {
 		case "-option", "--option", "-wait", "--wait":
 			if i+1 == len(args) {

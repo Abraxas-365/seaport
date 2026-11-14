@@ -390,7 +390,7 @@ Questions agents asked people ([Approvals](../guides/approvals.md)).
 | :--- | :--- | :--- | :--- |
 | `GET` | `/approvals` | `ships:read` | Paginated approvals, newest first. Filter `status` (`pending`, `answered`, `cancelled`, `expired`). |
 | `GET` | `/approvals/{id}` | `ships:read` | The approval. |
-| `POST` | `/approvals/{id}/answer` | `ships:write` | Body `{"option":"…"}` (an option of the approval, any case). The approval, answered by the caller. `422` when it isn't pending (answered, cancelled or expired). Wakes the agent unless an ask is blocked on it. |
+| `POST` | `/approvals/{id}/answer` | `ships:write` | Body `{"option":"…"}` (an option of the approval, any case). The approval, answered by the caller. `422` when it isn't pending (answered, cancelled or expired). Wakes the agent with a system message (also when an ask is blocked on it: a repeat of the answer it gets). |
 | `POST` | `/approvals/{id}/cancel` | `ships:write` | Withdraws a pending approval; the agent is told. The approval. |
 
 ```json

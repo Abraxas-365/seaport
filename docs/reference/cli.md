@@ -213,7 +213,7 @@ seaport reply 0193… -file qa-report.md -file checkout.png "QA done: 2 issues"
 
 ## ask and approval
 
-`seaport ask <conversation-id> -option TEXT -option TEXT... [-wait SECONDS] <question>` asks people to choose before the agent acts: the CLI form of the MCP [`ask_approval`](mcp-tools.md#ask_approval) tool, with the same rules ([Approvals](../guides/approvals.md)). It needs `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` and prints `<approval-id> <status> [answer]`. `-wait` blocks for the answer (at most 290 seconds); without an answer the status stays `pending`. `seaport approval <approval-id> [-wait SECONDS]` reads it again.
+`seaport ask <conversation-id> -option TEXT -option TEXT... [-wait SECONDS] [--] <question>` asks people to choose before the agent acts: the CLI form of the MCP [`ask_approval`](mcp-tools.md#ask_approval) tool, with the same rules ([Approvals](../guides/approvals.md)). It needs `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` and prints `<approval-id> <status> [answer]`. `--` ends the flags, so a question can start with a dash. `-wait` blocks for the answer (at most 290 seconds); without an answer the status stays `pending`. `seaport approval <approval-id> [-wait SECONDS]` reads it again.
 
 ```bash
 seaport ask 0193… -option Approve -option Reject -wait 120 "Deploy v2.3 to production?"

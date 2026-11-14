@@ -260,7 +260,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	shipDeps := shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
+	shipDeps := shipmodule.Deps{DB: db, LockDB: lockDB.DB, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: notify, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
 			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey, ApprovalTTL: cfg.ApprovalTTL}

@@ -2,6 +2,7 @@
 package shipmodule
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
@@ -18,7 +19,9 @@ import (
 )
 
 type Deps struct {
-	DB            *sqlx.DB
+	DB *sqlx.DB
+	// LockDB is the pool of session advisory locks (pglock), apart from DB.
+	LockDB        *sql.DB
 	Conversations interface {
 		conversation.Commands
 		conversation.Queries
@@ -47,7 +50,8 @@ type Module struct {
 func New(d Deps) (*Module, error) {
 	svc, err := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
 		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents, Docks: d.Docks,
-		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}, ApprovalTTL: d.ApprovalTTL})
+		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}, ApprovalTTL: d.ApprovalTTL,
+		ApprovalLocks: shippg.NewApprovalLocker(d.LockDB)})
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package shippg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -10,12 +11,13 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
+	"github.com/Abraxas-365/seaport/internal/pglock"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 const approvalColumns = `id, organization_id, conversation_id, agent_id, delivery_id, ship_id, text, options, status,
-	answer, answered_by, answered_ship_id, expires_at, created_at, answered_at`
+	answer, answered_by, answered_ship_id, expires_at, created_at, answered_at, ended_at, woken_at`
 
 // approvalRow reads options as the JSON they are stored in.
 type approvalRow struct {
@@ -43,13 +45,33 @@ func approvals(rows []approvalRow) ([]ship.Approval, error) {
 	return out, nil
 }
 
+// approvalLock is the class of the per-conversation lock of asks (second
+// key: hashtext(conversation id)).
+const approvalLock = 7_401_015
+
+// ApprovalLocker is ship.ApprovalLocker over Postgres session advisory
+// locks, so every process shares them.
+type ApprovalLocker struct{ locks *pglock.Locker }
+
+// NewApprovalLocker takes the locks on lockDB, a pool of its own (see
+// pglock).
+func NewApprovalLocker(lockDB *sql.DB) *ApprovalLocker {
+	return &ApprovalLocker{locks: pglock.New(lockDB)}
+}
+
+var _ ship.ApprovalLocker = (*ApprovalLocker)(nil)
+
+func (l *ApprovalLocker) Lock(ctx context.Context, _ identity.OrganizationID, conv identity.ConversationID) (func(), error) {
+	return l.locks.Lock(ctx, approvalLock, conv.String())
+}
+
 var approvalMessages = pgerr.Messages{
 	Unique:     "this agent already has a pending approval in the conversation",
 	ForeignKey: "conversation or ship not found",
 	NotFound:   "approval not found",
 }
 
-func (r *Repository) CreateApproval(ctx context.Context, org identity.OrganizationID, a ship.Approval, waitUntil *time.Time) (ship.Approval, error) {
+func (r *Repository) CreateApproval(ctx context.Context, org identity.OrganizationID, a ship.Approval) (ship.Approval, error) {
 	raw, err := json.Marshal(a.Options)
 	if err != nil {
 		return a, errx.Wrap(err, "approval options", errx.TypeInternal)
@@ -58,13 +80,13 @@ func (r *Repository) CreateApproval(ctx context.Context, org identity.Organizati
 	// The delivery the agent is working on in the thread, if any.
 	err = r.db.GetContext(ctx, &row, `
 		INSERT INTO ship_approvals (organization_id, id, conversation_id, agent_id, delivery_id, ship_id, text, options,
-			waiting_until, expires_at, created_at)
+			expires_at, created_at)
 		VALUES ($1, $2, $3, $4,
 			(SELECT delivery_id FROM ships WHERE organization_id = $1 AND agent_id = $4 AND status = 'claimed'
 				AND `+inThread("$1", "$3")+` LIMIT 1),
-			$5, $6, $7::jsonb, $8, $9, $10)
+			$5, $6, $7::jsonb, $8, $9)
 		RETURNING `+approvalColumns,
-		org, a.ID, a.Conversation, a.Agent, a.Ship, a.Text, string(raw), waitUntil, a.ExpiresAt, a.CreatedAt)
+		org, a.ID, a.Conversation, a.Agent, a.Ship, a.Text, string(raw), a.ExpiresAt, a.CreatedAt)
 	if err != nil {
 		return a, pgerr.MapWith(err, "create approval", approvalMessages)
 	}
@@ -90,33 +112,37 @@ func (r *Repository) PendingApprovals(ctx context.Context, org identity.Organiza
 	return approvals(rows)
 }
 
-func (r *Repository) AnswerApproval(ctx context.Context, org identity.OrganizationID, id identity.ApprovalID, answer ship.Answer, now time.Time) (ship.Approval, bool, bool, error) {
-	var row struct {
-		approvalRow
-		Waited bool `db:"waited"`
+func (r *Repository) ExpireAgentApprovals(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, agent identity.AgentID, now time.Time) ([]ship.Approval, error) {
+	var rows []approvalRow
+	// The agent asks again: nobody needs waking.
+	if err := r.db.SelectContext(ctx, &rows, `UPDATE ship_approvals SET status = 'expired', ended_at = $4, woken_at = $4
+		WHERE organization_id = $1 AND conversation_id = $2 AND agent_id = $3 AND status = 'pending' AND expires_at <= $4
+		RETURNING `+approvalColumns, org, conv, agent, now); err != nil {
+		return nil, pgerr.Map(err, "expire agent approvals")
 	}
-	// old is the row as it was: was an ask blocked on it?
+	return approvals(rows)
+}
+
+func (r *Repository) AnswerApproval(ctx context.Context, org identity.OrganizationID, id identity.ApprovalID, answer ship.Answer, now time.Time) (ship.Approval, bool, error) {
+	var row approvalRow
 	err := r.db.GetContext(ctx, &row, `
-		WITH old AS (SELECT id, (waiting_until IS NOT NULL AND waiting_until > $5) AS waited FROM ship_approvals
-			WHERE organization_id = $1 AND id = $2 AND status = 'pending' AND expires_at > $5 FOR UPDATE)
-		UPDATE ship_approvals a SET status = 'answered', answer = $3, answered_by = $4, answered_ship_id = $6,
-			answered_at = $5, waiting_until = NULL
-		FROM old WHERE a.organization_id = $1 AND a.id = old.id
-		RETURNING `+qualified(approvalColumns)+`, old.waited AS waited`,
-		org, id, answer.Option, answer.By, now, answer.Ship)
+		UPDATE ship_approvals SET status = 'answered', answer = $3, answered_by = $4, answered_at = $5, ended_at = $5
+		WHERE organization_id = $1 AND id = $2 AND status = 'pending' AND expires_at > $5
+		RETURNING `+approvalColumns,
+		org, id, answer.Option, answer.By, now)
 	if pgerr.IsNoRows(err) {
-		return ship.Approval{}, false, false, nil
+		return ship.Approval{}, false, nil
 	}
 	if err != nil {
-		return ship.Approval{}, false, false, pgerr.MapWith(err, "answer approval", approvalMessages)
+		return ship.Approval{}, false, pgerr.MapWith(err, "answer approval", approvalMessages)
 	}
 	a, err := row.approval()
-	return a, row.Waited, true, err
+	return a, true, err
 }
 
 func (r *Repository) CancelApproval(ctx context.Context, org identity.OrganizationID, id identity.ApprovalID) (ship.Approval, bool, error) {
 	var row approvalRow
-	err := r.db.GetContext(ctx, &row, `UPDATE ship_approvals SET status = 'cancelled', waiting_until = NULL
+	err := r.db.GetContext(ctx, &row, `UPDATE ship_approvals SET status = 'cancelled', ended_at = now()
 		WHERE organization_id = $1 AND id = $2 AND status = 'pending'
 		RETURNING `+approvalColumns, org, id)
 	if pgerr.IsNoRows(err) {
@@ -129,17 +155,26 @@ func (r *Repository) CancelApproval(ctx context.Context, org identity.Organizati
 	return a, true, err
 }
 
-func (r *Repository) WaitApproval(ctx context.Context, org identity.OrganizationID, id identity.ApprovalID, until *time.Time) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE ship_approvals SET waiting_until = $3
-		WHERE organization_id = $1 AND id = $2 AND status = 'pending'`, org, id, until)
-	return pgerr.Map(err, "wait approval")
+func (r *Repository) WakeApproval(ctx context.Context, org identity.OrganizationID, id identity.ApprovalID, now time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE ship_approvals SET woken_at = $3
+		WHERE organization_id = $1 AND id = $2 AND woken_at IS NULL`, org, id, now)
+	return pgerr.Map(err, "wake approval")
+}
+
+func (r *Repository) UnwokenApprovals(ctx context.Context, since, before time.Time, limit int) ([]ship.Approval, error) {
+	var rows []approvalRow
+	if err := r.db.SelectContext(ctx, &rows, `SELECT `+approvalColumns+` FROM ship_approvals
+		WHERE status <> 'pending' AND woken_at IS NULL AND ended_at > $1 AND ended_at <= $2
+		ORDER BY ended_at LIMIT $3`, since, before, limit); err != nil {
+		return nil, pgerr.Map(err, "unwoken approvals")
+	}
+	return approvals(rows)
 }
 
 func (r *Repository) ExpireApprovals(ctx context.Context, now time.Time) ([]ship.Approval, error) {
 	var rows []approvalRow
-	// An ask still blocked on one ends it first (its wait is short).
-	if err := r.db.SelectContext(ctx, &rows, `UPDATE ship_approvals SET status = 'expired', waiting_until = NULL
-		WHERE status = 'pending' AND expires_at <= $1 AND (waiting_until IS NULL OR waiting_until <= $1)
+	if err := r.db.SelectContext(ctx, &rows, `UPDATE ship_approvals SET status = 'expired', ended_at = $1
+		WHERE status = 'pending' AND expires_at <= $1
 		RETURNING `+approvalColumns, now); err != nil {
 		return nil, pgerr.Map(err, "expire approvals")
 	}

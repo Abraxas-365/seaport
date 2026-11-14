@@ -614,6 +614,11 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 		}
 		b.WriteString("\n" + approvalHint)
 	}
+	if autoReply && answerable {
+		// The final answer is a message, but a question to ask first isn't
+		// the final answer.
+		b.WriteString("\n" + approvalHint)
+	}
 	return b.String()
 }
 
