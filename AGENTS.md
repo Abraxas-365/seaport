@@ -954,24 +954,49 @@ net/http mux; only `/healthz` answers 405.
   advertised else poll `Config.Poll` 60 s, backoff 1 s → 5 min, state in
   `connected`/`last_error`; `Recheck` notices a changed `updated_at` and
   reconnects). A refused login (IMAP or SMTP 530/534/535/538) makes the dock
-  `logged_out`; other errors are retried. Only TLS or STARTTLS is accepted,
+  `logged_out`; IMAP only for the `AUTHENTICATIONFAILED`/`AUTHORIZATIONFAILED`
+  codes (`loginError.permanent`), any other `NO` is retried; IDLE is
+  re-issued every 20 min (`idleRefresh`). Only TLS or STARTTLS is accepted,
   never plaintext, with verified certificates; `dialer.Control` refuses
   non-public addresses at connect time (not by name, so DNS rebinding
-  doesn't help) unless `SEAPORT_EMAIL_PRIVATE`. A thread is a conversation
-  (`email_threads`, direct, addressed): found by `In-Reply-To`/`References`
-  through `email_messages` (message id → chat, sent ids included), else by
-  subject key + sender within 14 days, else new (chat id = Message-ID,
-  hashed when long). Handles are the lowercase participants, so customs
-  match addresses. Quoted history is stripped, HTML falls back to text,
-  images become `ship.Media`, other attachments a note, mail over 30 MiB
-  only its headers; automatic mail, the mailbox's own mail and
-  `mailer-daemon` are skipped. `Send` replies to the participants with
-  `Re:`, threading headers, `Auto-Submitted: auto-generated` and a
-  Seaport `Message-ID` on the mailbox's domain (`NewMessageID`, no
-  connection), stored before sending like every channel. SMTP is a small
-  stdlib client (`smtp.go`: PLAIN/LOGIN). Unlink deletes the rows. e2e:
+  doesn't help; NAT64 and 6to4 forms included) unless
+  `SEAPORT_EMAIL_PRIVATE`; server names must match `SEAPORT_EMAIL_HOSTS`
+  (globs, default `*`, like `JiraHosts`), checked in `Endpoint.validate`
+  and before every connect (`hostAllowed`, `errHost`). Trust (`mime.go`
+  `authOf`, `session.skip`): the sender is vouched for only by the first
+  `Authentication-Results` header of the mailbox's server (DMARC pass, or
+  DKIM/SPF pass aligned with `From`); a failure is skipped, an absent header
+  is skipped unless `SEAPORT_EMAIL_REQUIRE_AUTH=false` (`Config.AllowUnverified`,
+  global, not per dock), then the text gets a "sender not verified" note.
+  A thread is a conversation (`email_threads`; group when more than one other
+  person, `Addressed` only when the mailbox is in To): found by
+  `In-Reply-To`/`References` through `email_messages` (message id → chat,
+  sent ids included), else by subject key within 14 days, else new (chat id
+  = Message-ID, hashed when long); either match counts only when the sender
+  is already in `email_threads.participants` (headers are the sender's say-so;
+  otherwise a new thread and customs decide). Handles (≤ `MaxHandles`, the
+  sender first) are the sender, `@domain` and the thread's earlier
+  participants, never this message's To/Cc. Participants (= reply
+  recipients, ≤ `MaxParticipants` 10) start with the sender (Reply-To only
+  on the same domain) and grow with To/Cc only from messages customs let in
+  (`session.extras`, skipped when the ship is held). A message failing
+  `maxAttempts` (3) times is logged and skipped. The folder is read-only
+  (no `\Seen`) and replies are not APPENDed to Sent. `store.SetCursor` is
+  guarded by the account's `updated_at` (`ErrStaleAccount`), so a session
+  of an older link can't move a relinked cursor. Quoted history is stripped,
+  HTML falls back to text (comments and `display:none`/zero-size blocks
+  dropped), images become `ship.Media`, other attachments a note, mail over
+  30 MiB only its headers; automatic mail, the mailbox's own mail and
+  `mailer-daemon` are skipped. `Send` replies to the participants (a refused
+  RCPT is skipped; fails only when none is accepted) with `Re:`, threading
+  headers, `Auto-Submitted: auto-generated` and a Seaport `Message-ID` on the
+  mailbox's domain (`NewMessageID`, no connection), stored before sending
+  like every channel. `Check` errors reach the form generic (`refused`; the
+  remote text is logged). SMTP is a small stdlib client (`smtp.go`:
+  PLAIN/LOGIN). Unlink deletes the account, threads and message ids. e2e:
   `email_e2e_test.go` over `dockemail/emailtest` (fake IMAP via go-imap's
-  `imapmemserver` + fake SMTP, TLS or STARTTLS).
+  `imapmemserver` + fake SMTP, TLS or STARTTLS; `Raw` carries an
+  `Authentication-Results` pass, `Raw0` none).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own

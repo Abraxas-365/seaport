@@ -33,7 +33,9 @@ type Message struct {
 	// ReplyTo is where an answer goes when the sender named another place
 	// ("" : to From).
 	ReplyTo string
-	// Others are the other addresses of the conversation (To and Cc).
+	// To are the addresses it was sent to; Others those and the Cc ones
+	// (at most MaxParticipants).
+	To      []string
 	Others  []string
 	Subject string
 	Date    time.Time
@@ -46,7 +48,22 @@ type Message struct {
 	// Automatic marks mail no person wrote (auto-replies, bounces, bulk):
 	// answering it could start a loop.
 	Automatic bool
+	// Auth is what the mailbox's own server says about From.
+	Auth Auth
 }
+
+// Auth is the verdict of the Authentication-Results header the receiving
+// server (the mailbox provider's) put on top of the message: whether the
+// sender's domain vouched for From through SPF, DKIM or DMARC, aligned
+// with the From domain. Anything below it was written by the sender or
+// by relays and is not read.
+type Auth int
+
+const (
+	AuthNone Auth = iota // no Authentication-Results header
+	AuthFail             // present, but nothing passed for From's domain
+	AuthPass
+)
 
 // Limits of what one email brings into a ship.
 const (
@@ -82,11 +99,16 @@ func ParseMessage(raw []byte) (Message, error) {
 	for _, key := range []string{"To", "Cc"} {
 		list, _ := h.AddressList(key)
 		for _, a := range list {
-			if a != nil && validAddress(a.Address) {
-				m.Others = append(m.Others, strings.ToLower(a.Address))
+			if a != nil && validAddress(a.Address) && len(m.Others) < MaxParticipants {
+				addr := strings.ToLower(a.Address)
+				m.Others = append(m.Others, addr)
+				if key == "To" {
+					m.To = append(m.To, addr)
+				}
 			}
 		}
 	}
+	m.Auth = authOf(h.Get("Authentication-Results"), m.From.Address)
 	m.Subject, _ = h.Subject()
 	m.Subject = clean(m.Subject, maxSubject)
 	m.Date, _ = h.Date()
@@ -185,17 +207,22 @@ func readText(r io.Reader) string {
 }
 
 var (
-	reHidden = regexp.MustCompile(`(?is)<(script|style|head)\b[^>]*>.*?</(script|style|head)\s*>`)
-	reBlock  = regexp.MustCompile(`(?i)<\s*(br|/p|/div|/li|/tr|/h[1-6]|/blockquote|/table)\b[^>]*>`)
-	reTag    = regexp.MustCompile(`(?s)<[^>]*>`)
-	reBlanks = regexp.MustCompile(`\n{3,}`)
-	reSpaces = regexp.MustCompile(`[ \t\x{00a0}]+`)
+	reComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+	reOpenTag = regexp.MustCompile(`(?is)<([a-z][a-z0-9]*)\b[^>]*\bstyle\s*=\s*("[^"]*"|'[^']*')[^>]*>`)
+	reInvis   = regexp.MustCompile(`(?i)(display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all|font-size\s*:\s*0(px|pt|em)?\s*(;|$|"|'))`)
+	reHidden  = regexp.MustCompile(`(?is)<(script|style|head)\b[^>]*>.*?</(script|style|head)\s*>`)
+	reBlock   = regexp.MustCompile(`(?i)<\s*(br|/p|/div|/li|/tr|/h[1-6]|/blockquote|/table)\b[^>]*>`)
+	reTag     = regexp.MustCompile(`(?s)<[^>]*>`)
+	reBlanks  = regexp.MustCompile(`\n{3,}`)
+	reSpaces  = regexp.MustCompile(`[ \t\x{00a0}]+`)
 )
 
 // htmlToText is a small HTML → plain text for mail that has no plain part:
 // block ends become line breaks, tags go, entities are decoded.
 func htmlToText(s string) string {
+	s = reComment.ReplaceAllString(s, "")
 	s = reHidden.ReplaceAllString(s, "")
+	s = stripInvisible(s)
 	s = reBlock.ReplaceAllString(s, "\n")
 	s = reTag.ReplaceAllString(s, "")
 	s = html.UnescapeString(s)
@@ -326,4 +353,126 @@ func parseAddress(s string) (gomail.Address, error) {
 		return gomail.Address{}, errors.New("not an email address")
 	}
 	return *a, nil
+}
+
+// stripInvisible drops elements styled to be invisible (display:none and
+// the like): text a reader never sees but an agent would read.
+func stripInvisible(s string) string {
+	for guard := 0; guard < 200; guard++ {
+		var cut []int
+		for _, loc := range reOpenTag.FindAllStringSubmatchIndex(s, -1) {
+			if reInvis.MatchString(s[loc[4]:loc[5]]) {
+				cut = loc
+				break
+			}
+		}
+		if cut == nil {
+			return s
+		}
+		name := strings.ToLower(s[cut[2]:cut[3]])
+		end := cut[1]
+		if !voidTag[name] {
+			end = closeOf(s, name, cut[1])
+		}
+		s = s[:cut[0]] + s[end:]
+	}
+	return s
+}
+
+var voidTag = map[string]bool{"br": true, "img": true, "hr": true, "input": true, "meta": true, "link": true}
+
+// closeOf returns where the element opened before from ends (matching
+// nested tags of the same name); the end of s when it never closes.
+func closeOf(s, name string, from int) int {
+	re := regexp.MustCompile(`(?is)<(/?)` + regexp.QuoteMeta(name) + `\b[^>]*>`)
+	depth := 1
+	for _, loc := range re.FindAllStringSubmatchIndex(s[from:], -1) {
+		if loc[2] == loc[3] { // opening tag
+			if !strings.HasSuffix(s[from+loc[0]:from+loc[1]], "/>") {
+				depth++
+			}
+			continue
+		}
+		if depth--; depth == 0 {
+			return from + loc[1]
+		}
+	}
+	return len(s)
+}
+
+// authOf reads the topmost Authentication-Results value (the receiving
+// server's): AuthPass when DMARC passed, or DKIM or SPF passed for a
+// domain aligned with the sender's.
+func authOf(value, from string) Auth {
+	if strings.TrimSpace(value) == "" {
+		return AuthNone
+	}
+	fromDomain := domainOf(from)
+	parts := strings.Split(stripComments(value), ";")
+	for _, part := range parts[1:] { // the first is the server's own id
+		fields := strings.Fields(part)
+		if len(fields) == 0 {
+			continue
+		}
+		method, result, ok := strings.Cut(strings.ToLower(fields[0]), "=")
+		if !ok || result != "pass" {
+			continue
+		}
+		props := map[string]string{}
+		for _, f := range fields[1:] {
+			if k, v, ok := strings.Cut(strings.ToLower(f), "="); ok {
+				props[k] = strings.Trim(v, `"`)
+			}
+		}
+		switch method {
+		case "dmarc":
+			return AuthPass
+		case "dkim":
+			d := props["header.d"]
+			if d == "" {
+				d = domainOf(props["header.i"])
+			}
+			if aligned(d, fromDomain) {
+				return AuthPass
+			}
+		case "spf":
+			if aligned(domainOf(props["smtp.mailfrom"]), fromDomain) {
+				return AuthPass
+			}
+		}
+	}
+	return AuthFail
+}
+
+func stripComments(s string) string {
+	var b strings.Builder
+	depth := 0
+	for _, r := range s {
+		switch {
+		case r == '(':
+			depth++
+		case r == ')' && depth > 0:
+			depth--
+		case depth == 0:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func domainOf(a string) string {
+	if i := strings.LastIndex(a, "@"); i >= 0 {
+		a = a[i+1:]
+	}
+	return strings.ToLower(strings.TrimSpace(a))
+}
+
+// aligned: the two names are one domain or one is a subdomain of the
+// other (relaxed alignment; no public suffix list, so a bare suffix such
+// as "com" never counts).
+func aligned(a, b string) bool {
+	if a == "" || b == "" || !strings.Contains(a, ".") || !strings.Contains(b, ".") {
+		return false
+	}
+	return a == b || strings.HasSuffix(a, "."+b) || strings.HasSuffix(b, "."+a)
 }

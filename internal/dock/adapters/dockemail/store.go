@@ -3,6 +3,7 @@ package dockemail
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -135,10 +136,22 @@ func (s *Store) Find(ctx context.Context, dock identity.DockID) (Account, error)
 		Connected: r.Connected, LastError: r.LastError, SeenAt: r.SeenAt, CreatedAt: r.CreatedAt, Updated: r.Updated, password: string(pw)}, nil
 }
 
-// Delete forgets the dock's account (threads stay: they are history).
+// Delete forgets the dock's account, its threads and the message ids that
+// find them (conversations and ships stay: they are history, but a reply
+// to them needs a mailbox and its threads again).
 func (s *Store) Delete(ctx context.Context, dock identity.DockID) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM email_accounts WHERE dock_id = $1`, dock)
-	return pgerr.Map(err, "delete email account")
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return pgerr.Map(err, "begin delete email account")
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, q := range []string{`DELETE FROM email_messages WHERE dock_id = $1`, `DELETE FROM email_threads WHERE dock_id = $1`,
+		`DELETE FROM email_accounts WHERE dock_id = $1`} {
+		if _, err := tx.ExecContext(ctx, q, dock); err != nil {
+			return pgerr.Map(err, "delete email account")
+		}
+	}
+	return pgerr.Map(tx.Commit(), "delete email account")
 }
 
 // Cursor is where a session is in its folder.
@@ -147,11 +160,24 @@ type Cursor struct {
 	UID      uint32
 }
 
-// SetCursor records progress: the UIDVALIDITY and the highest UID taken in.
-func (s *Store) SetCursor(ctx context.Context, dock identity.DockID, c Cursor) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE email_accounts SET uid_validity = $2, last_uid = $3 WHERE dock_id = $1`,
-		dock, int64(c.Validity), int64(c.UID))
-	return pgerr.Map(err, "store email cursor")
+// ErrStaleAccount: the account was saved again (another folder or
+// settings) since the session read it, so its progress means nothing now.
+var ErrStaleAccount = errors.New("the mailbox settings changed")
+
+// SetCursor records a session's progress: the UIDVALIDITY and the highest
+// UID taken in. It only applies to the account the session was started
+// from (same save, `updated_at`), so a session that outlived a link with
+// other settings can't overwrite the new account's cursor.
+func (s *Store) SetCursor(ctx context.Context, a Account, c Cursor) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE email_accounts SET uid_validity = $3, last_uid = $4
+		WHERE dock_id = $1 AND updated_at = $2`, a.Dock, a.Updated, int64(c.Validity), int64(c.UID))
+	if err != nil {
+		return pgerr.Map(err, "store email cursor")
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrStaleAccount
+	}
+	return nil
 }
 
 const maxStateError = 300
@@ -197,7 +223,7 @@ type Thread struct {
 // MaxRefs and MaxParticipants bound what a thread keeps.
 const (
 	MaxRefs         = 20
-	MaxParticipants = 20
+	MaxParticipants = 10
 )
 
 func merge(old, add []string, max int, keepNewest bool) []string {
@@ -246,14 +272,19 @@ func (s *Store) Thread(ctx context.Context, dock identity.DockID, chat string) (
 }
 
 // ThreadOf finds the chat a message belongs to: the one of any of the
-// Message-IDs (the message's own, what it replies to, its references).
-func (s *Store) ThreadOf(ctx context.Context, dock identity.DockID, ids []string) (string, bool, error) {
-	if len(ids) == 0 {
+// Message-IDs (the message's own, what it replies to, its references),
+// provided one of members (the sender) already takes part in it. Headers
+// are the sender's say-so: a message naming somebody else's Message-ID
+// doesn't join their thread.
+func (s *Store) ThreadOf(ctx context.Context, dock identity.DockID, ids, members []string) (string, bool, error) {
+	if len(ids) == 0 || len(members) == 0 {
 		return "", false, nil
 	}
 	var chat string
-	err := s.db.GetContext(ctx, &chat, `SELECT chat_id FROM email_messages WHERE dock_id = $1 AND message_id = ANY($2::text[])
-		ORDER BY created_at DESC LIMIT 1`, dock, ids)
+	err := s.db.GetContext(ctx, &chat, `SELECT m.chat_id FROM email_messages m
+		JOIN email_threads t ON t.dock_id = m.dock_id AND t.chat_id = m.chat_id
+		WHERE m.dock_id = $1 AND m.message_id = ANY($2::text[]) AND t.participants ?| $3::text[]
+		ORDER BY m.created_at DESC LIMIT 1`, dock, ids, members)
 	if pgerr.IsNoRows(err) {
 		return "", false, nil
 	}
@@ -262,14 +293,14 @@ func (s *Store) ThreadOf(ctx context.Context, dock identity.DockID, ids []string
 
 // ThreadBySubject finds a recent thread with this subject that the sender
 // already takes part in: a reply whose client dropped the threading headers.
-func (s *Store) ThreadBySubject(ctx context.Context, dock identity.DockID, key, sender string, within time.Duration) (string, bool, error) {
-	if key == "" {
+func (s *Store) ThreadBySubject(ctx context.Context, dock identity.DockID, key string, members []string, within time.Duration) (string, bool, error) {
+	if key == "" || len(members) == 0 {
 		return "", false, nil
 	}
 	var chat string
 	err := s.db.GetContext(ctx, &chat, `SELECT chat_id FROM email_threads WHERE dock_id = $1 AND subject_key = $2
-		AND updated_at > now() - make_interval(secs => $4) AND participants @> to_jsonb($3::text)
-		ORDER BY updated_at DESC LIMIT 1`, dock, key, sender, within.Seconds())
+		AND updated_at > now() - make_interval(secs => $4) AND participants ?| $3::text[]
+		ORDER BY updated_at DESC LIMIT 1`, dock, key, members, within.Seconds())
 	if pgerr.IsNoRows(err) {
 		return "", false, nil
 	}

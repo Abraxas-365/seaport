@@ -105,7 +105,9 @@ WhatsApp docks have no variables of their own. They use `DATABASE_URL` (the seal
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
-| `SEAPORT_EMAIL_PRIVATE` | off | `true` or `1` lets email docks name IMAP and SMTP servers on loopback, private, link-local or CGNAT addresses (a mail server on your own network). Off, the connection is refused at connect time for any such address, whatever the host name resolves to. |
+| `SEAPORT_EMAIL_PRIVATE` | off | `true` or `1` lets email docks name IMAP and SMTP servers on loopback, private, link-local or CGNAT addresses (a mail server on your own network). Off, the connection is refused at connect time for any such address (including NAT64 and 6to4 forms), whatever the host name resolves to. |
+| `SEAPORT_EMAIL_HOSTS` | `*` | Comma-separated globs of the IMAP and SMTP server names a dock may name (`imap.gmail.com,smtp.gmail.com`, `*.example.com`). Checked when linking and again before every connection. |
+| `SEAPORT_EMAIL_REQUIRE_AUTH` | on | Skips mail whose sender the mailbox's own server did not authenticate: no `Authentication-Results` header, or no DMARC/DKIM/SPF pass aligned with `From`. `false`, `0`, `no` or `off` lets mail without the header through (marked `[sender not verified]` in its text); a header that says the sender failed is always skipped. See [Who wrote it](../guides/email.md#who-wrote-it). |
 
 ## Slack
 

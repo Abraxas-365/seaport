@@ -29,6 +29,12 @@ const (
 	// subjectWindow: how long a reply whose client dropped the threading
 	// headers may still join a thread by its subject.
 	subjectWindow = 14 * 24 * time.Hour
+	// idleRefresh: IDLE is ended and started again this often (servers
+	// drop a connection that idles for 30 minutes or so).
+	idleRefresh = 20 * time.Minute
+	// maxAttempts: a message whose handling fails this many times is
+	// skipped, so one that can never be taken in doesn't stop the mailbox.
+	maxAttempts = 3
 )
 
 // session is one dock's mailbox connection in this process: it connects,
@@ -41,12 +47,14 @@ type session struct {
 	done   chan struct{}
 	wake   chan struct{}
 	cursor Cursor
+	// attempts counts failed tries per UID (this session only).
+	attempts map[uint32]int
 }
 
 func newSession(g *Gateway, a Account) *session {
 	ctx, cancel := context.WithCancel(g.ctx)
 	return &session{g: g, acct: a, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1),
-		cursor: Cursor{Validity: a.UIDValidity, UID: a.LastUID}}
+		cursor: Cursor{Validity: a.UIDValidity, UID: a.LastUID}, attempts: map[uint32]int{}}
 }
 
 // stop ends the session and waits a little for it.
@@ -76,11 +84,11 @@ func (s *session) run() {
 		}
 		var le *loginError
 		switch {
-		case errors.As(err, &le):
+		case errors.As(err, &le) && le.permanent:
 			s.fail(err)
 			s.logout()
 			return
-		case errors.Is(err, errReconfigured):
+		case errors.Is(err, errReconfigured) || errors.Is(err, ErrStaleAccount):
 			if a, ferr := s.g.store.Find(s.ctx, s.acct.Dock); ferr == nil {
 				s.acct = a
 				s.cursor = Cursor{Validity: a.UIDValidity, UID: a.LastUID}
@@ -184,7 +192,7 @@ func (s *session) syncCursor(cl *imapclient.Client, sel *imap.SelectData) error 
 		slog.Warn("email folder was renumbered; reading from its end", "dock", s.acct.Dock, "uidvalidity", sel.UIDValidity)
 	}
 	s.cursor = Cursor{Validity: sel.UIDValidity, UID: top}
-	return s.g.store.SetCursor(s.ctx, s.acct.Dock, s.cursor)
+	return s.g.store.SetCursor(s.ctx, s.acct, s.cursor)
 }
 
 // wait blocks until there may be new mail: the server said so (IDLE), the
@@ -197,7 +205,12 @@ func (s *session) wait(cl *imapclient.Client, idle bool, recheck <-chan time.Tim
 			return err
 		}
 	}
-	var poll <-chan time.Time
+	var poll, refresh <-chan time.Time
+	if idle {
+		t := time.NewTimer(idleRefresh)
+		defer t.Stop()
+		refresh = t.C
+	}
 	if !idle || s.g.cfg.Poll > 0 {
 		t := time.NewTimer(s.g.cfg.poll())
 		defer t.Stop()
@@ -216,6 +229,8 @@ loop:
 		case <-s.wake:
 			break loop
 		case <-poll:
+			break loop
+		case <-refresh:
 			break loop
 		case <-recheck:
 			a, err := s.g.store.Find(s.ctx, s.acct.Dock)
@@ -248,18 +263,34 @@ loop:
 // take hands one message to the ship domain and moves the cursor past it.
 // Mail that can't become a ship is skipped (logged), never retried for
 // ever; a failure of ours (database, ship service) is returned so the
-// message is read again after reconnecting.
+// message is read again after reconnecting, but only maxAttempts times:
+// then it is logged and skipped like the others.
 func (s *session) take(f fetched) error {
-	err := s.handle(f)
-	switch {
-	case err == nil:
-	case errx.IsType(err, errx.TypeValidation):
-		slog.Warn("email skipped", "dock", s.acct.Dock, "uid", f.UID, "err", err)
-	default:
+	if err := s.outcome(f.UID, s.handle(f)); err != nil {
 		return err
 	}
 	s.cursor.UID = f.UID
-	return s.g.store.SetCursor(s.ctx, s.acct.Dock, s.cursor)
+	return s.g.store.SetCursor(s.ctx, s.acct, s.cursor)
+}
+
+// outcome says whether handling a message ended (nil: move on) or is to
+// be tried again after reconnecting (the error).
+func (s *session) outcome(uid uint32, err error) error {
+	switch {
+	case err == nil:
+	case errx.IsType(err, errx.TypeValidation):
+		slog.Warn("email skipped", "dock", s.acct.Dock, "uid", uid, "err", err)
+	case s.ctx.Err() != nil:
+		return err
+	default:
+		s.attempts[uid]++
+		if s.attempts[uid] < maxAttempts {
+			return err
+		}
+		slog.Error("email skipped after repeated failures", "dock", s.acct.Dock, "uid", uid, "attempts", maxAttempts, "err", err)
+	}
+	delete(s.attempts, uid)
+	return nil
 }
 
 func (s *session) handle(f fetched) error {
@@ -275,12 +306,16 @@ func (s *session) handle(f fetched) error {
 		slog.Info("email ignored", "dock", s.acct.Dock, "uid", f.UID, "reason", skip)
 		return nil
 	}
+	if m.Auth != AuthPass {
+		m.Notes = append(m.Notes, "sender not verified: the mailbox's server added no authentication result for it")
+	}
 	in, thread, err := s.inbound(f, m)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, receiveTimeout)
 	defer cancel()
+	// Only the sender joins the thread before customs has spoken.
 	if err := s.g.store.Note(ctx, s.acct.Organization, s.acct.Dock, thread, m.ID); err != nil {
 		return err
 	}
@@ -288,12 +323,25 @@ func (s *session) handle(f fetched) error {
 	if receiver == nil {
 		return errors.New("the ship service is not bound yet")
 	}
-	_, _, err = receiver.Receive(ctx, s.acct.Organization, in)
-	return err
+	st, _, err := receiver.Receive(ctx, s.acct.Organization, in)
+	if err != nil {
+		return err
+	}
+	// The others of the conversation (Reply-To of the sender's domain, To,
+	// Cc) are written to only once a message of the thread got through
+	// customs: a held or denied message adds nobody.
+	if st.Status != ship.StatusHeld {
+		if extra := s.extras(m); len(extra) > 0 {
+			t := Thread{Chat: thread.Chat, Participants: extra}
+			return s.g.store.Note(ctx, s.acct.Organization, s.acct.Dock, t, "")
+		}
+	}
+	return nil
 }
 
 // skip names why a message is not for the crew: the mailbox's own mail
-// (its replies, copies of what it sent) and mail no person wrote.
+// (its replies, copies of what it sent), mail no person wrote and mail
+// whose sender the mailbox's server did not vouch for.
 func (s *session) skip(m Message) string {
 	from := m.From.Address
 	local, _, _ := strings.Cut(from, "@")
@@ -306,13 +354,44 @@ func (s *session) skip(m Message) string {
 		return "automatic mail"
 	case local == "mailer-daemon" || local == "postmaster":
 		return "delivery report"
+	case m.Auth == AuthFail:
+		return "sender failed authentication (SPF/DKIM/DMARC)"
+	case m.Auth == AuthNone && !s.g.cfg.AllowUnverified:
+		return "no authentication result from the mailbox's server (SEAPORT_EMAIL_REQUIRE_AUTH)"
 	}
 	return ""
 }
 
-// inbound builds the ship and the thread note of a message, finding the
-// thread by the message ids it answers, else (a reply whose client dropped
-// them) by subject and sender, else it starts a new one.
+// sender is where answers to a message go: its From, or its Reply-To when
+// that is on the same domain (a Reply-To elsewhere is the sender's say-so
+// and could point anywhere).
+func sender(m Message) string {
+	if m.ReplyTo != "" && domainOf(m.ReplyTo) == domainOf(m.From.Address) {
+		return m.ReplyTo
+	}
+	return m.From.Address
+}
+
+// extras are the addresses a message adds to its thread's recipients: its
+// To and Cc, minus the mailbox itself. Called only for a message that got
+// through customs.
+func (s *session) extras(m Message) []string {
+	own := strings.ToLower(s.acct.Address)
+	var out []string
+	for _, p := range m.Others {
+		if p != own {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// inbound builds the ship and the thread note of a message. The thread is
+// found by the message ids it answers, else (a reply whose client dropped
+// them) by subject, else a new one starts; but only a thread the sender
+// already takes part in counts, so naming someone else's Message-ID can't
+// pull a message (and the sender as a recipient) into their conversation:
+// it starts a thread of its own and customs decides about it.
 func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 	ctx, cancel := context.WithTimeout(s.ctx, receiveTimeout)
 	defer cancel()
@@ -326,37 +405,54 @@ func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 	for i := len(m.References) - 1; i >= 0; i-- {
 		ids = append(ids, m.References[i])
 	}
-	chat, found, err := s.g.store.ThreadOf(ctx, s.acct.Dock, ids)
+	who := sender(m)
+	members := []string{m.From.Address, who}
+	chat, found, err := s.g.store.ThreadOf(ctx, s.acct.Dock, ids, members)
 	if err != nil {
 		return ship.Inbound{}, Thread{}, err
 	}
 	key := SubjectKey(m.Subject)
 	if !found && key != strings.ToLower(strings.TrimSpace(m.Subject)) {
-		chat, found, err = s.g.store.ThreadBySubject(ctx, s.acct.Dock, key, m.From.Address, subjectWindow)
+		chat, found, err = s.g.store.ThreadBySubject(ctx, s.acct.Dock, key, members, subjectWindow)
 		if err != nil {
 			return ship.Inbound{}, Thread{}, err
 		}
 	}
 	first := !found
+	var earlier []string // who the thread already writes to
 	if first {
 		chat = chatID(m.ID)
 		if m.ID == "" {
 			chat = fit(fmt.Sprintf("%s/%d/%d", s.acct.Dock, s.cursor.Validity, f.UID), "u-")
 		}
-	}
-	own := strings.ToLower(s.acct.Address)
-	who := m.From.Address
-	if m.ReplyTo != "" {
-		who = m.ReplyTo // answers go where the sender asked
-	}
-	var people []string
-	for _, p := range append([]string{who}, m.Others...) {
-		if p != own {
-			people = append(people, p)
-		}
+	} else if t, err := s.g.store.Thread(ctx, s.acct.Dock, chat); err == nil {
+		earlier = t.Participants
 	}
 	refs := append(append([]string{}, m.References...), m.InReplyTo)
-	thread := Thread{Chat: chat, Subject: m.Subject, Key: key, Participants: people, Refs: refs}
+	thread := Thread{Chat: chat, Subject: m.Subject, Key: key, Participants: []string{who}, Refs: refs}
+
+	// A conversation with more than one other person is a group (whose
+	// messages need to address the mailbox: it is in To, not just Cc/Bcc).
+	own := strings.ToLower(s.acct.Address)
+	kind, addressed := conversation.KindDirect, true
+	if first {
+		others := map[string]bool{m.From.Address: true, who: true}
+		for _, p := range m.Others {
+			if p != own {
+				others[p] = true
+			}
+		}
+		if len(others) > 1 {
+			kind = conversation.KindGroup
+		}
+	}
+	// Addressed: the mailbox is a To recipient, not only in Cc or Bcc.
+	addressed = false
+	for _, p := range m.To {
+		if p == own {
+			addressed = true
+		}
+	}
 
 	body := m.Text
 	if first && m.Subject != "" {
@@ -383,12 +479,34 @@ func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 	if sent.IsZero() {
 		sent = time.Now()
 	}
-	handles := append([]string{}, people...)
+	// Handles customs matches: the sender first (never cut), then their
+	// domain, then who the thread already writes to. Never the To/Cc of
+	// this message: a rule that allows one of them must not let a stranger
+	// in by copying them.
+	domain := "@" + domainOf(m.From.Address)
+	handles := handleList(append([]string{m.From.Address, who, domain}, earlier...))
 	in := ship.Inbound{
 		Dock: s.acct.Dock, Channel: dock.ChannelEmail,
-		ChatID: chat, ChatKind: conversation.KindDirect, ChatTitle: clean(m.Subject, text.MaxName), ChatHandles: handles,
+		ChatID: chat, ChatKind: kind, ChatTitle: clean(m.Subject, text.MaxName), ChatHandles: handles,
 		ExternalID: external, SenderID: m.From.Address, SenderName: clean(m.From.Name, text.MaxName),
-		SenderHandles: []string{m.From.Address}, Text: body, SentAt: sent, Addressed: true, Media: m.Media,
+		SenderHandles: handleList([]string{m.From.Address, domain}), Text: body, SentAt: sent, Addressed: addressed, Media: m.Media,
 	}
 	return in, thread, nil
+}
+
+// handleList dedupes handles and keeps the first conversation.MaxHandles
+// (an arrival reporting more is refused whole).
+func handleList(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, h := range in {
+		if h != "" && h != "@" && len(h) <= conversation.MaxExternalID && !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	if len(out) > conversation.MaxHandles {
+		out = out[:conversation.MaxHandles]
+	}
+	return out
 }

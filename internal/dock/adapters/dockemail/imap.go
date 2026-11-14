@@ -14,8 +14,14 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
-// loginError: the server refused the account's username or password.
-type loginError struct{ err error }
+// loginError: the server refused the login. permanent when it said so
+// with an authentication response code (wrong or revoked password): the
+// dock is logged out. Any other NO (throttling, UNAVAILABLE, too many
+// connections) is retried with backoff.
+type loginError struct {
+	err       error
+	permanent bool
+}
 
 func (e *loginError) Error() string { return "the mailbox refused the login: " + e.err.Error() }
 func (e *loginError) Unwrap() error { return e.err }
@@ -64,13 +70,18 @@ func (c Config) imapConnect(ctx context.Context, a Account, wake func()) (*imapc
 	if err := cl.Login(a.Username, a.password).Wait(); err != nil {
 		_ = cl.Close()
 		var ie *imap.Error
-		if errors.As(err, &ie) {
-			return nil, &loginError{err}
+		if errors.As(err, &ie) && ie.Type == imap.StatusResponseTypeNo {
+			return nil, &loginError{err: err, permanent: authRefused(ie.Code)}
 		}
 		return nil, err
 	}
 	_ = conn.SetDeadline(time.Time{})
 	return cl, nil
+}
+
+// authRefused: response codes that mean the credentials are no good.
+func authRefused(code imap.ResponseCode) bool {
+	return code == imap.ResponseCodeAuthenticationFailed || code == imap.ResponseCodeAuthorizationFailed
 }
 
 func tlsAsConn(t *tls.Conn) net.Conn { return t }
@@ -134,7 +145,7 @@ func (c Config) Check(ctx context.Context, a Account) (Cursor, error) {
 	_ = cl.Logout().Wait()
 	if err := c.smtpDo(ctx, a, func(*smtp.Client) error { return nil }); err != nil {
 		if smtpRefusedLogin(err) {
-			return Cursor{}, &loginError{fmt.Errorf("SMTP: %w", err)}
+			return Cursor{}, &loginError{err: fmt.Errorf("SMTP: %w", err), permanent: true}
 		}
 		return Cursor{}, fmt.Errorf("SMTP: %w", err)
 	}

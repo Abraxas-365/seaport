@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/smtp"
 	"net/textproto"
@@ -125,10 +126,23 @@ func (c Config) deliver(ctx context.Context, a Account, to []string, raw []byte)
 		if err := cl.Mail(a.Address); err != nil {
 			return err
 		}
+		// A recipient the server refuses is skipped; the message fails
+		// only when nobody accepted it.
+		var accepted int
+		var refusal error
 		for _, r := range to {
 			if err := cl.Rcpt(r); err != nil {
-				return err
+				refusal = err
+				slog.Warn("email recipient refused", "to", r, "err", err)
+				continue
 			}
+			accepted++
+		}
+		if accepted == 0 {
+			if refusal == nil {
+				refusal = errors.New("nobody to send to")
+			}
+			return refusal
 		}
 		w, err := cl.Data()
 		if err != nil {

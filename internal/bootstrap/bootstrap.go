@@ -238,8 +238,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		Jira:    dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
 		Slack:   dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL},
 		Webhook: dockwebhook.Config{PublicURL: cfg.PublicURL},
-		Email:   dockemail.Config{Private: cfg.EmailPrivate, TLS: opts.Email.TLS, Poll: opts.Email.Poll, Recheck: opts.Email.Recheck}})
-
+		Email:   dockemail.Config{Private: cfg.EmailPrivate, Hosts: cfg.EmailHosts, AllowUnverified: !cfg.EmailRequireAuth, TLS: opts.Email.TLS, Poll: opts.Email.Poll, Recheck: opts.Email.Recheck}})
 	if err != nil {
 		bus.Close()
 		closeDBs()

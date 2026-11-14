@@ -93,7 +93,9 @@ func (*Gateway) Exclusive() bool { return true }
 
 // Close ends every session and waits for them.
 func (g *Gateway) Close() {
+	g.mu.Lock() // start adds to the wait group under it: no Add after Wait
 	g.cancel()
+	g.mu.Unlock()
 	g.wg.Wait()
 }
 

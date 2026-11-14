@@ -6,7 +6,9 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"path"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -25,6 +27,15 @@ type Config struct {
 	// 60 s); Recheck how often a session looks at its account for a change
 	// made on another process (default 30 s).
 	Poll, Recheck time.Duration
+	// Hosts is the allow-list of server names a dock may name
+	// (SEAPORT_EMAIL_HOSTS): globs where * matches any run of characters,
+	// case-insensitive. Empty means every name.
+	Hosts []string
+	// AllowUnverified lets mail through whose sender the mailbox's own
+	// server did not vouch for (no Authentication-Results header, or no
+	// SPF/DKIM pass in it); it is marked in the text. Off (the default),
+	// such mail is skipped (SEAPORT_EMAIL_REQUIRE_AUTH=false turns it on).
+	AllowUnverified bool
 }
 
 const (
@@ -36,6 +47,26 @@ const (
 
 // errPrivate is a refused address; the dialer returns it from its Control.
 var errPrivate = errors.New("address is private")
+
+// errHost is a server name the operator's allow-list does not include.
+var errHost = errors.New("mail server name is not allowed on this port")
+
+// hostAllowed says whether the allow-list names host (no list: all).
+func hostAllowed(hosts []string, host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	any := false
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" {
+			continue
+		}
+		any = true
+		if ok, err := path.Match(h, host); err == nil && ok {
+			return true
+		}
+	}
+	return !any
+}
 
 func (c Config) poll() time.Duration {
 	if c.Poll > 0 {
@@ -80,18 +111,37 @@ func (c Config) dialer() *net.Dialer {
 		}}
 }
 
-// public: a global unicast address that is not private or carrier-grade
-// NAT (what the egress proxy of hosted agents allows too).
+// notPublic are ranges that are global-unicast to Go but not public
+// servers: carrier-grade NAT, and the IPv6 forms that embed an IPv4
+// address (NAT64, 6to4) and so can reach inside.
+var notPublic = []netip.Prefix{
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+}
+
+// public: a global unicast address that is not private, carrier-grade
+// NAT or an embedded IPv4 form (what the egress proxy of hosted agents
+// allows too).
 func public(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
 		return false
 	}
-	return !netip.MustParsePrefix("100.64.0.0/10").Contains(ip)
+	for _, p := range notPublic {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 // dialTLS opens a TLS connection (implicit TLS) to the endpoint.
 func (c Config) dialConn(ctx context.Context, e Endpoint) (net.Conn, error) {
+	if !hostAllowed(c.Hosts, e.Host) {
+		return nil, errHost
+	}
 	d := c.dialer()
 	return d.DialContext(ctx, "tcp", net.JoinHostPort(e.Host, strconv.Itoa(e.Port)))
 }

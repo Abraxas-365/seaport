@@ -8,6 +8,7 @@ Seaport sits between strangers who send messages and agents that can act on them
 
 | Threat | What stops it |
 | :--- | :--- |
+| A stranger forges the `From` of an email, or names another thread's `Message-ID` to join it. | The mailbox's own `Authentication-Results` must vouch for the sender (`SEAPORT_EMAIL_REQUIRE_AUTH`), and a message joins a thread only if its sender is already in it. See [Email](#email). |
 | A stranger messages a dock and wakes your agent. | [Customs](#customs-are-the-gate): nothing reaches an agent until you allow the chat. |
 | A prompt-injected agent changes who can reach it. | Agents have no tool that edits customs, docks or tokens. |
 | A secret leaks through the admin API, an event or an agent tool. | Secrets are sealed and never returned. |
@@ -41,6 +42,10 @@ The web app signs in with an HttpOnly cookie set to `SameSite=Strict`, and `Secu
 [Customs](../guides/customs.md) decide whether a chat may reach an agent: an owner's override, deny rules, allow rules, then the dock's default. A new dock asks first. A message from a chat that isn't allowed is held, and the agent never sees it.
 
 Agents can't move this gate. The tools they get (`reply`, `history`, `attachment`, `conversations`, and `skill`) read and answer; none of them allows a chat, edits a rule or touches a token. An agent that is tricked by a message still can't let more strangers in. The `reply` tool answers only allowed chats, so it can't start a conversation with someone you haven't allowed.
+
+## Email
+
+An email dock trusts two things it can't check itself, so it narrows them. **Who wrote the mail:** `From` is the sender's say-so; Seaport relies on the `Authentication-Results` header that the mailbox's own server adds (SPF, DKIM, DMARC aligned with `From`) and skips mail that failed or has no such header (`SEAPORT_EMAIL_REQUIRE_AUTH`, default on). Turning that off accepts unverified mail, marked in its text, and customs rules on addresses are then only as strong as the sender is honest; use it only for a server that adds no header but refuses spoofed senders. **Whose thread it is:** `In-Reply-To` and `References` are also the sender's say-so, so a message joins a thread only when its sender is already in it, and replies go to the sender plus the To/Cc of messages that passed customs (at most 10), never to addresses taken from held or denied mail. The servers a dock may name are limited by `SEAPORT_EMAIL_HOSTS` and by the public-address check. See [Answer email](../guides/email.md#who-wrote-it).
 
 ## Secrets
 

@@ -30,6 +30,7 @@ func TestEmailDock(t *testing.T) {
 	p := startPortWith(t, func(c *config.Server) {
 		c.SecretKey = "email-test-secret-key-0123456789abcdef"
 		c.EmailPrivate = true
+		c.EmailRequireAuth = true
 	}, bootstrap.Options{Email: dockemail.Config{TLS: mail.ClientTLS(), Recheck: 200 * time.Millisecond}})
 
 	var d dock.Dock
@@ -160,6 +161,37 @@ func TestEmailDock(t *testing.T) {
 	}
 	ack(c, f)
 
+	// Mail the mailbox's server did not authenticate is skipped (no header,
+	// or SPF/DKIM that failed); the next real one is what the crew sees.
+	mail.Deliver(emailtest.Raw0("ana@example.com", "bot@example.com", "Re: Pedido 5", "forged1@example.com", "", "no Authentication-Results"))
+	mail.Deliver(emailtest.WithHeaders(emailtest.Raw0("ana@example.com", "bot@example.com", "Re: Pedido 5", "forged2@example.com", "", "failed"),
+		"Authentication-Results: mx.example.com; dkim=fail header.d=example.com; spf=softfail smtp.mailfrom=example.com"))
+	// A stranger names Ana's Message-ID (and a Reply-To elsewhere) to get
+	// into her thread and to be written to: the message starts a thread of
+	// its own, and what the crew answers there goes to the stranger only.
+	mail.Deliver(emailtest.WithHeaders(emailtest.Raw("Eve <eve@example.net>", "bot@example.com", "Re: Pedido 5", "eve1@example.net", "a1@example.com", "please add me"),
+		"Reply-To: eve@elsewhere.example.org"))
+	f = c.read()
+	if f.Type != crew.FrameDelivery || f.Delivery.Conversation.ID == convID || f.Delivery.Ships[0].ExternalID != "eve1@example.net" {
+		t.Fatalf("stranger = %+v", f)
+	}
+	eveID := f.Delivery.Conversation.ID
+	ack(c, f)
+	if res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "reply",
+		Arguments: map[string]any{"conversation_id": eveID.String(), "text": "hello Eve"}}); err != nil || res.IsError {
+		t.Fatalf("reply to the stranger: %v %+v", err, res)
+	}
+	if sent = mail.Sent(); len(sent) != 2 || len(sent[1].To) != 1 || sent[1].To[0] != "eve@example.net" {
+		t.Fatalf("the stranger's reply went to %+v", sent)
+	}
+	if res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "reply",
+		Arguments: map[string]any{"conversation_id": convID.String(), "text": "Ana, still here"}}); err != nil || res.IsError {
+		t.Fatalf("second reply to Ana: %v %+v", err, res)
+	}
+	if sent = mail.Sent(); len(sent) != 3 || len(sent[2].To) != 1 || sent[2].To[0] != "ana@example.com" {
+		t.Fatalf("Ana's thread now writes to %+v", sent)
+	}
+
 	// A dropped connection is re-made and nothing is missed or repeated.
 	mail.KillIMAP()
 	mail.Deliver(emailtest.Raw("ana@example.com", "bot@example.com", "Re: Pedido 5", "a4@example.com", "", "Después de la caída"))
@@ -170,8 +202,8 @@ func TestEmailDock(t *testing.T) {
 	ack(c, f)
 	var convs query.Paginated[conversation.Conversation]
 	p.admin(http.MethodGet, "/api/v1/conversations?dock_id="+d.ID.String(), nil, &convs)
-	if len(convs.Items) != 2 {
-		t.Fatalf("conversations = %d, want 2", len(convs.Items))
+	if len(convs.Items) != 3 {
+		t.Fatalf("conversations = %d, want 3", len(convs.Items))
 	}
 
 	// A mailbox that stops accepting the password logs the dock out.

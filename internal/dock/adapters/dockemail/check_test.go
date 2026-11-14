@@ -59,3 +59,25 @@ func TestCheckRefusals(t *testing.T) {
 		t.Fatalf("loopback without SEAPORT_EMAIL_PRIVATE: %v", err)
 	}
 }
+
+// A recipient the server refuses is skipped; the message fails only when
+// nobody takes it.
+func TestDeliverSkipsRefusedRecipients(t *testing.T) {
+	m := emailtest.New(t, emailtest.Options{})
+	m.AddUser("bot@example.com", "pw")
+	m.RefuseRecipient("gone@example.com")
+	cfg := Config{Private: true, TLS: m.ClientTLS()}
+	raw := []byte("From: bot@example.com\r\nSubject: x\r\n\r\nhi\r\n")
+	if err := cfg.deliver(context.Background(), account(m, "pw"), []string{"gone@example.com", "ana@example.com"}, raw); err != nil {
+		t.Fatal(err)
+	}
+	if sent := m.Sent(); len(sent) != 1 || len(sent[0].To) != 1 || sent[0].To[0] != "ana@example.com" {
+		t.Fatalf("sent = %+v", sent)
+	}
+	if err := cfg.deliver(context.Background(), account(m, "pw"), []string{"gone@example.com"}, raw); err == nil {
+		t.Fatal("a message nobody accepted succeeded")
+	}
+	if len(m.Sent()) != 1 {
+		t.Fatal("a refused message was sent")
+	}
+}

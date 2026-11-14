@@ -18,6 +18,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/mail"
 	"net/textproto"
 	"strconv"
 	"strings"
@@ -59,6 +60,17 @@ type Server struct {
 	password string
 	kept     []string // what Deliver put in the INBOX
 	smtpAuth string   // PLAIN or LOGIN: what the SMTP server offers
+	refuse   map[string]bool
+}
+
+// RefuseRecipient makes the SMTP server answer 550 to RCPT TO for it.
+func (s *Server) RefuseRecipient(address string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refuse == nil {
+		s.refuse = map[string]bool{}
+	}
+	s.refuse[strings.ToLower(address)] = true
 }
 
 // Options select the modes of the servers.
@@ -315,7 +327,15 @@ func (s *Server) smtpSession(c net.Conn, startTLS bool) {
 			from = strings.Trim(strings.TrimSpace(line[len("MAIL FROM:"):]), "<>")
 			say("250 ok")
 		case strings.HasPrefix(verb, "RCPT TO:"):
-			to = append(to, strings.Trim(strings.TrimSpace(line[len("RCPT TO:"):]), "<>"))
+			rcpt := strings.Trim(strings.TrimSpace(line[len("RCPT TO:"):]), "<>")
+			s.mu.Lock()
+			no := s.refuse[strings.ToLower(rcpt)]
+			s.mu.Unlock()
+			if no {
+				say("550 5.1.1 no such user")
+				continue
+			}
+			to = append(to, rcpt)
 			say("250 ok")
 		case verb == "DATA":
 			say("354 end with <CRLF>.<CRLF>")
@@ -345,8 +365,29 @@ func (s *Server) checkLogin(user, pass string) bool {
 	return s.username != "" && user == s.username && pass == s.password
 }
 
-// Raw builds a simple plain-text email.
+// Raw builds a simple plain-text email that the mailbox's server
+// authenticated (an Authentication-Results header with DKIM and SPF
+// passing for the sender's domain, as a real provider adds).
 func Raw(from, to, subject, id, inReplyTo, body string) string {
+	domain := from
+	if a, err := mail.ParseAddress(from); err == nil {
+		domain = a.Address
+	}
+	if i := strings.LastIndex(domain, "@"); i >= 0 {
+		domain = domain[i+1:]
+	}
+	return WithHeaders(Raw0(from, to, subject, id, inReplyTo, body),
+		"Authentication-Results: mx.example.com; dkim=pass header.d="+domain+"; spf=pass smtp.mailfrom="+domain)
+}
+
+// WithHeaders puts header lines first in a raw email (like a receiving
+// server does).
+func WithHeaders(raw string, lines ...string) string {
+	return strings.Join(lines, "\r\n") + "\r\n" + raw
+}
+
+// Raw0 is Raw without any Authentication-Results header.
+func Raw0(from, to, subject, id, inReplyTo, body string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\n", from, to, subject, time.Now().Format(time.RFC1123Z))
 	if id != "" {

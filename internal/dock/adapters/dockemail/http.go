@@ -2,7 +2,9 @@ package dockemail
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -116,7 +118,7 @@ type LinkRequest struct {
 	Folder string `json:"folder"`
 }
 
-func (r LinkRequest) validate() (Account, error) {
+func (r LinkRequest) validate(hosts []string) (Account, error) {
 	var a Account
 	addr, err := parseAddress(r.Address)
 	if err != nil || addr.Name != "" {
@@ -133,10 +135,10 @@ func (r LinkRequest) validate() (Account, error) {
 	if strings.ContainsAny(a.DisplayName, "\r\n") {
 		return a, errx.InvalidField("display_name", "display_name must be one line")
 	}
-	if a.IMAP, err = r.IMAP.validate("imap"); err != nil {
+	if a.IMAP, err = r.IMAP.validate("imap", hosts); err != nil {
 		return a, err
 	}
-	if a.SMTP, err = r.SMTP.validate("smtp"); err != nil {
+	if a.SMTP, err = r.SMTP.validate("smtp", hosts); err != nil {
 		return a, err
 	}
 	a.Username = text.Clean(r.Username)
@@ -163,11 +165,13 @@ func (r LinkRequest) validate() (Account, error) {
 	return a, nil
 }
 
-func (e Endpoint) validate(field string) (Endpoint, error) {
+func (e Endpoint) validate(field string, hosts []string) (Endpoint, error) {
 	e.Host = strings.ToLower(strings.TrimSpace(e.Host))
 	switch {
 	case e.Host == "" || len(e.Host) > maxHost || !validHost(e.Host):
 		return e, errx.InvalidField(field+".host", field+".host must be a server name such as imap.example.com (no scheme, port or path)")
+	case !hostAllowed(hosts, e.Host):
+		return e, errx.InvalidField(field+".host", field+".host is not allowed on this port (allowed: "+strings.Join(hosts, ", ")+"; the operator sets SEAPORT_EMAIL_HOSTS)")
 	case e.Port < 1 || e.Port > 65535:
 		return e, errx.InvalidField(field+".port", field+".port must be between 1 and 65535")
 	case e.TLS != TLS && e.TLS != StartTLS:
@@ -201,7 +205,7 @@ func (h *Handler) link(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	a, err := req.validate()
+	a, err := req.validate(h.g.cfg.Hosts)
 	if err != nil {
 		return err
 	}
@@ -228,20 +232,27 @@ func (h *Handler) link(c fiber.Ctx) error {
 	return httpx.JSON(c, http.StatusOK, Info{Account: info(saved)})
 }
 
-// refused turns what a check found into the answer the form shows.
+// refused turns what a check found into the answer the form shows. What
+// the remote server said (its banner, its refusal text) is logged, not
+// handed back: a tenant could use it to read what an internal host says.
 func refused(err error) error {
+	slog.Info("email check failed", "err", short(err.Error()))
 	var le *loginError
+	var cert *tls.CertificateVerificationError
+	var nerr net.Error
 	switch {
 	case errors.As(err, &le):
-		return errx.Business("the mailbox refused the password or username (" + short(le.Error()) + "); with Gmail, Outlook or iCloud use an app password")
+		return errx.Business("the mailbox refused the password or username; with Gmail, Outlook or iCloud use an app password")
 	case errors.Is(err, errPrivate):
 		return errx.Business("that server address is private or local: this port only connects to public mail servers (the operator can allow others with SEAPORT_EMAIL_PRIVATE)")
+	case errors.Is(err, errHost):
+		return errx.Business("that mail server is not allowed on this port (the operator sets SEAPORT_EMAIL_HOSTS)")
+	case errors.As(err, &cert):
+		return errx.Business("the mail server's certificate could not be verified")
+	case errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded):
+		return errx.Business("the mail server did not answer in time")
 	}
-	var nerr net.Error
-	if errors.As(err, &nerr) && nerr.Timeout() || errors.Is(err, context.DeadlineExceeded) {
-		return errx.Business("the mail server did not answer in time: " + short(err.Error()))
-	}
-	return errx.Business("could not connect to the mailbox: " + short(err.Error()))
+	return errx.Business("could not connect to the mailbox: check the servers, ports and folder")
 }
 
 func short(s string) string {
