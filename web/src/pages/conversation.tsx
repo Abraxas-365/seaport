@@ -21,7 +21,12 @@ import {
   useCrew,
   useDocks,
   useInbox,
+  useDeleteSchedule,
+  useDockTeam,
   useLink,
+  useNow,
+  useRunSchedule,
+  useSchedules,
   useSend,
   useSetAccess,
   useSetGroupMode,
@@ -29,6 +34,7 @@ import {
   useThread,
   useTurns,
   useUnlink,
+  useUpdateSchedule,
 } from "@/lib/hooks"
 import { useActivity, type Activity } from "@/lib/activity"
 import { useLiveState } from "@/lib/live"
@@ -66,7 +72,9 @@ import {
   EmptyState,
   ErrorState,
   Mono,
+  NewScheduleDialog,
   NoAccess,
+  ScheduleRow,
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
@@ -488,6 +496,7 @@ function DetailsSheet({ conversation: c, doors }: { conversation: Conversation; 
               </ul>
             )}
           </div>
+          <SchedulesSection conversation={c} />
           <Separator />
           <DataList>
             <DataItem label="Canal">{channelLabel[c.channel]}</DataItem>
@@ -519,6 +528,55 @@ function DetailsSheet({ conversation: c, doors }: { conversation: Conversation; 
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** Programaciones: prompts the port posts into this conversation at set times. */
+function SchedulesSection({ conversation: c }: { conversation: Conversation }) {
+  const can = useCan()
+  const now = useNow()
+  const schedules = useSchedules(c.id)
+  const team = useDockTeam(c.dock_id)
+  const update = useUpdateSchedule()
+  const run = useRunSchedule()
+  const remove = useDeleteSchedule(c.id)
+  if (!can(Perm.SchedulesRead)) return null
+  const write = can(Perm.SchedulesWrite)
+  const members = team.data?.agents ?? []
+  const nameOf = (id?: string) => members.find((m) => m.agent_id === id)?.name
+  const items = schedules.data?.items ?? []
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Programaciones</h3>
+        {write && <NewScheduleDialog conversationId={c.id} team={members} />}
+      </div>
+      {schedules.isPending ? (
+        <Skeleton className="h-20 rounded-lg" />
+      ) : schedules.isError ? (
+        <p className="text-xs text-destructive">No se pudieron cargar las programaciones.</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Ninguna. Una programación hace que Seaport escriba un mensaje aquí a ciertas horas (un resumen diario, una
+          revisión semanal) y el agente lo trabaje como cualquier otro.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((s) => (
+            <ScheduleRow
+              key={s.id}
+              schedule={s}
+              agentName={nameOf(s.agent_id)}
+              now={now}
+              busy={update.isPending || run.isPending}
+              onToggle={write ? (enabled) => update.mutate({ id: s.id, enabled }) : undefined}
+              onRun={write ? () => run.mutate(s.id) : undefined}
+              onDelete={write ? () => remove.mutateAsync(s.id) : undefined}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }
 

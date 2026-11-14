@@ -17,6 +17,8 @@ export const permissions = [
   "seaport:agents:write",
   "seaport:environments:read",
   "seaport:environments:write",
+  "seaport:schedules:read",
+  "seaport:schedules:write",
 ] as const
 
 export type Permission = (typeof permissions)[number]
@@ -38,6 +40,8 @@ export const Perm = {
   AgentsWrite: "seaport:agents:write",
   EnvironmentsRead: "seaport:environments:read",
   EnvironmentsWrite: "seaport:environments:write",
+  SchedulesRead: "seaport:schedules:read",
+  SchedulesWrite: "seaport:schedules:write",
 } as const satisfies Record<string, Permission>
 
 /** What each permission lets someone do. */
@@ -57,4 +61,6 @@ export const permissionLabels: Record<Permission, string> = {
   "seaport:agents:write": "Create, change and delete agents and assign them to docks",
   "seaport:environments:read": "View environments and the agents the port hosts",
   "seaport:environments:write": "Create, change and delete environments, host agents and start or stop them",
+  "seaport:schedules:read": "View schedules (prompts posted into conversations at set times)",
+  "seaport:schedules:write": "Create, change, run and delete schedules",
 }

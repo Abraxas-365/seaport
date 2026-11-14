@@ -7,6 +7,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/permission"
+	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
@@ -33,4 +34,8 @@ var EventPermissions = map[string]string{
 	hosting.EventEnvironmentDeleted: permission.EnvironmentsRead,
 	hosting.EventSlotsUpdated:       permission.EnvironmentsRead,
 	hosting.EventEnvironmentBuild:   permission.EnvironmentsRead,
+	schedule.EventCreated:           permission.SchedulesRead,
+	schedule.EventUpdated:           permission.SchedulesRead,
+	schedule.EventDeleted:           permission.SchedulesRead,
+	schedule.EventFired:             permission.SchedulesRead,
 }

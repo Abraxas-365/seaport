@@ -9,14 +9,14 @@ import (
 
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
-// tenant domain's (dock, conversation, ship, crew, agent, hosting) Commands, Queries, CustomsCommands, CustomsQueries,
+// tenant domain's (dock, conversation, ship, crew, agent, hosting, schedule) Commands, Queries, CustomsCommands, CustomsQueries,
 // Messenger, Repository, CustomsRepository, Token*, Presence, DockLocker,
 // Owners, Relay, Kits and Gate port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
 // tenantDomains own tenant rows (organization_id).
-var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true}
+var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true, "schedule": true}
 
 // tenantPorts are the port interfaces the rule covers.
 var tenantPorts = map[string]bool{
@@ -54,6 +54,8 @@ var systemWide = map[string]string{
 	"crew.Presence.Listen":            "a process listens to the signals of every organization",
 	"hosting.Repository.Supervise":    "the slot supervisor wakes, stops and reconciles the slots of every organization",
 	"hosting.Repository.PortID":       "the deployment's own id (labels its containers), not a tenant's",
+	"schedule.Commands.FireDue":       "the runner of every process fires the due schedules of every organization",
+	"schedule.Repository.Due":         "the runner claims the due schedules of every organization",
 }
 
 func tenantViolations(files []goFile) []string {

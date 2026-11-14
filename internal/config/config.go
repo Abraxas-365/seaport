@@ -25,6 +25,8 @@ const (
 	DockLease = 30 * time.Second
 	// SweepInterval is how often expired claims are released.
 	SweepInterval = 30 * time.Second
+	// ScheduleTick is how often every process looks for due schedules.
+	ScheduleTick = 30 * time.Second
 	// EventRetention is how long the event log keeps events: a live client
 	// reconnecting within it resumes, later ones refetch (reset).
 	EventRetention = time.Hour
@@ -95,6 +97,8 @@ type Server struct {
 	// SEAPORT_MAX_CREW_CONNECTIONS (20 live agents),
 	// SEAPORT_SEND_ORG_PER_HOUR (1000 outbound messages across its docks).
 	MaxDocks, MaxCrewConnections, SendOrgPerHour int
+	// SEAPORT_MAX_SCHEDULES (100): schedules per organization.
+	MaxSchedules int
 	// SEAPORT_API_RATE (20) and SEAPORT_API_BURST (60): requests per second
 	// per caller (organization + subject + credential) on /api, /crew/ws
 	// and /mcp; 0 disables.
@@ -233,6 +237,7 @@ func LoadServer() (Server, error) {
 		{"SEAPORT_HOST_MAX_CPUS", 4, &c.HostMaxCPUs},
 		{"SEAPORT_HOST_MAX_MEMORY_MB", 8192, &c.HostMaxMemoryMB},
 		{"SEAPORT_MAX_SLOTS", 10, &c.MaxSlots},
+		{"SEAPORT_MAX_SCHEDULES", 100, &c.MaxSchedules},
 	} {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err

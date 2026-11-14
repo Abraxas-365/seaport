@@ -35,6 +35,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting/hostingmodule"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/schedule/schedulemodule"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
 	"github.com/Abraxas-365/seaport/migrations"
@@ -61,12 +62,16 @@ type App struct {
 	docks  *dockmodule.Module
 	ships  *shipmodule.Module
 	hosted *hostingmodule.Module
+	// schedules posts the prompts of schedules when they are due.
+	schedules *schedulemodule.Module
 	// signIn is iam mode's sign-in (nil in the other modes).
 	signIn *authmodule.Module
 	// blobs keeps message media (nil: off).
 	blobs *gocloudblob.Store
 	sweep time.Duration
-	cfg   config.Server
+	// scheduleTick is how often due schedules are looked for.
+	scheduleTick time.Duration
+	cfg          config.Server
 	// done ends long-lived streams (SSE) on shutdown.
 	done     chan struct{}
 	stopOnce func()
@@ -90,6 +95,8 @@ type Options struct {
 	SweepInterval time.Duration
 	// EgressLookup resolves the egress proxy's hosts (tests).
 	EgressLookup func(ctx context.Context, host string) ([]netip.Addr, error)
+	// ScheduleTick overrides config.ScheduleTick (tests).
+	ScheduleTick time.Duration
 	// Authenticator overrides the one of cfg.Auth (tests with several
 	// organizations).
 	Authenticator httpx.Authenticator
@@ -183,6 +190,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if sweep <= 0 {
 		sweep = config.SweepInterval
 	}
+	scheduleTick := opts.ScheduleTick
+	if scheduleTick <= 0 {
+		scheduleTick = config.ScheduleTick
+	}
 	dockLease := opts.DockLease
 	if dockLease == 0 {
 		dockLease = config.DockLease
@@ -270,6 +281,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service)
+	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)
+	schedules.Bind(ships.Service)
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
@@ -318,15 +331,15 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	srv := newServer(cfg.Auth != config.AuthNone, func(app *fiber.App) {
 		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register},
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
 			// Everything else is the admin UI (client routes fall back to index.html).
 			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})
 
-	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, signIn: signIn, cfg: cfg,
-		blobs: blobs, sweep: sweep, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
+	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, schedules: schedules, signIn: signIn, cfg: cfg,
+		blobs: blobs, sweep: sweep, scheduleTick: scheduleTick, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
 // newProcessID names this process among those serving one database:
@@ -410,6 +423,7 @@ func (a *App) Start(ctx context.Context) {
 	a.crew.Hub.Start(ctx)
 	a.docks.Start(ctx)
 	a.hosted.Start(ctx)
+	a.schedules.Start(ctx, a.scheduleTick)
 	if a.signIn != nil {
 		go a.signIn.Sweep(ctx)
 	}
@@ -445,6 +459,7 @@ func (a *App) Close() {
 	// First: connections release their deliveries and docks are handed
 	// over (other processes take them at once), which needs the database
 	// and the bus.
+	a.schedules.Close() // before the crew hub: a firing round may still deliver
 	a.crew.Hub.Close()
 	a.docks.Close()
 	a.hosted.Close() // builds record their end (database and bus still open)

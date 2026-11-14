@@ -461,6 +461,37 @@ export interface Turn {
   omitted?: number
 }
 
+/** A schedule: the port posts `text` into a conversation whenever `cron` matches (wall clock of `timezone`). */
+export interface Schedule {
+  id: ID
+  conversation_id: ID
+  /** Called by name in the message; none: the dock's routing decides. */
+  agent_id?: ID
+  name: string
+  cron: string
+  /** IANA zone the cron is read in. */
+  timezone: string
+  text: string
+  enabled: boolean
+  next_at: string
+  last_at?: string
+  last_ship_id?: ID
+  created_at: string
+  updated_at: string
+  /** The next fire times (empty while switched off). */
+  preview: string[]
+}
+
+export interface ScheduleInput {
+  conversation_id: string
+  name: string
+  cron: string
+  timezone: string
+  text: string
+  agent_id?: string
+  enabled?: boolean
+}
+
 /** Server-Sent Event types of GET /api/v1/events. */
 export interface EventMap {
   "dock.updated": Dock
@@ -479,6 +510,10 @@ export interface EventMap {
   "environment.deleted": { id: ID }
   "environment.build": Build
   "slot.updated": Hosted
+  "schedule.created": Schedule
+  "schedule.updated": Schedule
+  "schedule.deleted": Schedule
+  "schedule.fired": Schedule
 }
 export type EventType = keyof EventMap
 

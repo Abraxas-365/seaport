@@ -109,6 +109,7 @@ type (
 	environmentTag  struct{}
 	attachmentTag   struct{}
 	threadTag       struct{}
+	scheduleTag     struct{}
 )
 
 func tagName[T any]() string {
@@ -136,6 +137,8 @@ func tagName[T any]() string {
 		return "attachment_id"
 	case threadTag:
 		return "thread_id"
+	case scheduleTag:
+		return "schedule_id"
 	default:
 		return "id"
 	}
@@ -226,3 +229,11 @@ type AttachmentID = ID[attachmentTag]
 
 func NewAttachmentID() AttachmentID                      { return NewID[attachmentTag]() }
 func ParseAttachmentID(raw string) (AttachmentID, error) { return ParseID[attachmentTag](raw) }
+
+// ScheduleID identifies a schedule: a prompt Seaport posts into a
+// conversation at given times.
+type ScheduleID = ID[scheduleTag]
+
+func NewScheduleID() ScheduleID                      { return NewID[scheduleTag]() }
+func ParseScheduleID(raw string) (ScheduleID, error) { return ParseID[scheduleTag](raw) }
+func MustParseScheduleID(raw string) ScheduleID      { return MustParseID[scheduleTag](raw) }

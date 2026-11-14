@@ -96,6 +96,9 @@ internal/
                       hostingdocker (Docker Engine API: hosting.Runtime),
                       hostinggateway (model gateway), hostingegress
                       (slots' egress proxy)}
+  schedule/           schedules (cron.go: pure cron parser; schedule.go): schedulesvc
+                      (runner.go: the tick loop), schedulemodule, adapters/{schedulepg,
+                      schedulehttp}
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
@@ -570,6 +573,21 @@ net/http mux; only `/healthz` answers 405.
   previous home shipped and this one doesn't deleted, via
   `.seaport-seeded`; the harness's own files stay); rness `memory/` lives
   in the state volume.
+- Schedules (`schedule`, migration 00031): a schedule posts its text into
+  one conversation as the system sender `system:schedule` (`Seaport · <name>`,
+  external id `schedule-<id>-<slot unix>`) through `ship.Commands.Receive`
+  (`Deliverer`, bound late), so customs, routing and threads apply; an agent
+  is named by prefixing `@<agent> `. `schedule.ParseCron` (stdlib, 5 fields,
+  names, macros, Vixie day rule) refuses expressions that never fire or fire
+  more than once per `MinInterval` (5 min); `Cron.Next` reads wall-clock
+  fields in the schedule's IANA zone (a gap time runs once, shifted; an
+  overlap once). Every process runs the runner (`config.ScheduleTick`):
+  `Repository.Due` claims rows `FOR UPDATE SKIP LOCKED` and advances `next_at`
+  in the same transaction, so one process fires each slot; a slot missed by
+  more than `schedule.MissedGrace` is skipped, a schedule that can't be
+  evaluated is disabled. At most `SEAPORT_MAX_SCHEDULES` per organization,
+  counted under `schedulepg.createLock` (`7_401_012`). Permissions
+  `schedules:read|write`; events `schedule.created|updated|deleted|fired`.
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a

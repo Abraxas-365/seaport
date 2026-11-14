@@ -165,6 +165,20 @@ A harness home is an uploaded `~/.claude` or `~/.rness` baked into the environme
 | `seaport crew tokens create <name> -agent <agent> [-expires D]` | Creates a token for one agent (`-agent` is required). `-expires` is a Go duration such as `720h` (default: never). The token goes to stdout, **once**; the note goes to stderr. |
 | `seaport crew tokens revoke <token-id>` | Revokes it and disconnects its agents. |
 
+## Schedules
+
+Prompts the port posts into a conversation on a cron timetable. See [Schedules](../guides/schedules.md).
+
+| Command | What it does |
+| :--- | :--- |
+| `seaport schedules [list [<conversation-id>]]` | Table of schedules (alias `schedule`, `cron`): ID, name, cron, zone, on, next, last, conversation. |
+| `seaport schedules add <conversation-id> <name> -cron "…" -text "…" [-timezone Z] [-agent A] [-disabled]` | Creates one. `-timezone` is an IANA name (default `UTC`); `-agent` names the agent to call. Prints the next three times. |
+| `seaport schedules edit <id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A\|none]` | Changes the fields given; `-agent none` clears the agent. |
+| `seaport schedules enable <id>` / `disable <id>` | Switches it on or off. |
+| `seaport schedules run <id>` | Posts its message now, through the same path as the runner (its next time doesn't change). |
+| `seaport schedules preview "<cron>" [-timezone Z]` | The next three times an expression runs, saving nothing. |
+| `seaport schedules delete <id> -yes` | Deletes it. |
+
 ## connect
 
 `seaport connect [flags] -- <agent command>` runs an agent harness on your machine, attached to a port. It dials out (no public address needed), speaks the [crew protocol](crew-protocol.md), starts `<agent command>` as an ACP agent in `-cwd`, and gives it the port's [MCP tools](mcp-tools.md). Example: `seaport connect -- rness --acp`. See [Connector](../guides/connector.md).

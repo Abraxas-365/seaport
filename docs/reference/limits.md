@@ -13,6 +13,7 @@ Counted per organization. `0` turns a configurable quota off.
 | Docks | 10 | `config.Server.MaxDocks` | `SEAPORT_MAX_DOCKS` |
 | Agents connected at once (all processes) | 20 | `config.Server.MaxCrewConnections` | `SEAPORT_MAX_CREW_CONNECTIONS` |
 | Hosted-agent slots | 10 | `config.Server.MaxSlots` | `SEAPORT_MAX_SLOTS` |
+| Schedules | 100 | `config.Server.MaxSchedules` | `SEAPORT_MAX_SCHEDULES` |
 | Outbound messages per organization per hour | 1000 | `config.Server.SendOrgPerHour` | `SEAPORT_SEND_ORG_PER_HOUR` |
 | Active crew tokens | 100 | `crew.MaxTokens` | No |
 | Agents | 100 | `agent.MaxAgents` | No |
