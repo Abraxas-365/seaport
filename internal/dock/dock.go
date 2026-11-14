@@ -36,6 +36,19 @@ func (c Channel) Valid() bool {
 	return false
 }
 
+// Replies: the channel carries messages back to where they came from (a
+// conversational channel). A channel that only triggers (alerts coming
+// in by webhook, nothing to post to) answers false: its docks are read
+// only whatever their switch says, and the crew answers on another door
+// of the thread. Every channel so far replies.
+func (c Channel) Replies() bool {
+	switch c {
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack:
+		return true
+	}
+	return false
+}
+
 // Status is the link state of a dock.
 type Status string
 
@@ -67,13 +80,22 @@ type Dock struct {
 	Channel      Channel                 `db:"channel" json:"channel"`
 	Name         string                  `db:"name" json:"name"`
 	// Address is the account on the channel (WhatsApp: the device JID).
-	Address   string    `db:"address" json:"address"`
-	Status    Status    `db:"status" json:"status"`
+	Address string `db:"address" json:"address"`
+	Status  Status `db:"status" json:"status"`
+	// Replies is the owner's switch: whether the crew may answer on this
+	// dock (default on). Off, the dock is a trigger: its messages wake the
+	// agent as before, but a reply to one of its conversations is refused
+	// (Business) and the agent is told to answer elsewhere, or not at all.
+	Replies   bool      `db:"replies" json:"replies"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 	// QRCode is the current pairing code while linking (never stored).
 	QRCode string `db:"-" json:"qr_code,omitempty"`
 }
+
+// CanReply: the crew may answer on this dock, both the channel's way and
+// the owner's switch allowing it. What Send and the reply tools check.
+func (d Dock) CanReply() bool { return d.Channel.Replies() && d.Replies }
 
 type Create struct {
 	Channel Channel
@@ -87,16 +109,20 @@ func (c Create) Validate() error {
 	return text.Required("name", c.Name, text.MaxName)
 }
 
-// Update renames a dock.
+// Update renames a dock or flips its replies switch (at least one).
 type Update struct {
-	Name *string
+	Name    *string
+	Replies *bool
 }
 
 func (u Update) Validate() error {
-	if u.Name == nil {
+	if u.Name == nil && u.Replies == nil {
 		return errx.Validation("nothing to update")
 	}
-	return text.Required("name", *u.Name, text.MaxName)
+	if u.Name != nil {
+		return text.Required("name", *u.Name, text.MaxName)
+	}
+	return nil
 }
 
 // Outgoing is one message sent through a dock: text, files or both.

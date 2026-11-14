@@ -102,6 +102,8 @@ export function ConversationPage() {
   const crew = useCrew()
   const send = useSend(conversationId)
   const can = useCan()
+  // The conversation's dock: with replies off nobody can write here.
+  const docks = useDocks()
 
   // The connection working this chat (one at a time), for its agent's name.
   const worker = crew.data?.agents.find((a) => a.deliveries.some((d) => d.conversation_id === conversationId))
@@ -115,6 +117,8 @@ export function ConversationPage() {
 
   const c = conv.data
   const allowed = c.status === "allowed"
+  const dock = docks.data?.items.find((d) => d.id === c.dock_id)
+  const replies = dock?.replies ?? true
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ConversationHeader conversation={c} doors={doors} working={working} agentName={worker?.agent_name} />
@@ -139,11 +143,13 @@ export function ConversationPage() {
       {can(Perm.ShipsWrite) && (
         <Composer
           key={c.id}
-          disabled={!allowed}
+          disabled={!allowed || !replies}
           disabledReason={
-            c.status === "pending"
-              ? "Permite este chat para poder responder."
-              : "Este chat está bloqueado; no se le puede escribir."
+            !replies
+              ? "Este muelle solo dispara: las respuestas están apagadas."
+              : c.status === "pending"
+                ? "Permite este chat para poder responder."
+                : "Este chat está bloqueado; no se le puede escribir."
           }
           onSend={(t) => send.mutateAsync(t)}
         />

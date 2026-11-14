@@ -13,7 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, organization_id, channel, name, address, status, created_at, updated_at`
+const columns = `id, organization_id, channel, name, address, status, replies, created_at, updated_at`
 
 var messages = pgerr.Messages{NotFound: "dock not found"}
 
@@ -92,8 +92,8 @@ func (r *Repository) SetLinked(ctx context.Context, id identity.DockID, address 
 
 func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Update) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($3, name), updated_at = now()
-		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name)
+	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($3, name), replies = COALESCE($4, replies), updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name, in.Replies)
 	return d, pgerr.MapWith(err, "update dock", messages)
 }
 

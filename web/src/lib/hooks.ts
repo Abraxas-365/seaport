@@ -262,6 +262,19 @@ export function useDockAction() {
       onSuccess: onDock,
       onError: fail("No se pudo renombrar"),
     }),
+    replies: useMutation({
+      mutationFn: ({ id, replies }: { id: string; replies: boolean }) => api.setDockReplies(id, replies),
+      onSuccess: (d) => {
+        onDock(d)
+        qc.invalidateQueries({ queryKey: keys.inboxAll })
+        toast.success(d.replies ? "Respuestas activadas" : "Respuestas desactivadas", {
+          description: d.replies
+            ? "La tripulación vuelve a poder responder en este muelle."
+            : "Los mensajes siguen despertando al agente; nada se publica aquí.",
+        })
+      },
+      onError: fail("No se pudo cambiar"),
+    }),
     relink: useMutation({
       mutationFn: (id: string) => api.relinkDock(id),
       onSuccess: onDock,

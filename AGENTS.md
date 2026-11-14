@@ -297,6 +297,17 @@ net/http mux; only `/healthz` answers 405.
   `seaport history -thread`) reads every door. Customs, teams and channel
   ids stay per door: linking never admits a held door's messages, and a
   reply still needs the agent on that door's dock.
+- Replies per dock (migration 00029, `docks.replies`): `dock.CanReply()` =
+  the channel's capability (`Channel.Replies()`, code: every channel so
+  far) and the owner's switch (`PATCH /docks/{id}` `{"replies":false}`,
+  `seaport dock replies <id> off`). Off, the dock only triggers: arrivals,
+  customs, routing and deliveries are unchanged, but `docksvc.NewMessageID`
+  and `Send` refuse with `Business` (so `shipsvc.Send` stores nothing) and
+  the switch itself is refused on a channel that can't reply. `shipsvc`
+  fills `Delivery.ReadOnly` (the doors whose dock can't reply, via
+  `dock.Queries`); the connector marks them in the prompt, sends the agent
+  to a door that takes replies (or tells it to stay silent) and auto-replies
+  go to the first such door (`answerDoor`).
 - Agents (`agent`, migration 00013): an organization's library
   (`agents`, soft delete, unique live name = its `@mention` handle, at
   most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)

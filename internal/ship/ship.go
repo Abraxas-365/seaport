@@ -213,7 +213,22 @@ type Delivery struct {
 	// (the conversation itself included; one door when linked to none).
 	// Ships of any door may be in the delivery; each names its own.
 	Thread []conversation.Conversation `json:"thread,omitempty"`
-	Ships  []Ship                      `json:"ships"`
+	// ReadOnly names the doors (of Thread, or Conversation itself) whose
+	// dock takes no replies: the channel only triggers, or the owner
+	// turned replies off. A reply there is refused; the agent answers on
+	// another door or stays silent.
+	ReadOnly []identity.ConversationID `json:"read_only,omitempty"`
+	Ships    []Ship                    `json:"ships"`
+}
+
+// CanReply: the crew may answer on this door of the delivery.
+func (d Delivery) CanReply(door identity.ConversationID) bool {
+	for _, id := range d.ReadOnly {
+		if id == door {
+			return false
+		}
+	}
+	return true
 }
 
 // Claim asks for the next delivery of an agent: a conversation whose

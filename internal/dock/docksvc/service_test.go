@@ -27,7 +27,7 @@ type memRepo struct {
 func (r *memRepo) Create(_ context.Context, o identity.OrganizationID, id identity.DockID, in dock.Create, st dock.Status, _ int) (dock.Dock, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := dock.Dock{ID: id, Organization: o, Channel: in.Channel, Name: in.Name, Status: st}
+	d := dock.Dock{ID: id, Organization: o, Channel: in.Channel, Name: in.Name, Status: st, Replies: true}
 	r.docks[id] = d
 	return d, nil
 }
@@ -50,7 +50,12 @@ func (r *memRepo) Update(_ context.Context, _ identity.OrganizationID, id identi
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	d := r.docks[id]
-	d.Name = *in.Name
+	if in.Name != nil {
+		d.Name = *in.Name
+	}
+	if in.Replies != nil {
+		d.Replies = *in.Replies
+	}
 	r.docks[id] = d
 	return d, nil
 }
@@ -158,5 +163,40 @@ func TestEventsNeverCarryTheQR(t *testing.T) {
 		if strings.Contains(p, secretQR) || strings.Contains(p, "qr_code") {
 			t.Fatalf("an event carries the pairing code: %s", p)
 		}
+	}
+}
+
+// With replies off a dock is a trigger: a message id for an outbound
+// (what shipsvc asks before storing a reply) and a send are refused with
+// a Business error; on again, both work.
+func TestRepliesOffRefusesOutbound(t *testing.T) {
+	ctx := context.Background()
+	s := docksvc.New(&memRepo{docks: map[identity.DockID]dock.Dock{}}, &recorder{}, 0, docksvc.Cluster{}, qrGateway{})
+	d, err := s.Create(ctx, org, dock.Create{Channel: dock.ChannelWhatsApp, Name: "gh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Replies || !d.CanReply() {
+		t.Fatalf("a new dock takes replies: %+v", d)
+	}
+	if _, err := s.Update(ctx, org, d.ID, dock.Update{}); !errx.IsType(err, errx.TypeValidation) {
+		t.Fatalf("an empty update is refused: %v", err)
+	}
+	off := false
+	if d, err = s.Update(ctx, org, d.ID, dock.Update{Replies: &off}); err != nil || d.Replies {
+		t.Fatalf("replies off: %+v %v", d, err)
+	}
+	if _, err := s.NewMessageID(ctx, org, d.ID); !errx.IsType(err, errx.TypeBusiness) {
+		t.Fatalf("NewMessageID on a trigger dock: %v", err)
+	}
+	if err := s.Send(ctx, org, dock.Outgoing{Dock: d.ID, ChatID: "c", MessageID: "m", Text: "hola"}); !errx.IsType(err, errx.TypeBusiness) {
+		t.Fatalf("Send on a trigger dock: %v", err)
+	}
+	on := true
+	if d, err = s.Update(ctx, org, d.ID, dock.Update{Replies: &on}); err != nil || !d.Replies {
+		t.Fatalf("replies on: %+v %v", d, err)
+	}
+	if _, err := s.NewMessageID(ctx, org, d.ID); err != nil {
+		t.Fatalf("NewMessageID after replies on: %v", err)
 	}
 }

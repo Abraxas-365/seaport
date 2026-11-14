@@ -35,7 +35,10 @@ type Deps struct {
 	// Agents tells whether a replying agent works on the conversation's
 	// dock.
 	Agents agent.Queries
-	Now    func() time.Time
+	// Docks tells which doors of a delivery take no replies (nil: every
+	// door does).
+	Docks dock.Queries
+	Now   func() time.Time
 	// Limits cap outbound messages (zero value: ship.DefaultLimits).
 	Limits *ship.Limits
 	// Media keeps message media (zero value: off, media become notes).
@@ -53,6 +56,7 @@ type Service struct {
 	notifier  ship.Notifier
 	events    event.Publisher
 	agents    agent.Queries
+	docks     dock.Queries
 	now       func() time.Time
 	limits    ship.Limits
 	media     media
@@ -76,7 +80,7 @@ func New(d Deps) (*Service, error) {
 		return nil, err
 	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
-		events: events, agents: d.Agents, now: now, limits: limits, media: m}, nil
+		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m}, nil
 }
 
 var (
@@ -193,7 +197,37 @@ func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id 
 	if d.Conversation.ID.IsZero() {
 		return ship.Delivery{}, errx.Internal("claimed ship's conversation is not in its thread")
 	}
+	d.ReadOnly, err = s.readOnly(ctx, org, doors)
+	if err != nil {
+		return ship.Delivery{}, err
+	}
 	return d, nil
+}
+
+// readOnly names the doors of a thread whose dock takes no replies (the
+// channel only triggers, or the owner turned replies off), so the agent
+// knows where it can't answer before it tries.
+func (s *Service) readOnly(ctx context.Context, org identity.OrganizationID, doors []conversation.Conversation) ([]identity.ConversationID, error) {
+	if s.docks == nil {
+		return nil, nil
+	}
+	var out []identity.ConversationID
+	seen := map[identity.DockID]bool{}
+	for _, c := range doors {
+		replies, known := seen[c.Dock]
+		if !known {
+			d, err := s.docks.Find(ctx, org, c.Dock)
+			if err != nil {
+				return nil, errx.Wrap(err, "find door's dock", errx.TypeInternal)
+			}
+			replies = d.CanReply()
+			seen[c.Dock] = replies
+		}
+		if !replies {
+			out = append(out, c.ID)
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) Join(ctx context.Context, org identity.OrganizationID, input ship.Join) (ship.Delivery, bool, error) {

@@ -37,6 +37,7 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock list` | Table of docks: ID, channel, name, status, address (up to 100). |
 | `seaport dock relink <dock-id>` | Pairs a WhatsApp dock again (shows the QR code). The other channels are reconnected from the dock's page in the web app. |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |
+| `seaport dock replies <dock-id> on\|off` | Whether the crew may answer on it. `off` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, nothing is posted there. `dock list` shows it in the `REPLIES` column. |
 | `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. |
 | `seaport dock delete <dock-id> -yes` | Unlinks and deletes the dock with all its conversations and ships. `-yes` must be the second argument. |
 

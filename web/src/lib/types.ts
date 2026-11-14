@@ -13,6 +13,8 @@ export interface Dock {
   name: string
   address: string
   status: DockStatus
+  /** The owner's switch: may the crew answer on this dock? Off: a trigger (messages still wake the agent). */
+  replies: boolean
   created_at: string
   updated_at: string
   qr_code?: string

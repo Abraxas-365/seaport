@@ -165,6 +165,7 @@ export const api = {
   createDock: (channel: Channel, name: string) =>
     request<Dock>("POST", `${v1}/docks`, { channel, name }),
   renameDock: (id: string, name: string) => request<Dock>("PATCH", `${v1}/docks/${id}`, { name }),
+  setDockReplies: (id: string, replies: boolean) => request<Dock>("PATCH", `${v1}/docks/${id}`, { replies }),
   relinkDock: (id: string) => request<Dock>("POST", `${v1}/docks/${id}/relink`),
   unlinkDock: (id: string) => request<Dock>("POST", `${v1}/docks/${id}/unlink`),
   deleteDock: (id: string) => request<void>("DELETE", `${v1}/docks/${id}`),

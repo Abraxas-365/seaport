@@ -31,6 +31,8 @@ func (h *Handler) Register(r httpx.Router) {
 
 type updateRequest struct {
 	Name *string `json:"name"`
+	// Replies: whether the crew may answer on this dock (nil: unchanged).
+	Replies *bool `json:"replies"`
 }
 
 func (h *Handler) update(c fiber.Ctx) error {
@@ -46,7 +48,7 @@ func (h *Handler) update(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	d, err := h.commands.Update(c.Context(), org, id, dock.Update{Name: req.Name})
+	d, err := h.commands.Update(c.Context(), org, id, dock.Update{Name: req.Name, Replies: req.Replies})
 	if err != nil {
 		return err
 	}

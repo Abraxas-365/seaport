@@ -7,6 +7,7 @@ import {
   ExternalLink,
   Link2,
   Link2Off,
+  MessageSquareOff,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -56,6 +57,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   AgentChip,
@@ -289,6 +291,8 @@ function DockDetail({ dock }: { dock: Dock }) {
 
         {can(Perm.ConversationsRead) && <DockConversations dock={dock} />}
 
+        <RepliesCard dock={dock} write={write} />
+
         <Card>
           <CardHeader>
             <CardTitle>Detalles</CardTitle>
@@ -311,6 +315,46 @@ function DockDetail({ dock }: { dock: Dock }) {
         </Card>
       </div>
     </div>
+  )
+}
+
+/**
+ * The owner's switch: may the crew answer on this dock? Off, the dock is a
+ * trigger: its messages still wake the agent, but a reply here is refused
+ * and the agent is told to answer on another conversation of the thread.
+ */
+function RepliesCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const { replies } = useDockAction()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MessageSquareOff className="size-4" /> Respuestas
+        </CardTitle>
+        <CardDescription>
+          Con las respuestas apagadas el muelle solo dispara: sus mensajes despiertan al agente, pero nada se
+          publica aquí. El agente responde en otra conversación del hilo o se queda callado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{dock.replies ? "La tripulación puede responder" : "Solo dispara"}</div>
+            <div className="text-xs text-muted-foreground">
+              {dock.replies
+                ? "Las respuestas del agente se publican en este canal."
+                : "Las respuestas aquí se rechazan; los mensajes siguen llegando."}
+            </div>
+          </div>
+          <Switch
+            aria-label="Permitir respuestas"
+            checked={dock.replies}
+            disabled={!write || replies.isPending}
+            onCheckedChange={(on) => replies.mutate({ id: dock.id, replies: on })}
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
