@@ -166,15 +166,34 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 	if len(ships) == 0 {
 		return ship.Delivery{}, false, nil
 	}
-	conv, err := s.convs.Find(ctx, org, convID)
+	d, err := s.delivery(ctx, org, id, convID, ships)
 	if err != nil {
 		_ = s.repo.Release(ctx, org, id)
-		return ship.Delivery{}, false, errx.Wrap(err, "find claimed conversation", errx.TypeInternal)
+		return ship.Delivery{}, false, err
 	}
 	slog.Info("delivery claimed", "delivery", id, "conversation", convID, "ships", len(ships), "owner", input.Owner)
 	s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryClaimed, Delivery: &id,
 		Conversation: &convID, Ships: idsOf(ships), Owner: input.Owner})
-	return ship.Delivery{ID: id, Conversation: conv, Ships: ships}, true, nil
+	return d, true, nil
+}
+
+// delivery assembles a delivery: the door of its oldest ship and the
+// doors of that door's thread.
+func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id identity.DeliveryID, convID identity.ConversationID, ships []ship.Ship) (ship.Delivery, error) {
+	doors, err := s.convs.Thread(ctx, org, convID)
+	if err != nil {
+		return ship.Delivery{}, errx.Wrap(err, "find claimed conversation", errx.TypeInternal)
+	}
+	d := ship.Delivery{ID: id, Thread: doors, Ships: ships}
+	for _, c := range doors {
+		if c.ID == convID {
+			d.Conversation = c
+		}
+	}
+	if d.Conversation.ID.IsZero() {
+		return ship.Delivery{}, errx.Internal("claimed ship's conversation is not in its thread")
+	}
+	return d, nil
 }
 
 func (s *Service) Join(ctx context.Context, org identity.OrganizationID, input ship.Join) (ship.Delivery, bool, error) {
@@ -188,14 +207,14 @@ func (s *Service) Join(ctx context.Context, org identity.OrganizationID, input s
 	if len(ships) == 0 {
 		return ship.Delivery{}, false, nil
 	}
-	conv, err := s.convs.Find(ctx, org, convID)
+	d, err := s.delivery(ctx, org, input.Delivery, convID, ships)
 	if err != nil {
-		return ship.Delivery{}, false, errx.Wrap(err, "find joined conversation", errx.TypeInternal)
+		return ship.Delivery{}, false, err
 	}
 	slog.Info("ships joined delivery", "delivery", input.Delivery, "conversation", convID, "ships", len(ships))
 	s.events.Publish(org, ship.EventDelivery, ship.DeliveryEvent{State: ship.DeliveryJoined, Delivery: &input.Delivery,
 		Conversation: &convID, Ships: idsOf(ships)})
-	return ship.Delivery{ID: input.Delivery, Conversation: conv, Ships: ships}, true, nil
+	return d, true, nil
 }
 
 func (s *Service) Extend(ctx context.Context, org identity.OrganizationID, delivery identity.DeliveryID, lease time.Duration) error {
@@ -370,6 +389,17 @@ func (s *Service) History(ctx context.Context, org identity.OrganizationID, conv
 	out, err := s.repo.History(ctx, org, conv, page.Normalize())
 	if err != nil {
 		return out, errx.Wrap(err, "list ships", errx.TypeInternal)
+	}
+	return out, nil
+}
+
+func (s *Service) ThreadHistory(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, page query.Pagination) (query.Paginated[ship.Ship], error) {
+	if _, err := s.convs.Find(ctx, org, conv); err != nil {
+		return query.Paginated[ship.Ship]{}, errx.Wrap(err, "find conversation", errx.TypeInternal)
+	}
+	out, err := s.repo.ThreadHistory(ctx, org, conv, page.Normalize())
+	if err != nil {
+		return out, errx.Wrap(err, "list thread ships", errx.TypeInternal)
 	}
 	return out, nil
 }

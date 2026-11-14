@@ -548,23 +548,23 @@ func git(ctx context.Context, dir string, env []string, args ...string) error {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// worktrees gives each conversation its own checkout of the slot's repos
-// (<workspace>/wt/<conversation>/<path>, branch seaport/<conversation>),
-// so conversations worked at once don't edit one tree. Without repos
-// every conversation works in the workspace itself.
+// worktrees gives each thread its own checkout of the slot's repos
+// (<workspace>/wt/<thread>/<path>, branch seaport/<thread>), so threads
+// worked at once don't edit one tree. Without repos every thread works in
+// the workspace itself.
 type worktrees struct {
 	root  string
 	repos []hosting.WorkspaceRepo
 	mu    sync.Mutex // git locks a repo's worktree list
 }
 
-func (w *worktrees) dir(ctx context.Context, conv identity.ConversationID) (string, error) {
+func (w *worktrees) dir(ctx context.Context, thread identity.ThreadID) (string, error) {
 	if len(w.repos) == 0 {
 		return w.root, nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	dir := filepath.Join(w.root, "wt", conv.String())
+	dir := filepath.Join(w.root, "wt", thread.String())
 	for _, r := range w.repos {
 		tree := filepath.Join(dir, r.Path)
 		if _, err := os.Stat(filepath.Join(tree, ".git")); err == nil {
@@ -572,7 +572,7 @@ func (w *worktrees) dir(ctx context.Context, conv identity.ConversationID) (stri
 		}
 		repo := filepath.Join(w.root, r.Path)
 		_ = git(ctx, repo, nil, "worktree", "prune")
-		if err := git(ctx, repo, nil, "worktree", "add", "-B", "seaport/"+conv.String(), tree); err != nil {
+		if err := git(ctx, repo, nil, "worktree", "add", "-B", "seaport/"+thread.String(), tree); err != nil {
 			return "", err
 		}
 	}

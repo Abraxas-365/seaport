@@ -182,7 +182,7 @@ You rarely start slots by hand. Every Seaport process runs a supervisor that che
 
 Repos are cloned into `/workspace` when a slot starts. If the workspace is persistent and the repo is already there, Seaport fetches instead and leaves your agent's work untouched. A failed `on_start` is logged and the start goes on.
 
-Each conversation gets its own git worktree, on a branch named `seaport/<conversation>`. Two conversations worked at once don't edit one tree. Without repos, every conversation works in `/workspace` itself.
+Each thread (a conversation and the ones [linked](../linked-conversations.md) with it) gets its own git worktree, on a branch named `seaport/<thread>`. Two threads worked at once don't edit one tree. Without repos, every thread works in `/workspace` itself.
 
 Git gets credentials from the port each time it asks: inside the slot, git's credential helper calls the port with the slot's token, and the port answers with the secret named by `credential`. A repository with no `credential` gets a token of the GitHub App of one of the agent's [GitHub docks](../github.md#act-on-github-as-the-app), when the App is installed there. No token is written to disk.
 

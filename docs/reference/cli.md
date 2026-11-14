@@ -57,7 +57,10 @@ See [WhatsApp](../guides/whatsapp.md).
 | `seaport customs [-dock ID] allow <pattern>` | Adds an allow rule. |
 | `seaport customs [-dock ID] deny <pattern>` | Adds a deny rule (deny wins over allow). |
 | `seaport customs rm <rule-id>` | Removes a rule. |
-| `seaport history <conversation-id> [-limit N]` | The last `N` messages (default 20), oldest first: time, status, sender, text. |
+| `seaport history <conversation-id> [-limit N] [-thread]` | The last `N` messages (default 20), oldest first: time, status, sender, text. `-thread` reads every conversation linked with it, each line naming its conversation. |
+| `seaport thread <conversation-id>` | The conversations [linked](../guides/linked-conversations.md) with it (its thread). |
+| `seaport thread link <conversation-id> <conversation-id>` | Links two conversations: their threads merge (at most 16). |
+| `seaport thread unlink <conversation-id>` | Takes a conversation out of its thread. |
 | `seaport send <conversation-id> <text>` | Sends a reply as the port (the rest of the arguments make the text). Subject to the [outbound limits](configuration.md#outbound-limits). |
 
 Patterns match the handles the channel reports: phone numbers (`34600000001`, `+34*`), WhatsApp ids (`…@lid`, `…@g.us`), Slack channel and user ids (`C0123ABCD`, `U0123ABCD`), GitHub threads and authors (`owner/repo#12`, `@login`), Jira issue keys and projects (`PROJ-123`, `PROJ`), the `chat_handles` of an `api` dock, and `*`. See [Customs](../guides/customs.md#rules).

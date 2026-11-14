@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -47,10 +48,10 @@ type Config struct {
 	Mode    string
 	Cwd     string
 	Command []string
-	// Workdir, when set, gives each conversation's session its working
+	// Workdir, when set, gives each thread's session its working
 	// directory (a hosted slot's worktree); else every session works in
 	// Cwd.
-	Workdir func(context.Context, identity.ConversationID) (string, error)
+	Workdir func(context.Context, identity.ThreadID) (string, error)
 	// MCPURL replaces the port's MCP address from the welcome (its public
 	// URL), for agents that reach the port by another address (a hosted
 	// slot: SEAPORT_URL).
@@ -410,7 +411,7 @@ func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 				return
 			}
 			// Holding mu: the ack waits for this steer's outcome.
-			steered, err := agent.Steer(ctx, j.d.Conversation.ID, SteerPrompt(d, ok), images)
+			steered, err := agent.Steer(ctx, j.d.Conversation.Thread, SteerPrompt(d, ok), images)
 			if err != nil {
 				slog.Warn("steer failed; ships stay for the next turn", "delivery", d.ID, "err", err)
 			}
@@ -441,13 +442,13 @@ func (j *job) finish() []identity.ShipID {
 func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.Frame)) {
 	d := j.d
 	id := d.ID
-	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "title", d.Conversation.Title)
+	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "thread", d.Conversation.Thread, "title", d.Conversation.Title)
 	log.Info("delivery received", "ships", len(d.Ships))
 	images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
 	// What the agent does goes to the port's live view as it happens; the
 	// last of it is sent before the ack or release.
 	f := newFeed(id, send)
-	answer, err := agent.Prompt(ctx, d.Conversation.ID, Prompt(d, cfg.AutoReply, ok), images, f)
+	answer, err := agent.Prompt(ctx, d.Conversation.Thread, Prompt(d, cfg.AutoReply, ok), images, f)
 	handled := j.finish()
 	f.close()
 	if err != nil {
@@ -475,19 +476,49 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 // (ok: the attachments that go with it as images).
 func SteerPrompt(d ship.Delivery, ok shown) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
-	writeShips(&b, d.Ships, ok)
+	if len(d.Thread) > 1 {
+		fmt.Fprintf(&b, "[seaport] More message(s) in this thread, sent while you were working:\n")
+	} else {
+		fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
+	}
+	writeShips(&b, d.Ships, doorLabels(d), ok)
 	b.WriteString("\nTake them into account; reply to the conversation as before.")
 	return b.String()
 }
 
-func writeShips(b *strings.Builder, ships []ship.Ship, ok shown) {
+// doorLabels names each door of a multi-door thread for the ships' lines
+// (none for a thread of one: the conversation is named once).
+func doorLabels(d ship.Delivery) map[identity.ConversationID]string {
+	if len(d.Thread) <= 1 {
+		return nil
+	}
+	out := make(map[identity.ConversationID]string, len(d.Thread))
+	for _, c := range d.Thread {
+		out[c.ID] = doorName(c)
+	}
+	return out
+}
+
+// doorName is how a door is shown to the agent: its channel and title.
+func doorName(c conversation.Conversation) string {
+	title := c.Title
+	if title == "" {
+		title = c.ExternalID
+	}
+	return string(c.Channel) + " " + title
+}
+
+func writeShips(b *strings.Builder, ships []ship.Ship, doors map[identity.ConversationID]string, ok shown) {
 	for _, s := range ships {
 		from := s.SenderName
 		if from == "" {
 			from = s.SenderID
 		}
-		fmt.Fprintf(b, "[%s] %s: %s\n", s.SentAt.Local().Format("2006-01-02 15:04"), from, s.Text)
+		if door, found := doors[s.Conversation]; found {
+			fmt.Fprintf(b, "[%s] (%s) %s: %s\n", s.SentAt.Local().Format("2006-01-02 15:04"), door, from, s.Text)
+		} else {
+			fmt.Fprintf(b, "[%s] %s: %s\n", s.SentAt.Local().Format("2006-01-02 15:04"), from, s.Text)
+		}
 		writeAttachments(b, s, ok)
 	}
 }
@@ -503,8 +534,18 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	if title == "" {
 		title = c.ExternalID
 	}
-	fmt.Fprintf(&b, "conversation: %s (%s)\n\n", title, c.Kind)
-	writeShips(&b, d.Ships, ok)
+	fmt.Fprintf(&b, "conversation: %s (%s)\n", title, c.Kind)
+	if len(d.Thread) > 1 {
+		b.WriteString("This conversation is one door of a thread; the others, where the same matter is discussed:\n")
+		for _, door := range d.Thread {
+			if door.ID == c.ID {
+				continue
+			}
+			fmt.Fprintf(&b, "- %s (%s): conversation_id %s\n", doorName(door), door.Kind, door.ID)
+		}
+	}
+	b.WriteString("\n")
+	writeShips(&b, d.Ships, doorLabels(d), ok)
 	b.WriteString("\n")
 	if c.Channel == dock.ChannelGitHub {
 		b.WriteString(githubHint(c.ExternalID))
@@ -521,13 +562,17 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	} else {
 		b.WriteString("Reply with the seaport `reply` tool (conversation_id above) when a reply is needed; " +
 			"use `history` for earlier context. Your final text is not sent to anyone.")
+		if len(d.Thread) > 1 {
+			b.WriteString(" Answer on the door each message came from (its conversation_id) unless asked to " +
+				"post elsewhere; `history` with `thread: true` reads every door of the thread together.")
+		}
 	}
 	return b.String()
 }
 
-// mustConversation parses a conversation id kept in the sessions file.
-func mustConversation(raw string) (identity.ConversationID, bool) {
-	id, err := identity.ParseConversationID(raw)
+// mustThread parses a thread id kept in the sessions file.
+func mustThread(raw string) (identity.ThreadID, bool) {
+	id, err := identity.ParseThreadID(raw)
 	return id, err == nil
 }
 

@@ -244,7 +244,7 @@ net/http mux; only `/healthz` answers 405.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -273,12 +273,30 @@ net/http mux; only `/healthz` answers 405.
   address us in mentions mode, or a denied sender's, is held again with
   that reason. `HoldDenied` ships and older ones stay held; the agent reads
   them with `history`.
-- At most one delivery in flight per conversation (claim under
+- At most one delivery in flight per thread (claim under
   `pg_advisory_xact_lock`), so an agent session never gets two prompts at once.
-  For steering connectors (`hello.steer`) new ships of that conversation
+  For steering connectors (`hello.steer`) new ships of that thread
   `Join` the open delivery (same lock, same delivery id) and go out as
   `steer` frames; their ack must name the handled `ship_ids` and every other
   ship still claimed by the delivery is requeued.
+- Linked conversations (`conversation/thread.go`, migration 00028): every
+  conversation has a `thread_id` (= its own id until linked; `identity.ThreadID`).
+  `Link` (`POST /conversations/{id}/links`, `seaport thread link`) gives
+  every door of both threads one new id under `conversationpg.linkLock`
+  (`7_401_010`; at most `conversation.MaxDoors` = 16, else `Business`);
+  `Unlink` gives one door its own id back. A thread is what the crew works
+  as one: `shippg.Claim` takes the agent's oldest ship that is the oldest
+  queued in its thread with nothing claimed in the thread (`inThread`), the
+  "previous agent" of routing is the thread's last claiming agent, `Join`
+  and `Record` look across doors, `Delivery.Conversation` is the oldest
+  ship's door and `Delivery.Thread` lists every door (absent for a thread
+  of one); each `Ship.Conversation` names its door. The connector keys
+  sessions, worktrees and steering by `Conversation.Thread`, names the
+  other doors in the prompt and tags each ship with `(channel title)`;
+  `history` with `thread: true` (`ThreadHistory`, `?thread=1`,
+  `seaport history -thread`) reads every door. Customs, teams and channel
+  ids stay per door: linking never admits a held door's messages, and a
+  reply still needs the agent on that door's dock.
 - Agents (`agent`, migration 00013): an organization's library
   (`agents`, soft delete, unique live name = its `@mention` handle, at
   most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)
@@ -287,7 +305,7 @@ net/http mux; only `/healthz` answers 405.
   to the crew names its agent (`ships.agent_id`; CHECK: queued/claimed
   ships have one), decided once at arrival by the pure `agent.Route(team,
   msg, previous)`: no team → held `HoldNoAgent`; first `@name` of a
-  member; the conversation's previous agent if still on the team; the
+  member; the thread's previous agent if still on the team; the
   only member; the default; else held `HoldNotCalled`.
   `shippg.CreateInbound` reads the team `FOR SHARE` in the insert's
   transaction, so an unassign/delete (which deletes the rows first, then
@@ -325,7 +343,7 @@ net/http mux; only `/healthz` answers 405.
   connection; the crew status marks it `outdated` when it isn't the
   agent's current version. Instructions go as ACP `systemPrompt` (append)
   when the agent advertises `sessionCapabilities.systemPrompt`, else with
-  each session's first prompt. `sessions.json` records per conversation the
+  each session's first prompt. `sessions.json` records per thread the
   hash of the instructions its session saw (`savedSession`; bare ids of
   older files read as unknown): a resumed session whose instructions
   changed (or are unknown) gets them again with its next prompt, since a
@@ -392,8 +410,8 @@ net/http mux; only `/healthz` answers 405.
   only; repo credentials resolved by `Kits.Reveal`, see `secretCalls`),
   links the harness's sessions/sign-in into the state volume, clones or
   fetches the repos (git asks `seaport git-credential`, which asks the port
-  each time: no token on disk), gives each conversation a worktree
-  (`wt/<conversation>`, branch `seaport/<conversation>`), relays the port's
+  each time: no token on disk), gives each thread a worktree
+  (`wt/<thread>`, branch `seaport/<thread>`), relays the port's
   MCP on loopback (harnesses take plain-HTTP MCP only there) and runs the
   connector (Claude Code in session mode `default`: its `auto` mode needs
   Anthropic's classifier). A refused token ends it cleanly (no restart).

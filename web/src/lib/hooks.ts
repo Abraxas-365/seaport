@@ -63,14 +63,25 @@ export function useInbox(f: InboxFilter) {
   })
 }
 
-export function useShips(conversation: string) {
+/** A conversation's ships; thread: those of every door of its thread. */
+export function useShips(conversation: string, thread = false) {
   const can = useCan()
   return useInfiniteQuery({
     enabled: can(Perm.ShipsRead),
-    queryKey: keys.ships(conversation),
-    queryFn: ({ pageParam }) => api.ships(conversation, PAGE, pageParam),
+    queryKey: keys.ships(conversation, thread),
+    queryFn: ({ pageParam }) => api.ships(conversation, PAGE, pageParam, thread),
     initialPageParam: 0,
     getNextPageParam: nextOffset<Ship>,
+  })
+}
+
+/** The doors of a conversation's thread, oldest first. */
+export function useThread(conversation: string) {
+  const can = useCan()
+  return useQuery({
+    enabled: can(Perm.ConversationsRead),
+    queryKey: keys.thread(conversation),
+    queryFn: () => api.thread(conversation),
   })
 }
 
@@ -161,6 +172,32 @@ export function useSetGroupMode() {
       api.updateConversation(id, { group_mode: mode }),
     onSuccess: (c) => qc.setQueryData(keys.conversation(c.id), c),
     onError: fail("No se pudo cambiar el modo del grupo"),
+  })
+}
+
+export function useLink() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, with_ }: { id: string; with_: string }) => api.link(id, with_),
+    onSuccess: (doors) => {
+      for (const c of doors) qc.setQueryData(keys.conversation(c.id), c)
+      qc.invalidateQueries({ queryKey: keys.threadAll })
+      qc.invalidateQueries({ queryKey: ["ships"] })
+    },
+    onError: fail("No se pudo enlazar la conversación"),
+  })
+}
+
+export function useUnlink() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.unlink(id),
+    onSuccess: (c) => {
+      qc.setQueryData(keys.conversation(c.id), c)
+      qc.invalidateQueries({ queryKey: keys.threadAll })
+      qc.invalidateQueries({ queryKey: ["ships"] })
+    },
+    onError: fail("No se pudo separar la conversación"),
   })
 }
 

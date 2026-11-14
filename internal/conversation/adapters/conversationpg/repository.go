@@ -5,6 +5,7 @@ package conversationpg
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -17,9 +18,14 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, organization_id, dock_id, channel, external_id, kind, title, access, group_mode, status, last_activity_at, created_at, updated_at`
+const columns = `id, organization_id, dock_id, channel, external_id, kind, title, access, group_mode, status, thread_id, last_activity_at, created_at, updated_at`
 
 var notFound = pgerr.Messages{NotFound: "conversation not found", ForeignKey: "dock not found"}
+
+// linkLock serializes the links and unlinks of one organization, so two
+// links over the same thread can't leave a door half-moved. The second
+// key is hashtext(organization).
+const linkLock = 7_401_010
 
 type Repository struct{ db *sqlx.DB }
 
@@ -39,8 +45,8 @@ func (r *Repository) Upsert(ctx context.Context, org identity.OrganizationID, id
 	}
 	// changed: inserted (xmax = 0) or the title changed (updated_at moved).
 	err = tx.GetContext(ctx, &row, `
-		INSERT INTO conversations (id, organization_id, dock_id, channel, external_id, kind, title, status)
-		VALUES ($1, $8, $2, $3, $4, $5, $6, $7)
+		INSERT INTO conversations (id, organization_id, dock_id, channel, external_id, kind, title, status, thread_id)
+		VALUES ($1, $8, $2, $3, $4, $5, $6, $7, $1)
 		ON CONFLICT (dock_id, external_id) DO UPDATE
 		SET title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE conversations.title END,
 		    updated_at = CASE WHEN EXCLUDED.title <> '' AND EXCLUDED.title <> conversations.title
@@ -162,6 +168,85 @@ func (r *Repository) ForDock(ctx context.Context, org identity.OrganizationID, d
 		return nil, pgerr.Map(err, "dock conversations")
 	}
 	return out, r.withHandles(ctx, pointers(out))
+}
+
+func (r *Repository) Thread(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) ([]conversation.Conversation, error) {
+	out := []conversation.Conversation{}
+	if err := r.db.SelectContext(ctx, &out, `SELECT `+columns+` FROM conversations
+		WHERE organization_id = $1 AND thread_id = (SELECT thread_id FROM conversations WHERE organization_id = $1 AND id = $2)
+		ORDER BY created_at, id`, org, id); err != nil {
+		return nil, pgerr.Map(err, "thread conversations")
+	}
+	if len(out) == 0 {
+		return nil, pgerr.MapWith(pgerr.ErrNoRows, "thread conversations", notFound)
+	}
+	return out, r.withHandles(ctx, pointers(out))
+}
+
+func (r *Repository) Link(ctx context.Context, org identity.OrganizationID, in conversation.Link, thread identity.ThreadID) ([]conversation.Conversation, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, pgerr.Map(err, "begin link")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, hashtext($2))`, linkLock, org.String()); err != nil {
+		return nil, pgerr.Map(err, "lock links")
+	}
+	var n int
+	// Both conversations must exist here; the count is of the doors the
+	// two threads would make together.
+	err = tx.GetContext(ctx, &n, `SELECT count(*) FROM conversations WHERE organization_id = $1 AND thread_id IN (
+			SELECT thread_id FROM conversations WHERE organization_id = $1 AND id IN ($2, $3))
+		AND (SELECT count(*) FROM conversations WHERE organization_id = $1 AND id IN ($2, $3)) = 2`,
+		org, in.Conversation, in.With)
+	if err != nil {
+		return nil, pgerr.Map(err, "count doors")
+	}
+	if n == 0 {
+		return nil, pgerr.MapWith(pgerr.ErrNoRows, "link conversations", notFound)
+	}
+	if n > conversation.MaxDoors {
+		return nil, errx.Business("a thread holds at most " + strconv.Itoa(conversation.MaxDoors) + " conversations")
+	}
+	out := []conversation.Conversation{}
+	err = tx.SelectContext(ctx, &out, `UPDATE conversations SET thread_id = $4, updated_at = now()
+		WHERE organization_id = $1 AND thread_id IN (
+			SELECT thread_id FROM conversations WHERE organization_id = $1 AND id IN ($2, $3))
+		RETURNING `+columns, org, in.Conversation, in.With, thread)
+	if err != nil {
+		return nil, pgerr.Map(err, "link conversations")
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, pgerr.Map(err, "commit link")
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		}
+		return out[i].ID.String() < out[j].ID.String()
+	})
+	return out, r.withHandles(ctx, pointers(out))
+}
+
+func (r *Repository) Unlink(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
+	var c conversation.Conversation
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return c, pgerr.Map(err, "begin unlink")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, hashtext($2))`, linkLock, org.String()); err != nil {
+		return c, pgerr.Map(err, "lock links")
+	}
+	err = tx.GetContext(ctx, &c, `UPDATE conversations SET thread_id = id, updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id)
+	if err != nil {
+		return c, pgerr.MapWith(err, "unlink conversation", notFound)
+	}
+	if err := tx.Commit(); err != nil {
+		return c, pgerr.Map(err, "commit unlink")
+	}
+	return c, r.withHandles(ctx, []*conversation.Conversation{&c})
 }
 
 func (r *Repository) withHandles(ctx context.Context, convs []*conversation.Conversation) error {

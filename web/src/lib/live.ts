@@ -35,6 +35,9 @@ type Listener = (state: LiveState) => void
 
 /** History is an infinite query of pages, newest first. */
 function upsertShip(qc: QueryClient, ship: Ship) {
+  // Thread views (ships of every door) may include this ship's door: refetch
+  // the active ones (which doors a thread has is not known here).
+  qc.invalidateQueries({ queryKey: ["ships"], predicate: (q) => q.queryKey[2] === "thread" })
   qc.setQueryData<InfiniteData<Paginated<Ship>>>(keys.ships(ship.conversation_id), (old) => {
     if (!old) return old
     for (let p = 0; p < old.pages.length; p++) {

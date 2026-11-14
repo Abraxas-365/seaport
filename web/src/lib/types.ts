@@ -112,6 +112,8 @@ export interface Conversation {
   access: Access
   group_mode?: GroupMode
   status: CustomsStatus
+  /** The thread it belongs to (its own id when linked to none). */
+  thread_id: ID
   handles: string[]
   last_activity_at: string
   created_at: string

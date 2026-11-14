@@ -166,8 +166,8 @@ func testDB(t *testing.T) *sqlx.DB {
 func allowedConversation(t *testing.T, db *sqlx.DB, d dock.Dock) identity.ConversationID {
 	t.Helper()
 	id := identity.NewConversationID()
-	if _, err := db.Exec(`INSERT INTO conversations (id, organization_id, dock_id, channel, external_id, kind, access, status)
-		VALUES ($1, $2, $3, 'whatsapp', 'chat@test', 'direct', 'allow', 'allowed')`, id, config.DefaultOrganization, d.ID); err != nil {
+	if _, err := db.Exec(`INSERT INTO conversations (id, organization_id, dock_id, channel, external_id, kind, access, status, thread_id)
+		VALUES ($1, $2, $3, 'whatsapp', 'chat@test', 'direct', 'allow', 'allowed', $1)`, id, config.DefaultOrganization, d.ID); err != nil {
 		t.Fatal(err)
 	}
 	return id

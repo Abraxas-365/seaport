@@ -206,9 +206,14 @@ func (o Outbound) Validate() error {
 // Delivery is a batch of queued ships of one conversation handed to a crew
 // member. Its ID is the claim token.
 type Delivery struct {
-	ID           identity.DeliveryID       `json:"id"`
+	ID identity.DeliveryID `json:"id"`
+	// Conversation is the door the oldest ship arrived at.
 	Conversation conversation.Conversation `json:"conversation"`
-	Ships        []Ship                    `json:"ships"`
+	// Thread lists the doors of the conversation's thread, oldest first
+	// (the conversation itself included; one door when linked to none).
+	// Ships of any door may be in the delivery; each names its own.
+	Thread []conversation.Conversation `json:"thread,omitempty"`
+	Ships  []Ship                      `json:"ships"`
 }
 
 // Claim asks for the next delivery of an agent: a conversation whose

@@ -22,7 +22,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 )
 
-// Agent is an ACP agent process with one session per conversation,
+// Agent is an ACP agent process with one session per thread,
 // running one kit of its agent (nil: no profile, or an older port).
 type Agent struct {
 	cfg  Config
@@ -38,7 +38,7 @@ type Agent struct {
 
 	mu       sync.Mutex
 	mcpURL   string
-	sessions map[string]savedSession  // conversation id → agent session (persisted)
+	sessions map[string]savedSession  // thread id → agent session (persisted)
 	open     map[string]acp.SessionId // opened on this connection
 	opening  map[string]*sync.Mutex
 	answers  map[acp.SessionId]*strings.Builder
@@ -192,10 +192,10 @@ func (a *Agent) SetMCPURL(u string) {
 	a.mu.Unlock()
 }
 
-// Prompt runs one turn on the conversation's session and returns the
+// Prompt runs one turn on the thread's session and returns the
 // agent's final text; f (optional) gets the turn's session updates.
-func (a *Agent) Prompt(ctx context.Context, conv identity.ConversationID, text string, images []image, f *feed) (string, error) {
-	sid, err := a.sessionFor(ctx, conv)
+func (a *Agent) Prompt(ctx context.Context, thread identity.ThreadID, text string, images []image, f *feed) (string, error) {
+	sid, err := a.sessionFor(ctx, thread)
 	if err != nil {
 		return "", err
 	}
@@ -250,11 +250,11 @@ func (a *Agent) CanSteer() bool {
 	return steer
 }
 
-// Steer hands text to the turn running on the conversation's session.
+// Steer hands text to the turn running on the thread's session.
 // false means no turn is running there (the input was not taken).
-func (a *Agent) Steer(ctx context.Context, conv identity.ConversationID, text string, images []image) (bool, error) {
+func (a *Agent) Steer(ctx context.Context, thread identity.ThreadID, text string, images []image) (bool, error) {
 	a.mu.Lock()
-	sid, ok := a.open[conv.String()]
+	sid, ok := a.open[thread.String()]
 	a.mu.Unlock()
 	if !ok {
 		return false, nil
@@ -336,9 +336,9 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	return out
 }
 
-// sessionFor opens (resume/load) or creates the conversation's session.
-func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (acp.SessionId, error) {
-	key := conv.String()
+// sessionFor opens (resume/load) or creates the thread's session.
+func (a *Agent) sessionFor(ctx context.Context, thread identity.ThreadID) (acp.SessionId, error) {
+	key := thread.String()
 	a.mu.Lock()
 	lock, ok := a.opening[key]
 	if !ok {
@@ -360,9 +360,9 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 	servers := a.mcpServers()
 	cwd := a.cfg.Cwd
 	if a.cfg.Workdir != nil {
-		dir, err := a.cfg.Workdir(ctx, conv)
+		dir, err := a.cfg.Workdir(ctx, thread)
 		if err != nil {
-			return "", errx.Wrap(err, "conversation working directory", errx.TypeInternal)
+			return "", errx.Wrap(err, "thread working directory", errx.TypeInternal)
 		}
 		cwd = dir
 	}
@@ -387,10 +387,10 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 			a.setMode(ctx, saved.ID, modes)
 			a.configure(ctx, saved.ID, options)
 			a.planBrief(saved.ID, saved.Instructions)
-			slog.Info("agent session resumed", "conversation", key, "session", saved.ID)
+			slog.Info("agent session resumed", "thread", key, "session", saved.ID)
 			return saved.ID, nil
 		}
-		slog.Warn("could not resume agent session; starting a new one", "conversation", key, "err", err)
+		slog.Warn("could not resume agent session; starting a new one", "thread", key, "err", err)
 	}
 	resp, err := a.conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: servers, Meta: a.cfg.SessionMeta})
 	if err != nil {
@@ -410,7 +410,7 @@ func (a *Agent) sessionFor(ctx context.Context, conv identity.ConversationID) (a
 		a.briefs[resp.SessionId] = brief{text: briefing(a.wire.prompt), hash: instructionsHash(a.wire.prompt)}
 		a.mu.Unlock()
 	}
-	slog.Info("agent session created", "conversation", key, "session", resp.SessionId)
+	slog.Info("agent session created", "thread", key, "session", resp.SessionId)
 	return resp.SessionId, nil
 }
 
@@ -563,7 +563,7 @@ func (a *Agent) sessionsKey() string {
 	return key
 }
 
-// savedSession is a conversation's agent session and the instructions it
+// savedSession is a thread's agent session and the instructions it
 // has seen (instructionsHash; nil: unknown). Older connectors saved the
 // bare session id, which still reads.
 type savedSession struct {
@@ -595,9 +595,9 @@ func (a *Agent) loadSessions() {
 	if json.Unmarshal(raw, &f) != nil {
 		return
 	}
-	for conv, s := range f[a.sessionsKey()] {
-		if _, ok := mustConversation(conv); ok && s.ID != "" {
-			a.sessions[conv] = s
+	for thread, s := range f[a.sessionsKey()] {
+		if _, ok := mustThread(thread); ok && s.ID != "" {
+			a.sessions[thread] = s
 		}
 	}
 }

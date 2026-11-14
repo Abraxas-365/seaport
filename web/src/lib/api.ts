@@ -190,11 +190,16 @@ export const api = {
     id: string,
     patch: { access?: Access; group_mode?: GroupMode; title?: string },
   ) => request<Conversation>("PATCH", `${v1}/conversations/${id}`, patch),
+  /** The doors of a conversation's thread, oldest first (itself included). */
+  thread: (id: string) => request<Conversation[]>("GET", `${v1}/conversations/${id}/thread`),
+  link: (id: string, with_: string) =>
+    request<Conversation[]>("POST", `${v1}/conversations/${id}/links`, { conversation_id: with_ }),
+  unlink: (id: string) => request<Conversation>("DELETE", `${v1}/conversations/${id}/links`),
 
-  ships: (conversation: string, limit = 50, offset = 0) =>
+  ships: (conversation: string, limit = 50, offset = 0, thread = false) =>
     request<Paginated<Ship>>(
       "GET",
-      `${v1}/conversations/${conversation}/ships${qs({ limit, offset })}`,
+      `${v1}/conversations/${conversation}/ships${qs({ limit, offset, thread: thread ? 1 : undefined })}`,
     ),
   turns: (conversation: string, limit = 100) =>
     request<Paginated<Turn>>("GET", `${v1}/conversations/${conversation}/turns${qs({ limit })}`),

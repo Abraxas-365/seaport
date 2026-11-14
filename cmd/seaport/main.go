@@ -89,7 +89,10 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport mode <conversation-id> mentions|all|default   group: wake on mentions only, or on everything
   seaport customs [-dock ID]            show the dock's customs; subcommands:
          default ask|allow|deny | groups mentions|all | allow <pattern> | deny <pattern> | rm <rule-id>
-  seaport history <conversation-id> [-limit N]
+  seaport history <conversation-id> [-limit N] [-thread]   -thread: every conversation of its thread
+  seaport thread <conversation-id>      the conversations linked with it (one matter, several channels)
+  seaport thread link <conversation-id> <conversation-id>   link two conversations (their threads merge)
+  seaport thread unlink <conversation-id>                   take one out of its thread
   seaport send <conversation-id> <text>
 
 Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
@@ -220,6 +223,8 @@ func run(ctx context.Context, args []string) error {
 		return customs(ctx, rest)
 	case "history":
 		return history(ctx, rest)
+	case "thread", "threads":
+		return thread(ctx, rest)
 	case "send":
 		return send(ctx, rest)
 	}
