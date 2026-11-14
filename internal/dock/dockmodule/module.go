@@ -14,6 +14,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockpg"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwebhook"
 	"github.com/Abraxas-365/seaport/internal/dock/docksvc"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -46,6 +47,8 @@ type Deps struct {
 	Jira dockjira.Config
 	// Slack configures Slack docks (on with a secret key, like GitHub).
 	Slack dockslack.Config
+	// Webhook configures webhook docks (on with a secret key, like GitHub's).
+	Webhook dockwebhook.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -63,6 +66,8 @@ type Module struct {
 	jiraHTTP *dockjira.Handler
 	sl       *dockslack.Gateway
 	slHTTP   *dockslack.Handler
+	wh       *dockwebhook.Gateway
+	whHTTP   *dockwebhook.Handler
 	extra    []dock.Gateway
 }
 
@@ -96,6 +101,14 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, jira, sl)
 	}
+	var wh *dockwebhook.Gateway
+	if d.SecretKey != "" {
+		var err error
+		if wh, err = dockwebhook.Open(ctx, d.DB, d.SecretKey, d.Webhook); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, wh)
+	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
@@ -114,6 +127,10 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		sl.Bind(svc, nil, nil)
 		m.slHTTP = dockslack.NewHandler(sl, svc)
 	}
+	if wh != nil {
+		m.wh = wh
+		m.whHTTP = dockwebhook.NewHandler(wh, svc)
+	}
 	return m, nil
 }
 
@@ -130,6 +147,9 @@ func (m *Module) BindReceiver(r Receiver) {
 	}
 	if m.sl != nil {
 		m.sl.Bind(nil, r, nil)
+	}
+	if m.wh != nil {
+		m.wh.BindReceiver(r)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
@@ -163,6 +183,9 @@ func (m *Module) Register(r httpx.Router) {
 	if m.slHTTP != nil {
 		m.slHTTP.Register(r)
 	}
+	if m.whHTTP != nil {
+		m.whHTTP.Register(r)
+	}
 }
 
 // RegisterPublic mounts the routes GitHub calls without a Seaport
@@ -176,6 +199,9 @@ func (m *Module) RegisterPublic(r httpx.Router) {
 	}
 	if m.slHTTP != nil {
 		m.slHTTP.RegisterPublic(r)
+	}
+	if m.whHTTP != nil {
+		m.whHTTP.RegisterPublic(r)
 	}
 }
 

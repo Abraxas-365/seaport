@@ -80,7 +80,8 @@ internal/
                       adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi,
                       dockgithub (GitHub App: stdlib REST, no SDK),
                       dockjira (Jira Cloud: stdlib REST + goldmark),
-                      dockslack (Slack app: stdlib REST, no SDK)}
+                      dockslack (Slack app: stdlib REST, no SDK),
+                      dockwebhook (generic JSON webhook: stdlib, text/template)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
@@ -175,9 +176,10 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `app.Get/Post/…/All("/path", h)`, as "METHOD /path"): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
   `publicRoutes` (`ALL /*` the web app, `/healthz`, GitHub's redirects, webhook and
-  Actions endpoint, Jira's webhook, which carry their own proof: a sealed
-  state, the App's HMAC, a GitHub Actions OIDC token for this port or the
-  Jira dock's secret as HMAC/bearer).
+  Actions endpoint, Jira's webhook and the generic `POST /hooks/{dock}`,
+  which carry their own proof: a sealed state, the App's HMAC, a GitHub
+  Actions OIDC token for this port or the dock's secret as
+  HMAC/bearer/token).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
@@ -298,8 +300,8 @@ net/http mux; only `/healthz` answers 405.
   ids stay per door: linking never admits a held door's messages, and a
   reply still needs the agent on that door's dock.
 - Replies per dock (migration 00029, `docks.replies`): `dock.CanReply()` =
-  the channel's capability (`Channel.Replies()`, code: every channel so
-  far) and the owner's switch (`PATCH /docks/{id}` `{"replies":false}`,
+  the channel's capability (`Channel.Replies()`, code: every channel but
+  `webhook`) and the owner's switch (`PATCH /docks/{id}` `{"replies":false}`,
   `seaport dock replies <id> off`). Off, the dock only triggers: arrivals,
   customs, routing and deliveries are unchanged, but `docksvc.NewMessageID`
   and `Send` refuse with `Business` (so `shipsvc.Send` stores nothing) and
@@ -851,6 +853,30 @@ net/http mux; only `/healthz` answers 405.
   An accepted message gets a 👀 reaction from a background goroutine.
   Unlink calls `apps.uninstall` (best effort, only for apps Seaport
   created) and deletes the rows. Off without a secret key.
+- Webhook docks (`dockwebhook`, migration 00030): a dock is one generic
+  JSON endpoint, linked at once (`Link` creates the `webhook_docks` row and
+  its secret; `Unlink` deletes it, so the dock is logged_out and the URL
+  404s; `Relink` makes a new secret). `webhook_docks` holds the secret
+  sealed (info `seaport webhook v1`, purpose `webhook\x00<dock>\x00secret`;
+  counted by `bootstrap.SecretKey`) and the template (jsonb, plain: no
+  secrets). The secret is answered only when made
+  (`POST …/webhook/secret`), never read back. The channel never replies
+  (`Channel.Replies()` false), so every delivery marks its door read-only
+  and `Send` is a `Business` refusal; the agent answers on a linked door.
+  Not exclusive, stateless, off without a secret key. Public `POST
+  /hooks/{dock}` (default 1 MiB body tier) takes the secret as bearer,
+  `X-Seaport-Token`, `X-Seaport-Signature: sha256=<hmac>` or `?token=`
+  (all checked in constant time; a wrong one and an unknown dock are the
+  same 404), a JSON object or an array of up to `MaxEvents` (non-JSON →
+  415), renders each through the dock's `Template` (Go `text/template` over
+  the body: `chat_id`, `chat_title`, `external_id`, `sender_id`,
+  `sender_name`, `text`, `tags`, `agent`; helpers `json join lower trunc
+  default`; `.headers` carries only safe headers) and `Receive`s inline
+  (group, addressed, `ChatHandles` = chat + tags, `SenderHandles` = sender +
+  `webhook:<first part of the dock id>`), answering `202
+  {"accepted","ignored"}`. A field that fails to run takes its default (a
+  message is never dropped for its template; the failure is logged at most
+  once a minute per dock); saving a template checks it compiles.
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
@@ -871,7 +897,7 @@ net/http mux; only `/healthz` answers 405.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,
-  `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites` or `slack_apps` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` or `webhook_docks` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so

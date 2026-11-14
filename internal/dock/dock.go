@@ -26,11 +26,15 @@ const (
 	// ChannelSlack is a Slack App: mentions, DMs and thread follow-ups
 	// arrive; replies are messages in the thread.
 	ChannelSlack Channel = "slack"
+	// ChannelWebhook is a generic inbound webhook: any system that can POST
+	// JSON (alerts, CI, payments) wakes the crew. It only triggers: nothing
+	// is posted back (see Replies).
+	ChannelWebhook Channel = "webhook"
 )
 
 func (c Channel) Valid() bool {
 	switch c {
-	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack:
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelWebhook:
 		return true
 	}
 	return false
@@ -40,7 +44,7 @@ func (c Channel) Valid() bool {
 // conversational channel). A channel that only triggers (alerts coming
 // in by webhook, nothing to post to) answers false: its docks are read
 // only whatever their switch says, and the crew answers on another door
-// of the thread. Every channel so far replies.
+// of the thread. Every channel replies except webhook.
 func (c Channel) Replies() bool {
 	switch c {
 	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack:
@@ -104,7 +108,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira or slack")
+		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira, slack or webhook")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

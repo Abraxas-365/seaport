@@ -30,6 +30,7 @@ export const keys = {
   github: (dock: string) => ["github", dock] as const,
   jira: (dock: string) => ["jira", dock] as const,
   slack: (dock: string) => ["slack", dock] as const,
+  webhook: (dock: string) => ["webhook", dock] as const,
   inboxAll: ["inbox"] as const,
   inbox: (f: object) => ["inbox", f] as const,
   conversation: (id: string) => ["conversation", id] as const,

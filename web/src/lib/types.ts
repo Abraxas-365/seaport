@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack"
+export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack" | "webhook"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -66,6 +66,44 @@ export interface JiraInfo {
   secret?: string
   /** Sites a dock may name (SEAPORT_JIRA_HOSTS). */
   hosts: string[]
+}
+
+/** A webhook dock's endpoint (GET /docks/{id}/webhook; never the secret). */
+export interface WebhookTemplate {
+  chat_id?: string
+  chat_title?: string
+  external_id?: string
+  sender_id?: string
+  sender_name?: string
+  text?: string
+  tags?: string
+  agent?: string
+}
+
+/** A sample body rendered with the template (what the agent would get). */
+export interface WebhookPreview {
+  chat_id: string
+  chat_title: string
+  external_id: string
+  sender_id: string
+  sender_name: string
+  text: string
+  tags?: string[]
+  agent?: string
+  /** Fields whose template failed to run (their default was used). */
+  errors?: Record<string, string>
+}
+
+export interface WebhookInfo {
+  url: string
+  /** false: a provider can't reach this port (plain http or loopback). */
+  reachable: boolean
+  template: WebhookTemplate
+  has_secret: boolean
+  created_at?: string
+  /** The secret: only in the answer that made it (rotate). */
+  secret?: string
+  preview?: WebhookPreview
 }
 
 /** A Slack dock's App (GET /docks/{id}/slack; no secret). */

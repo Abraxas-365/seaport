@@ -19,7 +19,7 @@ What each domain owns:
 
 | Domain | Owns |
 | :--- | :--- |
-| `dock` | channel accounts (WhatsApp, `api`, GitHub, Jira, Slack), gateways, dock ownership across processes |
+| `dock` | channel accounts (WhatsApp, `api`, GitHub, Jira, Slack, webhook), gateways, dock ownership across processes |
 | `conversation` | chats and customs (`Decide`, `Admit`: who may wake an agent) |
 | `ship` | messages, the delivery queue, attachments, outbound limits |
 | `crew` | the wire protocol, crew tokens, presence of connected agents, the MCP tools |
@@ -43,6 +43,7 @@ internal/dock/
     dockwa/ dockapi/            channel gateways (whatsmeow, api)
     dockgithub/ dockjira/       channel gateways (GitHub App, Jira Cloud,
     dockslack/                  Slack app: stdlib REST, no SDK)
+    dockwebhook/                generic JSON webhook endpoint (templates: stdlib)
 ```
 
 - **Domain root** (`dock`): types, pure rules and `ports.go`, which declares only interfaces: `Commands` and `Queries` (what the service offers), `Repository` (what it needs from storage), and others such as `Gateway` or `Owners`. No `net/http`, no SQL.
@@ -136,7 +137,7 @@ You can run several `seaport serve` processes against one database. Postgres is 
 | **Live events** | `event.Publish` appends to the `events` table (insert plus `pg_notify` under an advisory lock, so ids commit in order). Every process `LISTEN`s on its own connection (plus a 2 s poll) and fans out to its SSE subscribers. The SSE id is the row id, so a client resumes on any replica. Events older than an hour are swept, and an unknown id gets `reset`. |
 | **Crew presence** | Each agent connection is a `crew_connections` row. `Notify` and `Disconnect` act locally and queue a signal sent as `NOTIFY seaport_crew`. Each process touches its rows every `min(lease/4, 10s)`; rows untouched for three periods are reaped by any process, which releases their claims. |
 | **Claims** | A claim is a lease (`config.ClaimLease`) recorded with its connection, so a dropped connection, a shutdown or a reaped process releases exactly what it held. A lease sweeper is the last resort. |
-| **Dock ownership** | An exclusive channel (WhatsApp) runs in exactly one process: the holder of the dock's `dock_owners` lease (30 s, renewed every TTL/5). Link, unlink and send `route` to the owner, locally or through a `dock_requests` row plus `NOTIFY seaport_docks`. A process that can't renew for half a lease stops every connection (fencing). `api`, GitHub, Jira and Slack docks are not exclusive: they hold no connection, so any process takes their webhooks and sends. |
+| **Dock ownership** | An exclusive channel (WhatsApp) runs in exactly one process: the holder of the dock's `dock_owners` lease (30 s, renewed every TTL/5). Link, unlink and send `route` to the owner, locally or through a `dock_requests` row plus `NOTIFY seaport_docks`. A process that can't renew for half a lease stops every connection (fencing). `api`, GitHub, Jira, Slack and webhook docks are not exclusive: they hold no connection, so any process takes their webhooks and sends. |
 | **Customs lock** | Per-dock Postgres *session* advisory lock on a pool of its own, so a dock's decisions are serialized across processes without starving the work pool. |
 | **Quotas and limits** | Counted resources are counted and inserted in one transaction under a per-organization advisory lock, so concurrent requests can't overshoot. |
 

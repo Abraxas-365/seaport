@@ -51,7 +51,7 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 
 ## Secret key
 
-`SEAPORT_SECRET_KEY` is the key that seals secrets at rest: the WhatsApp store (private keys, sessions), GitHub Apps' private keys, webhook secrets and client secrets, Jira API tokens and webhook secrets, Slack apps' client secrets, signing secrets and bot tokens, agent secrets, message attachments (images and files), harness homes and, in `iam` mode, the IAMKit tokens of browser sessions. A random value of at least 32 characters, for example `openssl rand -base64 32`; shorter keys and placeholder-looking ones (fewer than 12 distinct characters) are refused.
+`SEAPORT_SECRET_KEY` is the key that seals secrets at rest: the WhatsApp store (private keys, sessions), GitHub Apps' private keys, webhook secrets and client secrets, Jira API tokens and webhook secrets, webhook docks' secrets, Slack apps' client secrets, signing secrets and bot tokens, agent secrets, message attachments (images and files), harness homes and, in `iam` mode, the IAMKit tokens of browser sessions. A random value of at least 32 characters, for example `openssl rand -base64 32`; shorter keys and placeholder-looking ones (fewer than 12 distinct characters) are refused.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
@@ -60,8 +60,8 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 
 Things to know:
 
-- **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, connecting every Jira and Slack dock again, setting every agent secret again and losing every stored attachment and harness home; in `iam` mode it also signs everyone out.
-- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites` or `slack_apps` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
+- **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, connecting every Jira and Slack dock again, generating every webhook dock's secret again, setting every agent secret again and losing every stored attachment and harness home; in `iam` mode it also signs everyone out.
+- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` or `webhook_docks` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
 - **With several processes, set it explicitly** (same value everywhere) instead of letting each generate its own file. See [Several processes](../guides/operations/several-processes.md).
 - **Changing it** makes sealed values unreadable. The start checks one WhatsApp device first, so a changed key stops the start instead of failing every dock.
 - In the image, `/data` holds the generated key: mount a volume.

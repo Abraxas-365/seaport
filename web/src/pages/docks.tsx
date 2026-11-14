@@ -30,7 +30,7 @@ import {
   SlackMark,
   type ChoiceOption,
 } from "@/components/seaport"
-import { MessageCircle, Webhook } from "lucide-react"
+import { MessageCircle, Webhook, Zap } from "lucide-react"
 
 const channelOptions: ChoiceOption<Channel>[] = [
   {
@@ -68,6 +68,13 @@ const channelOptions: ChoiceOption<Channel>[] = [
     tone: "neutral",
     description: "Una Slack App: menciona a tus agentes en un canal o escríbeles por mensaje directo.",
   },
+  {
+    value: "webhook",
+    label: "Webhook",
+    icon: Zap,
+    tone: "warning",
+    description: "Una dirección a la que cualquier sistema (alertas, CI, pagos) envía JSON para despertar a tus agentes. Solo dispara.",
+  },
 ]
 
 const defaultName: Record<Channel, string> = {
@@ -76,6 +83,7 @@ const defaultName: Record<Channel, string> = {
   github: "GitHub",
   jira: "Jira",
   slack: "Slack",
+  webhook: "Webhook",
 }
 const namePlaceholder: Record<Channel, string> = {
   whatsapp: "Mi WhatsApp",
@@ -83,6 +91,7 @@ const namePlaceholder: Record<Channel, string> = {
   github: "QA de pull requests",
   jira: "Soporte en Jira",
   slack: "Soporte en Slack",
+  webhook: "Alertas de Sentry",
 }
 
 export function DocksPage() {
