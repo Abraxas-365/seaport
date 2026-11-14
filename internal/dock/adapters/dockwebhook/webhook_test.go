@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/text"
@@ -33,12 +34,13 @@ func compile(t *testing.T, tpl Template) *Program {
 
 func TestDefaults(t *testing.T) {
 	in := body(t, `{"id":42,"msg":"disk full"}`)
+	in.At = time.Date(2024, 5, 1, 10, 30, 59, 0, time.FixedZone("x", 3600))
 	m := compile(t, Template{}).Render(in)
 	sum := sha256.Sum256(in.Raw)
 	if m.ChatID != "webhook" || m.ChatTitle != "webhook" || m.SenderID != "webhook" || m.SenderName != "sentry" {
 		t.Fatalf("defaults: %+v", m)
 	}
-	if m.ExternalID != "hook-"+hex.EncodeToString(sum[:]) {
+	if m.ExternalID != "hook-"+hex.EncodeToString(sum[:])+"-202405010930" {
 		t.Fatalf("external id: %s", m.ExternalID)
 	}
 	if !strings.HasPrefix(m.Text, "```json\n") || !strings.HasSuffix(m.Text, "\n```") || !strings.Contains(m.Text, `"msg": "disk full"`) {
@@ -54,7 +56,7 @@ func TestOverrides(t *testing.T) {
 	in.Headers = map[string]string{"x-event": "issue.created"}
 	m := compile(t, Template{
 		ChatID:     "{{.issue.id}}",
-		ChatTitle:  `{{lower .issue.title}} ({{index .headers "x-event"}})`,
+		ChatTitle:  `{{lower .issue.title}} ({{index .seaport.headers "x-event"}})`,
 		ExternalID: "{{.issue.id}}-{{.count}}",
 		SenderName: `{{default "nobody" .user}}`,
 		Text:       "{{.issue.level | lower}}: {{trunc 3 .issue.title}} {{join \", \" .issue.tags}} {{json .issue.tags}}",
@@ -194,6 +196,106 @@ func TestSecretHeaders(t *testing.T) {
 	for name, want := range map[string]bool{"x-github-event": true, "x-seaport-token": false, "x-api-key": false, "x-hub-signature-256": false, "x-forwarded-for": true, "x-auth": false} {
 		if got := secretHeader(name); got == want {
 			t.Errorf("%s secret=%v", name, got)
+		}
+	}
+}
+
+// The default external id carries the UTC minute: a retry inside it is a
+// duplicate, the same alert a minute later is not.
+func TestDefaultExternalIDHasAMinute(t *testing.T) {
+	in := body(t, `{"a":1}`)
+	prog := compile(t, Template{})
+	at := time.Date(2024, 5, 1, 10, 30, 5, 0, time.UTC)
+	in.At = at
+	a := prog.Render(in).ExternalID
+	in.At = at.Add(40 * time.Second)
+	b := prog.Render(in).ExternalID
+	in.At = at.Add(2 * time.Minute)
+	c := prog.Render(in).ExternalID
+	if a != b || a == c {
+		t.Fatalf("minute dedup: %s %s %s", a, b, c)
+	}
+}
+
+// Body fields named like the extras stay the body's own.
+func TestBodyFieldsAreNotShadowed(t *testing.T) {
+	in := body(t, `{"headers":"mine","raw":"r","body":"b"}`)
+	in.Headers = map[string]string{"x-a": "1"}
+	m := compile(t, Template{Text: `{{.headers}} {{.raw}} {{.body}} {{index .seaport.headers "x-a"}} {{.seaport.raw}}`}).Render(in)
+	if m.Text != `mine r b 1 {"headers":"mine","raw":"r","body":"b"}` {
+		t.Fatalf("text: %q", m.Text)
+	}
+}
+
+// Templates that could burn time or memory are refused when saved.
+func TestCompileRefusesBombs(t *testing.T) {
+	for name, src := range map[string]string{
+		"range over a number":   `{{range 1000000000}}x{{end}}`,
+		"range over a pipeline": `{{range (len .a)}}x{{end}}`,
+		"nested ranges":         `{{range .a}}{{range .b}}x{{end}}{{end}}`,
+		"too many ranges":       `{{range .a}}{{end}}{{range .a}}{{end}}{{range .a}}{{end}}{{range .a}}{{end}}`,
+		"printf":                `{{printf "%999999999s" ""}}`,
+		"printf in a pipe":      `{{"x" | printf "%999999999s"}}`,
+		"print":                 `{{print .a}}`,
+		"println":               `{{println .a}}`,
+		"call":                  `{{call .a}}`,
+		"html":                  `{{html .a}}`,
+		"js":                    `{{js .a}}`,
+		"urlquery":              `{{urlquery .a}}`,
+		"slice":                 `{{slice .a 1}}`,
+		"template":              `{{define "x"}}{{template "x"}}{{end}}{{template "x"}}`,
+		"inside if":             `{{if .a}}{{printf "%d" 1}}{{end}}`,
+		"inside range":          `{{range .a}}{{print .}}{{end}}`,
+	} {
+		_, err := Template{Text: src}.Compile()
+		var e *errx.Error
+		if !errors.As(err, &e) || e.Type != errx.TypeValidation {
+			t.Errorf("%s: %q was not refused: %v", name, src, err)
+		}
+	}
+	for _, src := range []string{
+		`{{range .a}}{{.}},{{end}}`, `{{range $i, $v := .a}}{{$v}}{{end}}`, `{{if and .a (eq .b "x")}}{{index .l 0}}{{len .l}}{{end}}`,
+		`{{range .a}}{{if .}}x{{end}}{{end}}`, `{{with .o}}{{.k}}{{end}}`,
+	} {
+		if _, err := (Template{Text: src}).Compile(); err != nil {
+			t.Errorf("%q refused: %v", src, err)
+		}
+	}
+}
+
+// What the checks let through is still bounded when it runs: a field that
+// writes too much, or runs too long, fails and takes its default.
+func TestRunawayFieldsFallBack(t *testing.T) {
+	list := "[" + strings.Repeat("1,", 20000) + "1]"
+	in := body(t, `{"a":`+list+`,"s":"`+strings.Repeat("x", 1000)+`"}`)
+
+	m := compile(t, Template{ChatID: `{{range .a}}{{$.s}}{{end}}`, Text: "kept {{len .a}}"}).Render(in)
+	if m.ChatID != "webhook" || m.Errors["chat_id"] == "" || m.Text != "kept 20001" {
+		t.Fatalf("too long: %+v", m)
+	}
+	if len(m.Errors["chat_id"]) == 0 || !strings.Contains(m.Errors["chat_id"], "long") {
+		t.Fatalf("error: %v", m.Errors)
+	}
+
+	old := fieldBudget
+	fieldBudget = 20 * time.Millisecond
+	defer func() { fieldBudget = old }()
+	in.Raw = []byte(`{}`)
+	in.Body = map[string]any{"a": make([]any, 3_000_000)}
+	start := time.Now()
+	m = compile(t, Template{ChatID: `{{range .a}}x{{end}}`, ChatTitle: `{{range .a}}{{end}}`}).Render(in)
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("a slow field held the request for %v", took)
+	}
+	if m.ChatID != "webhook" || m.Errors["chat_id"] == "" {
+		t.Fatalf("too slow: %+v", m)
+	}
+}
+
+func TestBearerIsCaseInsensitive(t *testing.T) {
+	for h, want := range map[string]bool{"Bearer s": true, "bearer s": true, "BEARER s": true, "Bearer x": false, "Basic s": false, "Bearer": false, "": false} {
+		if got := validBearer("s", h); got != want {
+			t.Errorf("%q: %v", h, got)
 		}
 	}
 }

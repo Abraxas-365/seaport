@@ -881,7 +881,7 @@ const templateExample = `{
 const templateFields: [string, string][] = [
   ["chat_id", "conversación (por defecto \"webhook\": una por muelle)"],
   ["chat_title", "título de la conversación"],
-  ["external_id", "evita duplicados en reintentos (por defecto: hash del cuerpo)"],
+  ["external_id", "evita duplicados en reintentos (por defecto: hash del cuerpo y el minuto; mejor un id del evento)"],
   ["sender_id", "quién envía (por defecto \"webhook\")"],
   ["sender_name", "nombre visible (por defecto el del muelle)"],
   ["text", "el mensaje (por defecto: el JSON entero)"],
@@ -1042,7 +1042,9 @@ function WebhookDockCard({ dock, write }: { dock: Dock; write: boolean }) {
             ))}
             <li>
               Cada campo es una plantilla de Go sobre el cuerpo: <code>{"{{.campo.sub}}"}</code>, y las funciones{" "}
-              <code>json</code>, <code>join</code>, <code>lower</code>, <code>trunc</code> y <code>default</code>.
+              <code>json</code>, <code>join</code>, <code>lower</code>, <code>trunc</code> y <code>default</code>. Las
+              cabeceras están en <code>{'{{index .seaport.headers "x-event"}}'}</code>. Sin <code>printf</code>,{" "}
+              <code>call</code> ni <code>range</code> anidados.
             </li>
           </ul>
         </div>

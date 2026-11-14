@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,9 +34,13 @@ const WebhookPath = "/hooks/"
 const MaxWebhook = httpx.MaxJSONBody
 
 // MaxEvents bounds a JSON array body: one message per element.
-const MaxEvents = 50
+const MaxEvents = 20
 
-// receiveWithin bounds the work of one call (Receive is quick).
+// PerMinute is how many calls a dock takes per minute (a burst of that
+// many, then one a second); more are 429 with Retry-After.
+const PerMinute = 60
+
+// receiveWithin bounds the work of one event (Receive is quick).
 const receiveWithin = 10 * time.Second
 
 // Handler serves the webhook routes: the admin API of a webhook dock and
@@ -43,9 +48,12 @@ const receiveWithin = 10 * time.Second
 type Handler struct {
 	g     *Gateway
 	docks dock.Queries
+	limit *httpx.RateLimit
 }
 
-func NewHandler(g *Gateway, docks dock.Queries) *Handler { return &Handler{g: g, docks: docks} }
+func NewHandler(g *Gateway, docks dock.Queries) *Handler {
+	return &Handler{g: g, docks: docks, limit: httpx.NewRateLimit(1, PerMinute)}
+}
 
 // Register mounts the admin routes (behind admin auth).
 func (h *Handler) Register(r httpx.Router) {
@@ -224,8 +232,11 @@ func validToken(secret, got string) bool {
 
 // validBearer checks "Authorization: Bearer <secret>".
 func validBearer(secret, header string) bool {
-	got, ok := strings.CutPrefix(strings.TrimSpace(header), "Bearer ")
-	return ok && validToken(secret, got)
+	header = strings.TrimSpace(header)
+	if len(header) < len("Bearer ") || !strings.EqualFold(header[:len("Bearer ")], "Bearer ") {
+		return false
+	}
+	return validToken(secret, header[len("Bearer "):])
 }
 
 // proven: the request carries the secret as a bearer, X-Seaport-Token, a
@@ -325,14 +336,19 @@ func (h *Handler) hook(c fiber.Ctx) error {
 	}
 	hook, err := h.g.store.Hook(c.Context(), id)
 	if errx.IsType(err, errx.TypeNotFound) {
+		// Same work as a known dock, so timing doesn't tell them apart.
+		proven("unknown", c, c.Body())
 		return errx.NotFound("unknown webhook")
 	}
 	if err != nil {
 		return err
 	}
+	// The server's body tier already refused anything over MaxWebhook.
 	body := c.Body()
-	if len(body) > MaxWebhook {
-		return errx.PayloadTooLarge("webhook body is too large")
+	if wait := h.limit.Take(id.String()); wait > 0 {
+		s := int(math.Ceil(wait.Seconds()))
+		return errx.TooManyRequests("too many calls to this webhook; retry in "+strconv.Itoa(s)+"s").
+			WithDetail("retry_after_seconds", s)
 	}
 	if !proven(hook.secret, c, body) {
 		return errx.NotFound("unknown webhook")
@@ -355,8 +371,6 @@ func (h *Handler) hook(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(c.Context(), receiveWithin)
-	defer cancel()
 	headers := safeHeaders(c)
 	accepted, ignored := 0, 0
 	for _, e := range events {
@@ -364,7 +378,12 @@ func (h *Handler) hook(c fiber.Ctx) error {
 		if len(m.Errors) > 0 {
 			h.g.templateFailed(id, m.Errors)
 		}
+		// Each event has its own budget. A failure part-way leaves the
+		// earlier events stored: the caller retries the whole body and the
+		// stored ones are ignored (same external id).
+		ctx, cancel := context.WithTimeout(c.Context(), receiveWithin)
 		_, created, err := receiver.Receive(ctx, hook.Organization, inbound(id, m))
+		cancel()
 		if err != nil {
 			slog.Error("receive webhook message", "dock", id, "chat", m.ChatID, "err", err)
 			return err

@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"text/template"
+	"text/template/parse"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Abraxas-365/seaport/internal/conversation"
@@ -23,7 +26,19 @@ const (
 	MaxTemplateField = 4096
 	// MaxTags bounds the extra chat handles a template may yield.
 	MaxTags = 10
+	// MaxOutput bounds what one field may write before it counts as failed.
+	MaxOutput = 64 << 10
+	// MaxRanges bounds the {{range}} actions of one field (never nested).
+	MaxRanges = 3
 )
+
+// fieldBudget is the time one field may run. A var so tests can shorten it.
+var fieldBudget = 200 * time.Millisecond
+
+// Namespace is the key under which templates see what is not the body:
+// .seaport.headers and .seaport.raw. A body field of the same name is
+// shadowed.
+const Namespace = "seaport"
 
 // DefaultChat is the conversation of a dock whose template names none.
 const DefaultChat = "webhook"
@@ -32,14 +47,16 @@ const DefaultChat = "webhook"
 const DefaultSender = "webhook"
 
 // Template maps a webhook's JSON body to the fields of a message. Every
-// field is a Go text/template over the body (`.` is the object; `.headers`,
-// `.raw` and `.body` are added); an empty field uses its default.
+// field is a Go text/template over the body (`.` is the object;
+// `.seaport.headers` and `.seaport.raw` are added); an empty field uses
+// its default.
 type Template struct {
 	// ChatID names the conversation (default "webhook": one per dock).
 	ChatID string `json:"chat_id,omitempty"`
 	// ChatTitle is its title (default: the chat id).
 	ChatTitle string `json:"chat_title,omitempty"`
-	// ExternalID dedups provider retries (default: hash of the body).
+	// ExternalID dedups provider retries (default: hash of the body and the
+	// UTC minute, so an identical alert a minute later still arrives).
 	ExternalID string `json:"external_id,omitempty"`
 	// SenderID / SenderName say who sent it (default "webhook" / dock name).
 	SenderID   string `json:"sender_id,omitempty"`
@@ -83,9 +100,155 @@ func (t Template) Compile() (*Program, error) {
 		if err != nil {
 			return nil, errx.InvalidField("template."+f.name, "template."+f.name+": "+firstLine(err.Error()))
 		}
+		if err := check(tpl.Tree.Root, 0, new(int)); err != nil {
+			return nil, errx.InvalidField("template."+f.name, "template."+f.name+": "+err.Error())
+		}
 		p.parsed[f.name] = tpl
 	}
 	return p, nil
+}
+
+// banned are the builtins a template may not call: printf and its kin can
+// build huge strings from a number, call runs arbitrary values, and html,
+// js, urlquery and slice have no use here.
+var banned = map[string]bool{
+	"printf": true, "print": true, "println": true, "call": true,
+	"html": true, "js": true, "urlquery": true, "slice": true,
+}
+
+// check walks a parsed template and refuses what could use unbounded time
+// or memory: banned functions, {{template}} (recursion), {{range}} over
+// anything but a field or variable (no literals or computed counts),
+// nested ranges and more than MaxRanges of them.
+func check(n parse.Node, depth int, ranges *int) error {
+	switch n := n.(type) {
+	case nil:
+		return nil
+	case *parse.ListNode:
+		if n == nil {
+			return nil
+		}
+		for _, c := range n.Nodes {
+			if err := check(c, depth, ranges); err != nil {
+				return err
+			}
+		}
+	case *parse.ActionNode:
+		return check(n.Pipe, depth, ranges)
+	case *parse.IfNode:
+		return branch(&n.BranchNode, depth, ranges)
+	case *parse.WithNode:
+		return branch(&n.BranchNode, depth, ranges)
+	case *parse.RangeNode:
+		if depth > 0 {
+			return errors.New("{{range}} can't be nested")
+		}
+		if *ranges++; *ranges > MaxRanges {
+			return fmt.Errorf("at most %d {{range}} actions", MaxRanges)
+		}
+		if p := n.Pipe; p == nil || len(p.Cmds) != 1 || len(p.Cmds[0].Args) != 1 {
+			return errors.New("{{range}} must go over a field or variable")
+		} else {
+			switch p.Cmds[0].Args[0].(type) {
+			case *parse.FieldNode, *parse.VariableNode, *parse.DotNode:
+			default:
+				return errors.New("{{range}} must go over a field or variable")
+			}
+		}
+		if err := check(n.Pipe, depth, ranges); err != nil {
+			return err
+		}
+		if err := check(n.List, depth+1, ranges); err != nil {
+			return err
+		}
+		return check(n.ElseList, depth+1, ranges)
+	case *parse.TemplateNode:
+		return errors.New("{{template}} and {{block}} are not allowed")
+	case *parse.PipeNode:
+		if n == nil {
+			return nil
+		}
+		for _, c := range n.Cmds {
+			if err := check(c, depth, ranges); err != nil {
+				return err
+			}
+		}
+	case *parse.CommandNode:
+		for _, a := range n.Args {
+			if err := check(a, depth, ranges); err != nil {
+				return err
+			}
+		}
+	case *parse.ChainNode:
+		return check(n.Node, depth, ranges)
+	case *parse.IdentifierNode:
+		if banned[n.Ident] {
+			return fmt.Errorf("%s is not allowed", n.Ident)
+		}
+	}
+	return nil
+}
+
+func branch(b *parse.BranchNode, depth int, ranges *int) error {
+	if err := check(b.Pipe, depth, ranges); err != nil {
+		return err
+	}
+	if err := check(b.List, depth, ranges); err != nil {
+		return err
+	}
+	return check(b.ElseList, depth, ranges)
+}
+
+// capWriter is where a field's output goes: it fails once more than max
+// bytes were written or the deadline passed (every write checks the
+// clock), which stops a template at its next output.
+type capWriter struct {
+	buf      bytes.Buffer
+	max      int
+	deadline time.Time
+}
+
+var (
+	errTooLong  = errors.New("the output is too long")
+	errTooSlow  = errors.New("the template took too long")
+	errTemplate = errors.New("the template failed")
+)
+
+func (w *capWriter) Write(b []byte) (int, error) {
+	if time.Now().After(w.deadline) {
+		return 0, errTooSlow
+	}
+	if w.buf.Len()+len(b) > w.max {
+		return 0, errTooLong
+	}
+	return w.buf.Write(b)
+}
+
+// exec runs one field within its output and time budget. A goroutine can't
+// be stopped, so on timeout it is left to finish (its work is bounded by
+// check) and its output is dropped.
+func exec(tpl *template.Template, root map[string]any) (string, error) {
+	w := &capWriter{max: MaxOutput, deadline: time.Now().Add(fieldBudget)}
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recover() != nil {
+				done <- errTemplate
+			}
+		}()
+		done <- tpl.Execute(w, root)
+	}()
+	timer := time.NewTimer(fieldBudget)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			return "", err
+		}
+		return w.buf.String(), nil
+	case <-timer.C:
+		return "", errTooSlow
+	}
 }
 
 func firstLine(s string) string {
@@ -101,6 +264,9 @@ type Input struct {
 	Raw      []byte
 	// Headers are the request's safe headers, lowercased.
 	Headers map[string]string
+	// At is when the event arrived (default now); the default external id
+	// carries its UTC minute.
+	At time.Time
 }
 
 // Message is a rendered event, every field already clean and within the
@@ -119,7 +285,7 @@ type Message struct {
 }
 
 // root is what templates see: the body's own fields (when it is an
-// object) plus headers, raw and body.
+// object) plus .seaport.headers and .seaport.raw.
 func (in Input) root() map[string]any {
 	root := map[string]any{}
 	if obj, ok := in.Body.(map[string]any); ok {
@@ -133,7 +299,7 @@ func (in Input) root() map[string]any {
 	for k, v := range in.Headers {
 		h[k] = v
 	}
-	root["headers"], root["raw"], root["body"] = h, string(in.Raw), in.Body
+	root[Namespace] = map[string]any{"headers": h, "raw": string(in.Raw)}
 	return root
 }
 
@@ -148,15 +314,15 @@ func (p *Program) Render(in Input) Message {
 		if tpl == nil {
 			return ""
 		}
-		var buf bytes.Buffer
-		if err := tpl.Execute(&buf, root); err != nil {
+		out, err := exec(tpl, root)
+		if err != nil {
 			if m.Errors == nil {
 				m.Errors = map[string]string{}
 			}
 			m.Errors[name] = firstLine(err.Error())
 			return ""
 		}
-		return strings.TrimSpace(strings.ReplaceAll(buf.String(), "<no value>", ""))
+		return strings.TrimSpace(strings.ReplaceAll(out, "<no value>", ""))
 	}
 	pick := func(name, def string, max int) string {
 		v := clip(text.StripControl(run(name)), max)
@@ -168,7 +334,11 @@ func (p *Program) Render(in Input) Message {
 	m.ChatID = pick("chat_id", DefaultChat, conversation.MaxExternalID)
 	m.ChatTitle = pick("chat_title", m.ChatID, text.MaxName)
 	sum := sha256.Sum256(in.Raw)
-	m.ExternalID = pick("external_id", "hook-"+hex.EncodeToString(sum[:]), conversation.MaxExternalID)
+	at := in.At
+	if at.IsZero() {
+		at = time.Now()
+	}
+	m.ExternalID = pick("external_id", "hook-"+hex.EncodeToString(sum[:])+"-"+at.UTC().Format("200601021504"), conversation.MaxExternalID)
 	m.SenderID = pick("sender_id", DefaultSender, ship.MaxSenderID)
 	m.SenderName = pick("sender_name", in.DockName, text.MaxName)
 	m.Text = clip(pick("text", defaultText(in.Raw), text.MaxMessage), text.MaxMessage)

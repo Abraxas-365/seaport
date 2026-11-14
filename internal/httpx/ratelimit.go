@@ -62,6 +62,16 @@ func (l *RateLimit) Middleware() fiber.Handler {
 	}
 }
 
+// Take spends one token of key's bucket for a caller that isn't a
+// Principal (a public route keyed by something of its own): it returns how
+// long until one is available, 0 when spent. A nil RateLimit never waits.
+func (l *RateLimit) Take(key string) time.Duration {
+	if l == nil {
+		return 0
+	}
+	return l.take(key)
+}
+
 // take spends one token of key's bucket, or returns how long until one is
 // available (nothing spent).
 func (l *RateLimit) take(key string) time.Duration {

@@ -91,7 +91,7 @@ const namePlaceholder: Record<Channel, string> = {
   github: "QA de pull requests",
   jira: "Soporte en Jira",
   slack: "Soporte en Slack",
-  webhook: "Alertas de Sentry",
+  webhook: "Alertas de tus sistemas",
 }
 
 export function DocksPage() {

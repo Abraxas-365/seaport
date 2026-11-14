@@ -61,7 +61,7 @@ func TestWebhookDock(t *testing.T) {
 	p := startPortWith(t, func(c *config.Server) { c.SecretKey = "webhook-test-secret-key-0123456789abcdef" }, bootstrap.Options{})
 
 	var d dock.Dock
-	if code := p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "webhook", "name": "Sentry"}, &d); code != http.StatusCreated {
+	if code := p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "webhook", "name": "Alerts"}, &d); code != http.StatusCreated {
 		t.Fatalf("create webhook dock: %d", code)
 	}
 	if d.Status != dock.StatusLinked || d.CanReply() {
@@ -239,4 +239,43 @@ func sign(secret, body string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(body))
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// A webhook dock takes PerMinute calls in a burst; the rest are 429 with
+// Retry-After, whatever the proof (guessing is limited too), and another
+// dock is not affected.
+func TestWebhookRateLimit(t *testing.T) {
+	p := startPortWith(t, func(c *config.Server) { c.SecretKey = "webhook-test-secret-key-0123456789abcdef" }, bootstrap.Options{})
+	mk := func(name string) dock.Dock {
+		var d dock.Dock
+		if code := p.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "webhook", "name": name}, &d); code != http.StatusCreated {
+			t.Fatalf("create: %d", code)
+		}
+		return d
+	}
+	a, b := mk("a"), mk("b")
+	limited := 0
+	for range 70 {
+		req, _ := http.NewRequest(http.MethodPost, p.srv.URL+"/hooks/"+a.ID.String(), strings.NewReader(`{}`))
+		req.Header.Set("X-Seaport-Token", "nope")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode == http.StatusTooManyRequests {
+			limited++
+			if res.Header.Get("Retry-After") == "" {
+				t.Fatal("429 without Retry-After")
+			}
+		} else if res.StatusCode != http.StatusNotFound {
+			t.Fatalf("status %d", res.StatusCode)
+		}
+	}
+	if limited < 5 {
+		t.Fatalf("only %d calls limited", limited)
+	}
+	if code, _ := p.hook(b, "", map[string]string{"X-Seaport-Token": "nope"}, `{}`); code != http.StatusNotFound {
+		t.Fatalf("the other dock: %d", code)
+	}
 }

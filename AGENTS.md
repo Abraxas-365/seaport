@@ -868,15 +868,23 @@ net/http mux; only `/healthz` answers 405.
   `X-Seaport-Token`, `X-Seaport-Signature: sha256=<hmac>` or `?token=`
   (all checked in constant time; a wrong one and an unknown dock are the
   same 404), a JSON object or an array of up to `MaxEvents` (non-JSON →
-  415), renders each through the dock's `Template` (Go `text/template` over
+  415; at most `PerMinute` calls a minute per dock, `httpx.RateLimit.Take`,
+  429; each event has its own 10 s context, earlier ones stay stored and a
+  retry ignores them), renders each through the dock's `Template` (Go `text/template` over
   the body: `chat_id`, `chat_title`, `external_id`, `sender_id`,
   `sender_name`, `text`, `tags`, `agent`; helpers `json join lower trunc
-  default`; `.headers` carries only safe headers) and `Receive`s inline
+  default`; `.seaport.headers` carries only safe headers, `.seaport.raw` the
+  body; the default external id is the body hash + UTC minute) and `Receive`s inline
   (group, addressed, `ChatHandles` = chat + tags, `SenderHandles` = sender +
   `webhook:<first part of the dock id>`), answering `202
   {"accepted","ignored"}`. A field that fails to run takes its default (a
   message is never dropped for its template; the failure is logged at most
-  once a minute per dock); saving a template checks it compiles.
+  once a minute per dock); saving a template checks it compiles and
+  `check` (template.go) refuses what could burn time or memory (printf and
+  kin, `call`, `{{template}}`, `{{range}}` over anything but a field,
+  nested or over `MaxRanges`), and each field runs with a capped output
+  (`MaxOutput`) and a time budget (`fieldBudget`; the writer fails past the
+  deadline).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own

@@ -126,8 +126,8 @@ func (s *Store) Hook(ctx context.Context, dock identity.DockID) (Hook, error) {
 }
 
 // Delete forgets the dock's endpoint.
-func (s *Store) Delete(ctx context.Context, dock identity.DockID) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM webhook_docks WHERE dock_id = $1`, dock)
+func (s *Store) Delete(ctx context.Context, org identity.OrganizationID, dock identity.DockID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM webhook_docks WHERE dock_id = $1 AND organization_id = $2`, dock, org)
 	return pgerr.Map(err, "delete webhook")
 }
 

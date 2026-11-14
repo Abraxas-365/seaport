@@ -113,7 +113,9 @@ func (*Gateway) Stop(identity.DockID) {}
 
 // Unlink forgets the endpoint, secret and template: the URL stops
 // answering.
-func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error { return g.store.Delete(ctx, d.ID) }
+func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
+	return g.store.Delete(ctx, d.Organization, d.ID)
+}
 
 func (*Gateway) NewMessageID(identity.DockID) (string, error) {
 	return "webhook-" + uuid.NewString(), nil
