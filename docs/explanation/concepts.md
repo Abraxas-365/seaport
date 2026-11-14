@@ -30,6 +30,8 @@ Conversations where one matter is discussed on several channels (a pull request 
 
 A **ship** is a message. Inbound ships come from people; outbound ships are replies. A ship is text plus optional image attachments. Every ship is stored, whether or not an agent ever sees it. See [Messages and images](../guides/messages-and-images.md).
 
+A **schedule** is a message the port posts into a conversation by itself on a cron timetable, from the system sender `system:schedule`, so an agent can start work with nobody writing. It then goes through customs and routing like any other message. See [Schedules](../guides/schedules.md).
+
 ## Customs
 
 **Customs** decides which conversations may wake an agent. Anyone can write to a dock (a WhatsApp number, a public repository, a busy Slack channel); customs keeps strangers and noisy groups away from your agents while every message is still stored and visible to you. It has a default policy, rules and per-chat overrides. A ship that doesn't pass is **held**, never dropped. See [Customs](../guides/customs.md).

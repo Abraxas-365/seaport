@@ -54,6 +54,8 @@ export const keys = {
   environmentVersions: (id: string) => ["environments", id, "versions"] as const,
   buildAll: ["build"] as const,
   build: (id: string, version = 0) => ["build", id, version] as const,
+  schedulesAll: ["schedules"] as const,
+  schedules: (conversation: string) => ["schedules", conversation] as const,
   homeRules: ["home-rules"] as const,
   home: (digest: string) => ["home", digest] as const,
   homeFile: (digest: string, path: string) => ["home", digest, "file", path] as const,

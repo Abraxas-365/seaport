@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Build, Conversation, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
+import type { Agent, Build, Schedule, Conversation, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
 import type { Activity } from "@/lib/activity"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,7 @@ import {
   SeaportLogo,
   SeaportMark,
   SegmentedChoice,
+  ScheduleRow,
   ShipBubble,
   SlotRow,
   StatusBadge,
@@ -328,6 +329,21 @@ const sampleShip = (over: Partial<Ship>): Ship => ({
   ...over,
 })
 
+const sampleSchedule: Schedule = {
+  id: "s1",
+  conversation_id: "c1",
+  name: "standup",
+  cron: "0 9 * * 1-5",
+  timezone: "America/Lima",
+  text: "Resume lo que pasó ayer en el repositorio y propón las prioridades de hoy.",
+  enabled: true,
+  next_at: new Date(now + 5 * 3_600_000).toISOString(),
+  last_at: new Date(now - 19 * 3_600_000).toISOString(),
+  created_at: ago(900),
+  updated_at: ago(900),
+  preview: [],
+}
+
 const sec = (s: number) => now - s * 1000
 const sampleActivity: Activity = {
   delivery: "d-sample",
@@ -543,6 +559,16 @@ function Domain() {
           <ChatAvatar name="Luis" seed="c-luis" size="lg" status="info" pulse />
           <ChatAvatar name="María P" seed="c-maria" size="sm" />
         </Specimen>
+        <Specimen label="ScheduleRow (activa, desactivada)" className="space-y-2">
+          <ul className="space-y-2">
+            <ScheduleRow now={now} schedule={sampleSchedule} agentName="pm" onToggle={() => {}} onRun={() => {}} onDelete={async () => {}} />
+            <ScheduleRow
+              now={now}
+              schedule={{ ...sampleSchedule, id: "s2", name: "revisión semanal", cron: "0 8 * * 1", enabled: false, last_at: undefined }}
+              onToggle={() => {}}
+            />
+          </ul>
+        </Specimen>
         <Specimen label="ConversationRow">
           <Card className="gap-0 p-1.5">
             {inboxItems.map((c) => (
@@ -643,6 +669,10 @@ function Conversation() {
             ship={sampleShip({ direction: "out", status: "sent", text: "¡Hola Ana! Sí, quedan 4 unidades. A Arequipa demora 2 días hábiles.", sent_at: ago(12) })}
           />
           <ShipBubble ship={sampleShip({ direction: "out", status: "pending", text: "¿Te reservo una?", sent_at: ago(12) })} grouped />
+          {/* A message the port itself posted (a schedule): system sender, with its icon. */}
+          <ShipBubble
+            ship={sampleShip({ sender_id: "system:schedule", sender_name: "Seaport · standup", text: "Resume lo que pasó ayer.", sent_at: ago(10) })}
+          />
           {/* What the agent did for that answer, stored when the turn ended (tools only, folded). */}
           <TurnSummary turn={sampleTurn} className="mt-1" />
           <ShipBubble ship={sampleShip({ text: "Mensaje en grupo sin mención", status: "held", sender_name: "Pedro", sent_at: ago(6) })} showSender />

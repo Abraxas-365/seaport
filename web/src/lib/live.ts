@@ -171,6 +171,11 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
     qc.invalidateQueries({ queryKey: keys.hosting }) // its hosting went with it
     qc.invalidateQueries({ queryKey: keys.environments })
   },
+  // A schedule changed (or fired, which moves its next time and posts a ship).
+  "schedule.created": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
+  "schedule.updated": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
+  "schedule.deleted": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
+  "schedule.fired": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
   "environment.updated": (qc, env) => {
     qc.setQueryData(keys.environment(env.id), env)
     qc.invalidateQueries({ queryKey: keys.environments, exact: true })

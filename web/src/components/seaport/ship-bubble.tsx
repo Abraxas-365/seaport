@@ -1,4 +1,4 @@
-import { AlertCircle, Bot, Check, CheckCheck, Clock, Hand, Hourglass } from "lucide-react"
+import { AlertCircle, Bot, CalendarClock, Check, CheckCheck, Clock, Hand, Hourglass } from "lucide-react"
 
 import { formatFull, formatTime } from "@/lib/format"
 import type { Ship } from "@/lib/types"
@@ -66,6 +66,8 @@ export function ShipBubble({
   markdown?: boolean
 }) {
   const out = ship.direction === "out"
+  // Sent by the port itself (a schedule), not by someone in the chat.
+  const system = ship.sender_id.startsWith("system:")
   const held = ship.status === "held"
   const failed = ship.status === "failed"
   return (
@@ -85,8 +87,11 @@ export function ShipBubble({
           failed && "ring-2 ring-destructive/60",
         )}
       >
-        {showSender && !out && ship.sender_name && (
-          <div className="mb-0.5 text-xs font-semibold text-primary">{ship.sender_name}</div>
+        {(showSender || system) && !out && ship.sender_name && (
+          <div className="mb-0.5 flex items-center gap-1 text-xs font-semibold text-primary">
+            {system && <CalendarClock className="size-3 shrink-0" aria-label="Mensaje programado" />}
+            <span className="min-w-0 truncate">{ship.sender_name}</span>
+          </div>
         )}
         {ship.attachments && ship.attachments.length > 0 && <ShipAttachments attachments={ship.attachments} />}
         {ship.text &&

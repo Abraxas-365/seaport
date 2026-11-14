@@ -498,6 +498,21 @@ An environment: `id`, `name`, `version`, `spec`, `created_by`, `created_at`, `up
 
 Builds, slots and hosted runs need `SEAPORT_RUNTIME=docker`; with it `off` they are refused. See [Hosted agents](../guides/hosting/hosted-agents.md) and [Harness homes](../guides/hosting/harness-homes.md).
 
+### Schedules
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/schedules` | `schedules:read` | Paginated schedules. Filter `conversation_id`. |
+| `POST` | `/schedules` | `schedules:write` | Body `{"conversation_id","name","cron","timezone","text","agent_id","enabled"}` (`timezone` defaults to `UTC`, `enabled` to `true`, `agent_id` is optional). `201` with the schedule. `400` for an invalid or never-firing expression or an unknown time zone; `422` for an expression that fires more often than every 5 minutes, and `422 QUOTA_EXCEEDED` past `SEAPORT_MAX_SCHEDULES`; `409` for a name already used. |
+| `POST` | `/schedules/preview` | `schedules:read` | Body `{"cron","timezone"}`. `{"preview":[…]}`, the next three times; saves nothing. |
+| `GET` | `/schedules/{id}` | `schedules:read` | The schedule. |
+| `PATCH` | `/schedules/{id}` | `schedules:write` | Any of `name`, `cron`, `timezone`, `text`, `enabled`, `agent_id` (`""` clears it). `next_at` is recomputed. The schedule. |
+| `DELETE` | `/schedules/{id}` | `schedules:write` | `204`. |
+| `POST` | `/schedules/{id}/run` | `schedules:write` | Posts the message now and answers the ship. The schedule's next time doesn't change. |
+| `GET` | `/conversations/{id}/schedules` | `schedules:read` | Paginated schedules of a conversation (`404` for one that isn't yours). |
+
+A schedule: `id`, `conversation_id`, `agent_id` (absent: the dock's routing decides), `name`, `cron`, `timezone`, `text`, `enabled`, `next_at`, `last_at`, `last_ship_id`, `created_at`, `updated_at` and `preview` (the next three times, empty while it is switched off). See [Schedules](../guides/schedules.md).
+
 ### Events
 
 | Method | Path | Permission | Response |

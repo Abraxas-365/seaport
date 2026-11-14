@@ -75,7 +75,7 @@ var vendorSDKs = map[string][]string{
 	// deadline; bootstrap/server.go: the app) and the inbound adapters that
 	// serve Fiber handlers (crewws: the hub's WebSocket upgrade, eventsse:
 	// the stream writer). A new adapter that serves routes is added here.
-	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "dock/adapters/dockwebhook", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp", "event/eventsse", "crew/adapters/crewws"},
+	"github.com/gofiber/fiber":    {"httpx", "bootstrap", "auth/adapters/authhttp", "conversation/adapters/conversationhttp", "ship/adapters/shiphttp", "dock/adapters/dockhttp", "dock/adapters/dockgithub", "dock/adapters/dockjira", "dock/adapters/dockslack", "dock/adapters/dockwebhook", "agent/adapters/agenthttp", "crew/adapters/crewhttp", "hosting/adapters/hostinghttp", "event/eventsse", "crew/adapters/crewws", "schedule/adapters/schedulehttp"},
 	"github.com/valyala/fasthttp": {"httpx", "bootstrap"},
 }
 

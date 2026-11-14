@@ -128,6 +128,7 @@ Each organization gets the same limits (one organization in `none` and `token` m
 | `SEAPORT_MAX_DOCKS` | `10` | Docks per organization. |
 | `SEAPORT_MAX_CREW_CONNECTIONS` | `20` | Agents connected at once per organization, counted across every process. |
 | `SEAPORT_MAX_SLOTS` | `10` | Hosted-agent slots per organization (see [Hosting](#hosting)). |
+| `SEAPORT_MAX_SCHEDULES` | `100` | [Schedules](../guides/schedules.md) per organization. |
 
 ## Rate limit
 

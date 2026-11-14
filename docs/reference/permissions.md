@@ -23,6 +23,8 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:agents:write` | Create, change and delete agents, assign them to docks, save profiles, and set or delete secrets. Also required to name secrets in an environment (repo credentials, model keys). |
 | `seaport:environments:read` | View environments, builds, harness homes, and the agents the port hosts with their slots. Read `environment.updated`, `environment.deleted`, `environment.build` and `slot.updated` events. |
 | `seaport:environments:write` | Create, change and delete environments, start builds, upload homes, host and unhost agents, and start, stop and sign in slots. Read slot logs. |
+| `seaport:schedules:read` | View schedules (prompts posted into conversations at set times) and preview cron expressions. Read `schedule.*` events. |
+| `seaport:schedules:write` | Create, change, run and delete schedules. |
 
 The permissions that guard each route are in [HTTP API](http-api.md). The permission that reads each event type is in [Events](events.md#event-types).
 
@@ -50,12 +52,14 @@ The three roles ship in `iam/permissions.json`. `scripts/iamkit-provision.sh` cr
 | `seaport:agents:write` | yes | | |
 | `seaport:environments:read` | yes | yes | yes |
 | `seaport:environments:write` | yes | | |
+| `seaport:schedules:read` | yes | yes | yes |
+| `seaport:schedules:write` | yes | yes | |
 
 In short:
 
-- **Admin** holds all 15 permissions.
-- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It can't change docks, customs, agents, tokens or environments.
-- **Viewer** reads docks, conversations, history, customs, the crew, agents and environments. It can't change anything and can't see crew tokens.
+- **Admin** holds all 17 permissions.
+- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules. It can't change docks, customs, agents, tokens or environments.
+- **Viewer** reads docks, conversations, history, customs, the crew, agents, environments and schedules. It can't change anything and can't see crew tokens.
 
 You can also grant single permissions or build your own roles in IAMKit; the catalog is what counts.
 

@@ -21,6 +21,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -457,6 +458,12 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		t.Fatalf("create environment: %d", code)
 	}
 	dk, cv, ag, env := d.ID.String(), conv, agentA.ID.String(), envA.ID.String()
+	var sched schedule.Schedule
+	if code := p.call(http.MethodPost, "/api/v1/schedules", adminA, map[string]any{"name": "a", "conversation_id": cv,
+		"cron": "0 9 * * 1-5", "timezone": "America/Lima", "text": "hola"}, &sched); code != http.StatusCreated {
+		t.Fatalf("create schedule: %d", code)
+	}
+	sc := sched.ID.String()
 	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
 	home := "sha256:" + strings.Repeat("a", 64)
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
@@ -542,6 +549,14 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "GET /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login/code", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", map[string]string{"code": "x"}, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/account", "GET /api/v1/agents/{id}/hosting/slots/{slot}/account", nil, permission.EnvironmentsRead},
+		{"GET", "/api/v1/schedules", "GET /api/v1/schedules", nil, permission.SchedulesRead},
+		{"POST", "/api/v1/schedules", "POST /api/v1/schedules", map[string]any{"name": "x", "conversation_id": cv, "cron": "0 9 * * *", "text": "x"}, permission.SchedulesWrite},
+		{"POST", "/api/v1/schedules/preview", "POST /api/v1/schedules/preview", map[string]string{"cron": "0 9 * * *"}, permission.SchedulesRead},
+		{"GET", "/api/v1/schedules/" + sc, "GET /api/v1/schedules/{id}", nil, permission.SchedulesRead},
+		{"PATCH", "/api/v1/schedules/" + sc, "PATCH /api/v1/schedules/{id}", map[string]string{"name": "x"}, permission.SchedulesWrite},
+		{"DELETE", "/api/v1/schedules/" + sc, "DELETE /api/v1/schedules/{id}", nil, permission.SchedulesWrite},
+		{"POST", "/api/v1/schedules/" + sc + "/run", "POST /api/v1/schedules/{id}/run", nil, permission.SchedulesWrite},
+		{"GET", "/api/v1/conversations/" + cv + "/schedules", "GET /api/v1/conversations/{id}/schedules", nil, permission.SchedulesRead},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.

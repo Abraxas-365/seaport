@@ -25,6 +25,7 @@ import type {
   InboxItem,
   Paginated,
   ProfileInput,
+  ScheduleInput,
   Ship,
 } from "./types"
 
@@ -774,5 +775,76 @@ export function useUsage(agent: string, days = 30) {
     queryFn: () => api.usage(agent, days),
     enabled: can(Perm.AgentsRead),
     refetchInterval: 60_000,
+  })
+}
+
+// Schedules: prompts the port posts into a conversation at set times.
+
+export function useSchedules(conversation: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.schedules(conversation),
+    queryFn: () => api.schedules(conversation),
+    enabled: can(Perm.SchedulesRead),
+  })
+}
+
+export function useCreateSchedule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: ScheduleInput) => api.createSchedule(body),
+    onSuccess: (s) => {
+      qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) })
+      toast.success("Programación creada", { description: s.name })
+    },
+    onError: fail("No se pudo crear la programación"),
+  })
+}
+
+export function useUpdateSchedule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & Parameters<typeof api.updateSchedule>[1]) =>
+      api.updateSchedule(id, body),
+    onSuccess: (s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
+    onError: fail("No se pudo guardar la programación"),
+  })
+}
+
+export function useDeleteSchedule(conversation: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteSchedule(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.schedules(conversation) })
+      toast.success("Programación eliminada")
+    },
+    onError: fail("No se pudo eliminar la programación"),
+  })
+}
+
+export function useRunSchedule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.runSchedule(id),
+    onSuccess: (s) => {
+      qc.invalidateQueries({ queryKey: keys.schedulesAll })
+      qc.invalidateQueries({ queryKey: keys.ships(s.conversation_id) })
+      toast.success("Mensaje enviado ahora", { description: "Pasó por la aduana como cualquier otro." })
+    },
+    onError: fail("No se pudo ejecutar la programación"),
+  })
+}
+
+/** The next fire times of an expression (the "new schedule" dialog); empty while it doesn't parse. */
+export function useSchedulePreview(cron: string, timezone: string) {
+  const can = useCan()
+  const c = cron.trim()
+  return useQuery({
+    queryKey: ["schedule-preview", c, timezone],
+    queryFn: () => api.previewSchedule(c, timezone),
+    enabled: can(Perm.SchedulesRead) && c !== "",
+    staleTime: 60_000,
+    retry: false,
   })
 }

@@ -24,6 +24,7 @@ export const sidebar = [
       page('guides/webhooks'),
       page('guides/customs'),
       page('guides/linked-conversations'),
+      page('guides/schedules'),
       page('guides/messages-and-images'),
     ], false),
     group('Agents', [

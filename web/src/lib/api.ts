@@ -43,6 +43,8 @@ import type {
   ProfileVersion,
   Paginated,
   Rule,
+  Schedule,
+  ScheduleInput,
   PortConfig,
   Session,
   Ship,
@@ -243,6 +245,15 @@ export const api = {
     request<AgentSecret>("PUT", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
   deleteSecret: (id: string, name: string) =>
     request<void>("DELETE", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`),
+  schedules: (conversation: string) =>
+    request<Paginated<Schedule>>("GET", `${v1}/conversations/${conversation}/schedules${qs({ limit: 100 })}`),
+  createSchedule: (body: ScheduleInput) => request<Schedule>("POST", `${v1}/schedules`, body),
+  updateSchedule: (id: string, body: Partial<Omit<ScheduleInput, "conversation_id">> & { agent_id?: string }) =>
+    request<Schedule>("PATCH", `${v1}/schedules/${id}`, body),
+  deleteSchedule: (id: string) => request<void>("DELETE", `${v1}/schedules/${id}`),
+  runSchedule: (id: string) => request<Ship>("POST", `${v1}/schedules/${id}/run`),
+  previewSchedule: (cron: string, timezone: string) =>
+    request<{ preview: string[] }>("POST", `${v1}/schedules/preview`, { cron, timezone }),
   team: (dock: string) => request<{ agents: TeamMember[] }>("GET", `${v1}/docks/${dock}/agents`),
   assignAgent: (dock: string, agent: string, isDefault: boolean) =>
     request<LibraryAgent>("PUT", `${v1}/docks/${dock}/agents/${agent}`, { default: isDefault }),

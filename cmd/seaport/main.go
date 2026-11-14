@@ -63,6 +63,13 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents secrets [list] <agent>
   seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers use it as ${NAME}
   seaport agents secrets rm <agent> NAME
+  seaport schedules [list [conversation-id]]   prompts the port posts into conversations at set times
+  seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..." [-timezone America/Lima] [-agent A] [-disabled]
+  seaport schedules edit <id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A|none]
+  seaport schedules enable|disable <id>
+  seaport schedules run <id>            post its message now (its schedule is untouched)
+  seaport schedules preview "<cron>" [-timezone Z]   the next times an expression runs
+  seaport schedules delete <id> -yes
   seaport env [list]                    environments: where hosted agents run (harness, image, repos, network)
   seaport env apply -f env.yaml         create it, or save a new version (an unchanged file makes none)
   seaport env export <env> [-version N] print it as YAML (the format of apply)
@@ -211,6 +218,8 @@ func run(ctx context.Context, args []string) error {
 		return errx.Validation("unknown dock command " + rest[0])
 	case "env", "envs", "environments":
 		return env(ctx, rest)
+	case "schedules", "schedule", "cron":
+		return schedules(ctx, rest)
 	case "agents", "agent":
 		return agents(ctx, rest)
 	case "crew":
