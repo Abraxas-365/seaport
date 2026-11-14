@@ -2,6 +2,9 @@
 package shipmodule
 
 import (
+	"database/sql"
+	"time"
+
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/blob"
 	"github.com/Abraxas-365/seaport/internal/conversation"
@@ -16,7 +19,9 @@ import (
 )
 
 type Deps struct {
-	DB            *sqlx.DB
+	DB *sqlx.DB
+	// LockDB is the pool of session advisory locks (pglock), apart from DB.
+	LockDB        *sql.DB
 	Conversations interface {
 		conversation.Commands
 		conversation.Queries
@@ -32,6 +37,9 @@ type Deps struct {
 	// Blobs and SecretKey keep message media sealed (either missing: off).
 	Blobs     blob.Store
 	SecretKey string
+	// ApprovalTTL is how long an approval waits for its answer (zero: the
+	// default).
+	ApprovalTTL time.Duration
 }
 
 type Module struct {
@@ -42,7 +50,8 @@ type Module struct {
 func New(d Deps) (*Module, error) {
 	svc, err := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
 		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents, Docks: d.Docks,
-		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}})
+		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}, ApprovalTTL: d.ApprovalTTL,
+		ApprovalLocks: shippg.NewApprovalLocker(d.LockDB)})
 	if err != nil {
 		return nil, err
 	}

@@ -89,6 +89,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `ship.updated` | `seaport:ships:read` | Ship | An outbound ship's outcome (`sent` or `failed`). |
 | `delivery.changed` | `seaport:ships:read` | Delivery event | A delivery opened, grew (steer), closed or was released. |
 | `ship.turn` | `seaport:ships:read` | [Turn](#turn) | A delivery with tool calls ended and its summary was stored. |
+| `ship.approval` | `seaport:ships:read` | Approval | An approval was asked, answered, cancelled or expired. |
 | `crew.changed` | `seaport:crew:read` | Crew status (`{"agents":[…]}`) | An agent connected or disconnected, or its deliveries changed. Carries the whole crew. |
 | `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
 | `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one. |

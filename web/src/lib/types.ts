@@ -492,6 +492,27 @@ export interface ScheduleInput {
   enabled?: boolean
 }
 
+export type ApprovalStatus = "pending" | "answered" | "cancelled" | "expired"
+
+/** A question an agent asked people to choose from (ship.approval; GET /approvals). */
+export interface Approval {
+  id: ID
+  conversation_id: ID
+  agent_id: ID
+  delivery_id?: ID
+  /** The outbound ship that carries the card. */
+  ship_id: ID
+  text: string
+  options: string[]
+  status: ApprovalStatus
+  answer?: string
+  answered_by?: string
+  answered_ship_id?: ID
+  expires_at: string
+  created_at: string
+  answered_at?: string
+}
+
 /** Server-Sent Event types of GET /api/v1/events. */
 export interface EventMap {
   "dock.updated": Dock
@@ -502,6 +523,7 @@ export interface EventMap {
   "ship.updated": Ship
   "delivery.changed": DeliveryEvent
   "ship.turn": Turn
+  "ship.approval": Approval
   "crew.changed": CrewStatus
   "crew.activity": ActivityEvent
   "agent.updated": LibraryAgent

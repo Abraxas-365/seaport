@@ -33,6 +33,9 @@ import {
   useShips,
   useThread,
   useTurns,
+  useApprovals,
+  useAnswerApproval,
+  useCancelApproval,
   useUnlink,
   useUpdateSchedule,
 } from "@/lib/hooks"
@@ -40,7 +43,7 @@ import { useActivity, type Activity } from "@/lib/activity"
 import { useLiveState } from "@/lib/live"
 import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
-import type { Access, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
+import type { Access, Approval, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -80,6 +83,7 @@ import {
   StatusBadge,
   ThreadChips,
   TurnSummary,
+  ApprovalCard,
   channelLabel,
   customsLabel,
   customsTone,
@@ -107,6 +111,7 @@ export function ConversationPage() {
   const [whole, setWhole] = React.useState(false)
   const ships = useShips(conversationId, whole && doors.length > 1)
   const turns = useTurns(conversationId)
+  const approvals = useApprovals(conversationId)
   const crew = useCrew()
   const send = useSend(conversationId)
   const can = useCan()
@@ -144,6 +149,7 @@ export function ConversationPage() {
           working={!!working}
           activity={activity}
           turns={turns.data?.items}
+          approvals={approvals.data?.items}
         />
       ) : (
         <NoAccess what="leer los mensajes" className="flex-1" />
@@ -245,6 +251,7 @@ function ShipList({
   working,
   activity,
   turns,
+  approvals,
 }: {
   conversation: Conversation
   /** set when showing the whole thread: each ship is labelled with its door */
@@ -257,6 +264,7 @@ function ShipList({
   working: boolean
   activity?: Activity
   turns?: Turn[]
+  approvals?: Approval[]
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
   const ordered = React.useMemo(() => ships.slice().reverse(), [ships])
@@ -270,6 +278,10 @@ function ShipList({
   // answer is sent before the delivery closes); turns older than the
   // loaded history wait for "Mensajes anteriores".
   const turnsAfter = React.useMemo(() => placeTurns(ordered, turns ?? []), [ordered, turns])
+  const approvalOf = React.useMemo(() => new Map((approvals ?? []).map((a) => [a.ship_id, a])), [approvals])
+  const canWrite = useCan()(Perm.ShipsWrite)
+  const answer = useAnswerApproval()
+  const cancel = useCancelApproval()
   const doorNames = React.useMemo(() => new Map((doors ?? []).map((d) => [d.id, d])), [doors])
 
   // Follow new ships (and the agent's live activity) when the user is at
@@ -360,6 +372,15 @@ function ShipList({
                   showSender={group && !grouped}
                   markdown={markdown}
                 />
+                {approvalOf.get(s.id) && (
+                  <ApprovalCard
+                    approval={approvalOf.get(s.id)!}
+                    canAnswer={canWrite}
+                    busy={answer.isPending || cancel.isPending}
+                    onAnswer={(option) => answer.mutate({ id: approvalOf.get(s.id)!.id, option })}
+                    onCancel={() => cancel.mutate(approvalOf.get(s.id)!.id)}
+                  />
+                )}
                 {turnsAfter.get(i)?.map((t) => <TurnSummary key={t.delivery_id} turn={t} className="mt-1" />)}
               </React.Fragment>
             )

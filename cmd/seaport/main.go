@@ -115,6 +115,10 @@ Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
                                         (default: the origin remote here); hosted slots' gh and git use it
   seaport reply <conversation-id> [-file PATH]... [text]
                                         reply as the agent, with files (reports, screenshots)
+  seaport ask <conversation-id> -option TEXT -option TEXT... [-wait SECONDS] <question>
+                                        ask people to choose before acting; prints "<id> <status> [answer]"
+  seaport approval <approval-id> [-wait SECONDS]
+                                        read an approval you asked (-wait blocks while it is pending)
 `
 
 func main() {
@@ -184,6 +188,11 @@ func run(ctx context.Context, args []string) error {
 	case "reply":
 		// an agent's reply with files from disk.
 		return connector.ReplyCommand(ctx, rest, os.Stdout)
+	case "ask":
+		// an agent asks people for an approval (optionally waiting for it).
+		return connector.AskCommand(ctx, rest, os.Stdout)
+	case "approval":
+		return connector.ApprovalCommand(ctx, rest, os.Stdout)
 	case "github-token":
 		// a GitHub App token for a repo of the agent's GitHub docks
 		// (GH_TOKEN=$(seaport github-token owner/repo) gh …).

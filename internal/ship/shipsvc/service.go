@@ -43,6 +43,15 @@ type Deps struct {
 	Limits *ship.Limits
 	// Media keeps message media (zero value: off, media become notes).
 	Media Media
+	// ApprovalTTL is how long an approval waits for its answer (zero:
+	// ship.ApprovalTTL).
+	ApprovalTTL time.Duration
+	// ApprovalLocks serializes the asks of a conversation (nil: asks of
+	// one conversation aren't serialized across processes).
+	ApprovalLocks ship.ApprovalLocker
+	// ApprovalPoll is how often a blocked ask looks for its answer (zero:
+	// ship.ApprovalPoll).
+	ApprovalPoll time.Duration
 }
 
 type Service struct {
@@ -60,6 +69,9 @@ type Service struct {
 	now       func() time.Time
 	limits    ship.Limits
 	media     media
+	locks     ship.ApprovalLocker
+	// approvalTTL and poll: see Deps.
+	approvalTTL, poll time.Duration
 }
 
 func New(d Deps) (*Service, error) {
@@ -79,8 +91,16 @@ func New(d Deps) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	ttl, poll := d.ApprovalTTL, d.ApprovalPoll
+	if ttl <= 0 {
+		ttl = ship.ApprovalTTL
+	}
+	if poll <= 0 {
+		poll = ship.ApprovalPoll
+	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
-		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m}, nil
+		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m,
+		approvalTTL: ttl, poll: poll, locks: d.ApprovalLocks}, nil
 }
 
 var (
@@ -119,7 +139,11 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		return ship.Ship{}, false, err
 	}
 	input.Text = body
-	st, created, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv, input, attachments, arrival.Hold, route)
+	// A person's answer to an approval is stored with the message (and
+	// sent to the approval's agent), so no delivery carries one without
+	// the other.
+	st, created, answered, err := s.repo.CreateInbound(ctx, org, identity.NewShipID(), conv, input, attachments, arrival.Hold, route,
+		answerer(said, input))
 	if err != nil {
 		return ship.Ship{}, false, errx.Wrap(err, "store inbound ship", errx.TypeInternal)
 	}
@@ -130,6 +154,9 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 		slog.Debug("ship held", "conversation", conv.ID, "reason", st.HoldReason)
 	}
 	s.events.Publish(org, ship.EventCreated, st)
+	if answered != nil {
+		s.events.Publish(org, ship.EventApproval, *answered)
+	}
 	if st.Status == ship.StatusQueued && st.Agent != nil {
 		s.notifier.Notify(org, *st.Agent)
 	}
@@ -200,6 +227,12 @@ func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id 
 	d.ReadOnly, err = s.readOnly(ctx, org, doors)
 	if err != nil {
 		return ship.Delivery{}, err
+	}
+	if len(ships) > 0 && ships[0].Agent != nil {
+		d.Approvals, err = s.repo.DeliveryApprovals(ctx, org, convID, *ships[0].Agent, idsOf(ships), s.now())
+		if err != nil {
+			return ship.Delivery{}, errx.Wrap(err, "delivery approvals", errx.TypeInternal)
+		}
 	}
 	return d, nil
 }

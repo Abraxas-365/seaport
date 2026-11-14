@@ -40,15 +40,16 @@ func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
 var _ ship.Repository = (*Repository)(nil)
 
 func (r *Repository) CreateInbound(ctx context.Context, org identity.OrganizationID, id identity.ShipID, conv conversation.Conversation,
-	in ship.Inbound, attachments []ship.Attachment, hold string, route ship.Router) (ship.Ship, bool, error) {
+	in ship.Inbound, attachments []ship.Attachment, hold string, route ship.Router, answer ship.Answerer) (ship.Ship, bool, *ship.Approval, error) {
 	var s ship.Ship
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return s, false, pgerr.Map(err, "begin inbound")
+		return s, false, nil, pgerr.Map(err, "begin inbound")
 	}
 	defer func() { _ = tx.Rollback() }()
 	status := ship.StatusHeld
 	var target *identity.AgentID
+	var answering *ship.Answering
 	if hold == "" {
 		// The team's rows stay locked until commit: unassigning or deleting
 		// an agent (agentpg) waits, then holds this ship if it was its.
@@ -57,7 +58,7 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 			JOIN agents a ON a.organization_id = d.organization_id AND a.id = d.agent_id
 			WHERE d.organization_id = $1 AND d.dock_id = $2 ORDER BY d.created_at, a.name FOR SHARE OF d`,
 			org, conv.Dock); err != nil {
-			return s, false, pgerr.Map(err, "dock team")
+			return s, false, nil, pgerr.Map(err, "dock team")
 		}
 		var previous identity.AgentID
 		// The agent the thread last talked with (on any of its doors): its
@@ -66,9 +67,27 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 			WHERE organization_id = $1 AND agent_id IS NOT NULL AND `+inThread("$1", "$2")+`
 			ORDER BY created_at DESC LIMIT 1`, org, conv.ID)
 		if err != nil && !pgerr.IsNoRows(err) {
-			return s, false, pgerr.Map(err, "previous agent")
+			return s, false, nil, pgerr.Map(err, "previous agent")
 		}
 		picked, reason := route(team, previous)
+		if answer != nil {
+			// A reply to a pending approval goes to the approval's agent,
+			// whoever routing picked (a bare "2" on a team of several).
+			var pending []approvalRow
+			if err := tx.SelectContext(ctx, &pending, `SELECT `+approvalColumns+` FROM ship_approvals
+				WHERE organization_id = $1 AND conversation_id = $2 AND status = 'pending' AND expires_at > now()
+				ORDER BY created_at, id FOR UPDATE`, org, conv.ID); err != nil {
+				return s, false, nil, pgerr.Map(err, "pending approvals")
+			}
+			list, err := approvals(pending)
+			if err != nil {
+				return s, false, nil, err
+			}
+			if got, ok := answer(list, team, picked); ok {
+				answering = &got
+				picked, reason = got.Agent, ""
+			}
+		}
 		if picked.IsZero() {
 			hold = reason
 		} else {
@@ -89,15 +108,39 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 		if err == nil && !found {
 			err = pgerr.MapWith(pgerr.ErrNoRows, "find duplicate ship", messages)
 		}
-		return s, false, err
+		return s, false, nil, err
 	}
 	if err != nil {
-		return s, false, pgerr.MapWith(err, "create inbound ship", messages)
+		return s, false, nil, pgerr.MapWith(err, "create inbound ship", messages)
 	}
 	if err := insertAttachments(ctx, tx, org, id, attachments, &s); err != nil {
-		return s, false, err
+		return s, false, nil, err
 	}
-	return s, true, pgerr.Map(tx.Commit(), "commit inbound ship")
+	var answered *ship.Approval
+	if answering != nil {
+		// The message is the agent's delivery, so it carries the answer:
+		// the agent needs no system message.
+		var row approvalRow
+		err := tx.GetContext(ctx, &row, `UPDATE ship_approvals SET status = 'answered', answer = $3, answered_by = $4,
+				answered_ship_id = $5, answered_at = now(), ended_at = now(), woken_at = now()
+			WHERE organization_id = $1 AND id = $2 AND status = 'pending'
+			RETURNING `+approvalColumns, org, answering.Approval, answering.Option, answering.By, id)
+		switch {
+		case pgerr.IsNoRows(err):
+			// Answered or cancelled from the web meanwhile (the row was
+			// locked when read, so only a committed change gets here
+			// first): the message still goes to the agent, as any.
+		case err != nil:
+			return s, false, nil, pgerr.MapWith(err, "answer approval", approvalMessages)
+		default:
+			a, err := row.approval()
+			if err != nil {
+				return s, false, nil, err
+			}
+			answered = &a
+		}
+	}
+	return s, true, answered, pgerr.Map(tx.Commit(), "commit inbound ship")
 }
 
 // senderHandles is the JSON of the handles customs matches the sender by,

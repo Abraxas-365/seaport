@@ -26,6 +26,7 @@ export const sidebar = [
       page('guides/linked-conversations'),
       page('guides/schedules'),
       page('guides/messages-and-images'),
+      page('guides/approvals'),
     ], false),
     group('Agents', [
       page('guides/agents-and-routing'),

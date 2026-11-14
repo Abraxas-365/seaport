@@ -85,7 +85,7 @@ Quota names: `docks`, `crew_connections`, `crew_tokens`, `agents`, `agent_secret
 
 **Rate limits.** Two rates exist:
 
-- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments`, `/crew/reply`, `/crew/workspace` and `/crew/github/token`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
+- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments`, `/crew/reply`, `/crew/approvals`, `/crew/workspace` and `/crew/github/token`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
 - The outbound limits (`SEAPORT_SEND_*`) refuse a reply when a dock, conversation or organization sent too much lately.
 
 Both answer `429` with `Retry-After` in seconds. Wait that long.
@@ -327,6 +327,7 @@ The template's fields are `chat_id`, `chat_title`, `external_id`, `sender_id`, `
 | `PATCH` | `/conversations/{id}` | `conversations:write` | Body with any of `access` (`auto`, `allow`, `deny`), `group_mode` (`mentions`, `all`, or empty to inherit the dock's) and `title`. The conversation. |
 | `GET` | `/conversations/{id}/ships` | `ships:read` | Paginated ships (messages), newest first. With `thread=1`, the ships of every conversation linked with it. |
 | `GET` | `/conversations/{id}/turns` | `ships:read` | Paginated [turn summaries](events.md#turn) (the tools an agent called on each delivery), newest first. |
+| `GET` | `/conversations/{id}/approvals` | `ships:read` | Paginated [approvals](../guides/approvals.md) of the conversation, newest first. |
 | `POST` | `/conversations/{id}/ships` | `ships:write` | Body `{"text":"…"}`. Sends a message as a person would. `201` with the ship. `403` if the conversation isn't allowed. |
 | `GET` | `/conversations/{id}/thread` | `conversations:read` | The conversations of its thread (itself included), oldest first. |
 | `POST` | `/conversations/{id}/links` | `conversations:write` | Body `{"conversation_id":"…"}`: links the two conversations (their threads merge). The thread's conversations. `400` for itself, `422` past 16 conversations. See [Linked conversations](../guides/linked-conversations.md). |
@@ -380,6 +381,28 @@ A conversation:
 `direction` is `in` or `out`. Inbound `status` is `held`, `queued`, `claimed` or `handled`; outbound is `pending`, `sent` or `failed`. Empty fields are left out. `/inbox` items add `last_ship` (a ship, omitted without `ships:read`), `held`, `queued` and `in_flight`.
 
 Attachment routes answer the raw bytes with `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`. Only images are stored. See [Messages and images](../guides/messages-and-images.md).
+
+### Approvals
+
+Questions agents asked people ([Approvals](../guides/approvals.md)).
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/approvals` | `ships:read` | Paginated approvals, newest first. Filter `status` (`pending`, `answered`, `cancelled`, `expired`). |
+| `GET` | `/approvals/{id}` | `ships:read` | The approval. |
+| `POST` | `/approvals/{id}/answer` | `ships:write` | Body `{"option":"…"}` (an option of the approval, any case). The approval, answered by the caller. `422` when it isn't pending (answered, cancelled or expired). Wakes the agent with a system message (also when an ask is blocked on it: a repeat of the answer it gets). |
+| `POST` | `/approvals/{id}/cancel` | `ships:write` | Withdraws a pending approval; the agent is told. The approval. |
+
+```json
+{
+  "id": "0193…", "conversation_id": "…", "agent_id": "…", "ship_id": "…",
+  "text": "Deploy v2.3 to production?", "options": ["Approve", "Reject"],
+  "status": "answered", "answer": "Approve", "answered_by": "Ana",
+  "expires_at": "2025-01-16T10:30:00Z", "created_at": "2025-01-15T10:30:00Z", "answered_at": "2025-01-15T10:41:00Z"
+}
+```
+
+`ship_id` is the outbound message that carries the question; `answered_ship_id` names the inbound message that answered from a channel.
 
 ### Customs
 
@@ -529,6 +552,8 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `POST` | `/mcp` | The MCP server (streamable HTTP). See [MCP tools](mcp-tools.md). |
 | `GET` | `/crew/profile` | The agent's kit: its profile with secrets resolved, `env` and `revision`. See [Agent profile](agent-profile.md). Query `agent=<name>` names the agent in `none` mode; with a token it must match. `Cache-Control: no-store`. |
 | `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image, or a document as a download). Only for conversations on the agent's docks, else `404`. |
+| `POST` | `/crew/approvals` | Ask an approval as the agent. Body `{"conversation_id","text","options":[…],"wait_seconds"}`. `201` with the approval (`id`, `status`, `options`, `answer`, …). With `wait_seconds` (at most 290, cut to the request deadline) it blocks until answered. Agent tokens only. Same rules as the MCP `ask_approval` tool. |
+| `GET` | `/crew/approvals/{id}` | The agent's approval; `?wait_seconds=N` blocks while pending. Another agent's is `404`. |
 | `POST` | `/crew/reply` | A reply as the agent, with files. Body `{"conversation_id","text","files":[{"name","data"}]}` (`data` base64; body up to about 35 MiB). `201` `{"ship_id","status"}`. Agent tokens only (`403` without an agent). Same rules as the MCP `reply` tool. |
 | `GET` | `/crew/workspace` | A hosted slot's plan for `/workspace`: `slot`, `harness`, `repo_config`, `persistent`, `repos`, `sign_in`, with repo credentials resolved. Only a slot's own token gets it; any other is `403`. |
 | `POST` | `/crew/github/token` | A GitHub App token for one repository. Body `{"repository":"owner/repo","host":"github.com"}` (`host` optional: another host than the port's GitHub is `404`). `200` `{"token","expires_at","repository","host","api_url","app"}`, `Cache-Control: no-store`. Only an agent's crew token, and only for a repository where the App of one of its GitHub docks is installed and active; else `404` (`403` without an agent: `none` mode). See [GitHub](../guides/github.md#act-on-github-as-the-app). |

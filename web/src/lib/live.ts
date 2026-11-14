@@ -21,6 +21,7 @@ import type {
   Paginated,
   Ship,
   Turn,
+  Approval,
 } from "./types"
 
 /** polling: no live stream for a while; screens refetch every pollEvery. */
@@ -144,6 +145,15 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
         : old,
     )
     turnStored(turn)
+  },
+  "ship.approval": (qc, a: Approval) => {
+    qc.setQueryData<Paginated<Approval>>(keys.approvals(a.conversation_id), (old) => {
+      if (!old) return old
+      const known = old.items.some((x) => x.id === a.id)
+      return known
+        ? { ...old, items: old.items.map((x) => (x.id === a.id ? a : x)) }
+        : { items: [a, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
+    })
   },
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)

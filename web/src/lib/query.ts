@@ -38,6 +38,7 @@ export const keys = {
   threadAll: ["thread"] as const,
   thread: (id: string) => ["thread", id] as const,
   turns: (id: string) => ["turns", id] as const,
+  approvals: (id: string) => ["approvals", id] as const,
   customs: (dock: string) => ["customs", dock] as const,
   crew: ["crew"] as const,
   crewTokens: ["crew-tokens"] as const,

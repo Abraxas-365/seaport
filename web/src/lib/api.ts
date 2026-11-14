@@ -49,6 +49,7 @@ import type {
   Session,
   Ship,
   Turn,
+  Approval,
   TeamMember,
 } from "./types"
 
@@ -212,6 +213,11 @@ export const api = {
     ),
   turns: (conversation: string, limit = 100) =>
     request<Paginated<Turn>>("GET", `${v1}/conversations/${conversation}/turns${qs({ limit })}`),
+  approvals: (conversation: string, limit = 100) =>
+    request<Paginated<Approval>>("GET", `${v1}/conversations/${conversation}/approvals${qs({ limit })}`),
+  answerApproval: (id: string, option: string) =>
+    request<Approval>("POST", `${v1}/approvals/${id}/answer`, { option }),
+  cancelApproval: (id: string) => request<Approval>("POST", `${v1}/approvals/${id}/cancel`),
   send: (conversation: string, text: string) =>
     request<Ship>("POST", `${v1}/conversations/${conversation}/ships`, { text }),
   inject: (

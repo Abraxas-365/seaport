@@ -467,6 +467,13 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
 	home := "sha256:" + strings.Repeat("a", 64)
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
+	// An approval org A's agent asked (the approval routes name it).
+	var asked ship.Approval
+	if code := p.call(http.MethodPost, "/crew/approvals", tokA.Value, map[string]any{"conversation_id": cv, "text": "¿Seguimos?",
+		"options": []string{"Sí", "No"}}, &asked); code != http.StatusCreated {
+		t.Fatalf("ask approval: %d", code)
+	}
+	apv := asked.ID.String()
 	routes := []adminRoute{
 		{"GET", "/api/v1/docks", "GET /api/v1/docks", nil, permission.DocksRead},
 		{"POST", "/api/v1/docks", "POST /api/v1/docks", map[string]string{"channel": "api", "name": "x"}, permission.DocksWrite},
@@ -493,6 +500,11 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/conversations/" + cv, "GET /api/v1/conversations/{id}", nil, permission.ConversationsRead},
 		{"PATCH", "/api/v1/conversations/" + cv, "PATCH /api/v1/conversations/{id}", map[string]string{"access": "deny"}, permission.ConversationsWrite},
 		{"GET", "/api/v1/conversations/" + cv + "/turns", "GET /api/v1/conversations/{id}/turns", nil, permission.ShipsRead},
+		{"GET", "/api/v1/conversations/" + cv + "/approvals", "GET /api/v1/conversations/{id}/approvals", nil, permission.ShipsRead},
+		{"GET", "/api/v1/approvals", "GET /api/v1/approvals", nil, permission.ShipsRead},
+		{"GET", "/api/v1/approvals/" + apv, "GET /api/v1/approvals/{id}", nil, permission.ShipsRead},
+		{"POST", "/api/v1/approvals/" + apv + "/answer", "POST /api/v1/approvals/{id}/answer", map[string]string{"option": "Sí"}, permission.ShipsWrite},
+		{"POST", "/api/v1/approvals/" + apv + "/cancel", "POST /api/v1/approvals/{id}/cancel", nil, permission.ShipsWrite},
 		{"GET", "/api/v1/conversations/" + cv + "/ships", "GET /api/v1/conversations/{id}/ships", nil, permission.ShipsRead},
 		{"POST", "/api/v1/conversations/" + cv + "/ships", "POST /api/v1/conversations/{id}/ships", map[string]string{"text": "hi"}, permission.ShipsWrite},
 		{"GET", "/api/v1/conversations/" + cv + "/thread", "GET /api/v1/conversations/{id}/thread", nil, permission.ConversationsRead},

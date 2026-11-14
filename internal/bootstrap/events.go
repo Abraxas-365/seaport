@@ -24,6 +24,7 @@ var EventPermissions = map[string]string{
 	ship.EventUpdated:         permission.ShipsRead,
 	ship.EventDelivery:        permission.ShipsRead,
 	ship.EventTurn:            permission.ShipsRead,
+	ship.EventApproval:        permission.ShipsRead,
 	crew.EventChanged:         permission.CrewRead,
 	// Activity shows what the agent reads and writes in a conversation:
 	// the same permission as its messages.

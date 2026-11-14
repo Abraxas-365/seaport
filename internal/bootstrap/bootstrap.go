@@ -260,10 +260,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	shipDeps := shipmodule.Deps{DB: db, Conversations: convs.Service, Docks: docks.Service,
+	shipDeps := shipmodule.Deps{DB: db, LockDB: lockDB.DB, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: notify, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
-			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey}
+			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey, ApprovalTTL: cfg.ApprovalTTL}
 	if blobs != nil {
 		shipDeps.Blobs = blobs
 	} else {
@@ -334,6 +334,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
+			askApproval: crew.AskApproval(), approval: crew.Approval(),
 			// Everything else is the admin UI (client routes fall back to index.html).
 			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})
@@ -437,6 +438,9 @@ func (a *App) Start(ctx context.Context) {
 			case <-t.C:
 				if _, err := a.ships.Service.ReleaseExpired(ctx, time.Now()); err != nil {
 					slog.Error("sweep expired claims", "err", err)
+				}
+				if _, err := a.ships.Service.SweepApprovals(ctx, time.Now()); err != nil {
+					slog.Error("expire approvals", "err", err)
 				}
 				if _, err := a.bus.Sweep(ctx, time.Now().Add(-config.EventRetention)); err != nil {
 					slog.Error("sweep old events", "err", err)

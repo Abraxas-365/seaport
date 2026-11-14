@@ -1,6 +1,6 @@
 // Tone: the one place status → color meaning lives (see index.css).
 
-import type { BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState, ToolStatus, TurnOutcome } from "@/lib/types"
+import type { ApprovalStatus, BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState, ToolStatus, TurnOutcome } from "@/lib/types"
 
 export type Tone = "neutral" | "brand" | "success" | "warning" | "danger" | "info"
 
@@ -139,6 +139,21 @@ export const turnTone: Record<TurnOutcome, Tone> = {
   acked: "neutral",
   released: "danger",
   dropped: "warning",
+}
+
+/** An approval an agent asked people (pending = waiting on someone). */
+export const approvalTone: Record<ApprovalStatus, Tone> = {
+  pending: "warning",
+  answered: "success",
+  cancelled: "neutral",
+  expired: "neutral",
+}
+
+export const approvalLabel: Record<ApprovalStatus, string> = {
+  pending: "Esperando respuesta",
+  answered: "Respondida",
+  cancelled: "Cancelada",
+  expired: "Venció",
 }
 
 export const toolLabel: Record<ToolStatus, string> = {

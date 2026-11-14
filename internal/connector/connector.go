@@ -485,6 +485,7 @@ func SteerPrompt(d ship.Delivery, ok shown) string {
 		fmt.Fprintf(&b, "[seaport] More message(s) in conversation %s, sent while you were working:\n", d.Conversation.ID)
 	}
 	writeShips(&b, d.Ships, doorLabels(d), ok)
+	writeApprovals(&b, d.Approvals)
 	if _, ok := answerDoor(d); ok {
 		b.WriteString("\nTake them into account; reply to the conversation as before.")
 	} else {
@@ -574,6 +575,7 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	}
 	b.WriteString("\n")
 	writeShips(&b, d.Ships, doorLabels(d), ok)
+	writeApprovals(&b, d.Approvals)
 	b.WriteString("\n")
 	if c.Channel == dock.ChannelGitHub {
 		b.WriteString(githubHint(c.ExternalID))
@@ -610,6 +612,12 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 			b.WriteString(" Answer on the door each message came from (its conversation_id) unless asked to " +
 				"post elsewhere, or it is read-only; `history` with `thread: true` reads every door of the thread together.")
 		}
+		b.WriteString("\n" + approvalHint)
+	}
+	if autoReply && answerable {
+		// The final answer is a message, but a question to ask first isn't
+		// the final answer.
+		b.WriteString("\n" + approvalHint)
 	}
 	return b.String()
 }

@@ -33,6 +33,7 @@ type Module struct {
 	kit      crewhttp.Kit
 	media    crewhttp.Attachment
 	reply    crewhttp.Reply
+	approve  crewhttp.Approvals
 	version  string
 }
 
@@ -65,6 +66,7 @@ func (m *Module) Bind(ships interface {
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}
 	m.reply = crewhttp.Reply{Ships: ships}
+	m.approve = crewhttp.Approvals{Ships: ships}
 	m.Hub.Bind(ships, agents)
 }
 
@@ -75,3 +77,7 @@ func (m *Module) MCP() httpx.Handler        { return stdhttp.Handler(m.mcp) }
 func (m *Module) Kit() httpx.Handler        { return m.kit.Handle }
 func (m *Module) Attachment() httpx.Handler { return m.media.Handle }
 func (m *Module) Reply() httpx.Handler      { return m.reply.Handle }
+
+// AskApproval POST /crew/approvals, Approval GET /crew/approvals/{id}.
+func (m *Module) AskApproval() httpx.Handler { return m.approve.Ask }
+func (m *Module) Approval() httpx.Handler    { return m.approve.Get }
