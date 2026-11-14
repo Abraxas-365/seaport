@@ -490,6 +490,8 @@ export interface ScheduleInput {
   text: string
   agent_id?: string
   enabled?: boolean
+}
+
 export type ApprovalStatus = "pending" | "answered" | "cancelled" | "expired"
 
 /** A question an agent asked people to choose from (ship.approval; GET /approvals). */
