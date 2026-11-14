@@ -141,6 +141,10 @@ type Server struct {
 	// (SEAPORT_JIRA_HOSTS, comma separated, "*.domain" for every
 	// subdomain; default *.atlassian.net).
 	JiraHosts []string
+	// EmailPrivate (SEAPORT_EMAIL_PRIVATE=true) lets email docks name IMAP
+	// and SMTP servers on private, loopback or link-local addresses; off,
+	// only public servers are reachable.
+	EmailPrivate bool
 	// Slack docks: SEAPORT_SLACK_URL (default https://slack.com, where the
 	// app is installed) and SEAPORT_SLACK_API_URL (default
 	// https://slack.com/api).
@@ -211,6 +215,7 @@ func LoadServer() (Server, error) {
 		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
 		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
 		JiraHosts:           splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
+		EmailPrivate:        os.Getenv("SEAPORT_EMAIL_PRIVATE") == "true" || os.Getenv("SEAPORT_EMAIL_PRIVATE") == "1",
 		SlackURL:            strings.TrimRight(env("SEAPORT_SLACK_URL", "https://slack.com"), "/"),
 		SlackAPIURL:         strings.TrimRight(env("SEAPORT_SLACK_API_URL", "https://slack.com/api"), "/"),
 		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),

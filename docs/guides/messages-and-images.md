@@ -10,7 +10,7 @@ A message's text is up to 64 KiB. For a photo, the caption is the text. On Whats
 
 ## Images
 
-Images arrive with their message on **WhatsApp**, **Slack** (image files attached to the message) and **`api`** docks. GitHub and Jira messages arrive as text only: images in a comment are not fetched. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then checks it:
+Images arrive with their message on **WhatsApp**, **Slack** (image files attached to the message), **email** (image attachments) and **`api`** docks. GitHub and Jira messages arrive as text only: images in a comment are not fetched. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then checks it:
 
 | Check | Rule |
 | :--- | :--- |
@@ -65,6 +65,7 @@ Seaport keeps each file sealed as an attachment of the outbound message, like in
 | GitHub | One commit to the `seaport-files` branch of the repository (made on first use, without history from your code) under `pr-<number>/<message id>/`. The comment shows the images and links the other files at that commit, so links keep working. Readers need access to the repository. |
 | WhatsApp | The text, then each file as its own message: an image message or a document with its name. |
 | Slack | Uploaded to the conversation's thread after the text. The app needs the `files:write` scope; without it the reply fails with a message saying to add the scope and install the app again. |
+| Email | Attached to the email that carries the text. |
 | Jira | Refused: a reply with files fails and nothing is sent. Reply with text and link to the files with full URLs. |
 | `api` | Kept with the message; your client reads them from `GET /api/v1/attachments/{id}`. |
 

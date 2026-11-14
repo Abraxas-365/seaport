@@ -160,12 +160,12 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/docks` | `docks:read` | Paginated docks. |
-| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github"\|"jira"\|"slack"\|"webhook","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
+| `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github"\|"jira"\|"slack"\|"webhook"\|"email","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
 | `GET` | `/docks/{id}` | `docks:read` | The dock, with `qr_code` while a WhatsApp dock is linking. |
 | `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`, `{"replies":false}` or both (at least one). The dock. `replies: false` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, a reply there is refused (`422`). |
 | `DELETE` | `/docks/{id}` | `docks:write` | `204`. Deletes its conversations and ships. |
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
-| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret; a Slack dock: uninstalls the app it created and forgets it; a webhook dock: forgets its secret and template). The dock. |
+| `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret; a Slack dock: uninstalls the app it created and forgets it; a webhook dock: forgets its secret and template; an email dock: forgets the mailbox, its password and its threads). The dock. |
 | `POST` | `/docks/{id}/ships` | `ships:write` | Injects an inbound message into an `api` dock. See below. |
 
 A dock:
@@ -286,6 +286,45 @@ See [API docks](../guides/api-docks.md).
 ```
 
 The template's fields are `chat_id`, `chat_title`, `external_id`, `sender_id`, `sender_name`, `text`, `tags` and `agent`, each at most 4096 characters. `secret` appears only in the rotate answer; `preview` only in a `PUT` with a sample, and its `errors` names the fields whose template failed (their default is used). `reachable` is `false` when `SEAPORT_PUBLIC_URL` is plain `http` or loopback. See [Webhooks](../guides/webhooks.md).
+
+### Email docks
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/docks/{id}/email` | `docks:read` | The dock's mailbox (below). Never the password. `422` for a dock of another channel. |
+| `PUT` | `/docks/{id}/email` | `docks:write` | Body below. Seaport validates it (`400`: address, hosts without scheme or path, `tls` other than `tls`/`starttls`, ports, missing password), logs in to IMAP, opens the folder and logs in to SMTP within 45 s (`422` if refused, unreachable, an untrusted certificate or a private address without `SEAPORT_EMAIL_PRIVATE`), stores the password sealed and links the dock (address = the mailbox address). A first link starts at the end of the folder; linking again keeps the position. |
+
+```json
+{
+  "address": "support@example.com",
+  "display_name": "Support",
+  "imap": { "host": "imap.example.com", "port": 993, "tls": "tls" },
+  "smtp": { "host": "smtp.example.com", "port": 587, "tls": "starttls" },
+  "username": "support@example.com",
+  "password": "…",
+  "folder": "INBOX"
+}
+```
+
+`username` defaults to `address` and `folder` to `INBOX`. The answer of both routes is `{"account": null}` before the first link, then:
+
+```json
+{
+  "account": {
+    "address": "support@example.com",
+    "display_name": "Support",
+    "imap": { "host": "imap.example.com", "port": 993, "tls": "tls" },
+    "smtp": { "host": "smtp.example.com", "port": 587, "tls": "starttls" },
+    "username": "support@example.com",
+    "folder": "INBOX",
+    "connected": true,
+    "seen_at": "2026-01-02T15:04:05Z",
+    "created_at": "2026-01-02T15:00:00Z"
+  }
+}
+```
+
+`connected` and `last_error` describe the IMAP connection of the process that owns the dock. See [Email](../guides/email.md).
 
 ### Slack docks
 

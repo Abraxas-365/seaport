@@ -277,6 +277,7 @@ function Primitives() {
           <ChannelIcon channel="jira" size="lg" />
           <ChannelIcon channel="slack" size="lg" />
           <ChannelIcon channel="webhook" size="lg" />
+          <ChannelIcon channel="email" size="lg" />
           <Separator orientation="vertical" className="h-8" />
           <SeaportMark />
           <SeaportMark className="size-10" />

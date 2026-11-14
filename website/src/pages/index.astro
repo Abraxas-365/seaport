@@ -25,7 +25,7 @@ export DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport?sslmode=d
 
 # no login, loopback only: for your own computer
 SEAPORT_AUTH=none seaport serve      # → http://127.0.0.1:8740`
-const connect = `seaport dock add slack    # or github, jira, whatsapp, api
+const connect = `seaport dock add slack    # or github, jira, email, whatsapp, api
 seaport agents add pm -description "Answers about tickets"
 seaport agents assign pm <dock-id> -default
 
@@ -44,7 +44,7 @@ network:
   egress: [registry.npmjs.org]
 idle_stop: 30m`
 const features = [
-  { number: '01', title: 'Docks', text: 'A Slack app, a GitHub App on your repositories, a Jira service account, a WhatsApp number or an api dock. People call an agent with @name where they already work.', tags: 'Slack · GitHub · Jira · WhatsApp · HTTP', href: u('docs/explanation/concepts/') },
+  { number: '01', title: 'Docks', text: 'A Slack app, a GitHub App on your repositories, a Jira service account, a mailbox, a WhatsApp number or an api dock. People call an agent with @name where they already work.', tags: 'Slack · GitHub · Jira · Email · WhatsApp · HTTP', href: u('docs/explanation/concepts/') },
   { number: '02', title: 'Customs', text: 'Per-dock defaults and allow/deny rules decide who may wake an agent. What doesn’t pass is held: stored, visible, never delivered.', tags: 'Rules · Overrides · Groups', href: u('docs/guides/customs/') },
   { number: '03', title: 'Crew and routing', text: 'A library of agents (@pm, @reviewer…) on the docks you assign. @name picks one; otherwise the chat stays with its agent or goes to the default.', tags: 'Agents · Teams · @mentions', href: u('docs/guides/agents-and-routing/') },
   { number: '04', title: 'Profiles', text: 'Instructions, skills, MCP servers and sealed secrets live in the port. Save a change and every connection picks it up.', tags: 'Versions · Skills · MCP', href: u('docs/guides/profiles/') },
@@ -65,7 +65,7 @@ const flow = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Seaport — A port for your AI agents</title>
-    <meta name="description" content="Your company's AI agents, defined once and called with @name from Slack, GitHub, Jira, WhatsApp or your own systems. Customs decides who may wake them; they run on a laptop or hosted by the port." />
+    <meta name="description" content="Your company's AI agents, defined once and called with @name from Slack, GitHub, Jira, email, WhatsApp or your own systems. Customs decides who may wake them; they run on a laptop or hosted by the port." />
     <meta property="og:title" content="Seaport — A port for your AI agents" />
     <meta property="og:description" content="Messages arrive. Customs decides. Your agents do the work." />
     <meta property="og:type" content="website" />
@@ -96,7 +96,7 @@ const flow = [
         <div class="hero-copy">
           <p class="eyebrow"><span class="signal" aria-hidden="true"></span> A port for your AI agents</p>
           <h1 id="hero-title">Messages arrive.<br /><span>Your agents work them.</span></h1>
-          <p class="hero-description">Call your company’s agents with @name from Slack, GitHub, Jira, WhatsApp or your own systems.<br class="desktop-break" /> Decide who gets through. Run each agent on a laptop, or let the port host it.</p>
+          <p class="hero-description">Call your company’s agents with @name from Slack, GitHub, Jira, email, WhatsApp or your own systems.<br class="desktop-break" /> Decide who gets through. Run each agent on a laptop, or let the port host it.</p>
           <div class="install-box" aria-label="Install command">
             <div class="install-bar"><span class="mono">connector + CLI · Go 1.26</span><button class="copy" type="button" data-copy="go install github.com/Abraxas-365/seaport/cmd/seaport@latest">Copy</button></div>
             <pre><code><span class="prompt">$</span> go install github.com/Abraxas-365/seaport/cmd/seaport@latest</code></pre>
@@ -114,7 +114,7 @@ const flow = [
         </figure>
       </section>
 
-      <div class="provider-strip"><div class="wrap provider-inner"><p>Channels in, agents out.</p><ul aria-label="Supported channels and agents"><li>Slack</li><li>GitHub</li><li>Jira</li><li>WhatsApp</li><li>HTTP api docks</li><li>rness</li><li>Claude Code</li><li>Any ACP agent</li></ul></div></div>
+      <div class="provider-strip"><div class="wrap provider-inner"><p>Channels in, agents out.</p><ul aria-label="Supported channels and agents"><li>Slack</li><li>GitHub</li><li>Jira</li><li>Email</li><li>WhatsApp</li><li>HTTP api docks</li><li>rness</li><li>Claude Code</li><li>Any ACP agent</li></ul></div></div>
 
       <section id="what" class="section wrap" aria-labelledby="what-title">
         <div class="section-heading"><div><p class="eyebrow">What is Seaport</p><h2 id="what-title">Channels bring the ships.<br /><span>Your crew does the work.</span></h2></div><p>Seaport sits between the places people already work, chat apps, code review, issue trackers, and the AI agents that answer. It stores every message, decides which ones may wake an agent, picks the right agent, and hands it the tools to reply.</p></div>
@@ -146,7 +146,7 @@ const flow = [
             <p class="step-foot">The connector dials out: the agent’s machine needs no public address. <a class="text-link" href={u('docs/tutorials/first-agent/')}>Your first agent →</a></p>
           </li>
         </ol>
-        <p class="step-foot">Slack, GitHub and Jira call the port by webhook, so it needs a public <code>https</code> URL. Guides: <a class="text-link" href={u('docs/guides/slack/')}>Slack</a> · <a class="text-link" href={u('docs/guides/github/')}>GitHub</a> · <a class="text-link" href={u('docs/guides/jira/')}>Jira</a> · <a class="text-link" href={u('docs/guides/whatsapp/')}>WhatsApp</a> · <a class="text-link" href={u('docs/guides/api-docks/')}>api docks</a>.</p>
+        <p class="step-foot">Slack, GitHub and Jira call the port by webhook, so it needs a public <code>https</code> URL. Guides: <a class="text-link" href={u('docs/guides/slack/')}>Slack</a> · <a class="text-link" href={u('docs/guides/github/')}>GitHub</a> · <a class="text-link" href={u('docs/guides/jira/')}>Jira</a> · <a class="text-link" href={u('docs/guides/email/')}>email</a> · <a class="text-link" href={u('docs/guides/whatsapp/')}>WhatsApp</a> · <a class="text-link" href={u('docs/guides/api-docks/')}>api docks</a>.</p>
         <p class="warning"><strong>Heads-up:</strong> the WhatsApp channel links a number through an unofficial client (whatsmeow). Numbers that send in bursts get banned, which is why outbound limits are on by default. Slack, GitHub and Jira use their official APIs. <a href={u('docs/guides/whatsapp/')}>WhatsApp guide</a>.</p>
       </div></section>
 
@@ -212,7 +212,7 @@ const flow = [
       </section>
 
       <section class="section wrap faq-section" aria-labelledby="faq-title"><div><p class="eyebrow">A few useful answers</p><h2 id="faq-title">Before you start.</h2></div><div class="faq-list">
-        <details><summary>Which channels can people use to reach an agent?</summary><p>Slack (mentions, threads and DMs), GitHub (pull requests and issues, or a workflow step), Jira (issues and comments), WhatsApp (a linked number) and <code>api</code> docks for your own systems. One agent can work on several at once. <a href={u('docs/explanation/concepts/')}>Concepts</a>.</p></details>
+        <details><summary>Which channels can people use to reach an agent?</summary><p>Slack (mentions, threads and DMs), GitHub (pull requests and issues, or a workflow step), Jira (issues and comments), email (a mailbox over IMAP and SMTP), WhatsApp (a linked number) and <code>api</code> docks for your own systems. One agent can work on several at once. <a href={u('docs/explanation/concepts/')}>Concepts</a>.</p></details>
         <details><summary>What do I need to try it?</summary><p>Only your computer. An <code>api</code> dock has nothing behind it: you post messages over HTTP and read the replies from the history or the live event stream. <a href={u('docs/tutorials/first-port/')}>Your first port</a> uses one.</p></details>
         <details><summary>Which agents can I connect?</summary><p>Any agent that speaks the Agent Client Protocol (ACP): rness, Claude Code through claude-agent-acp, and others. The agent answers with Seaport’s MCP tools; for agents without HTTP MCP, <code>-auto-reply</code> sends their final text. <a href={u('docs/guides/connector/')}>The connector</a>.</p></details>
         <details><summary>Does the agent’s machine need a public address?</summary><p>No. <code>seaport connect</code> dials out to the port over a WebSocket, like a tunnel, and reconnects on its own.</p></details>

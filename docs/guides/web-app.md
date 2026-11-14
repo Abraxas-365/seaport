@@ -99,7 +99,7 @@ The list shows each dock with its channel and status. **Nuevo muelle** opens a d
 
 ![The new dock dialog](../assets/screenshots/dock-new.png)
 
-Pick the channel (WhatsApp, API, GitHub, Jira, Slack or Webhook) and give it a name (only for you; you can rename it later). For WhatsApp, **Crear y vincular** continues to the QR code; see [WhatsApp](whatsapp.md). GitHub, Jira and Slack docks show a card on their page to connect them; see [GitHub](github.md), [Jira](jira.md) and [Slack](slack.md). A Webhook dock shows its URL, secret and template ([Webhooks](webhooks.md)).
+Pick the channel (WhatsApp, API, GitHub, Jira, Slack, Webhook or Correo) and give it a name (only for you; you can rename it later). For WhatsApp, **Crear y vincular** continues to the QR code; see [WhatsApp](whatsapp.md). GitHub, Jira, Slack and Correo docks show a card on their page to connect them; see [GitHub](github.md), [Jira](jira.md), [Slack](slack.md) and [Email](email.md). A Webhook dock shows its URL, secret and template ([Webhooks](webhooks.md)).
 
 A dock's page shows:
 

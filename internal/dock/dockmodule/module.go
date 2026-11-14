@@ -8,6 +8,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockapi"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockemail"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockhttp"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
@@ -49,6 +50,9 @@ type Deps struct {
 	Slack dockslack.Config
 	// Webhook configures webhook docks (on with a secret key, like GitHub's).
 	Webhook dockwebhook.Config
+	// Email configures email docks (on with a secret key: it seals the
+	// mailboxes' passwords).
+	Email dockemail.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -68,6 +72,8 @@ type Module struct {
 	slHTTP   *dockslack.Handler
 	wh       *dockwebhook.Gateway
 	whHTTP   *dockwebhook.Handler
+	email    *dockemail.Gateway
+	emHTTP   *dockemail.Handler
 	extra    []dock.Gateway
 }
 
@@ -109,12 +115,20 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, wh)
 	}
+	var em *dockemail.Gateway
+	if d.SecretKey != "" {
+		var err error
+		if em, err = dockemail.Open(ctx, d.DB, d.SecretKey, d.Email); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, em)
+	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, jira: jira, sl: sl, extra: d.Gateways}
+	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, jira: jira, sl: sl, email: em, extra: d.Gateways}
 	if jira != nil {
 		jira.Bind(svc, nil, nil)
 		m.jiraHTTP = dockjira.NewHandler(jira, svc)
@@ -130,6 +144,10 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	if wh != nil {
 		m.wh = wh
 		m.whHTTP = dockwebhook.NewHandler(wh, svc)
+	}
+	if em != nil {
+		em.Bind(svc, nil)
+		m.emHTTP = dockemail.NewHandler(em, svc, svc)
 	}
 	return m, nil
 }
@@ -150,6 +168,9 @@ func (m *Module) BindReceiver(r Receiver) {
 	}
 	if m.wh != nil {
 		m.wh.BindReceiver(r)
+	}
+	if m.email != nil {
+		m.email.Bind(nil, r)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
@@ -185,6 +206,9 @@ func (m *Module) Register(r httpx.Router) {
 	}
 	if m.whHTTP != nil {
 		m.whHTTP.Register(r)
+	}
+	if m.emHTTP != nil {
+		m.emHTTP.Register(r)
 	}
 }
 
@@ -227,5 +251,8 @@ func (m *Module) Close() {
 	m.Service.Stop()
 	if m.wa != nil {
 		m.wa.Close()
+	}
+	if m.email != nil {
+		m.email.Close()
 	}
 }

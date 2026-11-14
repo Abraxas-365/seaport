@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack" | "webhook"
+export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack" | "webhook" | "email"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -104,6 +104,41 @@ export interface WebhookInfo {
   /** The secret: only in the answer that made it (rotate). */
   secret?: string
   preview?: WebhookPreview
+}
+
+/** One server of a mailbox; tls is "tls" (implicit) or "starttls". */
+export interface EmailEndpoint {
+  host: string
+  port: number
+  tls: "tls" | "starttls"
+}
+
+/** An email dock's mailbox (GET /docks/{id}/email; never the password). */
+export interface EmailAccount {
+  address: string
+  display_name: string
+  imap: EmailEndpoint
+  smtp: EmailEndpoint
+  username: string
+  folder: string
+  connected: boolean
+  last_error?: string
+  seen_at?: string
+  created_at: string
+}
+
+export interface EmailInfo {
+  account: EmailAccount | null
+}
+
+export interface EmailLink {
+  address: string
+  display_name: string
+  imap: EmailEndpoint
+  smtp: EmailEndpoint
+  username: string
+  password: string
+  folder: string
 }
 
 /** A Slack dock's App (GET /docks/{id}/slack; no secret). */

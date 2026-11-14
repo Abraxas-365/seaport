@@ -1,6 +1,6 @@
 # Seaport documentation
 
-Seaport keeps your company's AI agents in one place and lets people call them from Slack, GitHub, Jira, WhatsApp or your own systems. Customs decides who may wake them.
+Seaport keeps your company's AI agents in one place and lets people call them from Slack, GitHub, Jira, email, WhatsApp or your own systems. Customs decides who may wake them.
 
 These pages describe the current `main` branch, which tracks the latest [release](https://github.com/Abraxas-365/seaport/releases). Seaport is early-stage software: formats and APIs may still change. Read the [known limitations](project/known-limitations.md) before relying on it.
 
@@ -20,6 +20,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Hand work to an agent from a GitHub workflow | [GitHub Actions](guides/github.md#trigger-an-agent-from-a-workflow) |
 | Have agents answer Jira issues and comments | [Jira docks](guides/jira.md) |
 | Wake agents from alerts, CI or any system that sends JSON | [Webhooks](guides/webhooks.md) |
+| Have agents answer a mailbox (IMAP in, SMTP out) | [Email docks](guides/email.md) |
 | Put an agent behind a WhatsApp number | [WhatsApp docks](guides/whatsapp.md) |
 | Feed messages from your own systems over HTTP | [api docks](guides/api-docks.md) |
 | Copy a complete agent: a pull request reviewer | [`examples/github-reviewer`](../examples/github-reviewer/README.md) |
@@ -52,7 +53,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 
 ## A word on names
 
-Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a Slack app, a GitHub App, a Jira service account, a WhatsApp number or an `api` dock. A **ship** is a message. **Customs** decides which conversations may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
+Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a Slack app, a GitHub App, a Jira service account, a mailbox, a WhatsApp number or an `api` dock. A **ship** is a message. **Customs** decides which conversations may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
 
 The web app is in Spanish. These docs name each page in Spanish with the English meaning in parentheses: **Bandeja** (Inbox), **Aduana** (Customs), **Muelles** (Docks), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew).
 

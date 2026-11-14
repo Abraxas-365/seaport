@@ -1,5 +1,5 @@
 import * as React from "react"
-import { MessageCircle, Webhook, Zap } from "lucide-react"
+import { Mail, MessageCircle, Webhook, Zap } from "lucide-react"
 
 import type { Channel } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -40,6 +40,7 @@ export const channelLabel: Record<Channel, string> = {
   jira: "Jira",
   slack: "Slack",
   webhook: "Webhook",
+  email: "Correo",
 }
 
 /** Whether the crew can answer on a channel (mirrors dock.Channel.Replies). */
@@ -50,6 +51,7 @@ export const channelReplies: Record<Channel, boolean> = {
   jira: true,
   slack: true,
   webhook: false,
+  email: true,
 }
 
 /** GitHub's mark (lucide has no brand icons). */
@@ -100,6 +102,8 @@ export function ChannelIcon({
             ? SlackMark
             : channel === "webhook"
               ? Zap
+              : channel === "email"
+                ? Mail
               : Webhook
   return (
     <span
@@ -115,6 +119,8 @@ export function ChannelIcon({
                 ? "bg-[oklch(0.35_0.1_330)] text-white dark:bg-[oklch(0.4_0.1_330)]"
                 : channel === "webhook"
                   ? "bg-[oklch(0.95_0.07_85)] text-[oklch(0.5_0.13_70)] dark:bg-[oklch(0.32_0.07_75)] dark:text-[oklch(0.87_0.12_85)]"
+                  : channel === "email"
+                    ? "bg-[oklch(0.94_0.05_45)] text-[oklch(0.5_0.14_45)] dark:bg-[oklch(0.3_0.06_45)] dark:text-[oklch(0.85_0.1_45)]"
                   : "bg-secondary text-secondary-foreground",
         size === "sm" && "size-6 [&_svg]:size-3.5",
         size === "md" && "size-8 [&_svg]:size-4",

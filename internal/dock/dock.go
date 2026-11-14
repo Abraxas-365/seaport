@@ -30,11 +30,14 @@ const (
 	// JSON (alerts, CI, payments) wakes the crew. It only triggers: nothing
 	// is posted back (see Replies).
 	ChannelWebhook Channel = "webhook"
+	// ChannelEmail is a mailbox (IMAP in, SMTP out): new mail wakes the
+	// crew and replies go out as replies in the same email thread.
+	ChannelEmail Channel = "email"
 )
 
 func (c Channel) Valid() bool {
 	switch c {
-	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelWebhook:
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelWebhook, ChannelEmail:
 		return true
 	}
 	return false
@@ -47,7 +50,7 @@ func (c Channel) Valid() bool {
 // of the thread. Every channel replies except webhook.
 func (c Channel) Replies() bool {
 	switch c {
-	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack:
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelEmail:
 		return true
 	}
 	return false
@@ -108,7 +111,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira, slack or webhook")
+		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira, slack, webhook or email")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

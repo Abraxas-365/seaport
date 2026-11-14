@@ -82,6 +82,7 @@ internal/
                       dockjira (Jira Cloud: stdlib REST + goldmark),
                       dockslack (Slack app: stdlib REST, no SDK),
                       dockwebhook (generic JSON webhook: stdlib, text/template)}
+                      dockemail (IMAP via go-imap + MIME via go-message, SMTP stdlib)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
   ship/               messages + delivery queue: …svc, …module, adapters/{…pg, …http}
@@ -144,7 +145,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
   pgx itself → `bootstrap`, `pgerr`, `pglisten` (LISTEN connections),
   the Docker SDK (`moby/moby`, `containerd/errdefs`) → `hostingdocker`,
-  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`,
+  `gocloud.dev` → `blob/adapters/gocloudblob`, goldmark → `dockjira`, `emersion/go-imap` and `go-message` → `dockemail`,
   Fiber and fasthttp → `httpx` and `bootstrap` (the server's shell; each
   migrated domain's `…http` adapter is added when it moves)
   (`vendorSDKs` in `TestLayerDependencies`).
@@ -939,6 +940,38 @@ net/http mux; only `/healthz` answers 405.
   nested or over `MaxRanges`), and each field runs with a capped output
   (`MaxOutput`) and a time budget (`fieldBudget`; the writer fails past the
   deadline).
+- Email docks (`dockemail`, migration 00032): a dock is one mailbox read
+  over IMAP and answered over SMTP, linked by `PUT /api/v1/docks/{id}/email`
+  (`seaport dock email`, the web's "Correo" card). The handler checks the
+  login on both servers and the folder (45 s) *before* storing anything
+  (`Config.Check`; failures are `Business` 422), then `store.Save` and
+  `Relink` unless linked. `email_accounts` holds the password sealed (info
+  `seaport email v1`, purpose `email\x00<dock>\x00password`; counted by
+  `bootstrap.SecretKey`) and the cursor (UIDVALIDITY + last UID); a new
+  link starts at the folder's end (no backlog), a re-link keeps the cursor,
+  a UIDVALIDITY change restarts at the end. Exclusive like WhatsApp: the
+  `dock_owners` holder runs one session (read-only `SELECT`, IDLE when
+  advertised else poll `Config.Poll` 60 s, backoff 1 s → 5 min, state in
+  `connected`/`last_error`; `Recheck` notices a changed `updated_at` and
+  reconnects). A refused login (IMAP or SMTP 530/534/535/538) makes the dock
+  `logged_out`; other errors are retried. Only TLS or STARTTLS is accepted,
+  never plaintext, with verified certificates; `dialer.Control` refuses
+  non-public addresses at connect time (not by name, so DNS rebinding
+  doesn't help) unless `SEAPORT_EMAIL_PRIVATE`. A thread is a conversation
+  (`email_threads`, direct, addressed): found by `In-Reply-To`/`References`
+  through `email_messages` (message id → chat, sent ids included), else by
+  subject key + sender within 14 days, else new (chat id = Message-ID,
+  hashed when long). Handles are the lowercase participants, so customs
+  match addresses. Quoted history is stripped, HTML falls back to text,
+  images become `ship.Media`, other attachments a note, mail over 30 MiB
+  only its headers; automatic mail, the mailbox's own mail and
+  `mailer-daemon` are skipped. `Send` replies to the participants with
+  `Re:`, threading headers, `Auto-Submitted: auto-generated` and a
+  Seaport `Message-ID` on the mailbox's domain (`NewMessageID`, no
+  connection), stored before sending like every channel. SMTP is a small
+  stdlib client (`smtp.go`: PLAIN/LOGIN). Unlink deletes the rows. e2e:
+  `email_e2e_test.go` over `dockemail/emailtest` (fake IMAP via go-imap's
+  `imapmemserver` + fake SMTP, TLS or STARTTLS).
 - Unlinking a WhatsApp dock logs the device out and deletes its keys;
   deleting a dock cascades to conversations, ships and customs (FKs).
 - WhatsApp store (`dockwa/store*.go`, migration 00008): Seaport's own
@@ -959,7 +992,7 @@ net/http mux; only `/healthz` answers 405.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,
-  `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` or `webhook_docks` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
+  `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` , `webhook_docks` or `email_accounts` has rows (a new key can't open them: start refuses). `dockwa.Open` opens one device first (`CheckKey`),
   so a changed key stops the start instead of failing every dock.
   `internal/seal` derives the WhatsApp key by HKDF (info
   `seaport whatsapp v1`); the auth sealer's legacy derivation differs, so
