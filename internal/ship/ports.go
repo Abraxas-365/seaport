@@ -63,6 +63,9 @@ type Commands interface {
 type Queries interface {
 	// History lists a conversation's ships, newest first.
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
+	// ThreadHistory lists the ships of every door of a conversation's
+	// thread, newest first (each ship names its conversation).
+	ThreadHistory(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	// Inbox lists conversations (newest activity first) with previews.
 	Inbox(ctx context.Context, organization identity.OrganizationID, filter conversation.Filter, page query.Pagination) (query.Paginated[InboxItem], error)
 	// OpenAttachment reads an attachment's bytes (unsealed); an agent
@@ -128,6 +131,7 @@ type Repository interface {
 	// ships of each (system: sweeper).
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
+	ThreadHistory(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	// SaveTurn inserts a turn (created false when its delivery has one).
 	SaveTurn(ctx context.Context, organization identity.OrganizationID, turn Turn) (created bool, err error)
 	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)

@@ -40,6 +40,9 @@ type Conversation struct {
 	// GroupMode overrides the dock's mode for a group (GroupInherit: none).
 	GroupMode GroupMode `db:"group_mode" json:"group_mode,omitempty"`
 	Status    Status    `db:"status" json:"status"`
+	// Thread groups this conversation with the others it is one matter
+	// with (ThreadOf(ID) when linked to none; see thread.go).
+	Thread identity.ThreadID `db:"thread_id" json:"thread_id"`
 	// Handles are the identities the chat is known by (see customs.go).
 	Handles []string `db:"-" json:"handles"`
 	// LastActivityAt: the last message in or out (inbox order).

@@ -16,11 +16,19 @@ type Commands interface {
 	Update(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, input Update) (Conversation, error)
 	// Touch records activity (a message in or out) now.
 	Touch(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) error
+	// Link joins two conversations' threads into one (see thread.go);
+	// every door changed is announced with EventUpdated.
+	Link(ctx context.Context, organization identity.OrganizationID, input Link) ([]Conversation, error)
+	// Unlink takes a conversation out of its thread (a thread of one again).
+	Unlink(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (Conversation, error)
 }
 
 type Queries interface {
 	Find(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (Conversation, error)
 	List(ctx context.Context, organization identity.OrganizationID, filter Filter, page query.Pagination) (query.Paginated[Conversation], error)
+	// Thread returns the doors of a conversation's thread, this one
+	// included, oldest first.
+	Thread(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) ([]Conversation, error)
 }
 
 // CustomsCommands configure a dock's customs; every change re-decides the
@@ -50,6 +58,14 @@ type Repository interface {
 	SetStatus(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, status Status) (Conversation, error)
 	// ForDock returns every conversation of a dock with its handles.
 	ForDock(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]Conversation, error)
+	// Thread returns the doors of a conversation's thread (with handles),
+	// oldest first; an unknown conversation is NotFound.
+	Thread(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) ([]Conversation, error)
+	// Link gives every door of both conversations' threads the thread id
+	// and returns them; more than MaxDoors together is a Business refusal.
+	Link(ctx context.Context, organization identity.OrganizationID, input Link, thread identity.ThreadID) ([]Conversation, error)
+	// Unlink sets the conversation's thread back to its own.
+	Unlink(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (Conversation, error)
 }
 
 type CustomsRepository interface {

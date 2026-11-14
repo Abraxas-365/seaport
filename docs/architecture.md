@@ -86,7 +86,7 @@ WhatsApp ──► dockwa session (adapter)
          events.Publish(ship.created) ──► events table + NOTIFY ──► every process's SSE
          Notifier.Notify(agent)       ──► crew hub, in every process
              ▼
-         crewws hub: claim (advisory lock, one delivery in flight per conversation)
+         crewws hub: claim (advisory lock, one delivery in flight per thread)
              │  `delivery` frame over WebSocket   (or `steer` into an open delivery)
              ▼
          connector ──► ACP harness (rness, Claude Code) ──► MCP `reply` tool

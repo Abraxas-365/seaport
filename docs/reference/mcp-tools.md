@@ -79,6 +79,7 @@ Arguments:
 | :--- | :--- | :--- | :--- |
 | `conversation_id` | string | yes | The conversation. |
 | `limit` | integer | no | How many messages: 1 to 100. Default 20; more than 100 is cut to 100. |
+| `thread` | boolean | no | Read every conversation [linked](../guides/linked-conversations.md) with this one together; each message then names its `conversation_id`. |
 
 Result:
 
@@ -104,7 +105,8 @@ Result:
 - `from` is the sender's name, else the sender id; for outbound messages it is `agent`.
 - `status` is the ship status (inbound `held`, `queued`, `claimed`, `handled`; outbound `pending`, `sent`, `failed`).
 - `attachments` is left out when the message has none. `kind` is `image` or `document` (a file an agent sent). `name` is left out when unknown.
-- `total` is the number of messages in the conversation, not the number returned.
+- `conversation_id` is present with `thread: true`: the conversation each message belongs to, the one to `reply` on.
+- `total` is the number of messages in the conversation (or the thread), not the number returned.
 
 ### attachment
 

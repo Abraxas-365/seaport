@@ -108,6 +108,7 @@ type (
 	agentTag        struct{}
 	environmentTag  struct{}
 	attachmentTag   struct{}
+	threadTag       struct{}
 )
 
 func tagName[T any]() string {
@@ -133,6 +134,8 @@ func tagName[T any]() string {
 		return "environment_id"
 	case attachmentTag:
 		return "attachment_id"
+	case threadTag:
+		return "thread_id"
 	default:
 		return "id"
 	}
@@ -163,6 +166,17 @@ func ParseConversationID(raw string) (ConversationID, error) {
 	return ParseID[conversationTag](raw)
 }
 func MustParseConversationID(raw string) ConversationID { return MustParseID[conversationTag](raw) }
+
+// ThreadID identifies a thread: the conversations (doors) that are one
+// matter, worked by the crew as one. A conversation alone is a thread of
+// one, whose id is the conversation's own (ThreadOf).
+type ThreadID = ID[threadTag]
+
+func NewThreadID() ThreadID                      { return NewID[threadTag]() }
+func ParseThreadID(raw string) (ThreadID, error) { return ParseID[threadTag](raw) }
+
+// ThreadOf is the thread of a conversation linked to no other.
+func ThreadOf(conv ConversationID) ThreadID { return ThreadID{v: conv.v} }
 
 // ShipID identifies one message, inbound or outbound.
 type ShipID = ID[shipTag]

@@ -442,10 +442,11 @@ func pickDock(ctx context.Context, a *admin, id string) (dock.Dock, error) {
 
 func history(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errx.Validation("usage: seaport history <conversation-id> [-limit N]")
+		return errx.Validation("usage: seaport history <conversation-id> [-limit N] [-thread]")
 	}
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
 	limit := fs.Int("limit", 20, "messages")
+	whole := fs.Bool("thread", false, "every conversation of its thread")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -453,8 +454,12 @@ func history(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	path := fmt.Sprintf("/api/v1/conversations/%s/ships?limit=%d", url.PathEscape(args[0]), *limit)
+	if *whole {
+		path += "&thread=1"
+	}
 	var page query.Paginated[ship.Ship]
-	if err := a.do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/conversations/%s/ships?limit=%d", url.PathEscape(args[0]), *limit), nil, &page); err != nil {
+	if err := a.do(ctx, http.MethodGet, path, nil, &page); err != nil {
 		return err
 	}
 	for i := len(page.Items) - 1; i >= 0; i-- {
@@ -465,9 +470,59 @@ func history(ctx context.Context, args []string) error {
 		} else if from == "" {
 			from = s.SenderID
 		}
+		if *whole {
+			fmt.Printf("%s  %-8s %s  %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, s.Conversation, from, s.Text)
+			continue
+		}
 		fmt.Printf("%s  %-8s %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, from, s.Text)
 	}
 	return nil
+}
+
+// thread shows, links or unlinks the conversations of a thread.
+func thread(ctx context.Context, args []string) error {
+	usage := errx.Validation("usage: seaport thread <conversation-id> | thread link <conversation-id> <conversation-id> | thread unlink <conversation-id>")
+	if len(args) == 0 {
+		return usage
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	var doors []conversation.Conversation
+	switch args[0] {
+	case "link":
+		if len(args) != 3 {
+			return usage
+		}
+		if err := a.do(ctx, http.MethodPost, "/api/v1/conversations/"+url.PathEscape(args[1])+"/links",
+			map[string]string{"conversation_id": args[2]}, &doors); err != nil {
+			return err
+		}
+	case "unlink":
+		if len(args) != 2 {
+			return usage
+		}
+		var c conversation.Conversation
+		if err := a.do(ctx, http.MethodDelete, "/api/v1/conversations/"+url.PathEscape(args[1])+"/links", nil, &c); err != nil {
+			return err
+		}
+		fmt.Printf("%s %q is on its own again\n", c.ID, c.Title)
+		return nil
+	default:
+		if len(args) != 1 {
+			return usage
+		}
+		if err := a.do(ctx, http.MethodGet, "/api/v1/conversations/"+url.PathEscape(args[0])+"/thread", nil, &doors); err != nil {
+			return err
+		}
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tCHANNEL\tSTATUS\tKIND\tTITLE")
+	for _, c := range doors {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.ID, c.Channel, c.Status, c.Kind, c.Title)
+	}
+	return w.Flush()
 }
 
 func send(ctx context.Context, args []string) error {

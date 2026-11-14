@@ -47,7 +47,7 @@ Seaport picks the agent **once, when a message arrives** (after [customs](custom
 
 1. **No team**: the message is held. Reason: `no agent is assigned to this dock`.
 2. **A mention**: the first `@name` in the text that names a member of the team (any case). `user@pm` is an address, not a mention.
-3. **The conversation's previous agent**, if it is still on the team. A chat keeps talking to whoever it was talking to.
+3. **The thread's previous agent**, if it is still on the team: the agent who last answered on this conversation or on one [linked](linked-conversations.md) with it. A chat keeps talking to whoever it was talking to.
 4. **The only member**, if the team has one agent.
 5. **The default** agent.
 6. Otherwise the message is held. Reason: `no agent was called (mention one with @name)`.

@@ -86,23 +86,24 @@ A batch of queued messages of one conversation, handed to the agent.
   "type": "delivery",
   "delivery": {
     "id": "…",
-    "conversation": { "id": "…", "dock_id": "…", "channel": "whatsapp", "kind": "direct", "title": "Ana", "…": "…" },
+    "conversation": { "id": "…", "thread_id": "…", "dock_id": "…", "channel": "whatsapp", "kind": "direct", "title": "Ana", "…": "…" },
+    "thread": [ { "id": "…", "channel": "whatsapp", "…": "…" }, { "id": "…", "channel": "slack", "…": "…" } ],
     "ships": [
-      { "id": "…", "direction": "in", "sender_name": "Ana", "text": "Hi", "status": "claimed", "…": "…" }
+      { "id": "…", "conversation_id": "…", "direction": "in", "sender_name": "Ana", "text": "Hi", "status": "claimed", "…": "…" }
     ]
   }
 }
 ```
 
 - `delivery.id` is the claim token. Send it back in `ack` and `release`.
-- `delivery.conversation` is the [conversation](http-api.md#conversations) object.
+- `delivery.conversation` is the [conversation](http-api.md#conversations) object of the oldest ship. `delivery.thread` lists every conversation [linked](../guides/linked-conversations.md) with it (absent for a thread of one); the ships of one delivery may come from several of them, each naming its `conversation_id`, the one to reply on.
 - `delivery.ships` are the ships (messages) of the batch, with their `attachments` metadata. Fetch an image from `GET /crew/attachments/{id}` or with the MCP `attachment` tool.
-- A conversation has at most one delivery in flight, so the agent never gets two prompts for one conversation at once.
+- A thread (a conversation and the ones linked with it) has at most one delivery in flight, so the agent never gets two prompts for one matter at once.
 - A delivery is a lease. The port renews it while the connection lives, and puts the ships back in the queue when the connection ends or the lease runs out.
 
 ### steer
 
-A connection that sent `steer: true` gets new messages of a conversation that is already in flight as a `steer` frame instead of waiting for the next delivery.
+A connection that sent `steer: true` gets new messages of a thread that is already in flight (on any of its conversations) as a `steer` frame instead of waiting for the next delivery.
 
 ```json
 {"type":"steer","delivery":{"id":"…","conversation":{"…":"…"},"ships":[{"…":"…"}]}}

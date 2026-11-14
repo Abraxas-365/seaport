@@ -140,6 +140,43 @@ func (s *Service) Touch(ctx context.Context, org identity.OrganizationID, id ide
 	return errx.Wrap(s.repo.Touch(ctx, org, id), "touch conversation", errx.TypeInternal)
 }
 
+func (s *Service) Link(ctx context.Context, org identity.OrganizationID, input conversation.Link) ([]conversation.Conversation, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	doors, err := s.repo.Link(ctx, org, input, identity.NewThreadID())
+	if err != nil {
+		return nil, errx.Wrap(err, "link conversations", errx.TypeInternal)
+	}
+	for _, c := range doors {
+		s.events.Publish(org, conversation.EventUpdated, c)
+	}
+	return doors, nil
+}
+
+func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
+	if id.IsZero() {
+		return conversation.Conversation{}, errx.InvalidField("conversation_id", "conversation_id is required")
+	}
+	c, err := s.repo.Unlink(ctx, org, id)
+	if err != nil {
+		return conversation.Conversation{}, errx.Wrap(err, "unlink conversation", errx.TypeInternal)
+	}
+	s.events.Publish(org, conversation.EventUpdated, c)
+	return c, nil
+}
+
+func (s *Service) Thread(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) ([]conversation.Conversation, error) {
+	if id.IsZero() {
+		return nil, errx.InvalidField("conversation_id", "conversation_id is required")
+	}
+	doors, err := s.repo.Thread(ctx, org, id)
+	if err != nil {
+		return nil, errx.Wrap(err, "thread conversations", errx.TypeInternal)
+	}
+	return doors, nil
+}
+
 func (s *Service) Find(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
 	c, err := s.repo.Find(ctx, org, id)
 	if err != nil {

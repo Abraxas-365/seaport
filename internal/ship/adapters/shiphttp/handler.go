@@ -69,6 +69,14 @@ func (h *Handler) history(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	// ?thread=1: the ships of every door of the conversation's thread.
+	if thread := c.Query("thread"); thread == "1" || thread == "true" {
+		out, err := h.queries.ThreadHistory(c.Context(), org, id, page)
+		if err != nil {
+			return err
+		}
+		return httpx.JSON(c, http.StatusOK, out)
+	}
 	out, err := h.queries.History(c.Context(), org, id, page)
 	if err != nil {
 		return err

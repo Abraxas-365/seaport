@@ -302,9 +302,12 @@ See [API docks](../guides/api-docks.md).
 | `GET` | `/conversations` | `conversations:read` | Paginated conversations. Filters `status` (`allowed`, `pending`, `denied`) and `dock_id`. |
 | `GET` | `/conversations/{id}` | `conversations:read` | The conversation. |
 | `PATCH` | `/conversations/{id}` | `conversations:write` | Body with any of `access` (`auto`, `allow`, `deny`), `group_mode` (`mentions`, `all`, or empty to inherit the dock's) and `title`. The conversation. |
-| `GET` | `/conversations/{id}/ships` | `ships:read` | Paginated ships (messages), newest first. |
+| `GET` | `/conversations/{id}/ships` | `ships:read` | Paginated ships (messages), newest first. With `thread=1`, the ships of every conversation linked with it. |
 | `GET` | `/conversations/{id}/turns` | `ships:read` | Paginated [turn summaries](events.md#turn) (the tools an agent called on each delivery), newest first. |
 | `POST` | `/conversations/{id}/ships` | `ships:write` | Body `{"text":"…"}`. Sends a message as a person would. `201` with the ship. `403` if the conversation isn't allowed. |
+| `GET` | `/conversations/{id}/thread` | `conversations:read` | The conversations of its thread (itself included), oldest first. |
+| `POST` | `/conversations/{id}/links` | `conversations:write` | Body `{"conversation_id":"…"}`: links the two conversations (their threads merge). The thread's conversations. `400` for itself, `422` past 16 conversations. See [Linked conversations](../guides/linked-conversations.md). |
+| `DELETE` | `/conversations/{id}/links` | `conversations:write` | Takes the conversation out of its thread. The conversation. |
 | `GET` | `/inbox` | `conversations:read` | Paginated conversations with a preview. Same filters as `/conversations`. |
 | `GET` | `/attachments/{id}` | `ships:read` | The file, with its sniffed type: an image, or a document (a file an agent sent) as a download (`Content-Disposition: attachment`). |
 
@@ -313,6 +316,7 @@ A conversation:
 ```json
 {
   "id": "…",
+  "thread_id": "…",
   "dock_id": "…",
   "channel": "whatsapp",
   "external_id": "34600000000@s.whatsapp.net",
@@ -328,7 +332,7 @@ A conversation:
 }
 ```
 
-`kind` is `direct`, `group` or `self`. A ship:
+`kind` is `direct`, `group` or `self`. `thread_id` is shared by linked conversations (equal to `id` for one linked with nothing). A ship:
 
 ```json
 {

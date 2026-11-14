@@ -48,15 +48,15 @@ If the connection drops, the connector reconnects, waiting 1 second and doubling
 
 Put secrets in the environment or the profile, not on the command line.
 
-## Sessions: one per conversation
+## Sessions: one per thread
 
-The connector keeps one harness **session per conversation**, so each chat has its own context. It records them in `sessions.json` under your user config directory, in `seaport/` (on Linux `~/.config/seaport/sessions.json`). Sessions are kept per port, working directory, harness command and agent, so two agents in one directory don't share them.
+The connector keeps one harness **session per thread**: each chat has its own context, and [linked conversations](linked-conversations.md) share one. It records them in `sessions.json` under your user config directory, in `seaport/` (on Linux `~/.config/seaport/sessions.json`). Sessions are kept per port, working directory, harness command and agent, so two agents in one directory don't share them.
 
-After a restart, the connector resumes the saved session of a conversation when the harness can resume sessions. If it can't, it logs a warning and starts a new session; the agent can still read the chat with `history`.
+After a restart, the connector resumes the saved session of a thread when the harness can resume sessions. If it can't, it logs a warning and starts a new session; the agent can still read the chat with `history`.
 
 ## Steer or queue
 
-Only one delivery per conversation is in flight at a time, so a session never gets two prompts at once. What about a message that arrives while the agent is already working on that conversation?
+Only one delivery per thread is in flight at a time, so a session never gets two prompts at once. What about a message that arrives while the agent is already working on that conversation (or on one linked with it)?
 
 - **`steer`** (default): the port sends the new messages to the same delivery, and the connector hands them to the running turn. The agent sees them without waiting. This needs a harness that advertises it; today that is rness, through its `_rness/steer` ACP extension. If the harness can't, the connector warns and falls back to `queue`.
 - **`queue`**: the new messages wait and go out as the next prompt after the turn ends.

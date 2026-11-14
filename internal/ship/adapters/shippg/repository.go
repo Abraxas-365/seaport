@@ -60,10 +60,10 @@ func (r *Repository) CreateInbound(ctx context.Context, org identity.Organizatio
 			return s, false, pgerr.Map(err, "dock team")
 		}
 		var previous identity.AgentID
-		// The agent the conversation last talked with: its last routed
-		// inbound ship or the last reply an agent sent.
+		// The agent the thread last talked with (on any of its doors): its
+		// last routed inbound ship or the last reply an agent sent.
 		err := tx.GetContext(ctx, &previous, `SELECT agent_id FROM ships
-			WHERE organization_id = $1 AND conversation_id = $2 AND agent_id IS NOT NULL
+			WHERE organization_id = $1 AND agent_id IS NOT NULL AND `+inThread("$1", "$2")+`
 			ORDER BY created_at DESC LIMIT 1`, org, conv.ID)
 		if err != nil && !pgerr.IsNoRows(err) {
 			return s, false, pgerr.Map(err, "previous agent")
@@ -205,7 +205,7 @@ func (r *Repository) Record(ctx context.Context, org identity.OrganizationID, id
 	err := r.db.GetContext(ctx, &s, `
 		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status, agent_id, sent_at)
 		VALUES ($1, $2, $3, 'out', $4, $5, $6, $7, 'sent',
-			(SELECT agent_id FROM ships WHERE organization_id = $2 AND conversation_id = $3 AND status = 'claimed'
+			(SELECT agent_id FROM ships WHERE organization_id = $2 AND status = 'claimed' AND `+inThread("$2", "$3")+`
 			 ORDER BY created_at LIMIT 1), $8)
 		ON CONFLICT (conversation_id, external_id) DO NOTHING
 		RETURNING `+columns,
@@ -220,13 +220,23 @@ func (r *Repository) Record(ctx context.Context, org identity.OrganizationID, id
 	return s, err == nil, pgerr.MapWith(err, "record own message", messages)
 }
 
-// claimable limits an UPDATE of a conversation's queued ships of agent $5
-// to those before the first one queued for another agent: a conversation
-// is worked in arrival order, one agent at a time.
-const claimable = `organization_id = $4 AND conversation_id = $1 AND status = 'queued' AND agent_id = $5
-	AND NOT EXISTS (SELECT 1 FROM ships o WHERE o.organization_id = $4 AND o.conversation_id = $1
+// claimable limits an UPDATE of the queued ships of agent $5 in the thread
+// of conversation $1 to those before the first one queued for another
+// agent: a thread is worked in arrival order, one agent at a time.
+var claimable = `organization_id = $4 AND status = 'queued' AND agent_id = $5 AND ` + inThread("$4", "$1") + `
+	AND NOT EXISTS (SELECT 1 FROM ships o WHERE o.organization_id = $4 AND o.` + inThread("$4", "$1") + `
 	                  AND o.status = 'queued' AND o.agent_id <> $5
 	                  AND (o.created_at, o.id) < (ships.created_at, ships.id))`
+
+// inThread is the condition "conversation_id is a door of the thread of
+// conversation conv" (org and conv are placeholders): the ships of every
+// door are one queue and one history. A conversation linked to no other
+// is a thread of one, so the condition is "conversation_id = conv" then.
+func inThread(org, conv string) string {
+	return `conversation_id IN (SELECT t.id FROM conversations t JOIN conversations c
+		ON c.organization_id = t.organization_id AND c.thread_id = t.thread_id
+		WHERE c.organization_id = ` + org + ` AND c.id = ` + conv + `)`
+}
 
 func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, delivery identity.DeliveryID, session string, until time.Time) (identity.ConversationID, []ship.Ship, error) {
 	var conv identity.ConversationID
@@ -238,16 +248,20 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, age
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, claimLock, org); err != nil {
 		return conv, nil, pgerr.Map(err, "lock claims")
 	}
-	// The agent's oldest ship that is also its conversation's oldest
-	// queued one, in a conversation with nothing in flight.
+	// The agent's oldest ship that is also its thread's oldest queued one,
+	// in a thread with nothing in flight.
 	err = tx.GetContext(ctx, &conv, `
 		SELECT q.conversation_id FROM ships q
+		JOIN conversations qc ON qc.organization_id = q.organization_id AND qc.id = q.conversation_id
 		WHERE q.organization_id = $1 AND q.status = 'queued' AND q.agent_id = $2
-		  AND NOT EXISTS (SELECT 1 FROM ships e WHERE e.organization_id = q.organization_id
-		                    AND e.conversation_id = q.conversation_id AND e.status = 'queued'
-		                    AND (e.created_at, e.id) < (q.created_at, q.id))
-		  AND NOT EXISTS (SELECT 1 FROM ships c WHERE c.organization_id = q.organization_id
-		                    AND c.conversation_id = q.conversation_id AND c.status = 'claimed')
+		  AND NOT EXISTS (SELECT 1 FROM ships e
+		                    JOIN conversations ec ON ec.organization_id = e.organization_id AND ec.id = e.conversation_id
+		                    WHERE e.organization_id = q.organization_id AND ec.thread_id = qc.thread_id
+		                    AND e.status = 'queued' AND (e.created_at, e.id) < (q.created_at, q.id))
+		  AND NOT EXISTS (SELECT 1 FROM ships c
+		                    JOIN conversations cc ON cc.organization_id = c.organization_id AND cc.id = c.conversation_id
+		                    WHERE c.organization_id = q.organization_id AND cc.thread_id = qc.thread_id
+		                    AND c.status = 'claimed')
 		ORDER BY q.created_at, q.id
 		LIMIT 1`, org, agentID)
 	if pgerr.IsNoRows(err) {
@@ -429,7 +443,7 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 	}
 	var previous identity.AgentID
 	err = tx.GetContext(ctx, &previous, `SELECT agent_id FROM ships
-		WHERE organization_id = $1 AND conversation_id = $2 AND agent_id IS NOT NULL
+		WHERE organization_id = $1 AND agent_id IS NOT NULL AND `+inThread("$1", "$2")+`
 		ORDER BY created_at DESC LIMIT 1`, org, convID)
 	if err != nil && !pgerr.IsNoRows(err) {
 		return nil, pgerr.Map(err, "previous agent")
@@ -492,12 +506,20 @@ func (r *Repository) ReleaseExpired(ctx context.Context, before time.Time) (map[
 }
 
 func (r *Repository) History(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, page query.Pagination) (query.Paginated[ship.Ship], error) {
+	return r.history(ctx, org, conv, "conversation_id = $2", page)
+}
+
+func (r *Repository) ThreadHistory(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, page query.Pagination) (query.Paginated[ship.Ship], error) {
+	return r.history(ctx, org, conv, inThread("$1", "$2"), page)
+}
+
+func (r *Repository) history(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, scope string, page query.Pagination) (query.Paginated[ship.Ship], error) {
 	out := query.Paginated[ship.Ship]{Items: []ship.Ship{}, Page: query.Page{Limit: page.Limit, Offset: page.Offset}}
 	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*) FROM ships
-		WHERE organization_id = $1 AND conversation_id = $2`, org, conv); err != nil {
+		WHERE organization_id = $1 AND `+scope, org, conv); err != nil {
 		return out, pgerr.Map(err, "count ships")
 	}
-	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM ships WHERE organization_id = $1 AND conversation_id = $2
+	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM ships WHERE organization_id = $1 AND `+scope+`
 		ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT $3 OFFSET $4`, org, conv, page.Limit, page.Offset)
 	if err != nil {
 		return out, pgerr.Map(err, "list ships")

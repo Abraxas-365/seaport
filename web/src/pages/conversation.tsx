@@ -6,9 +6,11 @@ import {
   Bot,
   Check,
   Info,
+  Link2,
   MessageSquareDashed,
   ShieldQuestion,
   Sparkles,
+  Unlink2,
 } from "lucide-react"
 
 import {
@@ -18,11 +20,15 @@ import {
   useAgents,
   useCrew,
   useDocks,
+  useInbox,
+  useLink,
   useSend,
   useSetAccess,
   useSetGroupMode,
   useShips,
+  useThread,
   useTurns,
+  useUnlink,
 } from "@/lib/hooks"
 import { useActivity, type Activity } from "@/lib/activity"
 import { useLiveState } from "@/lib/live"
@@ -30,6 +36,15 @@ import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/form
 import { Perm } from "@/lib/permissions.gen"
 import type { Access, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -42,6 +57,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   AgentActivity,
+  ChannelIcon,
   ChatAvatar,
   Composer,
   DataItem,
@@ -54,6 +70,7 @@ import {
   SegmentedChoice,
   ShipBubble,
   StatusBadge,
+  ThreadChips,
   TurnSummary,
   channelLabel,
   customsLabel,
@@ -76,7 +93,11 @@ const groupOptions: ChoiceOption<GroupMode>[] = [
 export function ConversationPage() {
   const { conversationId = "" } = useParams()
   const conv = useConversation(conversationId)
-  const ships = useShips(conversationId)
+  const thread = useThread(conversationId)
+  const doors = thread.data ?? []
+  // Whole thread: the ships of every door together (per door otherwise).
+  const [whole, setWhole] = React.useState(false)
+  const ships = useShips(conversationId, whole && doors.length > 1)
   const turns = useTurns(conversationId)
   const crew = useCrew()
   const send = useSend(conversationId)
@@ -96,11 +117,13 @@ export function ConversationPage() {
   const allowed = c.status === "allowed"
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ConversationHeader conversation={c} working={working} agentName={worker?.agent_name} />
+      <ConversationHeader conversation={c} doors={doors} working={working} agentName={worker?.agent_name} />
+      <ThreadChips doors={doors} current={c.id} whole={whole} onWhole={setWhole} />
       {c.status === "pending" && can(Perm.ConversationsWrite) && <PendingBanner conversation={c} />}
       {can(Perm.ShipsRead) ? (
         <ShipList
           conversation={c}
+          doors={whole ? doors : undefined}
           ships={flatten(ships.data)}
           loading={ships.isPending}
           hasMore={!!ships.hasNextPage}
@@ -131,10 +154,12 @@ export function ConversationPage() {
 
 function ConversationHeader({
   conversation: c,
+  doors,
   working,
   agentName,
 }: {
   conversation: Conversation
+  doors: Conversation[]
   working: boolean
   agentName?: string
 }) {
@@ -165,7 +190,7 @@ function ConversationHeader({
       <StatusBadge tone={customsTone[c.status]} className="hidden sm:inline-flex">
         {customsLabel[c.status]}
       </StatusBadge>
-      <DetailsSheet conversation={c} />
+      <DetailsSheet conversation={c} doors={doors} />
     </header>
   )
 }
@@ -197,6 +222,7 @@ function PendingBanner({ conversation: c }: { conversation: Conversation }) {
 
 function ShipList({
   conversation,
+  doors,
   ships,
   loading,
   hasMore,
@@ -207,6 +233,8 @@ function ShipList({
   turns,
 }: {
   conversation: Conversation
+  /** set when showing the whole thread: each ship is labelled with its door */
+  doors?: Conversation[]
   ships: Ship[]
   loading: boolean
   hasMore: boolean
@@ -228,6 +256,7 @@ function ShipList({
   // answer is sent before the delivery closes); turns older than the
   // loaded history wait for "Mensajes anteriores".
   const turnsAfter = React.useMemo(() => placeTurns(ordered, turns ?? []), [ordered, turns])
+  const doorNames = React.useMemo(() => new Map((doors ?? []).map((d) => [d.id, d])), [doors])
 
   // Follow new ships (and the agent's live activity) when the user is at
   // the bottom.
@@ -293,15 +322,27 @@ function ShipList({
               !newDay &&
               prev.direction === s.direction &&
               prev.sender_id === s.sender_id &&
+              prev.conversation_id === s.conversation_id &&
               new Date(s.sent_at).getTime() - new Date(prev.sent_at).getTime() < 5 * 60_000
+            const door = doors && s.conversation_id !== conversation.id ? doorNames.get(s.conversation_id) : undefined
             return (
               <React.Fragment key={s.id}>
                 {newDay && <DayDivider label={dayLabel(s.sent_at)} />}
+                {door && !grouped && (
+                  <div className={s.direction === "out" ? "mt-3 text-right" : "mt-3"}>
+                    <Link
+                      to={`/inbox/${door.id}`}
+                      className="inline-flex items-center gap-1 text-[0.7rem] text-muted-foreground hover:text-foreground"
+                    >
+                      <Link2 className="size-3" /> {channelLabel[door.channel]} · {conversationName(door)}
+                    </Link>
+                  </div>
+                )}
                 <ShipBubble
                   ship={s}
                   agentName={s.agent_id ? agentNames.get(s.agent_id) : undefined}
                   multiAgent={multiAgent}
-                  grouped={grouped}
+                  grouped={grouped || (!!door && !grouped)}
                   showSender={group && !grouped}
                   markdown={markdown}
                 />
@@ -338,13 +379,15 @@ function TypingBubble() {
   )
 }
 
-function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
+function DetailsSheet({ conversation: c, doors }: { conversation: Conversation; doors: Conversation[] }) {
   const docks = useDocks()
   const setAccess = useSetAccess()
   const setGroupMode = useSetGroupMode()
+  const unlink = useUnlink()
   const can = useCan()
   const readOnly = !can(Perm.ConversationsWrite)
   const dock = docks.data?.items.find((d) => d.id === c.dock_id)
+  const dockName = (id: string) => docks.data?.items.find((d) => d.id === id)?.name
   return (
     <Sheet>
       <SheetTrigger asChild>
@@ -402,6 +445,43 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
               />
             </div>
           )}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Hilo</h3>
+              {!readOnly && <LinkDialog conversation={c} />}
+            </div>
+            {doors.length < 2 ? (
+              <p className="text-xs text-muted-foreground">
+                Esta conversación va sola. Enlázala con otra (un PR y su hilo de Slack, una alerta y el chat donde se
+                comenta) para que el agente las trabaje como un solo asunto, con una sola sesión y memoria.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {doors.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 text-sm">
+                    <ChannelIcon channel={d.channel} size="sm" />
+                    <Link to={`/inbox/${d.id}`} className="min-w-0 flex-1 truncate hover:underline" title={d.id}>
+                      {conversationName(d)}
+                      {d.id === c.id && <span className="text-muted-foreground"> (esta)</span>}
+                    </Link>
+                    <span className="shrink-0 text-xs text-muted-foreground">{dockName(d.dock_id)}</span>
+                  </li>
+                ))}
+                {!readOnly && (
+                  <li className="pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={unlink.isPending}
+                      onClick={() => unlink.mutate(c.id)}
+                    >
+                      <Unlink2 /> Separar esta conversación del hilo
+                    </Button>
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
           <Separator />
           <DataList>
             <DataItem label="Canal">{channelLabel[c.channel]}</DataItem>
@@ -424,10 +504,89 @@ function DetailsSheet({ conversation: c }: { conversation: Conversation }) {
             <DataItem label="ID">
               <Mono>{c.id}</Mono>
             </DataItem>
+            {c.thread_id !== c.id && (
+              <DataItem label="Hilo">
+                <Mono>{c.thread_id}</Mono>
+              </DataItem>
+            )}
           </DataList>
         </div>
       </SheetContent>
     </Sheet>
+  )
+}
+
+/** Picks another conversation to link with this one: a filter over the
+ * inbox (by name) or an id pasted from elsewhere. */
+function LinkDialog({ conversation: c }: { conversation: Conversation }) {
+  const [open, setOpen] = React.useState(false)
+  const [q, setQ] = React.useState("")
+  const inbox = useInbox({})
+  const link = useLink()
+  const needle = q.trim().toLowerCase()
+  const candidates = flatten(inbox.data)
+    .filter((i) => i.id !== c.id && i.thread_id !== c.thread_id)
+    .filter((i) => !needle || conversationName(i).toLowerCase().includes(needle) || i.id.startsWith(needle))
+    .slice(0, 12)
+  const pasted = /^[0-9a-f-]{36}$/i.test(q.trim()) && q.trim() !== c.id
+  const pick = (id: string) => link.mutateAsync({ id: c.id, with_: id }).then(() => setOpen(false))
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          <Link2 /> Enlazar
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Enlazar con otra conversación</DialogTitle>
+          <DialogDescription>
+            El agente verá ambas como un solo hilo: una sesión, una memoria y respuestas en el canal del que viene
+            cada mensaje.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          placeholder="Buscar por nombre o pegar un ID"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <ul className="scrollbar-thin max-h-72 space-y-1 overflow-y-auto">
+          {pasted && (
+            <li>
+              <button
+                type="button"
+                disabled={link.isPending}
+                onClick={() => pick(q.trim())}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <Link2 className="size-4 text-muted-foreground" />
+                <Mono className="truncate">{q.trim()}</Mono>
+              </button>
+            </li>
+          )}
+          {candidates.map((i) => (
+            <li key={i.id}>
+              <button
+                type="button"
+                disabled={link.isPending}
+                onClick={() => pick(i.id)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+              >
+                <ChannelIcon channel={i.channel} size="sm" />
+                <span className="min-w-0 flex-1 truncate">{conversationName(i)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{channelLabel[i.channel]}</span>
+              </button>
+            </li>
+          ))}
+          {candidates.length === 0 && !pasted && (
+            <li className="px-2 py-4 text-center text-xs text-muted-foreground">
+              {inbox.isPending ? "Cargando…" : "Ninguna conversación coincide."}
+            </li>
+          )}
+        </ul>
+      </DialogContent>
+    </Dialog>
   )
 }
 

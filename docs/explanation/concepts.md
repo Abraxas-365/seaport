@@ -26,6 +26,8 @@ A **dock** is one channel account: a WhatsApp number you linked, a GitHub App yo
 
 A **conversation** is a thread on a dock: a Slack thread or DM, a pull request or issue, a Jira issue, a WhatsApp chat, an `api` chat id. It is **direct** (one person) or a **group** (several people, where agents wake on mentions by default). It has a status (allowed, pending or denied) that customs decides.
 
+Conversations where one matter is discussed on several channels (a pull request and the Slack thread about it) can be **linked** into one thread: the agent works them with one session and answers each on its own channel. See [Linked conversations](../guides/linked-conversations.md).
+
 A **ship** is a message. Inbound ships come from people; outbound ships are replies. A ship is text plus optional image attachments. Every ship is stored, whether or not an agent ever sees it. See [Messages and images](../guides/messages-and-images.md).
 
 ## Customs

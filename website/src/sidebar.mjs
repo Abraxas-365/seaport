@@ -22,6 +22,7 @@ export const sidebar = [
       page('guides/slack'),
       page('guides/api-docks'),
       page('guides/customs'),
+      page('guides/linked-conversations'),
       page('guides/messages-and-images'),
     ], false),
     group('Agents', [

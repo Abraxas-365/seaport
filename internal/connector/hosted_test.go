@@ -266,7 +266,7 @@ func TestReposAndWorktrees(t *testing.T) {
 	}
 
 	trees := &worktrees{root: cfg.Workspace, repos: []hosting.WorkspaceRepo{repo}}
-	a, b := identity.NewConversationID(), identity.NewConversationID()
+	a, b := identity.NewThreadID(), identity.NewThreadID()
 	da, err := trees.dir(ctx, a)
 	if err != nil {
 		t.Fatal(err)

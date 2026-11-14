@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Build, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
+import type { Agent, Build, Conversation, Dock, InboxItem, Ship, Slot, Turn, UsageDay } from "@/lib/types"
 import type { Activity } from "@/lib/activity"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
@@ -40,6 +40,7 @@ import {
   SlotRow,
   StatusBadge,
   StatusDot,
+  ThreadChips,
   UsageChart,
   customsLabel,
   customsTone,
@@ -296,6 +297,22 @@ function Primitives() {
 const now = Date.now()
 const ago = (min: number) => new Date(now - min * 60_000).toISOString()
 
+const inboxItemBase: Conversation = {
+  id: "",
+  thread_id: "",
+  dock_id: "d1",
+  channel: "api",
+  external_id: "",
+  kind: "direct",
+  title: "",
+  access: "auto",
+  status: "allowed",
+  handles: [],
+  last_activity_at: ago(1),
+  created_at: ago(5000),
+  updated_at: ago(1),
+}
+
 const sampleShip = (over: Partial<Ship>): Ship => ({
   id: Math.random().toString(36).slice(2),
   conversation_id: "c1",
@@ -341,9 +358,16 @@ const sampleTurn: Turn = {
   ],
 }
 
+const threadDoors: Conversation[] = [
+  { ...inboxItemBase, id: "c-pr", thread_id: "c-pr", channel: "github", kind: "group", title: "acme/web#42", external_id: "acme/web#42" },
+  { ...inboxItemBase, id: "c-slack", thread_id: "c-pr", channel: "slack", kind: "group", title: "#dev", external_id: "C1/1.0" },
+  { ...inboxItemBase, id: "c-wa", thread_id: "c-pr", channel: "whatsapp", kind: "direct", title: "Ana Torres", external_id: "+34600000001" },
+]
+
 const inboxItems: InboxItem[] = [
   {
     id: "c-ana",
+    thread_id: "c-ana",
     dock_id: "d1",
     channel: "whatsapp",
     external_id: "51999123436@s.whatsapp.net",
@@ -362,6 +386,7 @@ const inboxItems: InboxItem[] = [
   },
   {
     id: "c-ventas",
+    thread_id: "c-ventas",
     dock_id: "d1",
     channel: "whatsapp",
     external_id: "120363@g.us",
@@ -380,6 +405,7 @@ const inboxItems: InboxItem[] = [
   },
   {
     id: "c-nuevo",
+    thread_id: "c-nuevo",
     dock_id: "d1",
     channel: "whatsapp",
     external_id: "51911222333@s.whatsapp.net",
@@ -398,6 +424,7 @@ const inboxItems: InboxItem[] = [
   },
   {
     id: "c-spam",
+    thread_id: "c-spam",
     dock_id: "d1",
     channel: "whatsapp",
     external_id: "51900000000@s.whatsapp.net",
@@ -534,6 +561,9 @@ function Domain() {
           <AgentChip name="pm" online isDefault />
           <AgentChip name="reviewer" online={false} />
           <AgentChip name="soporte" />
+        </Specimen>
+        <Specimen label="ThreadChips (puertas de un hilo; la primera alterna esta puerta / todo el hilo)" className="lg:col-span-2">
+          <ThreadChips doors={threadDoors} current={threadDoors[1].id} whole={false} onWhole={() => {}} className="rounded-lg border" />
         </Specimen>
         <Specimen label="SlotRow (instancias de un agente alojado; v2 → v3 = reinicia al quedar libre)" className="lg:col-span-2">
           <ul className="divide-y rounded-lg border bg-card">

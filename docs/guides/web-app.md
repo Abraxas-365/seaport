@@ -80,7 +80,8 @@ The (i) button opens **Detalles**:
 
 - **Acceso** (access) is your override for this chat: **Reglas** lets the dock's customs decide, **Permitir** always lets it in, **Bloquear** never does. See [Customs](customs.md#the-order-of-decisions).
 - For groups, **Mensajes del grupo** sets the group mode for this chat: **Como el muelle** (the dock's mode), **Solo menciones** (only messages that name the agent) or **Todo**.
-- Below are the channel, the chat id, its identities (phone numbers and ids), the last activity, the creation date and the conversation id.
+- **Hilo** (thread) lists the conversations linked with this one and lets you **Enlazar** (link) another or **Separar** (unlink) this one. Linked conversations show a bar of chips under the header; **Hilo** there shows every conversation's messages together, each labelled with its channel. See [Linked conversations](linked-conversations.md).
+- Below are the channel, the chat id, its identities (phone numbers and ids), the last activity, the creation date and the conversation id (and the thread id, when linked).
 
 ![A group conversation](../assets/screenshots/inbox-group.png)
 

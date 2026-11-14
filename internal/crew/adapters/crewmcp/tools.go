@@ -86,8 +86,10 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 			"`seaport reply <conversation_id> -file report.md -file shot.png \"text\"`.",
 	}, t.reply)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "history",
-		Description: "Read the latest messages of a conversation, newest first (inbound and outbound).",
+		Name: "history",
+		Description: "Read the latest messages of a conversation, newest first (inbound and outbound). " +
+			"With thread: true, the messages of every conversation linked with it (the same matter seen from " +
+			"other channels: a pull request and the Slack thread about it), each naming its conversation_id.",
 	}, t.history)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "attachment",
@@ -196,15 +198,18 @@ func (t tools) reply(ctx context.Context, _ *mcp.CallToolRequest, in ReplyIn) (*
 type HistoryIn struct {
 	ConversationID string `json:"conversation_id"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"how many messages (1-100, default 20)"`
+	Thread         bool   `json:"thread,omitempty" jsonschema:"read every conversation of this one's thread together (each message names its conversation_id)"`
 }
 
 type Message struct {
-	Direction   string           `json:"direction"`
-	From        string           `json:"from"`
-	Text        string           `json:"text"`
-	SentAt      time.Time        `json:"sent_at"`
-	Status      string           `json:"status"`
-	Attachments []AttachmentInfo `json:"attachments,omitempty"`
+	Direction string    `json:"direction"`
+	From      string    `json:"from"`
+	Text      string    `json:"text"`
+	SentAt    time.Time `json:"sent_at"`
+	Status    string    `json:"status"`
+	// ConversationID names the message's door when reading a thread.
+	ConversationID string           `json:"conversation_id,omitempty"`
+	Attachments    []AttachmentInfo `json:"attachments,omitempty"`
 }
 
 // AttachmentInfo names a message's file; the attachment tool shows it.
@@ -233,7 +238,13 @@ func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn
 	if err := t.visible(ctx, org, agentID, id); err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
-	page, err := t.d.History.History(ctx, org, id, query.Pagination{Limit: in.Limit})
+	read := t.d.History.History
+	if in.Thread {
+		// The thread's other doors are read too: the owner linked them, and
+		// the prompt names them. Replies still go only to the agent's docks.
+		read = t.d.History.ThreadHistory
+	}
+	page, err := read(ctx, org, id, query.Pagination{Limit: in.Limit})
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
@@ -246,6 +257,9 @@ func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn
 			from = s.SenderID
 		}
 		m := Message{Direction: string(s.Direction), From: from, Text: s.Text, SentAt: s.SentAt, Status: string(s.Status)}
+		if in.Thread {
+			m.ConversationID = s.Conversation.String()
+		}
 		for _, a := range s.Attachments {
 			m.Attachments = append(m.Attachments, AttachmentInfo{ID: a.ID.String(), Kind: string(a.Kind),
 				MIME: a.MIME, Size: a.Size, Name: a.Name})

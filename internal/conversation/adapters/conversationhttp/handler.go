@@ -27,6 +27,9 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/conversations", httpx.RequireFunc(permission.ConversationsRead, h.list))
 	r.Get("/api/v1/conversations/:id", httpx.RequireFunc(permission.ConversationsRead, h.find))
 	r.Patch("/api/v1/conversations/:id", httpx.RequireFunc(permission.ConversationsWrite, h.update))
+	r.Get("/api/v1/conversations/:id/thread", httpx.RequireFunc(permission.ConversationsRead, h.thread))
+	r.Post("/api/v1/conversations/:id/links", httpx.RequireFunc(permission.ConversationsWrite, h.link))
+	r.Delete("/api/v1/conversations/:id/links", httpx.RequireFunc(permission.ConversationsWrite, h.unlink))
 	r.Get("/api/v1/docks/:id/customs", httpx.RequireFunc(permission.CustomsRead, h.getCustoms))
 	r.Patch("/api/v1/docks/:id/customs/policy", httpx.RequireFunc(permission.CustomsWrite, h.setPolicy))
 	r.Post("/api/v1/docks/:id/customs/rules", httpx.RequireFunc(permission.CustomsWrite, h.addRule))
@@ -97,6 +100,66 @@ func (h *Handler) update(c fiber.Ctx) error {
 		return err
 	}
 	out, err := h.commands.Update(c.Context(), org, id, conversation.Update{Access: req.Access, GroupMode: req.GroupMode, Title: req.Title})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+// thread lists the doors of a conversation's thread, oldest first.
+func (h *Handler) thread(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Thread(c.Context(), org, id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+type linkRequest struct {
+	ConversationID identity.ConversationID `json:"conversation_id"`
+}
+
+// link joins the conversation's thread with another's; answers the doors
+// of the thread they make.
+func (h *Handler) link(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	var req linkRequest
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	out, err := h.commands.Link(c.Context(), org, conversation.Link{Conversation: id, With: req.ConversationID})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+// unlink takes the conversation out of its thread.
+func (h *Handler) unlink(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseConversationID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	out, err := h.commands.Unlink(c.Context(), org, id)
 	if err != nil {
 		return err
 	}
