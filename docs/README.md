@@ -19,6 +19,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Have agents answer on pull requests and issues | [GitHub docks](guides/github.md) |
 | Hand work to an agent from a GitHub workflow | [GitHub Actions](guides/github.md#trigger-an-agent-from-a-workflow) |
 | Have agents answer Jira issues and comments | [Jira docks](guides/jira.md) |
+| Wake agents from alerts, CI or any system that sends JSON | [Webhooks](guides/webhooks.md) |
 | Put an agent behind a WhatsApp number | [WhatsApp docks](guides/whatsapp.md) |
 | Feed messages from your own systems over HTTP | [api docks](guides/api-docks.md) |
 | Copy a complete agent: a pull request reviewer | [`examples/github-reviewer`](../examples/github-reviewer/README.md) |

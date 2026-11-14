@@ -135,6 +135,12 @@ export function useSlack(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.slack(dock), queryFn: () => api.slack(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+/** A webhook dock's endpoint and template (the secret never comes back from here). */
+export function useWebhook(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.webhook(dock), queryFn: () => api.webhook(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 export function useCustoms(dock: string | undefined) {
   const can = useCan()
   return useQuery({

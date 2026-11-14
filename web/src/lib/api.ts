@@ -9,6 +9,8 @@ import type {
   GitHubManifest,
   JiraInfo,
   SlackInfo,
+  WebhookInfo,
+  WebhookTemplate,
   CrewStatus,
   CrewToken,
   Customs,
@@ -176,6 +178,10 @@ export const api = {
   linkJira: (id: string, body: { site: string; email: string; api_token: string }) =>
     request<JiraInfo>("PUT", `${v1}/docks/${id}/jira`, body),
   rotateJiraSecret: (id: string) => request<JiraInfo>("POST", `${v1}/docks/${id}/jira/secret`),
+  webhook: (id: string) => request<WebhookInfo>("GET", `${v1}/docks/${id}/webhook`),
+  saveWebhook: (id: string, body: { template: WebhookTemplate; sample?: unknown }) =>
+    request<WebhookInfo>("PUT", `${v1}/docks/${id}/webhook`, body),
+  rotateWebhookSecret: (id: string) => request<WebhookInfo>("POST", `${v1}/docks/${id}/webhook/secret`),
   slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
   slackCreate: (id: string, body: { config_token: string; name?: string }) =>
     request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/create`, body),

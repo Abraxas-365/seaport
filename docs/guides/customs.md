@@ -31,6 +31,7 @@ A rule allows or denies chats and senders whose **handles** match a pattern. Han
 | `api` dock | `chat_handles` and `sender_handles` you post, else `chat_id` and `sender_id` |
 | Slack | threads the channel id (`C0123ABCD`) and `#name`; authors the user id (`U0123ABCD`) and email ([Slack](slack.md#let-the-right-people-in)) |
 | GitHub | threads `owner/repo#12`, `owner/repo`, `owner`; authors `@login`, `github:member` or `github:outsider`, `association:<value>` ([GitHub](github.md#let-the-right-people-in)) |
+| Webhook | the template's `chat_id` and `tags`; senders by `sender_id` or `webhook:<first part of the dock id>` ([Webhooks](webhooks.md#what-agents-see)) |
 | Jira | threads `PROJ-123` and `PROJ`; authors by Atlassian account id or email ([Jira](jira.md#what-agents-see)) |
 
 `*` matches any run of characters; everything else is literal and case-insensitive. Phone patterns are normalized: `34 600-000-001` and `34600*` become `+34600000001` and `+34600*`.

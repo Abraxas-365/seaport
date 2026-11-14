@@ -46,12 +46,13 @@ WhatsApp · HTTP api   ──▶      ▲                        (or a slot the 
 | Jira | a Jira Cloud service account | an issue or a comment mentions the account or `@agent` | [Jira](docs/guides/jira.md) |
 | WhatsApp | a number linked as a device (a QR, like WhatsApp Web) | a chat that customs lets in writes; groups by mention | [WhatsApp](docs/guides/whatsapp.md) |
 | `api` | an endpoint you post to from your own systems | you post a message | [api docks](docs/guides/api-docks.md) |
+| Webhook | an endpoint any system POSTs JSON to (alerts, CI, payments); a trigger, it takes no replies | a call with the dock's secret; a template shapes the message | [Webhooks](docs/guides/webhooks.md) |
 
 <table>
 <tr>
 <td width="50%" valign="top">
 <h3>01 · Docks</h3>
-<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, a Slack app in your workspace, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
+<p>A channel endpoint: a WhatsApp number linked as a device, a GitHub App on your repositories, a Jira service account, a Slack app in your workspace, a webhook endpoint any system can call, or an <code>api</code> dock you feed over HTTP. Link, relink, rename or unlink — history stays.</p>
 </td>
 <td width="50%" valign="top">
 <h3>02 · Customs</h3>
@@ -139,6 +140,7 @@ For a real channel, add `slack`, `github` or `jira` (they need the port on a pub
 seaport dock add slack       # then create or paste the app in the web app
 seaport dock add github      # creates a GitHub App from the web app; install it on your repositories
 seaport dock add jira        # then enter the site and the service account's API token in the web app
+seaport dock add webhook     # an endpoint for alerts, CI or any system; then make its secret: seaport dock webhook <dock-id> -rotate
 seaport dock add whatsapp    # scan the QR: WhatsApp → Linked devices → Link a device
 ```
 

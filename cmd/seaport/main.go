@@ -38,6 +38,10 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock add github [-name N]     a GitHub App (created and installed from the web)
   seaport dock add jira [-name N]       a Jira Cloud service account (site and API token entered in the web)
   seaport dock add slack [-name N]      a Slack App (created or pasted in the web)
+  seaport dock add webhook [-name N]    an endpoint any system can POST JSON to (a trigger: nothing is posted back)
+  seaport dock webhook <dock-id> [-template F.json [-sample B.json]] [-rotate]
+                                        show its URL and template; set the template (a preview of the sample is
+                                        shown); -rotate makes a new secret and prints it once
   seaport dock list
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
@@ -184,7 +188,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	case "dock":
 		if len(rest) == 0 {
-			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|unlink|delete")
+			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|webhook|unlink|delete")
 		}
 		switch rest[0] {
 		case "add":
@@ -197,6 +201,8 @@ func run(ctx context.Context, args []string) error {
 			return dockRename(ctx, rest[1:])
 		case "replies":
 			return dockReplies(ctx, rest[1:])
+		case "webhook":
+			return dockWebhook(ctx, rest[1:])
 		case "unlink":
 			return dockUnlink(ctx, rest[1:])
 		case "delete":

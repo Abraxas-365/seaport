@@ -92,6 +92,7 @@ function patchDock(qc: QueryClient, dock: Dock) {
   if (dock.channel === "jira") void qc.invalidateQueries({ queryKey: keys.jira(dock.id) })
   // So does a Slack dock's: its app is installed or forgotten.
   if (dock.channel === "slack") void qc.invalidateQueries({ queryKey: keys.slack(dock.id) })
+  if (dock.channel === "webhook") void qc.invalidateQueries({ queryKey: keys.webhook(dock.id) })
   qc.setQueryData(keys.dock(dock.id), dock)
   qc.setQueryData<Paginated<Dock>>(keys.docks, (old) => {
     if (!old) return old

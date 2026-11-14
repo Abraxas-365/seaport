@@ -55,6 +55,7 @@ var publicRoutes = map[string]string{
 	"POST /jira/webhook/{dock}":   "Jira's webhooks and Automation rules: checks the HMAC signature (X-Hub-Signature) or the bearer secret of that dock, in constant time",
 	"GET /slack/oauth/callback":   "Slack's OAuth redirect: checks a sealed, expiring state naming the dock, then the code with Slack",
 	"POST /slack/events/{dock}":   "Slack's Events API: checks the HMAC signature (and its five-minute timestamp window) with that dock's app signing secret; url_verification is answered before the secret is known",
+	"POST /hooks/{dock}":          "generic webhook docks: checks that dock's secret (bearer, X-Seaport-Token, HMAC signature or ?token=) in constant time; unknown dock and wrong secret are the same 404",
 	"POST /github/actions/{dock}": "GitHub Actions: checks the job's OIDC token (GitHub's signature, audience = this port) and that the dock's App is installed on its repository",
 }
 

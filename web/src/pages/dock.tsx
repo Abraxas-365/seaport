@@ -18,6 +18,7 @@ import {
   Trash2,
   Users,
   X,
+  Zap,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -37,12 +38,13 @@ import {
   useGitHub,
   useJira,
   useSlack,
+  useWebhook,
   useInbox,
   useUnassignAgent,
 } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
-import type { Dock } from "@/lib/types"
+import type { Dock, WebhookPreview, WebhookTemplate } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -75,6 +77,7 @@ import {
   PairingPanel,
   StatusBadge,
   channelLabel,
+  channelReplies,
   dockLabel,
   dockTone,
 } from "@/components/seaport"
@@ -205,6 +208,24 @@ function DockDetail({ dock }: { dock: Dock }) {
                     onConfirm={() => actions.unlink.mutateAsync(dock.id)}
                   />
                 )}
+                {dock.channel === "webhook" && dock.status === "linked" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Cerrar el webhook
+                      </DropdownMenuItem>
+                    }
+                    title="¿Cerrar el webhook?"
+                    description={
+                      <>
+                        <p>Seaport olvida el secreto y la plantilla: la dirección deja de responder.</p>
+                        <p>Las conversaciones se conservan; al reconectar se genera un secreto nuevo.</p>
+                      </>
+                    }
+                    actionLabel="Cerrar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
                 {wa && dock.status === "linked" && (
                   <ConfirmAction
                     trigger={
@@ -284,6 +305,7 @@ function DockDetail({ dock }: { dock: Dock }) {
 
         {dock.channel === "jira" && <JiraDockCard dock={dock} write={write} />}
         {dock.channel === "slack" && <SlackDockCard dock={dock} write={write} />}
+        {dock.channel === "webhook" && <WebhookDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
 
@@ -291,7 +313,21 @@ function DockDetail({ dock }: { dock: Dock }) {
 
         {can(Perm.ConversationsRead) && <DockConversations dock={dock} />}
 
-        <RepliesCard dock={dock} write={write} />
+        {channelReplies[dock.channel] ? (
+          <RepliesCard dock={dock} write={write} />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquareOff className="size-4" /> Respuestas
+              </CardTitle>
+              <CardDescription>
+                Este canal solo dispara: sus mensajes despiertan al agente, pero nada se publica aquí. El agente
+                responde en otra conversación del hilo (enlázala desde la conversación) o se queda callado.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -833,6 +869,217 @@ function CopyField({ label, value, mono = true }: { label: string; value: string
         </Button>
       </div>
     </div>
+  )
+}
+
+const templateExample = `{
+  "chat_id": "{{.issue.id}}",
+  "chat_title": "{{.issue.title}}",
+  "text": "[{{.level}}] {{.issue.title}}"
+}`
+
+const templateFields: [string, string][] = [
+  ["chat_id", "conversación (por defecto \"webhook\": una por muelle)"],
+  ["chat_title", "título de la conversación"],
+  ["external_id", "evita duplicados en reintentos (por defecto: hash del cuerpo y el minuto; mejor un id del evento)"],
+  ["sender_id", "quién envía (por defecto \"webhook\")"],
+  ["sender_name", "nombre visible (por defecto el del muelle)"],
+  ["text", "el mensaje (por defecto: el JSON entero)"],
+  ["tags", "etiquetas separadas por comas, para reglas de aduana"],
+  ["agent", "agente al que llamar (por defecto el del equipo)"],
+]
+
+/** A webhook dock: its URL, secret (shown once) and the template that turns a body into a message. */
+function WebhookDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useWebhook(dock.id)
+  const qc = useQueryClient()
+  const { relink } = useDockAction()
+  const [secret, setSecret] = React.useState<string>()
+  const [template, setTemplate] = React.useState<string>()
+  const [sample, setSample] = React.useState("")
+  const [preview, setPreview] = React.useState<WebhookPreview>()
+  const [busy, setBusy] = React.useState(false)
+
+  if (dock.status !== "linked")
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="size-4" /> Webhook cerrado
+          </CardTitle>
+          <CardDescription>
+            La dirección no responde. Reconecta el muelle para generar una dirección nueva con otro secreto.
+          </CardDescription>
+        </CardHeader>
+        {write && (
+          <CardContent>
+            <Button onClick={() => relink.mutate(dock.id)} disabled={relink.isPending}>
+              {relink.isPending ? <Spinner /> : <RefreshCw />} Reconectar
+            </Button>
+          </CardContent>
+        )}
+      </Card>
+    )
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const hook = info.data
+  const stored = JSON.stringify(hook.template ?? {}, null, 2)
+  const text = template ?? (stored === "{}" ? "" : stored)
+
+  const accept = (next: typeof hook) => {
+    qc.setQueryData(keys.webhook(dock.id), { ...next, secret: undefined, preview: undefined })
+    if (next.secret) setSecret(next.secret)
+  }
+
+  // Parses the editor's JSON, or tells why not.
+  const parse = (): WebhookTemplate | undefined => {
+    if (text.trim() === "") return {}
+    try {
+      const v = JSON.parse(text)
+      if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error("debe ser un objeto JSON")
+      return v as WebhookTemplate
+    } catch (err) {
+      toast.error("La plantilla no es JSON válido", { description: (err as Error).message })
+      return undefined
+    }
+  }
+
+  const save = async () => {
+    const tpl = parse()
+    if (!tpl) return
+    let body: unknown
+    if (sample.trim() !== "") {
+      try {
+        body = JSON.parse(sample)
+      } catch (err) {
+        toast.error("El cuerpo de ejemplo no es JSON válido", { description: (err as Error).message })
+        return
+      }
+    }
+    setBusy(true)
+    try {
+      const next = await api.saveWebhook(dock.id, { template: tpl, sample: body })
+      setPreview(next.preview)
+      accept(next)
+      setTemplate(undefined)
+      toast.success("Plantilla guardada")
+    } catch (err) {
+      toast.error("No se pudo guardar la plantilla", { description: (err as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Zap className="size-4" /> Webhook
+        </CardTitle>
+        <CardDescription>
+          Cualquier sistema que pueda enviar JSON por POST a esta dirección despierta al agente del equipo. La plantilla
+          decide cómo se ve el mensaje.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!hook.reachable && (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+            Los servicios externos no pueden llegar a esta dirección (<Mono>{hook.url}</Mono>): necesita HTTPS público.
+            Configura <code>SEAPORT_PUBLIC_URL</code> o usa un túnel.
+          </p>
+        )}
+        <CopyField label="URL del webhook" value={hook.url} />
+        {secret ? (
+          <>
+            <CopyField label="Secreto" value={secret} />
+            <p className="text-xs text-muted-foreground">
+              Cópialo ahora: Seaport lo guarda cifrado y no lo vuelve a mostrar. Envíalo como{" "}
+              <code>Authorization: Bearer …</code> o <code>X-Seaport-Token</code>, o firma el cuerpo con HMAC-SHA256 en{" "}
+              <code>X-Seaport-Signature: sha256=…</code>.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            El secreto no se puede volver a ver. Genera uno nuevo para copiarlo (el anterior deja de valer).
+          </p>
+        )}
+        {write && (
+          <ConfirmAction
+            trigger={
+              <Button size="sm" variant="outline">
+                <RefreshCw /> {secret ? "Generar otro secreto" : "Generar secreto"}
+              </Button>
+            }
+            title="¿Generar un secreto nuevo?"
+            description={<p>El anterior deja de valer: actualiza el sistema que llama a este webhook.</p>}
+            actionLabel="Generar"
+            onConfirm={async () => {
+              try {
+                accept(await api.rotateWebhookSecret(dock.id))
+              } catch (err) {
+                toast.error("No se pudo generar el secreto", { description: (err as Error).message })
+              }
+            }}
+          />
+        )}
+
+        <div className="space-y-2">
+          <FieldLabel htmlFor="webhook-template">Plantilla (JSON)</FieldLabel>
+          <Textarea
+            id="webhook-template"
+            value={text}
+            onChange={(e) => setTemplate(e.target.value)}
+            placeholder={templateExample}
+            readOnly={!write}
+            rows={8}
+            className="font-mono text-xs"
+          />
+          <ul className="space-y-0.5 text-xs text-muted-foreground">
+            {templateFields.map(([name, hint]) => (
+              <li key={name}>
+                <code>{name}</code>: {hint}
+              </li>
+            ))}
+            <li>
+              Cada campo es una plantilla de Go sobre el cuerpo: <code>{"{{.campo.sub}}"}</code>, y las funciones{" "}
+              <code>json</code>, <code>join</code>, <code>lower</code>, <code>trunc</code> y <code>default</code>. Las
+              cabeceras están en <code>{'{{index .seaport.headers "x-event"}}'}</code>. Sin <code>printf</code>,{" "}
+              <code>call</code> ni <code>range</code> anidados.
+            </li>
+          </ul>
+        </div>
+        {write && (
+          <div className="space-y-2">
+            <FieldLabel htmlFor="webhook-sample">Cuerpo de ejemplo (opcional)</FieldLabel>
+            <Textarea
+              id="webhook-sample"
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+              placeholder='{"issue": {"id": "WEB-1", "title": "Falla el pago"}, "level": "error"}'
+              rows={4}
+              className="font-mono text-xs"
+            />
+            <Button onClick={save} disabled={busy}>
+              {busy ? <Spinner /> : <Check />} {sample.trim() ? "Guardar y probar" : "Guardar plantilla"}
+            </Button>
+          </div>
+        )}
+        {preview && (
+          <div className="space-y-1.5 rounded-lg border p-3">
+            <div className="text-xs font-medium text-muted-foreground">Así se vería</div>
+            <div className="text-xs text-muted-foreground">
+              Conversación <Mono>{preview.chat_id}</Mono> · {preview.chat_title}
+            </div>
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-xs">{preview.text}</pre>
+            {preview.errors && Object.keys(preview.errors).length > 0 && (
+              <p className="text-xs text-warning">
+                Con error (se usó el valor por defecto): {Object.keys(preview.errors).join(", ")}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

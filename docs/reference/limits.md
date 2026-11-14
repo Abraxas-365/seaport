@@ -34,6 +34,20 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Messages per conversation per minute | 8 | `config.Server.SendPerChatMinute` | `SEAPORT_SEND_PER_CHAT_MINUTE` |
 | Minimum gap between two WhatsApp sends of one dock | 1.2 s | `dockwa.minSendGap` | No |
 
+## Webhook docks
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Webhook body | 1 MiB | `dockwebhook.MaxWebhook` | No |
+| Events in one JSON array | 20 | `dockwebhook.MaxEvents` | No |
+| Calls per dock | 60 a minute, burst 60 (`429` + `Retry-After`) | `dockwebhook.PerMinute` | No |
+| Output of one template field | 64 KiB | `dockwebhook.MaxOutput` | No |
+| Time of one template field | 200 ms | `dockwebhook.fieldBudget` | No |
+| `{{range}}` actions per field | 3, never nested | `dockwebhook.MaxRanges` | No |
+| One template field | 4096 characters | `dockwebhook.MaxTemplateField` | No |
+| Tags per message | 10 | `dockwebhook.MaxTags` | No |
+| Work of one event | 10 s | `dockwebhook.receiveWithin` | No |
+
 ## Jira docks
 
 | Limit | Value | Constant | Configurable |

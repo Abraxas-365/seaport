@@ -32,13 +32,15 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock add whatsapp [-name N]` | Creates a WhatsApp dock and shows its QR code in the terminal until you scan it (waits up to 3 minutes; the code refreshes about every 20 s). `-name` defaults to the channel name. |
 | `seaport dock add api [-name N]` | Creates an `api` dock, fed through the [HTTP API](../guides/api-docks.md). |
 | `seaport dock add github [-name N]` | Creates a `github` dock and prints its page in the web app, where you create and install its [GitHub App](../guides/github.md). |
+| `seaport dock add webhook [-name N]` | Creates a `webhook` dock, linked at once: an endpoint any system POSTs JSON to. It only triggers (no replies). See [Webhooks](../guides/webhooks.md). |
+| `seaport dock webhook <dock-id> [-template file.json [-sample body.json]] [-rotate]` | Shows the dock's URL and template. `-template` saves a template (with `-sample`, prints how that body would render); `-rotate` makes a new secret (the old one stops working) and prints it once. |
 | `seaport dock add jira [-name N]` | Creates a `jira` dock and prints its page in the web app, where you enter the site, the service account's email and its API token (see [Jira](../guides/jira.md)). |
 | `seaport dock add slack [-name N]` | Creates a `slack` dock and prints its page in the web app, where you create or paste its [Slack app](../guides/slack.md). |
 | `seaport dock list` | Table of docks: ID, channel, name, status, address (up to 100). |
 | `seaport dock relink <dock-id>` | Pairs a WhatsApp dock again (shows the QR code). The other channels are reconnected from the dock's page in the web app. |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |
 | `seaport dock replies <dock-id> on\|off` | Whether the crew may answer on it. `off` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, nothing is posted there. `dock list` shows it in the `REPLIES` column. |
-| `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. |
+| `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. Webhook: deletes the secret and template (the URL answers `404`). |
 | `seaport dock delete <dock-id> -yes` | Unlinks and deletes the dock with all its conversations and ships. `-yes` must be the second argument. |
 
 See [WhatsApp](../guides/whatsapp.md).

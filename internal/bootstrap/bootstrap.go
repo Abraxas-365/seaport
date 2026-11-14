@@ -25,6 +25,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwebhook"
 	"github.com/Abraxas-365/seaport/internal/dock/dockmodule"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
@@ -218,9 +219,10 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
 		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways,
-		GitHub: dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL},
-		Jira:   dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
-		Slack:  dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL}})
+		GitHub:  dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL},
+		Jira:    dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
+		Slack:   dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL},
+		Webhook: dockwebhook.Config{PublicURL: cfg.PublicURL}})
 	if err != nil {
 		bus.Close()
 		closeDBs()

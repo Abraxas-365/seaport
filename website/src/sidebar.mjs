@@ -21,6 +21,7 @@ export const sidebar = [
       page('guides/jira'),
       page('guides/slack'),
       page('guides/api-docks'),
+      page('guides/webhooks'),
       page('guides/customs'),
       page('guides/linked-conversations'),
       page('guides/messages-and-images'),
