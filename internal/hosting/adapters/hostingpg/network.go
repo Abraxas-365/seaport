@@ -27,11 +27,18 @@ func (r *Repository) AddUsage(ctx context.Context, org identity.OrganizationID, 
 
 func (r *Repository) Usage(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, days int) ([]hosting.UsageDay, error) {
 	out := []hosting.UsageDay{}
-	err := r.db.SelectContext(ctx, &out, `SELECT day::timestamptz AS day, provider, model, requests, input_tokens,
+	// A day is a UTC date and goes out as midnight UTC: `day::timestamptz`
+	// read it in the session's zone, and pgx handed it back in the process's
+	// local zone, so the CLI and the web (which format it as a date) showed
+	// the day before on a port west of UTC.
+	err := r.db.SelectContext(ctx, &out, `SELECT (day::timestamp AT TIME ZONE 'UTC') AS day, provider, model, requests, input_tokens,
 			output_tokens, cache_write_tokens, cache_read_tokens
 		FROM model_usage
 		WHERE organization_id = $1 AND agent_id = $2 AND day > (now() AT TIME ZONE 'UTC')::date - $3::int
 		ORDER BY day DESC, provider, model`, org, agentID, days)
+	for i := range out {
+		out[i].Day = out[i].Day.UTC()
+	}
 	return out, pgerr.Map(err, "read model usage")
 }
 

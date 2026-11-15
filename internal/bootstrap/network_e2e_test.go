@@ -136,6 +136,12 @@ func TestHostedNetwork(t *testing.T) {
 	if u := usage.Days[0]; u.Model != "claude-test" || u.Provider != "anthropic" || u.Input != 200 || u.Output != 40 || u.CacheRead != 10 {
 		t.Fatalf("usage: %+v", u)
 	}
+	// The day is today's UTC date, rendered as such: the CLI formats it as a
+	// date and the web takes the first 10 characters of the JSON, so it must
+	// go out as midnight UTC (`Z`), whatever the port's local zone.
+	if got, want := usage.Days[0].Day.Format(time.RFC3339), time.Now().UTC().Format("2006-01-02")+"T00:00:00Z"; got != want {
+		t.Fatalf("usage day %s, want %s", got, want)
+	}
 	if code := p.admin(http.MethodGet, agentPath+"/usage?days=0", nil, nil); code != http.StatusBadRequest {
 		t.Fatalf("usage days=0: %d", code)
 	}
