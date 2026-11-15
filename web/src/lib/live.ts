@@ -123,7 +123,7 @@ const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void
     // Order, status filters and new chats: let the list refetch.
     qc.invalidateQueries({ queryKey: keys.inboxAll })
   },
-  "customs.updated": (qc, { customs }) => {
+  "customs.updated": (qc, customs) => {
     qc.setQueryData(keys.customs(customs.policy.dock_id), customs)
   },
   "ship.created": (qc, ship) => {
