@@ -182,10 +182,13 @@ func TestBusesShareTheLog(t *testing.T) {
 }
 
 // TestNoGapNoDuplicate: events published while clients subscribe reach
-// each client exactly once and in order, through replay or C.
+// each client exactly once and in order, through replay or C. Fewer
+// events than a subscriber's buffer (256), so a client the race detector
+// slows down is never dropped as slow (TestSlowSubscriberIsDropped covers
+// that).
 func TestNoGapNoDuplicate(t *testing.T) {
 	b := startBus(t, event.NewMemoryLog())
-	const n = 300
+	const n = 200
 	go func() {
 		for i := 1; i <= n; i++ {
 			b.Publish(orgA, "x", i)
