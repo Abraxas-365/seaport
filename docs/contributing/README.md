@@ -69,11 +69,14 @@ pnpm lint && pnpm test && pnpm build      # eslint, vitest, then tsc + vite into
 
 `pnpm test` runs [Vitest](https://vitest.dev) (jsdom, Testing Library) over `src/**/*.test.{ts,tsx}`: the live-event handlers against seeded query caches (`src/lib/live.test.ts`), the pure helpers (`cron`, `format`, `archive`, `homes`, `env-yaml`) and a few components and pages. Shared helpers live in `src/test/`.
 
-The web tests don't hand-write server payloads. `internal/bootstrap/wire_fixtures_test.go` marshals one sample of every live event and of the main API responses with the real Go JSON tags into `web/src/lib/__fixtures__/wire.json`; the web tests load it, and `src/lib/wire.test.ts` makes `tsc` check that the fixtures match the types in `src/lib/types.ts`. When you change an event payload or an API shape, regenerate and commit the file, then fix whatever the web tests and `pnpm build` report:
+The web tests don't hand-write server payloads. `internal/bootstrap/wire_fixtures_test.go` marshals one sample of every live event and of the main API responses with the real Go JSON tags into `web/src/lib/__fixtures__/wire.json`; the web tests load it, and `src/lib/wire.test.ts` makes `tsc` check that the fixtures match the types in `src/lib/types.ts`. Those types are generated from the Go structs: `web/src/lib/types.gen.ts` is written by `internal/bootstrap/wiregen` (reflection over the JSON tags, plus the Go doc comments and the constant blocks of the enum-like strings), and `types.ts` is a thin hand-written file that re-exports it, so `from "@/lib/types"` keeps working. The Go types it renders are listed in `internal/bootstrap/wirespec`: add a new response type, event payload or enum there. The generator refuses a type it can't name (an unlisted enum, a struct with no TypeScript name), so a gap fails `go generate` instead of becoming `string`. When you change an event payload or an API shape, regenerate both files and commit them, then fix whatever the web tests and `pnpm build` report:
 
 ```sh
-SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run TestWireFixtures
+go generate ./internal/wire                                                   # web/src/lib/types.gen.ts
+SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run TestWireFixtures   # wire.json
 ```
+
+Without regenerating, `go test ./internal/bootstrap/wiregen` fails on the stale file.
 
 Without the variable the test fails if the committed file is out of date. A new event type needs a handler in `web/src/lib/live.ts` (or an entry with its reason in `unhandledEvents` in `web_architecture_test.go`).
 

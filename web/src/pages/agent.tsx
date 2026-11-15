@@ -466,7 +466,7 @@ function SkillDialog({
   const [open, setOpen] = React.useState(false)
   const [s, setS] = React.useState<Skill>(skill ?? { name: "", description: "", body: "" })
   const nameOk = skillNamePattern.test(s.name) && !taken.includes(s.name)
-  const ok = nameOk && s.description.trim() !== "" && s.body.trim() !== ""
+  const ok = nameOk && s.description.trim() !== "" && (s.body ?? "").trim() !== ""
   return (
     <Dialog
       open={open}
@@ -491,7 +491,7 @@ function SkillDialog({
           onSubmit={(e) => {
             e.preventDefault()
             if (readOnly) return setOpen(false)
-            onSave({ name: s.name, description: s.description.trim(), body: s.body.trim() })
+            onSave({ name: s.name, description: s.description.trim(), body: (s.body ?? "").trim() })
             setOpen(false)
           }}
         >
@@ -562,7 +562,7 @@ function SkillDialog({
 
 /** A pasted SKILL.md: its front matter fills name and description. */
 function fromSkillMd(s: Skill): Skill {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(s.body)
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(s.body ?? "")
   if (!m) return s
   const out = { ...s, body: m[2].replace(/^\s+/, "") }
   for (const line of m[1].split(/\r?\n/)) {

@@ -94,8 +94,8 @@ func (h *Handler) target(c fiber.Ctx) (identity.OrganizationID, vault.Vault, err
 	return org, v, err
 }
 
-// detail is a vault with who it is granted to.
-type detail struct {
+// Detail is a vault with who it is granted to (GET /vaults/{id}; the web's VaultDetail).
+type Detail struct {
 	vault.Vault
 	vault.Grants
 }
@@ -109,7 +109,7 @@ func (h *Handler) find(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return httpx.JSON(c, http.StatusOK, detail{v, g})
+	return httpx.JSON(c, http.StatusOK, Detail{v, g})
 }
 
 type updateRequest struct {
