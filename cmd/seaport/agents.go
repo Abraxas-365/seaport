@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"text/tabwriter"
 
@@ -37,10 +36,10 @@ func agents(ctx context.Context, args []string) error {
 			return err
 		}
 		if len(all) == 0 {
-			fmt.Println("no agents yet: seaport agents add <name>")
+			fmt.Fprintln(stdout, "no agents yet: seaport agents add <name>")
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\tNAME\tPROFILE\tDOCKS\tDESCRIPTION")
 		for _, ag := range all {
 			docks := []string{}
@@ -76,7 +75,7 @@ func agents(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/agents", map[string]string{"name": args[0], "description": *desc}, &ag); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s created (%s); put it on a dock: seaport agents assign %s <dock-id>\n", ag.Name, ag.ID, ag.Name)
+		fmt.Fprintf(stdout, "agent %s created (%s); put it on a dock: seaport agents assign %s <dock-id>\n", ag.Name, ag.ID, ag.Name)
 		return nil
 	case "edit":
 		if len(args) == 0 {
@@ -100,7 +99,7 @@ func agents(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPatch, "/api/v1/agents/"+ag.ID.String(), body, &ag); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s updated\n", ag.Name)
+		fmt.Fprintf(stdout, "agent %s updated\n", ag.Name)
 		return nil
 	case "delete":
 		fs := flag.NewFlagSet("agents delete", flag.ContinueOnError)
@@ -121,7 +120,7 @@ func agents(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/agents/"+ag.ID.String(), nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s deleted\n", ag.Name)
+		fmt.Fprintf(stdout, "agent %s deleted\n", ag.Name)
 		return nil
 	case "assign":
 		if len(args) < 2 {
@@ -140,7 +139,7 @@ func agents(ctx context.Context, args []string) error {
 			map[string]bool{"default": *def}, nil); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s works dock %s\n", ag.Name, args[1])
+		fmt.Fprintf(stdout, "agent %s works dock %s\n", ag.Name, args[1])
 		return nil
 	case "unassign":
 		if len(args) != 2 {
@@ -153,7 +152,7 @@ func agents(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/docks/"+url.PathEscape(args[1])+"/agents/"+ag.ID.String(), nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s no longer works dock %s (what waited for it there is held)\n", ag.Name, args[1])
+		fmt.Fprintf(stdout, "agent %s no longer works dock %s (what waited for it there is held)\n", ag.Name, args[1])
 		return nil
 	}
 	return errx.Validation("unknown command agents " + sub)

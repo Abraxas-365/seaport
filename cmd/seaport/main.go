@@ -134,6 +134,13 @@ Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
                                         read an approval you asked (-wait blocks while it is pending)
 `
 
+// The CLI's streams; tests replace them to capture output and feed input.
+var (
+	stdin  io.Reader = os.Stdin
+	stdout io.Writer = os.Stdout
+	stderr io.Writer = os.Stderr
+)
+
 func main() {
 	if bootstrap.Version == "dev" {
 		// `go install …/cmd/seaport@vX` has no -ldflags; the module version
@@ -151,19 +158,24 @@ func main() {
 		run = func(ctx context.Context, args []string) error { return connector.GH(ctx, args) }
 	}
 	if err := run(ctx, os.Args[1:]); err != nil {
-		var e *errx.Error
-		if errors.As(err, &e) {
-			fmt.Fprintln(os.Stderr, "seaport:", e.Message)
-		} else {
-			fmt.Fprintln(os.Stderr, "seaport:", err)
-		}
+		fmt.Fprintln(stderr, "seaport:", errorMessage(err))
 		os.Exit(1)
 	}
 }
 
+// errorMessage is what the CLI prints for a failed command: a typed
+// error's message, else the error itself.
+func errorMessage(err error) string {
+	var e *errx.Error
+	if errors.As(err, &e) {
+		return e.Message
+	}
+	return err.Error()
+}
+
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
-		fmt.Print(usage)
+		fmt.Fprint(stdout, usage)
 		return nil
 	}
 	cmd, rest := args[0], args[1:]
@@ -183,43 +195,43 @@ func run(ctx context.Context, args []string) error {
 	case "agent-login":
 		// a hosted slot's subscription sign-in (the port runs it in the
 		// container and relays it).
-		return connector.Login(ctx, os.Stdin, os.Stdout)
+		return connector.Login(ctx, stdin, stdout)
 	case "browser-relay":
 		// a hosted slot's browser for the port's viewer: CDP as lines on
 		// stdin/stdout (the port runs it in the container). Nothing else
 		// may reach stdout or stderr: both come back multiplexed.
 		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-		return connector.BrowserRelay(ctx, os.Stdin, os.Stdout)
+		return connector.BrowserRelay(ctx, stdin, stdout)
 	case "agent-account":
 		// how a hosted slot's harness is signed in (JSON; the port asks).
-		return connector.AccountStatus(ctx, os.Stdout)
+		return connector.AccountStatus(ctx, stdout)
 	case "home-setup":
 		// finishes an environment's harness home while its image is built
 		// (hosting.Dockerfile): Seaport's lines kept, plugins installed.
-		return connector.HomeSetup(ctx, os.Getenv(hosting.EnvHarness), os.Getenv("HOME"), os.Stdout)
+		return connector.HomeSetup(ctx, os.Getenv(hosting.EnvHarness), os.Getenv("HOME"), stdout)
 	case "git-credential":
 		// git's credential helper inside a hosted slot (set up by agent-run).
 		op := ""
 		if len(rest) > 0 {
 			op = rest[0]
 		}
-		return connector.GitCredential(ctx, op, os.Stdin, os.Stdout)
+		return connector.GitCredential(ctx, op, stdin, stdout)
 	case "reply":
 		// an agent's reply with files from disk.
-		return connector.ReplyCommand(ctx, rest, os.Stdout)
+		return connector.ReplyCommand(ctx, rest, stdout)
 	case "ask":
 		// an agent asks people for an approval (optionally waiting for it).
-		return connector.AskCommand(ctx, rest, os.Stdout)
+		return connector.AskCommand(ctx, rest, stdout)
 	case "approval":
-		return connector.ApprovalCommand(ctx, rest, os.Stdout)
+		return connector.ApprovalCommand(ctx, rest, stdout)
 	case "github-token":
 		// a GitHub App token for a repo of the agent's GitHub docks
 		// (GH_TOKEN=$(seaport github-token owner/repo) gh …).
-		return connector.GitHubTokenCommand(ctx, rest, os.Stdout)
+		return connector.GitHubTokenCommand(ctx, rest, stdout)
 	case "healthcheck":
 		return healthcheck(ctx)
 	case "version":
-		fmt.Println(bootstrap.Version)
+		fmt.Fprintln(stdout, bootstrap.Version)
 		return nil
 	case "dock":
 		if len(rest) == 0 {
@@ -355,7 +367,7 @@ func connect(ctx context.Context, args []string) error {
 	cwd := fs.String("cwd", "", "agent working directory (default: current)")
 	verbose := fs.Bool("v", false, "debug logs")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: seaport connect [flags] -- <agent command>")
+		fmt.Fprintln(stderr, "usage: seaport connect [flags] -- <agent command>")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

@@ -40,7 +40,7 @@ func envHome(ctx context.Context, a *admin, args []string) error {
 		if err != nil {
 			return err
 		}
-		h, err := pushHome(ctx, a, e.Spec.Harness, dir, *dry, os.Stdout)
+		h, err := pushHome(ctx, a, e.Spec.Harness, dir, *dry, stdout)
 		if err != nil || *dry {
 			return err
 		}
@@ -49,16 +49,16 @@ func envHome(ctx context.Context, a *admin, args []string) error {
 		return applyEnv(ctx, a, f)
 	case "show":
 		if e.Spec.Home == "" {
-			fmt.Printf("%s v%d has no home (seaport env home push %s [dir])\n", e.Name, e.Version, e.Name)
+			fmt.Fprintf(stdout, "%s v%d has no home (seaport env home push %s [dir])\n", e.Name, e.Version, e.Name)
 			return nil
 		}
 		var h hosting.Home
 		if err := a.do(ctx, http.MethodGet, "/api/v1/homes/"+url.PathEscape(e.Spec.Home), nil, &h); err != nil {
 			return err
 		}
-		fmt.Printf("# %s v%d: %s home %s, %d files, %s, by %s\n", e.Name, e.Version, h.Harness, h.Digest, len(h.Files),
+		fmt.Fprintf(stdout, "# %s v%d: %s home %s, %d files, %s, by %s\n", e.Name, e.Version, h.Harness, h.Digest, len(h.Files),
 			bytesize(h.Size), h.CreatedBy)
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, f := range h.Files {
 			x := ""
 			if f.Exec {
@@ -87,7 +87,7 @@ func envHome(ctx context.Context, a *admin, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%d files of %s's home in %s\n", n, e.Name, dir)
+		fmt.Fprintf(stdout, "%d files of %s's home in %s\n", n, e.Name, dir)
 		return nil
 	}
 	return errx.Validation("unknown env home command " + sub + " (push, show, pull)")

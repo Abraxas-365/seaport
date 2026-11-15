@@ -22,6 +22,7 @@ SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_tes
   go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
 SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
                                                 # + iam mode e2e against a real IAMKit container (Docker)
+go test -count=1 -p 1 ./cmd/seaport              # admin CLI e2e (cli_e2e_test.go: real port, `run` with captured stdout/stderr/stdin); needs the test DB
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
 scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (docs/guides/operations/iam-mode.md)
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)

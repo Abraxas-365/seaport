@@ -61,7 +61,7 @@ func dockDatadog(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPut, path, req, &info); err != nil {
 			return err
 		}
-		fmt.Println("mirror saved")
+		fmt.Fprintln(stdout, "mirror saved")
 	case *rotate:
 		if err := a.do(ctx, http.MethodPost, path+"/secret", nil, &info); err != nil {
 			return err
@@ -71,18 +71,18 @@ func dockDatadog(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	fmt.Printf("url:      %s\n", info.URL)
+	fmt.Fprintf(stdout, "url:      %s\n", info.URL)
 	if !info.Reachable {
-		fmt.Println("          (not reachable from the internet: set SEAPORT_PUBLIC_URL to an https address)")
+		fmt.Fprintln(stdout, "          (not reachable from the internet: set SEAPORT_PUBLIC_URL to an https address)")
 	}
 	if info.Secret != "" {
-		fmt.Printf("secret:   %s\n          (shown once; send it as the custom header X-Seaport-Token of Datadog's webhook)\n", info.Secret)
+		fmt.Fprintf(stdout, "secret:   %s\n          (shown once; send it as the custom header X-Seaport-Token of Datadog's webhook)\n", info.Secret)
 	}
 	if info.Mirror != nil {
-		fmt.Printf("mirror:   %s:%s\n", info.Mirror.Dock, info.Mirror.Destination)
+		fmt.Fprintf(stdout, "mirror:   %s:%s\n", info.Mirror.Dock, info.Mirror.Destination)
 	} else {
-		fmt.Println("mirror:   (none: alerts wake the agent, nothing is posted anywhere)")
+		fmt.Fprintln(stdout, "mirror:   (none: alerts wake the agent, nothing is posted anywhere)")
 	}
-	fmt.Printf("payload:  (paste in Datadog's webhook integration)\n%s\n", info.Payload)
+	fmt.Fprintf(stdout, "payload:  (paste in Datadog's webhook integration)\n%s\n", info.Payload)
 	return nil
 }

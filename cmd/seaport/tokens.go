@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"text/tabwriter"
 	"time"
 
@@ -31,7 +30,7 @@ func crewTokens(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodGet, "/api/v1/crew/tokens?limit=100", nil, &page); err != nil {
 			return err
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\tAGENT\tNAME\tTOKEN\tCREATED\tEXPIRES\tLAST USED")
 		for _, t := range page.Items {
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s…\t%s\t%s\t%s\n", t.ID, t.AgentName, t.Name, t.Hint, day(&t.CreatedAt), day(t.ExpiresAt), day(t.LastUsedAt))
@@ -63,8 +62,8 @@ func crewTokens(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/crew/tokens", body, &t); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "crew token %s for agent %s created; it is shown only once:\n", t.ID, ag.Name)
-		fmt.Println(t.Value)
+		fmt.Fprintf(stderr, "crew token %s for agent %s created; it is shown only once:\n", t.ID, ag.Name)
+		fmt.Fprintln(stdout, t.Value)
 		return nil
 	case "revoke":
 		if len(args) != 1 {
@@ -73,7 +72,7 @@ func crewTokens(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/crew/tokens/"+url.PathEscape(args[0]), nil, nil); err != nil {
 			return err
 		}
-		fmt.Println("crew token revoked")
+		fmt.Fprintln(stdout, "crew token revoked")
 		return nil
 	}
 	return errx.Validation("unknown command crew tokens " + sub)

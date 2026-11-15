@@ -115,25 +115,25 @@ func dockAdd(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodPost, "/api/v1/docks", map[string]string{"channel": channel, "name": *name}, &d); err != nil {
 		return err
 	}
-	fmt.Printf("dock %s created (%s)\n", d.ID, d.Channel)
+	fmt.Fprintf(stdout, "dock %s created (%s)\n", d.ID, d.Channel)
 	switch d.Channel {
 	case dock.ChannelWhatsApp:
 		return waitLinked(ctx, a, d)
 	case dock.ChannelSlack:
 		// The Slack App is created or pasted in the web.
-		fmt.Printf("Connect its Slack App in the web: %s/docks/%s\n", a.base, d.ID)
+		fmt.Fprintf(stdout, "Connect its Slack App in the web: %s/docks/%s\n", a.base, d.ID)
 	case dock.ChannelGitHub:
 		// The manifest flow runs in the browser (GitHub's forms and redirects).
-		fmt.Printf("Create and install its GitHub App in the web: %s/docks/%s\n", a.base, d.ID)
+		fmt.Fprintf(stdout, "Create and install its GitHub App in the web: %s/docks/%s\n", a.base, d.ID)
 	case dock.ChannelEmail:
-		fmt.Printf("Connect its mailbox: seaport dock email %s -address you@example.com -provider gmail (or in the web: %s/docks/%s)\n", d.ID, a.base, d.ID)
+		fmt.Fprintf(stdout, "Connect its mailbox: seaport dock email %s -address you@example.com -provider gmail (or in the web: %s/docks/%s)\n", d.ID, a.base, d.ID)
 	case dock.ChannelJira:
 		// The site, account email and API token are entered in the web (or PUT /api/v1/docks/{id}/jira).
-		fmt.Printf("Connect its Jira site in the web: %s/docks/%s\n", a.base, d.ID)
+		fmt.Fprintf(stdout, "Connect its Jira site in the web: %s/docks/%s\n", a.base, d.ID)
 	case dock.ChannelWebhook:
-		fmt.Printf("Make its secret and set its template with: seaport dock webhook %s -rotate\n", d.ID)
+		fmt.Fprintf(stdout, "Make its secret and set its template with: seaport dock webhook %s -rotate\n", d.ID)
 	case dock.ChannelDatadog:
-		fmt.Printf("Make its secret and read the payload for Datadog with: seaport dock datadog %s -rotate\n", d.ID)
+		fmt.Fprintf(stdout, "Make its secret and read the payload for Datadog with: seaport dock datadog %s -rotate\n", d.ID)
 	}
 	return nil
 }
@@ -166,7 +166,7 @@ func dockRename(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodPatch, "/api/v1/docks/"+url.PathEscape(args[0]), map[string]string{"name": name}, &d); err != nil {
 		return err
 	}
-	fmt.Printf("dock %s is now %q\n", d.ID, d.Name)
+	fmt.Fprintf(stdout, "dock %s is now %q\n", d.ID, d.Name)
 	return nil
 }
 
@@ -183,9 +183,9 @@ func dockReplies(ctx context.Context, args []string) error {
 		return err
 	}
 	if d.Replies {
-		fmt.Printf("dock %s (%s) takes replies again\n", d.ID, d.Name)
+		fmt.Fprintf(stdout, "dock %s (%s) takes replies again\n", d.ID, d.Name)
 	} else {
-		fmt.Printf("dock %s (%s) is a trigger now: its messages wake the crew, nothing is posted there\n", d.ID, d.Name)
+		fmt.Fprintf(stdout, "dock %s (%s) is a trigger now: its messages wake the crew, nothing is posted there\n", d.ID, d.Name)
 	}
 	return nil
 }
@@ -203,15 +203,15 @@ func dockDestinations(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(list) == 0 {
-		fmt.Println("no destinations: seaport dock destination set <dock-id> <name> <target>")
+		fmt.Fprintln(stdout, "no destinations: seaport dock destination set <dock-id> <name> <target>")
 		return nil
 	}
 	for _, d := range list {
-		fmt.Printf("%-20s %-10s %s", d.Name, d.Channel, d.Target)
+		fmt.Fprintf(stdout, "%-20s %-10s %s", d.Name, d.Channel, d.Target)
 		if d.Title != "" {
-			fmt.Printf("  (%s)", d.Title)
+			fmt.Fprintf(stdout, "  (%s)", d.Title)
 		}
-		fmt.Println()
+		fmt.Fprintln(stdout)
 	}
 	return nil
 }
@@ -240,13 +240,13 @@ func dockDestination(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPut, path, map[string]string{"target": args[3], "title": *title}, &d); err != nil {
 			return err
 		}
-		fmt.Printf("destination %s of dock %s → %s (%s)\n", d.Name, d.Dock, d.Target, d.Channel)
+		fmt.Fprintf(stdout, "destination %s of dock %s → %s (%s)\n", d.Name, d.Dock, d.Target, d.Channel)
 		return nil
 	case "rm", "remove":
 		if err := a.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("destination %s removed\n", args[2])
+		fmt.Fprintf(stdout, "destination %s removed\n", args[2])
 		return nil
 	}
 	return errx.Validation(usage)
@@ -278,7 +278,7 @@ func dockOpen(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodPost, "/api/v1/docks/"+url.PathEscape(args[0])+"/destinations/"+url.PathEscape(args[1])+"/ships", body, &s); err != nil {
 		return err
 	}
-	fmt.Printf("opened conversation %s: ship %s %s\n", s.Conversation, s.ID, s.Status)
+	fmt.Fprintf(stdout, "opened conversation %s: ship %s %s\n", s.Conversation, s.ID, s.Status)
 	return nil
 }
 
@@ -294,7 +294,7 @@ func dockUnlink(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodPost, "/api/v1/docks/"+url.PathEscape(args[0])+"/unlink", nil, &d); err != nil {
 		return err
 	}
-	fmt.Printf("dock %s unlinked (%s); pair again with: seaport dock relink %s\n", d.ID, d.Status, d.ID)
+	fmt.Fprintf(stdout, "dock %s unlinked (%s); pair again with: seaport dock relink %s\n", d.ID, d.Status, d.ID)
 	return nil
 }
 
@@ -309,7 +309,7 @@ func dockDelete(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodDelete, "/api/v1/docks/"+url.PathEscape(args[0]), nil, nil); err != nil {
 		return err
 	}
-	fmt.Println("dock deleted")
+	fmt.Fprintln(stdout, "dock deleted")
 	return nil
 }
 
@@ -323,7 +323,7 @@ func crewStatus(ctx context.Context) error {
 		return err
 	}
 	if len(s.Agents) == 0 {
-		fmt.Println("no agents connected (start one with: seaport connect -- <agent>)")
+		fmt.Fprintln(stdout, "no agents connected (start one with: seaport connect -- <agent>)")
 		return nil
 	}
 	for _, ag := range s.Agents {
@@ -331,10 +331,10 @@ func crewStatus(ctx context.Context) error {
 		if ag.Steer {
 			steer = ", steer"
 		}
-		fmt.Printf("%s  %s (%s)  concurrency %d%s  since %s  from %s\n", ag.Session, ag.AgentName, ag.Name, ag.Concurrency, steer,
+		fmt.Fprintf(stdout, "%s  %s (%s)  concurrency %d%s  since %s  from %s\n", ag.Session, ag.AgentName, ag.Name, ag.Concurrency, steer,
 			ag.ConnectedAt.Local().Format("Jan 2 15:04"), ag.Remote)
 		for _, d := range ag.Deliveries {
-			fmt.Printf("    working on %s (%d ships, %s)\n", d.Conversation, d.Ships, time.Since(d.Since).Round(time.Second))
+			fmt.Fprintf(stdout, "    working on %s (%d ships, %s)\n", d.Conversation, d.Ships, time.Since(d.Since).Round(time.Second))
 		}
 	}
 	return nil
@@ -342,23 +342,23 @@ func crewStatus(ctx context.Context) error {
 
 // waitLinked shows each new QR until the phone links the dock.
 func waitLinked(ctx context.Context, a *admin, d dock.Dock) error {
-	fmt.Println("On your phone: WhatsApp → Settings → Linked devices → Link a device, then scan:")
+	fmt.Fprintln(stdout, "On your phone: WhatsApp → Settings → Linked devices → Link a device, then scan:")
 	shown := ""
 	deadline := time.Now().Add(3 * time.Minute)
 	for time.Now().Before(deadline) {
 		switch d.Status {
 		case dock.StatusLinked:
-			fmt.Printf("\nlinked as %s ✓\nMessages to this number now arrive at the port. Allow chats with: seaport conversations / seaport allow <id>\n", d.Address)
+			fmt.Fprintf(stdout, "\nlinked as %s ✓\nMessages to this number now arrive at the port. Allow chats with: seaport conversations / seaport allow <id>\n", d.Address)
 			return nil
 		case dock.StatusFailed, dock.StatusLoggedOut:
 			return errx.Business("linking failed (" + string(d.Status) + "); retry with: seaport dock relink " + d.ID.String())
 		}
 		if d.QRCode != "" && d.QRCode != shown {
 			shown = d.QRCode
-			qrterminal.GenerateWithConfig(d.QRCode, qrterminal.Config{Level: qrterminal.L, Writer: os.Stdout,
+			qrterminal.GenerateWithConfig(d.QRCode, qrterminal.Config{Level: qrterminal.L, Writer: stdout,
 				HalfBlocks: true, BlackChar: qrterminal.BLACK_BLACK, WhiteBlackChar: qrterminal.WHITE_BLACK,
 				WhiteChar: qrterminal.WHITE_WHITE, BlackWhiteChar: qrterminal.BLACK_WHITE, QuietZone: 1})
-			fmt.Println("(the code refreshes every ~20s; waiting...)")
+			fmt.Fprintln(stdout, "(the code refreshes every ~20s; waiting...)")
 		}
 		select {
 		case <-ctx.Done():
@@ -381,7 +381,7 @@ func dockList(ctx context.Context) error {
 	if err := a.do(ctx, http.MethodGet, "/api/v1/docks?limit=100", nil, &page); err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tCHANNEL\tNAME\tSTATUS\tREPLIES\tADDRESS")
 	for _, d := range page.Items {
 		replies := "on"
@@ -418,7 +418,7 @@ func conversations(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodGet, path, nil, &page); err != nil {
 		return err
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tSTATUS\tACCESS\tKIND\tTITLE\tHANDLES")
 	for _, c := range page.Items {
 		access := string(c.Access)
@@ -459,15 +459,15 @@ func patchConversation(ctx context.Context, id string, body map[string]any) erro
 	if err := a.do(ctx, http.MethodPatch, "/api/v1/conversations/"+url.PathEscape(id), body, &c); err != nil {
 		return err
 	}
-	fmt.Printf("%s %q status=%s access=%s", c.ID, c.Title, c.Status, c.Access)
+	fmt.Fprintf(stdout, "%s %q status=%s access=%s", c.ID, c.Title, c.Status, c.Access)
 	if c.Kind == conversation.KindGroup {
 		mode := string(c.GroupMode)
 		if mode == "" {
 			mode = "dock default"
 		}
-		fmt.Printf(" groups=%s", mode)
+		fmt.Fprintf(stdout, " groups=%s", mode)
 	}
-	fmt.Println()
+	fmt.Fprintln(stdout)
 	return nil
 }
 
@@ -499,7 +499,7 @@ func customs(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/customs/rules/"+url.PathEscape(rest[1]), nil, nil); err != nil {
 			return err
 		}
-		fmt.Println("rule removed")
+		fmt.Fprintln(stdout, "rule removed")
 		return nil
 	}
 	d, err := pickDock(ctx, a, *dockID)
@@ -511,7 +511,7 @@ func customs(ctx context.Context, args []string) error {
 	case len(rest) == 0:
 	case len(rest) == 2 && rest[0] == "default":
 		if rest[1] == string(conversation.DefaultAllow) {
-			fmt.Fprintln(os.Stderr, "warning: every conversation that reaches this dock will wake the agent and get answers from it")
+			fmt.Fprintln(stderr, "warning: every conversation that reaches this dock will wake the agent and get answers from it")
 		}
 		if err := a.do(ctx, http.MethodPatch, base+"/policy", map[string]string{"default": rest[1]}, nil); err != nil {
 			return err
@@ -531,12 +531,12 @@ func customs(ctx context.Context, args []string) error {
 	if err := a.do(ctx, http.MethodGet, base, nil, &c); err != nil {
 		return err
 	}
-	fmt.Printf("dock %s (%s %s)\ndefault: %s   groups: %s\n", d.ID, d.Channel, d.Name, c.Policy.Default, c.Policy.GroupMode)
+	fmt.Fprintf(stdout, "dock %s (%s %s)\ndefault: %s   groups: %s\n", d.ID, d.Channel, d.Name, c.Policy.Default, c.Policy.GroupMode)
 	if len(c.Rules) == 0 {
-		fmt.Println("no rules")
+		fmt.Fprintln(stdout, "no rules")
 		return nil
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "RULE\tEFFECT\tPATTERN")
 	for _, r := range c.Rules {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", r.ID, r.Effect, r.Pattern)
@@ -593,10 +593,10 @@ func history(ctx context.Context, args []string) error {
 			from = s.SenderID
 		}
 		if *whole {
-			fmt.Printf("%s  %-8s %s  %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, s.Conversation, from, s.Text)
+			fmt.Fprintf(stdout, "%s  %-8s %s  %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, s.Conversation, from, s.Text)
 			continue
 		}
-		fmt.Printf("%s  %-8s %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, from, s.Text)
+		fmt.Fprintf(stdout, "%s  %-8s %s: %s\n", s.SentAt.Local().Format("01-02 15:04"), s.Status, from, s.Text)
 	}
 	return nil
 }
@@ -629,7 +629,7 @@ func thread(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/conversations/"+url.PathEscape(args[1])+"/links", nil, &c); err != nil {
 			return err
 		}
-		fmt.Printf("%s %q is on its own again\n", c.ID, c.Title)
+		fmt.Fprintf(stdout, "%s %q is on its own again\n", c.ID, c.Title)
 		return nil
 	default:
 		if len(args) != 1 {
@@ -639,7 +639,7 @@ func thread(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tCHANNEL\tSTATUS\tKIND\tTITLE")
 	for _, c := range doors {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", c.ID, c.Channel, c.Status, c.Kind, c.Title)
@@ -660,6 +660,6 @@ func send(ctx context.Context, args []string) error {
 		map[string]string{"text": strings.Join(args[1:], " ")}, &s); err != nil {
 		return err
 	}
-	fmt.Printf("ship %s %s\n", s.ID, s.Status)
+	fmt.Fprintf(stdout, "ship %s %s\n", s.ID, s.Status)
 	return nil
 }

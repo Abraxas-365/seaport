@@ -65,7 +65,7 @@ func profileCmd(ctx context.Context, a *admin, args []string) error {
 			return err
 		}
 		if *asJSON {
-			enc := json.NewEncoder(os.Stdout)
+			enc := json.NewEncoder(stdout)
 			enc.SetIndent("", "  ")
 			return enc.Encode(fileOf(p))
 		}
@@ -79,10 +79,10 @@ func profileCmd(ctx context.Context, a *admin, args []string) error {
 			return err
 		}
 		if len(out.Versions) == 0 {
-			fmt.Printf("agent %s has no profile yet: seaport agents profile set %s ...\n", ag.Name, ag.Name)
+			fmt.Fprintf(stdout, "agent %s has no profile yet: seaport agents profile set %s ...\n", ag.Name, ag.Name)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "VERSION\tBY\tAT")
 		for _, v := range out.Versions {
 			cur := ""
@@ -204,7 +204,7 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	if err := a.do(ctx, http.MethodPut, base, body, &out); err != nil {
 		return err
 	}
-	fmt.Printf("agent %s profile v%d saved; connected harnesses restart with it once idle\n", ag.Name, out.Version)
+	fmt.Fprintf(stdout, "agent %s profile v%d saved; connected harnesses restart with it once idle\n", ag.Name, out.Version)
 	return nil
 }
 
@@ -231,10 +231,10 @@ func secretsCmd(ctx context.Context, a *admin, args []string) error {
 			return err
 		}
 		if len(out.Secrets) == 0 {
-			fmt.Printf("agent %s has no secrets: seaport agents secrets set %s NAME [-env]\n", ag.Name, ag.Name)
+			fmt.Fprintf(stdout, "agent %s has no secrets: seaport agents secrets set %s NAME [-env]\n", ag.Name, ag.Name)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tENV\tUPDATED")
 		for _, s := range out.Secrets {
 			fmt.Fprintf(w, "%s\t%v\t%s\n", s.Name, s.Env, s.UpdatedAt.Local().Format("2006-01-02 15:04"))
@@ -256,7 +256,7 @@ func secretsCmd(ctx context.Context, a *admin, args []string) error {
 		if err := a.do(ctx, http.MethodPut, base+"/"+url.PathEscape(args[1]), map[string]any{"value": value, "env": *env}, nil); err != nil {
 			return err
 		}
-		fmt.Printf("secret %s of agent %s saved; use it in an MCP header as ${%s}\n", args[1], ag.Name, args[1])
+		fmt.Fprintf(stdout, "secret %s of agent %s saved; use it in an MCP header as ${%s}\n", args[1], ag.Name, args[1])
 		return nil
 	case "rm":
 		if len(args) != 2 {
@@ -265,7 +265,7 @@ func secretsCmd(ctx context.Context, a *admin, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, base+"/"+url.PathEscape(args[1]), nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("secret %s of agent %s deleted\n", args[1], ag.Name)
+		fmt.Fprintf(stdout, "secret %s of agent %s deleted\n", args[1], ag.Name)
 		return nil
 	}
 	return nil
@@ -275,16 +275,16 @@ func secretsCmd(ctx context.Context, a *admin, args []string) error {
 // whole of stdin (one trailing newline dropped). Never from the command
 // line, which shells keep in their history.
 func readSecret(name string) (string, error) {
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprintf(os.Stderr, "value of %s: ", name)
-		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr)
+	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		fmt.Fprintf(stderr, "value of %s: ", name)
+		raw, err := term.ReadPassword(int(f.Fd()))
+		fmt.Fprintln(stderr)
 		if err != nil {
 			return "", errx.Wrap(err, "read secret", errx.TypeInternal)
 		}
 		return string(raw), nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(bufio.NewReader(os.Stdin), agent.MaxSecretValue+2))
+	raw, err := io.ReadAll(io.LimitReader(bufio.NewReader(stdin), agent.MaxSecretValue+2))
 	if err != nil {
 		return "", errx.Wrap(err, "read secret", errx.TypeInternal)
 	}
@@ -298,30 +298,30 @@ func fileOf(p agent.Profile) profileFile {
 
 func printProfile(name string, p agent.Profile) {
 	if p.Version == 0 {
-		fmt.Printf("agent %s has no profile yet: seaport agents profile set %s -instructions-file AGENTS.md ...\n", name, name)
+		fmt.Fprintf(stdout, "agent %s has no profile yet: seaport agents profile set %s -instructions-file AGENTS.md ...\n", name, name)
 		return
 	}
-	fmt.Printf("agent %s, profile v%d (%s, %s)\n", name, p.Version, p.CreatedBy, p.CreatedAt.Local().Format("2006-01-02 15:04"))
-	fmt.Printf("approve: %s  model: %s  effort: %s  browser: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser))
-	fmt.Printf("\ninstructions (%d chars):\n", len(p.Instructions))
+	fmt.Fprintf(stdout, "agent %s, profile v%d (%s, %s)\n", name, p.Version, p.CreatedBy, p.CreatedAt.Local().Format("2006-01-02 15:04"))
+	fmt.Fprintf(stdout, "approve: %s  model: %s  effort: %s  browser: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser))
+	fmt.Fprintf(stdout, "\ninstructions (%d chars):\n", len(p.Instructions))
 	if p.Instructions == "" {
-		fmt.Println("  -")
+		fmt.Fprintln(stdout, "  -")
 	} else {
 		for _, l := range strings.Split(strings.TrimSpace(p.Instructions), "\n") {
-			fmt.Println("  " + l)
+			fmt.Fprintln(stdout, "  "+l)
 		}
 	}
-	fmt.Printf("\nskills (%d):\n", len(p.Skills))
+	fmt.Fprintf(stdout, "\nskills (%d):\n", len(p.Skills))
 	for _, s := range p.Skills {
-		fmt.Printf("  %s: %s\n", s.Name, s.Description)
+		fmt.Fprintf(stdout, "  %s: %s\n", s.Name, s.Description)
 	}
-	fmt.Printf("\nMCP servers (%d):\n", len(p.MCPServers))
+	fmt.Fprintf(stdout, "\nMCP servers (%d):\n", len(p.MCPServers))
 	for _, s := range p.MCPServers {
 		hs := []string{}
 		for _, h := range s.Headers {
 			hs = append(hs, h.Name+": "+h.Value)
 		}
-		fmt.Printf("  %s  %s  %s\n", s.Name, s.URL, strings.Join(hs, ", "))
+		fmt.Fprintf(stdout, "  %s  %s  %s\n", s.Name, s.URL, strings.Join(hs, ", "))
 	}
 }
 
@@ -381,7 +381,7 @@ func deleteSkill(skills []agent.Skill, name string) []agent.Skill {
 
 func readInput(path string) ([]byte, error) {
 	if path == "-" {
-		return io.ReadAll(os.Stdin)
+		return io.ReadAll(stdin)
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

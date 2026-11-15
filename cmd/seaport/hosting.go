@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -46,13 +45,13 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		name := hosting.SlotName(ag.Name, idx)
 		switch {
 		case !acc.Supported:
-			fmt.Printf("%s: its harness uses the environment's model key (no sign-in)\n", name)
+			fmt.Fprintf(stdout, "%s: its harness uses the environment's model key (no sign-in)\n", name)
 		case acc.LoggedIn && acc.Subscription != "":
-			fmt.Printf("%s: signed in (%s, %s)\n", name, acc.Method, acc.Subscription)
+			fmt.Fprintf(stdout, "%s: signed in (%s, %s)\n", name, acc.Method, acc.Subscription)
 		case acc.LoggedIn:
-			fmt.Printf("%s: signed in (%s)\n", name, acc.Method)
+			fmt.Fprintf(stdout, "%s: signed in (%s)\n", name, acc.Method)
 		default:
-			fmt.Printf("%s: not signed in; sign it in with: seaport agents login %s\n", name, name)
+			fmt.Fprintf(stdout, "%s: not signed in; sign it in with: seaport agents login %s\n", name, name)
 		}
 		return nil
 	case "usage":
@@ -73,10 +72,10 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			return err
 		}
 		if len(out.Days) == 0 {
-			fmt.Printf("%s used no models through the gateway in %d day(s)\n", ag.Name, *days)
+			fmt.Fprintf(stdout, "%s used no models through the gateway in %d day(s)\n", ag.Name, *days)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
 		fmt.Fprintln(w, "DAY\tMODEL\tREQUESTS\tINPUT\tOUTPUT\tCACHE WRITE\tCACHE READ")
 		for _, d := range out.Days {
 			fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", d.Day.Format("2006-01-02"), d.Model, d.Requests, d.Input, d.Output, d.CacheWrite, d.CacheRead)
@@ -95,16 +94,16 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			return err
 		}
 		if len(out.Denials) == 0 {
-			fmt.Printf("the egress proxy refused %s nothing\n", ag.Name)
+			fmt.Fprintf(stdout, "the egress proxy refused %s nothing\n", ag.Name)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
 		fmt.Fprintln(w, "SLOT\tHOST\tTIMES\tLAST")
 		for _, d := range out.Denials {
 			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", hosting.SlotName(ag.Name, d.Slot), d.Host, d.Count, d.LastSeen.Local().Format("2006-01-02 15:04"))
 		}
 		_ = w.Flush()
-		fmt.Println("allow one: add it to the environment's network.egress (seaport env export|apply)")
+		fmt.Fprintln(stdout, "allow one: add it to the environment's network.egress (seaport env export|apply)")
 		return nil
 	case "logs":
 		if len(args) < 1 {
@@ -123,7 +122,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		if err := a.do(ctx, http.MethodGet, fmt.Sprintf("/api/v1/agents/%s/hosting/slots/%d/logs?lines=%d", ag.ID, idx, *lines), nil, &out); err != nil {
 			return err
 		}
-		fmt.Print(out.Log)
+		fmt.Fprint(stdout, out.Log)
 		return nil
 	case "start", "stop":
 		if len(args) != 1 {
@@ -139,10 +138,10 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		}
 		for _, s := range h.Slots {
 			if s.Index == idx {
-				fmt.Printf("%s: %s %s\n", hosting.SlotName(ag.Name, idx), s.State, s.Detail)
+				fmt.Fprintf(stdout, "%s: %s %s\n", hosting.SlotName(ag.Name, idx), s.State, s.Detail)
 			}
 		}
-		fmt.Println("follow it with: seaport agents slots " + ag.Name)
+		fmt.Fprintln(stdout, "follow it with: seaport agents slots "+ag.Name)
 		return nil
 	case "host":
 		if len(args) < 2 {
@@ -162,7 +161,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			map[string]any{"environment": args[1], "slots": *slots}, &h); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s hosted on %s with %d slot(s)\n", ag.Name, args[1], len(h.Slots))
+		fmt.Fprintf(stdout, "agent %s hosted on %s with %d slot(s)\n", ag.Name, args[1], len(h.Slots))
 		return nil
 	case "unhost":
 		if len(args) != 1 {
@@ -175,7 +174,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/hosting", nil, nil); err != nil {
 			return err
 		}
-		fmt.Printf("agent %s is no longer hosted (connect it yourself: seaport connect)\n", ag.Name)
+		fmt.Fprintf(stdout, "agent %s is no longer hosted (connect it yourself: seaport connect)\n", ag.Name)
 		return nil
 	}
 	// slots [<agent>]
@@ -200,7 +199,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		hosted = out.Agents
 	}
 	if len(hosted) == 0 {
-		fmt.Println("no hosted agents: seaport agents host <agent> <env>")
+		fmt.Fprintln(stdout, "no hosted agents: seaport agents host <agent> <env>")
 		return nil
 	}
 	agents, err := listAgents(ctx, a)
@@ -219,7 +218,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	for _, e := range envs.Items {
 		envNames[e.ID] = e.Name
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "SLOT\tENV\tSTATE\tDETAIL")
 	for _, h := range hosted {
 		for _, s := range h.Slots {
@@ -284,8 +283,8 @@ func signIn(ctx context.Context, a *admin, ag agent.Agent, idx int) error {
 		return err
 	}
 	if l.State == hosting.LoginWaiting {
-		fmt.Printf("Sign in with the account %s should use (experimental: uses that subscription's limits):\n\n  %s\n\nthen paste the code the page shows: ", hosting.SlotName(ag.Name, idx), l.URL)
-		code, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		fmt.Fprintf(stdout, "Sign in with the account %s should use (experimental: uses that subscription's limits):\n\n  %s\n\nthen paste the code the page shows: ", hosting.SlotName(ag.Name, idx), l.URL)
+		code, err := bufio.NewReader(stdin).ReadString('\n')
 		if err != nil {
 			return errx.Validation("no code read")
 		}
@@ -299,6 +298,6 @@ func signIn(ctx context.Context, a *admin, ag agent.Agent, idx int) error {
 	if l.State != hosting.LoginDone {
 		return errx.External("the sign-in failed: " + l.Detail)
 	}
-	fmt.Printf("%s is signed in; its agent restarts with the account once idle\n", hosting.SlotName(ag.Name, idx))
+	fmt.Fprintf(stdout, "%s is signed in; its agent restarts with the account once idle\n", hosting.SlotName(ag.Name, idx))
 	return nil
 }
