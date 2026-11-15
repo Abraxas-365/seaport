@@ -877,7 +877,9 @@ function DockConversations({ dock }: { dock: Dock }) {
                       ? "Invita a la App a un canal y menciónala (@app o @agente), o escríbele por mensaje directo."
                       : dock.channel === "email"
                         ? "Envía un correo al buzón conectado: solo se leen los mensajes que llegan después de conectarlo."
-                        : "Envía un mensaje de prueba con el formulario de arriba."
+                        : dock.channel === "datadog"
+                          ? "Menciona el webhook en un monitor de Datadog (@webhook-…) o envía una alerta de prueba a la URL del webhook."
+                          : "Envía un mensaje de prueba con el formulario de arriba."
             }
           />
         ) : (

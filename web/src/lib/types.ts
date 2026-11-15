@@ -598,7 +598,7 @@ export interface EventMap {
   "dock.updated": Dock
   "dock.deleted": { id: ID }
   "conversation.updated": Conversation
-  "customs.updated": { customs: Customs }
+  "customs.updated": Customs
   "ship.created": Ship
   "ship.updated": Ship
   "delivery.changed": DeliveryEvent
