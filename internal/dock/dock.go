@@ -98,7 +98,9 @@ type Dock struct {
 	// dock (default on). Off, the dock is a trigger: its messages wake the
 	// agent as before, but a reply to one of its conversations is refused
 	// (Business) and the agent is told to answer elsewhere, or not at all.
-	Replies   bool      `db:"replies" json:"replies"`
+	Replies bool `db:"replies" json:"replies"`
+	// Tools are the owner's switches of what agents may read on this dock.
+	Tools     Tools     `db:"tools" json:"tools"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 	// QRCode is the current pairing code while linking (never stored).
@@ -121,14 +123,63 @@ func (c Create) Validate() error {
 	return text.Required("name", c.Name, text.MaxName)
 }
 
-// Update renames a dock or flips its replies switch (at least one).
+// Tools are a dock's switches of what the agents working it may read
+// besides the messages they are handed (all on by default). They bind
+// agents only: people (the admin API) read everything their role allows.
+// Every agent read goes through the ship service, which checks them
+// (history, attachments) whatever asks: MCP tools, crew routes, the
+// connector.
+type Tools struct {
+	// History: agents may read earlier messages of the dock's
+	// conversations (the history tool; a thread read skips doors whose
+	// dock has it off).
+	History bool `db:"history" json:"history"`
+	// Conversations: the conversations tool lists the dock's chats.
+	Conversations bool `db:"conversations" json:"conversations"`
+	// Attachments: agents may open the files people send on the dock
+	// (images in their prompt, the attachment tool); off, they are told a
+	// file came, not what it holds.
+	Attachments bool `db:"attachments" json:"attachments"`
+}
+
+// AllTools is a new dock's switches.
+var AllTools = Tools{History: true, Conversations: true, Attachments: true}
+
+// ToolsPatch changes some switches (nil: unchanged).
+type ToolsPatch struct {
+	History       *bool `json:"history,omitempty"`
+	Conversations *bool `json:"conversations,omitempty"`
+	Attachments   *bool `json:"attachments,omitempty"`
+}
+
+// Empty: the patch changes nothing.
+func (p ToolsPatch) Empty() bool {
+	return p.History == nil && p.Conversations == nil && p.Attachments == nil
+}
+
+// Apply returns t with the patch's switches set.
+func (p ToolsPatch) Apply(t Tools) Tools {
+	if p.History != nil {
+		t.History = *p.History
+	}
+	if p.Conversations != nil {
+		t.Conversations = *p.Conversations
+	}
+	if p.Attachments != nil {
+		t.Attachments = *p.Attachments
+	}
+	return t
+}
+
+// Update renames a dock or flips its switches (at least one change).
 type Update struct {
 	Name    *string
 	Replies *bool
+	Tools   *ToolsPatch
 }
 
 func (u Update) Validate() error {
-	if u.Name == nil && u.Replies == nil {
+	if u.Name == nil && u.Replies == nil && (u.Tools == nil || u.Tools.Empty()) {
 		return errx.Validation("nothing to update")
 	}
 	if u.Name != nil {

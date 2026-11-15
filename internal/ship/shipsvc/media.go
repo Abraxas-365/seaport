@@ -204,6 +204,13 @@ func (s *Service) OpenAttachment(ctx context.Context, org identity.OrganizationI
 		} else if err != nil {
 			return ship.AttachmentFile{}, err
 		}
+		t, err := s.toolsOf(ctx, org, conv.Dock, nil)
+		if err != nil {
+			return ship.AttachmentFile{}, err
+		}
+		if !t.Attachments {
+			return ship.AttachmentFile{}, errx.Forbidden("the owner of this conversation's dock doesn't let agents open the files people send there")
+		}
 	}
 	if !s.media.on() {
 		return ship.AttachmentFile{}, errx.Business("media storage is off (SEAPORT_SECRET_KEY)")

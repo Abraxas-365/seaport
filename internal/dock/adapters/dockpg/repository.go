@@ -13,7 +13,11 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-const columns = `id, organization_id, channel, name, address, status, replies, created_at, updated_at`
+// columns reads a dock; the tool switches land in Dock.Tools (sqlx's
+// "tools.<field>" names).
+const columns = `id, organization_id, channel, name, address, status, replies,
+	tool_history AS "tools.history", tool_conversations AS "tools.conversations",
+	tool_attachments AS "tools.attachments", created_at, updated_at`
 
 var messages = pgerr.Messages{NotFound: "dock not found"}
 
@@ -92,8 +96,15 @@ func (r *Repository) SetLinked(ctx context.Context, id identity.DockID, address 
 
 func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Update) (dock.Dock, error) {
 	var d dock.Dock
-	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($3, name), replies = COALESCE($4, replies), updated_at = now()
-		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name, in.Replies)
+	var t dock.ToolsPatch
+	if in.Tools != nil {
+		t = *in.Tools
+	}
+	err := r.db.GetContext(ctx, &d, `UPDATE docks SET name = COALESCE($3, name), replies = COALESCE($4, replies),
+		tool_history = COALESCE($5, tool_history), tool_conversations = COALESCE($6, tool_conversations),
+		tool_attachments = COALESCE($7, tool_attachments), updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name, in.Replies,
+		t.History, t.Conversations, t.Attachments)
 	return d, pgerr.MapWith(err, "update dock", messages)
 }
 

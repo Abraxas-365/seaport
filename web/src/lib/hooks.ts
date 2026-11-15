@@ -19,6 +19,7 @@ import type {
   Channel,
   CustomsStatus,
   DefaultAccess,
+  DockTools,
   Effect,
   EnvSpec,
   GroupMode,
@@ -371,6 +372,14 @@ export function useDockAction() {
             ? "La tripulación vuelve a poder responder en este muelle."
             : "Los mensajes siguen despertando al agente; nada se publica aquí.",
         })
+      },
+      onError: fail("No se pudo cambiar"),
+    }),
+    tools: useMutation({
+      mutationFn: ({ id, tools }: { id: string; tools: Partial<DockTools> }) => api.setDockTools(id, tools),
+      onSuccess: (d) => {
+        onDock(d)
+        toast.success("Herramientas del agente actualizadas")
       },
       onError: fail("No se pudo cambiar"),
     }),

@@ -27,16 +27,16 @@ X-Seaport-Agent: ci          (optional with a token; required in none mode)
 
 The header is `crew.AgentHeader`. An agent that doesn't exist answers `404`.
 
-An agent only sees the docks it is assigned to. A conversation of another dock answers `conversation not found`.
+An agent only sees the docks it is assigned to. A conversation of another dock answers `conversation not found`. Each dock's [agent tools](../guides/agents-and-routing.md#what-agents-may-read) (`history`, `conversations`, `attachments`) narrow what the agent may read there; without an agent every switch reads as on.
 
 ## Tools
 
 | Tool | Always there | What it does |
 | :--- | :--- | :--- |
 | `reply` | yes | Sends a message, with files if needed, to an allowed conversation. |
-| `history` | yes | Reads the latest messages of a conversation. |
-| `attachment` | yes | Returns a file attached to a message (an image or a document). |
-| `conversations` | yes | Lists the allowed conversations of the agent's docks. |
+| `history` | unless every dock of the agent has `history` off | Reads the latest messages of a conversation. |
+| `attachment` | unless every dock of the agent has `attachments` off | Returns a file attached to a message (an image or a document). |
+| `conversations` | unless every dock of the agent has `conversations` off | Lists the allowed conversations of the agent's docks. |
 | `ask_approval` | yes | Asks people to choose between options before the agent acts. |
 | `approval` | yes | Reads an approval the agent asked, optionally waiting while it is pending. |
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
@@ -106,7 +106,7 @@ Reads one approval the agent asked. Arguments: `approval_id` (required) and `wai
 
 ### history
 
-Reads the latest messages of a conversation, newest first, inbound and outbound. This is how an agent reads messages that were held, or older ones.
+Reads the latest messages of a conversation, newest first, inbound and outbound. This is how an agent reads messages that were held, or older ones. A conversation of a dock whose `history` switch is off is refused; with `thread: true` such doors are skipped (and left out of `total`).
 
 Arguments:
 
@@ -140,6 +140,7 @@ Result:
 - `from` is the sender's name, else the sender id; for outbound messages it is `agent`.
 - `status` is the ship status (inbound `held`, `queued`, `claimed`, `handled`; outbound `pending`, `sent`, `failed`).
 - `attachments` is left out when the message has none. `kind` is `image` or `document` (a file an agent sent). `name` is left out when unknown.
+- `withheld: true` marks a file of a dock whose `attachments` switch is off: it is named, without `attachment_id`, and can't be opened.
 - `conversation_id` is present with `thread: true`: the conversation each message belongs to, the one to `reply` on.
 - `total` is the number of messages in the conversation (or the thread), not the number returned.
 
@@ -153,11 +154,11 @@ Arguments:
 | :--- | :--- | :--- | :--- |
 | `attachment_id` | string | yes | An `attachment_id` listed by `history`. |
 
-Result: for an image (`image/jpeg`, `image/png`, `image/webp`, `image/gif`, up to 3.75 MiB), MCP image content. For a document (a file an agent sent), an embedded resource: its text for text files, else its bytes. An attachment of a dock the agent doesn't work on answers not found. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
+Result: for an image (`image/jpeg`, `image/png`, `image/webp`, `image/gif`, up to 3.75 MiB), MCP image content. For a document (a file an agent sent), an embedded resource: its text for text files, else its bytes. An attachment of a dock the agent doesn't work on answers not found; one of a dock whose `attachments` switch is off is refused. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
 
 ### conversations
 
-Lists the allowed conversations the agent can reply to: those of the docks it works on. Without an agent (`none` mode, no header) it lists the allowed conversations of every dock.
+Lists the allowed conversations the agent can reply to: those of the docks it works on. Without an agent (`none` mode, no header) it lists the allowed conversations of every dock. Docks whose `conversations` switch is off are left out.
 
 Arguments: none.
 

@@ -218,6 +218,21 @@ func TestCLIDocks(t *testing.T) {
 	if got := p.ok("dock", "list"); !regexp.MustCompile(`customer care\s+\S+\s+off`).MatchString(got) {
 		t.Errorf("dock list does not show replies off:\n%s", got)
 	}
+	// agent tools: shown, then two switched off, as the API sees it
+	mustContain(t, "tools", p.ok("dock", "tools", apiDock), "history", "conversations", "attachments")
+	tools := p.ok("dock", "tools", apiDock, "history", "off", "attachments", "off")
+	if !regexp.MustCompile(`history\s+off`).MatchString(tools) || !regexp.MustCompile(`conversations\s+on`).MatchString(tools) ||
+		!regexp.MustCompile(`attachments\s+off`).MatchString(tools) {
+		t.Errorf("dock tools after switching:\n%s", tools)
+	}
+	var withTools dock.Dock
+	if code := p.api(http.MethodGet, "/api/v1/docks/"+apiDock, nil, &withTools); code != http.StatusOK ||
+		withTools.Tools != (dock.Tools{Conversations: true}) {
+		t.Fatalf("dock after tools off: %d %+v", code, withTools.Tools)
+	}
+	if msg := p.fails("dock", "tools", apiDock, "search", "on"); !strings.Contains(msg, "usage: seaport dock tools") {
+		t.Errorf("unknown tool: %q", msg)
+	}
 	mustContain(t, "replies on", p.ok("dock", "replies", apiDock, "on"), "takes replies again")
 	_ = p.api(http.MethodGet, "/api/v1/docks/"+apiDock, nil, &d)
 	if !d.Replies {

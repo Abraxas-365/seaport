@@ -45,6 +45,7 @@ The prompt names each attachment under its message line. How the agent looks at 
 
 - **The connector shows them.** If the harness advertises image support in ACP (`promptCapabilities.image`), the connector fetches each image from the port with the agent's token and sends it as an image block after the text, in order, up to **8 per prompt**. The prompt marks each one as attached below. Images that arrive while the agent is working (steering) are sent the same way.
 - **Otherwise, the agent asks.** If the harness doesn't take images, an image beyond the first 8, or one that couldn't be fetched, the prompt says the attachment is "not shown to you". The agent can call the MCP tools: `history` lists each message's attachments with their ids, and `attachment` returns one as an image. These tools only work on conversations of the docks the agent is on.
+- **The dock keeps them.** On a dock whose [`attachments` switch](agents-and-routing.md#what-agents-may-read) is off, the prompt names the file and says its dock's owner keeps files from agents; nothing is fetched or shown.
 
 See [The connector](connector.md#images).
 

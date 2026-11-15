@@ -163,7 +163,7 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | `GET` | `/docks` | `docks:read` | Paginated docks. |
 | `POST` | `/docks` | `docks:write` | Body `{"channel":"whatsapp"\|"api"\|"github"\|"jira"\|"slack"\|"webhook"\|"email"\|"datadog","name":"…"}`. `201` with the dock. `422 QUOTA_EXCEEDED` (`docks`) over the limit. |
 | `GET` | `/docks/{id}` | `docks:read` | The dock, with `qr_code` while a WhatsApp dock is linking. |
-| `PATCH` | `/docks/{id}` | `docks:write` | Body `{"name":"…"}`, `{"replies":false}` or both (at least one). The dock. `replies: false` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, a reply there is refused (`422`). |
+| `PATCH` | `/docks/{id}` | `docks:write` | Body with any of `name`, `replies` and `tools` (at least one; `tools` names only the switches to change, e.g. `{"tools":{"history":false}}`). The dock. `replies: false` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, a reply there is refused (`422`). `tools` are the [agent tools](../guides/agents-and-routing.md#what-agents-may-read) of the dock. |
 | `DELETE` | `/docks/{id}` | `docks:write` | `204`. Deletes its conversations and ships. |
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
 | `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret; a Slack dock: uninstalls the app it created and forgets it; a webhook dock: forgets its secret and template; a Datadog dock: forgets its secret and mirror; an email dock: forgets the mailbox, its password and its threads). The dock. |
@@ -183,13 +183,14 @@ A dock:
   "address": "34600000000:12@s.whatsapp.net",
   "status": "linked",
   "replies": true,
+  "tools": { "history": true, "conversations": true, "attachments": true },
   "created_at": "2025-01-15T10:30:00Z",
   "updated_at": "2025-01-15T10:31:00Z",
   "qr_code": "2@…"
 }
 ```
 
-`status` is `linking`, `linked`, `logged_out` or `failed`. `qr_code` appears only while linking. `replies` is the owner's switch (default `true`): off, nothing can be posted on the dock, its messages only trigger the agent.
+`status` is `linking`, `linked`, `logged_out` or `failed`. `qr_code` appears only while linking. `replies` is the owner's switch (default `true`): off, nothing can be posted on the dock, its messages only trigger the agent. `tools` are the owner's switches of what agents may read there besides the messages they are handed (each default `true`): `history` (earlier messages), `conversations` (the dock's chats in the MCP `conversations` list) and `attachments` (the files people send). They bind agents only; this API reads everything the caller's role allows. See [What agents may read](../guides/agents-and-routing.md#what-agents-may-read).
 
 **Inject a message** (`POST /docks/{id}/ships`) only works on `api` docks (else `422`):
 
@@ -666,7 +667,7 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `GET` | `/crew/ws` | WebSocket upgrade: the agent's connection. See [Crew protocol](crew-protocol.md). |
 | `POST` | `/mcp` | The MCP server (streamable HTTP). See [MCP tools](mcp-tools.md). |
 | `GET` | `/crew/profile` | The agent's kit: its profile with secrets resolved, `env` and `revision`. See [Agent profile](agent-profile.md). Query `agent=<name>` names the agent in `none` mode; with a token it must match. `Cache-Control: no-store`. |
-| `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image, or a document as a download). Only for conversations on the agent's docks, else `404`. |
+| `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image, or a document as a download). Only for conversations on the agent's docks, else `404`; `403` when the dock's `attachments` switch is off. |
 | `POST` | `/crew/approvals` | Ask an approval as the agent. Body `{"conversation_id","text","options":[…],"wait_seconds"}`. `201` with the approval (`id`, `status`, `options`, `answer`, …). With `wait_seconds` (at most 290, cut to the request deadline) it blocks until answered. Agent tokens only. Same rules as the MCP `ask_approval` tool. |
 | `GET` | `/crew/approvals/{id}` | The agent's approval; `?wait_seconds=N` blocks while pending. Another agent's is `404`. |
 | `POST` | `/crew/takeovers` | Ask a browser takeover as the agent: the `ask_takeover` tool over HTTP, for the connector's page detector (the profile's `browser_detect`). Body `{"host","kind","note","detected","path","conversation_id","wait_seconds"}`; `detected: true` records it as the detector's (`by: detector`) with the page's `path` (no query). `201` with `{"host","kind","notified","done","pending_takeovers"}`. Agent tokens only; a `conversation_id` of a dock the agent isn't on is `404`. Same rules as `ask_takeover`. |

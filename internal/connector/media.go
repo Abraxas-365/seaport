@@ -42,7 +42,7 @@ func gather(ctx context.Context, cfg Config, takesImages bool, ships []ship.Ship
 	}
 	for _, s := range ships {
 		for _, a := range s.Attachments {
-			if a.Kind != ship.AttachmentImage || len(out) == maxPromptImages {
+			if a.Kind != ship.AttachmentImage || a.Withheld || len(out) == maxPromptImages {
 				continue
 			}
 			img, err := fetchAttachment(ctx, cfg, a.ID)
@@ -103,9 +103,12 @@ func writeAttachments(b *strings.Builder, s ship.Ship, ok shown) {
 		if a.Name != "" {
 			name = " " + a.Name
 		}
-		if ok[a.ID] {
+		switch {
+		case ok[a.ID]:
 			fmt.Fprintf(b, "    [%s%s attached below]\n", a.Kind, name)
-		} else {
+		case a.Withheld:
+			fmt.Fprintf(b, "    [%s%s attached; its dock's owner keeps files from agents]\n", a.Kind, name)
+		default:
 			fmt.Fprintf(b, "    [%s%s attached; not shown to you]\n", a.Kind, name)
 		}
 	}

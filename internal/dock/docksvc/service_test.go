@@ -28,7 +28,7 @@ type memRepo struct {
 func (r *memRepo) Create(_ context.Context, o identity.OrganizationID, id identity.DockID, in dock.Create, st dock.Status, _ int) (dock.Dock, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	d := dock.Dock{ID: id, Organization: o, Channel: in.Channel, Name: in.Name, Status: st, Replies: true}
+	d := dock.Dock{ID: id, Organization: o, Channel: in.Channel, Name: in.Name, Status: st, Replies: true, Tools: dock.AllTools}
 	r.docks[id] = d
 	return d, nil
 }
@@ -56,6 +56,9 @@ func (r *memRepo) Update(_ context.Context, _ identity.OrganizationID, id identi
 	}
 	if in.Replies != nil {
 		d.Replies = *in.Replies
+	}
+	if in.Tools != nil {
+		d.Tools = in.Tools.Apply(d.Tools)
 	}
 	r.docks[id] = d
 	return d, nil
@@ -249,5 +252,24 @@ func TestRepliesOffRefusesOutbound(t *testing.T) {
 	}
 	if _, err := s.NewMessageID(ctx, org, d.ID); err != nil {
 		t.Fatalf("NewMessageID after replies on: %v", err)
+	}
+}
+
+// The agent tool switches change only what a patch names; an empty patch
+// is no update.
+func TestDockToolsPatch(t *testing.T) {
+	ctx := context.Background()
+	s := docksvc.New(&memRepo{docks: map[identity.DockID]dock.Dock{}}, &recorder{}, 0, docksvc.Cluster{}, qrGateway{})
+	d, err := s.Create(ctx, org, dock.Create{Channel: dock.ChannelWhatsApp, Name: "wa"})
+	if err != nil || d.Tools != dock.AllTools {
+		t.Fatalf("a new dock: %+v %v", d.Tools, err)
+	}
+	if _, err := s.Update(ctx, org, d.ID, dock.Update{Tools: &dock.ToolsPatch{}}); !errx.IsType(err, errx.TypeValidation) {
+		t.Fatalf("an empty tools patch is refused: %v", err)
+	}
+	off := false
+	if d, err = s.Update(ctx, org, d.ID, dock.Update{Tools: &dock.ToolsPatch{Conversations: &off}}); err != nil ||
+		d.Tools != (dock.Tools{History: true, Attachments: true}) || !d.Replies {
+		t.Fatalf("conversations off: %+v %v", d, err)
 	}
 }

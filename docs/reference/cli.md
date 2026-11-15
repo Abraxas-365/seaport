@@ -44,6 +44,7 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock relink <dock-id>` | Pairs a WhatsApp dock again (shows the QR code). The other channels are reconnected from the dock's page in the web app. |
 | `seaport dock rename <dock-id> <name>` | Renames it; the rest of the arguments make the name. |
 | `seaport dock replies <dock-id> on\|off` | Whether the crew may answer on it. `off` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, nothing is posted there. `dock list` shows it in the `REPLIES` column. |
+| `seaport dock tools <dock-id> [history\|conversations\|attachments on\|off ...]` | Shows the dock's [agent tools](../guides/agents-and-routing.md#what-agents-may-read), or switches the ones named (e.g. `history off attachments off`) and shows the result. They bind agents only. |
 | `seaport dock destinations <dock-id>` | Lists the dock's [destinations](../guides/destinations.md): name, channel, target, title. |
 | `seaport dock destination set <dock-id> <name> <target> [-title T]` | Creates or updates a destination: a Slack channel id, a WhatsApp `+number` or group JID, an `api` chat id. |
 | `seaport dock destination rm <dock-id> <name>` | Removes it (alias `remove`); conversations opened there stay. |

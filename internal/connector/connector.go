@@ -663,6 +663,11 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 	if !d.CanReply(c.ID) {
 		b.WriteString("This conversation is read-only: nothing can be posted there (its dock only triggers, or replies are off).\n")
 	}
+	history := d.HasHistory(c.ID)
+	if !history {
+		b.WriteString("Earlier messages of this conversation are not available to you (its dock's owner keeps them from agents): " +
+			"work with the messages below.\n")
+	}
 	if len(d.Thread) > 1 {
 		b.WriteString("This conversation is one door of a thread; the others, where the same matter is discussed:\n")
 		for _, door := range d.Thread {
@@ -672,6 +677,9 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 			note := ""
 			if !d.CanReply(door.ID) {
 				note = ", read-only"
+			}
+			if !d.HasHistory(door.ID) {
+				note += ", no history"
 			}
 			fmt.Fprintf(&b, "- %s (%s%s): conversation_id %s\n", doorName(door), door.Kind, note, door.ID)
 		}
@@ -702,18 +710,18 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 			"Keep it short and conversational.")
 	case !answerable:
 		b.WriteString("No conversation of this thread takes replies: the `reply` tool is refused everywhere here. " +
-			"Do what the message asks (its dock is a trigger) and stay silent, or use `history` for earlier context. " +
+			"Do what the message asks (its dock is a trigger) and stay silent" + historyOr(history, ", or use `history` for earlier context") + ". " +
 			"Your final text is not sent to anyone.")
 	case !d.CanReply(c.ID):
 		fmt.Fprintf(&b, "A reply to this conversation is refused; answer with the seaport `reply` tool on a door that "+
-			"takes replies (conversation_id %s, or another listed above) when a reply is needed; use `history` for "+
-			"earlier context (`thread: true` reads every door together). Your final text is not sent to anyone.", answer)
+			"takes replies (conversation_id %s, or another listed above) when a reply is needed%s. Your final text is not sent to anyone.",
+			answer, historyOr(history, "; use `history` for earlier context (`thread: true` reads every door together)"))
 	default:
-		b.WriteString("Reply with the seaport `reply` tool (conversation_id above) when a reply is needed; " +
-			"use `history` for earlier context. Your final text is not sent to anyone.")
+		b.WriteString("Reply with the seaport `reply` tool (conversation_id above) when a reply is needed" +
+			historyOr(history, "; use `history` for earlier context") + ". Your final text is not sent to anyone.")
 		if len(d.Thread) > 1 {
 			b.WriteString(" Answer on the door each message came from (its conversation_id) unless asked to " +
-				"post elsewhere, or it is read-only; `history` with `thread: true` reads every door of the thread together.")
+				"post elsewhere, or it is read-only" + historyOr(history, "; `history` with `thread: true` reads every door of the thread together") + ".")
 		}
 		b.WriteString("\n" + approvalHint)
 	}
@@ -723,6 +731,16 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 		b.WriteString("\n" + approvalHint)
 	}
 	return b.String()
+}
+
+// historyOr is hint when the agent may read the conversation's history
+// (dock.Tools.History), else nothing: the prompt never points to a tool
+// the port refuses.
+func historyOr(history bool, hint string) string {
+	if history {
+		return hint
+	}
+	return ""
 }
 
 // mustThread parses a thread id kept in the sessions file.
