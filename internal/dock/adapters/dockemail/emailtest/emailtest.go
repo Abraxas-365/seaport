@@ -214,7 +214,7 @@ func (l trackListener) Accept() (net.Conn, error) {
 func (s *Server) startIMAP(startTLS bool) {
 	opts := &imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return s.mem.NewSession(), nil, nil
+			return idleSession{s.mem.NewSession().(imapserver.SessionIMAP4rev2)}, nil, nil
 		},
 		Caps:   imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIMAP4rev2: {}},
 		Logger: discard{},
@@ -234,6 +234,44 @@ func (s *Server) startIMAP(startTLS bool) {
 	s.IMAPPort = raw.Addr().(*net.TCPAddr).Port
 	go func() { _ = srv.Serve(ln) }()
 	s.t.Cleanup(func() { _ = srv.Close() })
+}
+
+// idleSession makes the memory server's IDLE report mail that arrived
+// before it began. imapmemserver signals only updates queued while an IDLE
+// is registered, so a message appended between the client's last command
+// and its IDLE would wait for the next command (the client's 20-minute
+// refresh): real servers sync the mailbox when IDLE starts. Here IDLE
+// re-polls every idlePoll until the client ends it.
+type idleSession struct{ imapserver.SessionIMAP4rev2 }
+
+const idlePoll = 50 * time.Millisecond
+
+func (s idleSession) Idle(w *imapserver.UpdateWriter, stop <-chan struct{}) error {
+	for {
+		if err := s.Poll(w, true); err != nil {
+			return err
+		}
+		tick := make(chan struct{})
+		t := time.AfterFunc(idlePoll, func() { close(tick) })
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-stop:
+			case <-tick:
+			}
+			close(done)
+		}()
+		err := s.SessionIMAP4rev2.Idle(w, done)
+		t.Stop()
+		if err != nil {
+			return err
+		}
+		select {
+		case <-stop:
+			return nil
+		default:
+		}
+	}
 }
 
 type discard struct{}

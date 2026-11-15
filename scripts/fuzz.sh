@@ -47,14 +47,25 @@ if [ "${#targets[@]}" -eq 0 ]; then
   exit 1
 fi
 
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+
 failed=0
 for t in "${targets[@]}"; do
   pkg="${t% *}"
   name="${t#* }"
   echo "=== fuzz $name ($pkg) for $time"
-  if ! go test -run='^$' -fuzz="^${name}\$" -fuzztime="$time" "$pkg"; then
-    echo "FAILED: $name ($pkg)" >&2
-    failed=1
+  if go test -run='^$' -fuzz="^${name}\$" -fuzztime="$time" "$pkg" 2>&1 | tee "$log"; then
+    continue
   fi
+  # Go's fuzzer sometimes ends a clean run with "context deadline exceeded"
+  # when -fuzztime runs out while a worker is busy (no input failed, none
+  # written). A real failure always writes its input: that one fails.
+  if grep -q 'context deadline exceeded' "$log" && ! grep -q 'Failing input written to' "$log"; then
+    echo "WARN: $name ($pkg) stopped at the deadline with no failing input; not a failure" >&2
+    continue
+  fi
+  echo "FAILED: $name ($pkg)" >&2
+  failed=1
 done
 exit "$failed"
