@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -38,10 +37,10 @@ func schedules(ctx context.Context, args []string) error {
 			return err
 		}
 		if len(page.Items) == 0 {
-			fmt.Println(`no schedules yet: seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..."`)
+			fmt.Fprintln(stdout, `no schedules yet: seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..."`)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\tNAME\tCRON\tZONE\tON\tNEXT\tLAST\tCONVERSATION")
 		for _, s := range page.Items {
 			last := "-"
@@ -80,7 +79,7 @@ func schedules(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/schedules", req, &s); err != nil {
 			return err
 		}
-		fmt.Printf("schedule %s created (%s)\n", s.Name, s.ID)
+		fmt.Fprintf(stdout, "schedule %s created (%s)\n", s.Name, s.ID)
 		printUpcoming(s)
 		return nil
 	case "edit":
@@ -134,7 +133,7 @@ func schedules(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/schedules/"+url.PathEscape(args[0])+"/run", nil, &s); err != nil {
 			return err
 		}
-		fmt.Printf("posted now (ship %s, %s)\n", s.ID, s.Status)
+		fmt.Fprintf(stdout, "posted now (ship %s, %s)\n", s.ID, s.Status)
 		return nil
 	case "delete":
 		if len(args) == 0 {
@@ -151,7 +150,7 @@ func schedules(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/schedules/"+url.PathEscape(args[0]), nil, nil); err != nil {
 			return err
 		}
-		fmt.Println("schedule deleted")
+		fmt.Fprintln(stdout, "schedule deleted")
 		return nil
 	case "preview":
 		if len(args) == 0 {
@@ -179,14 +178,14 @@ func patchSchedule(ctx context.Context, a *admin, id string, req map[string]any)
 	if err := a.do(ctx, http.MethodPatch, "/api/v1/schedules/"+url.PathEscape(id), req, &s); err != nil {
 		return err
 	}
-	fmt.Printf("schedule %s saved\n", s.Name)
+	fmt.Fprintf(stdout, "schedule %s saved\n", s.Name)
 	printUpcoming(s)
 	return nil
 }
 
 func printUpcoming(s schedule.Schedule) {
 	if !s.Enabled {
-		fmt.Println("switched off: it won't run")
+		fmt.Fprintln(stdout, "switched off: it won't run")
 		return
 	}
 	loc, err := schedule.Location(s.Timezone)
@@ -198,6 +197,6 @@ func printUpcoming(s schedule.Schedule) {
 		if i > 0 {
 			label = "then:  "
 		}
-		fmt.Println(label + t.In(loc).Format("Mon 2006-01-02 15:04 MST"))
+		fmt.Fprintln(stdout, label+t.In(loc).Format("Mon 2006-01-02 15:04 MST"))
 	}
 }

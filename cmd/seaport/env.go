@@ -129,10 +129,10 @@ func env(ctx context.Context, args []string) error {
 			return err
 		}
 		if len(out.Items) == 0 {
-			fmt.Println("no environments yet: seaport env apply -f env.yaml")
+			fmt.Fprintln(stdout, "no environments yet: seaport env apply -f env.yaml")
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "NAME\tVERSION\tHARNESS\tSIZE\tREPOS\tAGENTS\tDESCRIPTION")
 		for _, e := range out.Items {
 			size := e.Spec.Resources.Size
@@ -154,7 +154,7 @@ func env(ctx context.Context, args []string) error {
 		}
 		var raw []byte
 		if *file == "-" {
-			raw, err = io.ReadAll(os.Stdin)
+			raw, err = io.ReadAll(stdin)
 		} else {
 			raw, err = os.ReadFile(*file)
 		}
@@ -171,7 +171,7 @@ func env(ctx context.Context, args []string) error {
 			if !filepath.IsAbs(dir) && *file != "-" {
 				dir = filepath.Join(filepath.Dir(*file), dir)
 			}
-			h, err := pushHome(ctx, a, f.Harness, dir, false, os.Stdout)
+			h, err := pushHome(ctx, a, f.Harness, dir, false, stdout)
 			if err != nil {
 				return err
 			}
@@ -195,8 +195,8 @@ func env(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodGet, path, nil, &e); err != nil {
 			return err
 		}
-		fmt.Printf("# %s v%d, by %s at %s\n", e.Name, e.Version, e.CreatedBy, e.CreatedAt.Local().Format("2006-01-02 15:04"))
-		return writeEnvFile(os.Stdout, envFile{Name: e.Name, Spec: e.Spec})
+		fmt.Fprintf(stdout, "# %s v%d, by %s at %s\n", e.Name, e.Version, e.CreatedBy, e.CreatedAt.Local().Format("2006-01-02 15:04"))
+		return writeEnvFile(stdout, envFile{Name: e.Name, Spec: e.Spec})
 	case "versions":
 		if len(args) != 1 {
 			return errx.Validation("usage: seaport env versions <env>")
@@ -207,7 +207,7 @@ func env(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodGet, "/api/v1/environments/"+url.PathEscape(args[0])+"/versions", nil, &out); err != nil {
 			return err
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "VERSION\tBY\tAT")
 		for _, v := range out.Versions {
 			fmt.Fprintf(w, "v%d\t%s\t%s\n", v.Version, v.CreatedBy, v.CreatedAt.Local().Format("2006-01-02 15:04"))
@@ -242,7 +242,7 @@ func env(ctx context.Context, args []string) error {
 		if err := a.do(ctx, http.MethodDelete, "/api/v1/environments/"+url.PathEscape(args[0]), nil, nil); err != nil {
 			return err
 		}
-		fmt.Println("deleted environment", args[0])
+		fmt.Fprintln(stdout, "deleted environment", args[0])
 		return nil
 	}
 	return errx.Validation("unknown env command " + sub + " (seaport help)")
@@ -258,7 +258,7 @@ func applyEnv(ctx context.Context, a *admin, f envFile) error {
 		if err := a.do(ctx, http.MethodPost, "/api/v1/environments", map[string]any{"name": f.Name, "spec": f.Spec}, &e); err != nil {
 			return err
 		}
-		fmt.Printf("created environment %s v%d\n", e.Name, e.Version)
+		fmt.Fprintf(stdout, "created environment %s v%d\n", e.Name, e.Version)
 		return nil
 	}
 	if err != nil {
@@ -270,9 +270,9 @@ func applyEnv(ctx context.Context, a *admin, f envFile) error {
 		return err
 	}
 	if e.Version == current.Version {
-		fmt.Printf("environment %s unchanged (v%d)\n", e.Name, e.Version)
+		fmt.Fprintf(stdout, "environment %s unchanged (v%d)\n", e.Name, e.Version)
 	} else {
-		fmt.Printf("environment %s v%d\n", e.Name, e.Version)
+		fmt.Fprintf(stdout, "environment %s v%d\n", e.Name, e.Version)
 	}
 	return nil
 }
@@ -286,11 +286,11 @@ func buildEnv(ctx context.Context, a *admin, name string, version int, force, wa
 		return err
 	}
 	if b.State == hosting.BuildReady && !force {
-		fmt.Printf("%s v%d is built: %s (seaport env build %s -force builds it again)\n", name, b.Version, b.Image, name)
+		fmt.Fprintf(stdout, "%s v%d is built: %s (seaport env build %s -force builds it again)\n", name, b.Version, b.Image, name)
 		return nil
 	}
 	if !wait {
-		fmt.Printf("building %s v%d FROM %s\n", name, b.Version, b.Base)
+		fmt.Fprintf(stdout, "building %s v%d FROM %s\n", name, b.Version, b.Base)
 		return nil
 	}
 	path += "/versions/" + strconv.Itoa(b.Version) + "/build"
@@ -303,11 +303,11 @@ func buildEnv(ctx context.Context, a *admin, name string, version int, force, wa
 		if len(b.Log) < printed {
 			printed = 0
 		}
-		fmt.Print(b.Log[printed:])
+		fmt.Fprint(stdout, b.Log[printed:])
 		printed = len(b.Log)
 		switch b.State {
 		case hosting.BuildReady:
-			fmt.Printf("\n%s v%d built: %s\n", name, b.Version, b.Image)
+			fmt.Fprintf(stdout, "\n%s v%d built: %s\n", name, b.Version, b.Image)
 			return nil
 		case hosting.BuildFailed:
 			return errx.Business("build of " + name + " v" + strconv.Itoa(b.Version) + " failed: " + b.Detail)

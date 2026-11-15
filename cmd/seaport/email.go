@@ -100,7 +100,7 @@ func dockEmail(ctx context.Context, args []string) error {
 		return err
 	}
 	if out.Account != nil {
-		fmt.Printf("dock %s reads %s (%s) and answers by SMTP\n", id, out.Account.Address, out.Account.Folder)
+		fmt.Fprintf(stdout, "dock %s reads %s (%s) and answers by SMTP\n", id, out.Account.Address, out.Account.Folder)
 	}
 	return nil
 }
