@@ -147,6 +147,9 @@ func TestEmailDock(t *testing.T) {
 	if f.Type != crew.FrameDelivery || f.Delivery.Conversation.ID != convID || f.Delivery.Ships[0].Text != "¿Alguna novedad?" {
 		t.Fatalf("headerless answer = %+v", f)
 	}
+	if f.Delivery.Conversation.Title != "Pedido 5" {
+		t.Fatalf("title after replies = %q, want the thread's first subject", f.Delivery.Conversation.Title)
+	}
 	ack(c, f)
 
 	// Not for the crew: our own mail, automatic mail, delivery reports.

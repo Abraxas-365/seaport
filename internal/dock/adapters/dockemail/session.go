@@ -420,6 +420,7 @@ func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 	}
 	first := !found
 	var earlier []string // who the thread already writes to
+	title := m.Subject   // the conversation's title: the thread's first subject, not each "Re:"
 	if first {
 		chat = chatID(m.ID)
 		if m.ID == "" {
@@ -427,6 +428,9 @@ func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 		}
 	} else if t, err := s.g.store.Thread(ctx, s.acct.Dock, chat); err == nil {
 		earlier = t.Participants
+		if t.Subject != "" {
+			title = t.Subject
+		}
 	}
 	refs := append(append([]string{}, m.References...), m.InReplyTo)
 	thread := Thread{Chat: chat, Subject: m.Subject, Key: key, Participants: []string{who}, Refs: refs}
@@ -487,7 +491,7 @@ func (s *session) inbound(f fetched, m Message) (ship.Inbound, Thread, error) {
 	handles := handleList(append([]string{m.From.Address, who, domain}, earlier...))
 	in := ship.Inbound{
 		Dock: s.acct.Dock, Channel: dock.ChannelEmail,
-		ChatID: chat, ChatKind: kind, ChatTitle: clean(m.Subject, text.MaxName), ChatHandles: handles,
+		ChatID: chat, ChatKind: kind, ChatTitle: clean(title, text.MaxName), ChatHandles: handles,
 		ExternalID: external, SenderID: m.From.Address, SenderName: clean(m.From.Name, text.MaxName),
 		SenderHandles: handleList([]string{m.From.Address, domain}), Text: body, SentAt: sent, Addressed: addressed, Media: m.Media,
 	}

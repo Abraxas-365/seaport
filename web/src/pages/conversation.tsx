@@ -41,7 +41,7 @@ import {
 } from "@/lib/hooks"
 import { useActivity, type Activity } from "@/lib/activity"
 import { useLiveState } from "@/lib/live"
-import { conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
+import { conversationHandle, conversationName, dayLabel, formatFull, prettyHandle } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
 import type { Access, Approval, Conversation, GroupMode, Ship, Turn } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -85,6 +85,7 @@ import {
   TurnSummary,
   ApprovalCard,
   channelLabel,
+  channelReplies,
   customsLabel,
   customsTone,
   type ChoiceOption,
@@ -115,7 +116,8 @@ export function ConversationPage() {
   const crew = useCrew()
   const send = useSend(conversationId)
   const can = useCan()
-  // The conversation's dock: with replies off nobody can write here.
+  // The conversation's dock: with replies off, or on a channel that only
+  // triggers (webhook), nobody can write here.
   const docks = useDocks()
 
   // The connection working this chat (one at a time), for its agent's name.
@@ -131,7 +133,7 @@ export function ConversationPage() {
   const c = conv.data
   const allowed = c.status === "allowed"
   const dock = docks.data?.items.find((d) => d.id === c.dock_id)
-  const replies = dock?.replies ?? true
+  const replies = dock ? channelReplies[dock.channel] && dock.replies : true
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ConversationHeader conversation={c} doors={doors} working={working} agentName={worker?.agent_name} />
@@ -159,11 +161,13 @@ export function ConversationPage() {
           key={c.id}
           disabled={!allowed || !replies}
           disabledReason={
-            !replies
-              ? "Este muelle solo dispara: las respuestas están apagadas."
-              : c.status === "pending"
-                ? "Permite este chat para poder responder."
-                : "Este chat está bloqueado; no se le puede escribir."
+            dock && !channelReplies[dock.channel]
+              ? "Este canal solo dispara: nada se publica aquí. El agente responde en otra conversación del hilo."
+              : !replies
+                ? "Este muelle solo dispara: las respuestas están apagadas."
+                : c.status === "pending"
+                  ? "Permite este chat para poder responder."
+                  : "Este chat está bloqueado; no se le puede escribir."
           }
           onSend={(t) => send.mutateAsync(t)}
         />
@@ -202,7 +206,7 @@ function ConversationHeader({
             </span>
           ) : (
             <span className="truncate">
-              {c.kind === "group" ? "Grupo" : prettyHandle(c.external_id)}
+              {c.kind === "group" ? "Grupo" : conversationHandle(c)}
             </span>
           )}
         </div>
