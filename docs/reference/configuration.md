@@ -46,6 +46,9 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 | `IAMKIT_RESOURCE_ID` | none (required) | The Seaport resource (permission catalog). |
 | `IAMKIT_AUDIENCE` | none (required) | Token audience; fixed when the resource is created. |
 | `IAMKIT_WEB_CLIENT_ID` | none (required) | The web app's public OAuth client. |
+| `IAMKIT_SERVER_CLIENT_ID` | none (optional) | Turns on the members page: the confidential OAuth client (with token exchange) Seaport's server uses to act as the signed-in person on their organization. Set together with `IAMKIT_SERVER_CLIENT_SECRET`. |
+| `IAMKIT_SERVER_CLIENT_SECRET` | none (optional) | That client's secret. |
+| `IAMKIT_MEMBERS_ROLE_ID` | none (optional) | IAMKit id of the "Seaport member admins" role, the one "can manage members" hands out. Without it that switch is refused. |
 
 `IAMKIT_URL`, `IAMKIT_PUBLIC_URL` and `SEAPORT_PUBLIC_URL` must be `http(s)` URLs, and `https` unless the host is `localhost` or a loopback address. The exception is `IAMKIT_URL`, which may be plain `http` on a private network (a single-label service name such as `http://iamkit:8080`, or a private IP).
 

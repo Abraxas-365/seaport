@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Ban, Check, CircleHelp, Moon, Play, Square, Sun, TerminalSquare } from "lucide-react"
 
-import type { Agent, Approval, Build, Conversation, Dock, InboxItem, Schedule, Ship, Slot, Turn, UsageDay } from "@/lib/types"
+import type { Agent, Approval, Build, Conversation, Dock, InboxItem, Member, Schedule, Ship, Slot, Turn, UsageDay } from "@/lib/types"
 import type { Activity } from "@/lib/activity"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
@@ -39,6 +39,11 @@ import {
   SeaportMark,
   SegmentedChoice,
   ScheduleRow,
+  ApiKeyRow,
+  CopyField,
+  InvitationRow,
+  MemberRow,
+  RoleSelect,
   ShipBubble,
   SlotRow,
   Takeovers,
@@ -335,6 +340,12 @@ const sampleShip = (over: Partial<Ship>): Ship => ({
   ...over,
 })
 
+const sampleMembers: Member[] = [
+  { id: "u1", name: "Ana Example", email: "ana@example.com", active: true, you: true, role: "Admin", manages_members: true, other_roles: [] },
+  { id: "u2", name: "Luis Example", email: "luis@example.com", active: true, you: false, role: "Viewer", manages_members: false, other_roles: [] },
+  { id: "u3", name: "", email: "owner@example.com", active: true, you: false, role: "Operator", manages_members: true, other_roles: ["Organization owner"] },
+]
+
 const sampleSchedule: Schedule = {
   id: "s1",
   conversation_id: "c1",
@@ -584,6 +595,30 @@ function Domain() {
               now={now}
               schedule={{ ...sampleSchedule, id: "s2", name: "revisión semanal", cron: "0 8 * * 1", enabled: false, last_at: undefined }}
               onToggle={() => {}}
+            />
+          </ul>
+        </Specimen>
+        <Specimen label="MemberRow (editable, tú, con rol de IAMKit) · RoleSelect · CopyField" className="space-y-3">
+          <ul className="divide-y rounded-xl border bg-card">
+            <MemberRow member={sampleMembers[0]} />
+            <MemberRow member={sampleMembers[1]} canAssign canRemove onChange={() => {}} onRemove={async () => {}} />
+            <MemberRow member={sampleMembers[2]} canAssign canRemove allowedRoles={["Operator", "Viewer"]} onChange={() => {}} onRemove={async () => {}} />
+          </ul>
+          <RoleSelect value="Operator" onChange={() => {}} className="w-44" />
+          <CopyField label="Enlace de invitación" value="https://iam.example.com/invite?token=example" />
+        </Specimen>
+        <Specimen label="InvitationRow · ApiKeyRow" className="space-y-3">
+          <ul className="divide-y rounded-xl border bg-card">
+            <InvitationRow
+              now={now}
+              invitation={{ id: "i1", email: "nueva@example.com", status: "pending", role: "Operator", manages_members: false, expires_at: new Date(now + 6 * 86_400_000).toISOString() }}
+              onResend={() => {}}
+              onRevoke={async () => {}}
+            />
+            <ApiKeyRow
+              now={now}
+              apiKey={{ id: "k1", name: "CI de producción", role: "Viewer", permissions: [], hint: "ik_key_AbCd", state: "active", expires_at: null, last_used_at: null, created_at: new Date(now - 3 * 86_400_000).toISOString() }}
+              onRevoke={async () => {}}
             />
           </ul>
         </Specimen>

@@ -47,6 +47,7 @@ export const sidebar = [
     group('Operations', [
       page('guides/operations/deploy'),
       page('guides/operations/iam-mode'),
+      page('guides/members'),
       page('guides/operations/several-processes'),
       page('guides/operations/backups-and-upgrades'),
     ]),

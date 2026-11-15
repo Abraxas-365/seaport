@@ -23,12 +23,14 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/auth"
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -195,6 +197,10 @@ func wireFixtures() map[string]any {
 			Deleted: false, Provenance: byAgent},
 	}
 
+	member := auth.Member{ID: "user-1", Name: "Ana Example", Email: "ana@example.com", Active: true, You: true, Role: "Admin", ManagesMembers: true, OtherRoles: []string{"Organization owner"}}
+	invitee := auth.Member{ID: "user-2", Name: "Luis Example", Email: "luis@example.com", Active: true, Role: "Viewer", OtherRoles: []string{}}
+	invitation := auth.Invitation{ID: "invitation-1", Email: "nueva@example.com", Status: "pending", Role: "Operator", ExpiresAt: ptr(at(30)), Link: "https://iam.example.com/invite?token=example"}
+	apiKey := auth.APIKey{ID: "key-1", Name: "ci", Role: "Viewer", Permissions: []string{permission.DocksRead}, Hint: "ik_key_AbCd", State: "active", ExpiresAt: ptr(at(40)), LastUsedAt: nil, CreatedAt: at(5)}
 	api := map[string]any{
 		"dock":            dk,
 		"dock_linking":    linking,
@@ -240,6 +246,13 @@ func wireFixtures() map[string]any {
 			Hits []vault.Hit `json:"hits"`
 		}{[]vault.Hit{{Vault: vaultID, VaultName: vlt.Name, Entry: entryID, Name: entry.Name, Snippet: "Monday to Friday, **9** to 18",
 			Version: entry.Version, Provenance: byAgent, UpdatedAt: at(2)}}},
+		"members_access":        auth.Access{Members: true, Invite: true, AssignRoles: true, Remove: true, KeysRead: true, KeysWrite: true},
+		"members":               query.Paginated[auth.Member]{Items: []auth.Member{member, invitee}, Page: page(2)},
+		"invitation":            invitation,
+		"invitations":           query.Paginated[auth.Invitation]{Items: []auth.Invitation{invitation}, Page: page(1)},
+		"member_api_key":        apiKey,
+		"member_api_keys":       query.Paginated[auth.APIKey]{Items: []auth.APIKey{apiKey}, Page: page(1)},
+		"member_api_key_issued": auth.IssuedAPIKey{APIKey: apiKey, Value: "ik_key_example0000000000"},
 	}
 
 	return map[string]any{

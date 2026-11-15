@@ -9,14 +9,14 @@ import (
 
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
-// tenant domain's (dock, conversation, ship, crew, agent, hosting, schedule, vault) Commands, Queries, CustomsCommands, CustomsQueries,
+// tenant domain's (dock, conversation, ship, crew, agent, hosting, schedule, vault, auth) Commands, Queries, CustomsCommands, CustomsQueries,
 // Messenger, Repository, CustomsRepository, Token*, Presence, DockLocker, ApprovalLocker,
 // Owners, Relay, Kits and Gate port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
 // tenantDomains own tenant rows (organization_id).
-var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true, "schedule": true, "vault": true}
+var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true, "schedule": true, "vault": true, "auth": true}
 
 // tenantPorts are the port interfaces the rule covers.
 var tenantPorts = map[string]bool{
@@ -24,6 +24,8 @@ var tenantPorts = map[string]bool{
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
 	"Presence": true, "DockLocker": true, "ApprovalLocker": true, "Owners": true, "Relay": true, "Kits": true, "Gate": true,
+	// auth's tenant administration (iam mode); its sign-in Commands are session-keyed (systemWide).
+	"MemberCommands": true, "MemberQueries": true, "Directory": true,
 }
 
 // systemWide: "<domain>.<Port>.<Method>" → why it spans organizations.
@@ -59,6 +61,12 @@ var systemWide = map[string]string{
 	"schedule.Commands.FireDue":        "the runner of every process fires the due schedules of every organization",
 	"schedule.Repository.Due":          "the runner claims the due schedules of every organization",
 	"ship.Repository.UnwokenApprovals": "approval sweeper retries the wakes that failed, in every organization",
+	"auth.Commands.Begin":              "sign-in starts before anyone is known: the organization comes out of IAMKit's token (sessions are keyed by a random id)",
+	"auth.Commands.Complete":           "sign-in callback: the session's organization is read from the verified access token",
+	"auth.Commands.Authenticate":       "a session id names its organization (browser sign-in), like a crew token value",
+	"auth.Commands.Bearer":             "an IAMKit access token or API key names its organization",
+	"auth.Commands.Logout":             "keyed by the session id, whatever its organization",
+	"auth.Commands.Sweep":              "the sweeper deletes the expired sessions of every organization",
 }
 
 func tenantViolations(files []goFile) []string {

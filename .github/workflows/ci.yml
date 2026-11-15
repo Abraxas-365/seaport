@@ -148,7 +148,8 @@ jobs:
           else
             npx playwright install --with-deps chromium
           fi
-      - run: SEAPORT_TEST_UI=1 CI=1 go test -count=1 -run TestUI ./internal/bootstrap/ -v
+      # TestUIMembers also needs IAMKit (testcontainers starts it, as in the go job).
+      - run: SEAPORT_TEST_UI=1 SEAPORT_TEST_IAMKIT=1 CI=1 go test -count=1 -run TestUI ./internal/bootstrap/ -v
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

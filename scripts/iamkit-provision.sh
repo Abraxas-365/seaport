@@ -17,8 +17,15 @@
 #   5. public OAuth client for the browser app (code + PKCE; hosted login
 #      unless HOSTED_LOGIN=0), with redirect/logout URIs and allowed origins
 #   6. organization API keys enabled, allowed every Seaport permission
-#   7. optional first user (OWNER_EMAIL [+ OWNER_PASSWORD]): member of the
-#      organization with the first role of the spec (Admin)
+#   7. member administration from Seaport's web app (docs/guides/members.md):
+#      the IAM resource linked to the application, the companion role
+#      "Seaport member admins" on it, a confidential OAuth client allowed to
+#      exchange a person's token (its secret goes to OUT: it is the one
+#      secret this script writes), and Seaport granted to ORG_NAME's
+#      organization
+#   8. optional first user (OWNER_EMAIL [+ OWNER_PASSWORD]): member of the
+#      organization with the first role of the spec (Admin) and the companion
+#      role
 #
 # Spec / permission manifest (SPEC=path, JSON) — the single source of the app's
 # permissions (iam/permissions.json; Go and TypeScript constants are generated
@@ -53,10 +60,12 @@
 #   ORG_KEY_LIMIT     organization API keys per organization          [20]
 #   OWNER_EMAIL / OWNER_PASSWORD (12-72 chars) / OWNER_NAME
 #   OUT               env file receiving the settings               [.iamkit.env]
+#   MEMBERS           0 = skip step 7 (no members page)              [1]
 #
-# OUT holds no secrets (Seaport's SEAPORT_SECRET_KEY is yours to generate),
-# but keep it out of git all the same (ids of your tenancy). Never run with
-# `set -x`: the management key is in play.
+# OUT holds one secret, IAMKIT_SERVER_CLIENT_SECRET (mode 0600; IAMKit shows it
+# once, so a re-run reuses the one already in OUT and makes a new client only
+# when OUT has none). Seaport's SEAPORT_SECRET_KEY is yours to generate. Keep
+# OUT out of git. Never run with `set -x`: the management key is in play.
 set -euo pipefail
 
 command -v curl >/dev/null && command -v jq >/dev/null || { echo "curl and jq are required" >&2; exit 1; }
@@ -84,6 +93,7 @@ APP_NAME=${APP_NAME:-Seaport Web}
 HOSTED_LOGIN=${HOSTED_LOGIN:-1}
 ORG_KEY_LIMIT=${ORG_KEY_LIMIT:-20}
 OUT=${OUT:-.iamkit.env}
+MEMBERS=${MEMBERS:-1}
 
 KEY=${IAMKIT_KEY:-}
 if [[ -z "$KEY" && -n "${IAMKIT_KEY_FILE:-}" ]]; then KEY=$(jq -er .management_key "$IAMKIT_KEY_FILE"); fi
@@ -275,8 +285,81 @@ if [[ -n "$diff" ]]; then
   change "organization API keys may hold: $diff"
 else log "organization API key permissions unchanged"; fi
 
+if [[ "$MEMBERS" == 1 ]]; then
+step "7. Member administration (the members page)"
+# The page acts as the signed-in person against IAMKit's organization admin
+# API (iam:org:* permissions of the IAM resource); Seaport's server client
+# exchanges the person's token for one on that resource.
+iam_resource=$(pick "$resources" '.prefix == "iam"')
+if [[ -z "$iam_resource" ]]; then
+  (( DRY_RUN )) && iam_resource=dry-run || { echo "this environment has no IAM resource (prefix iam)" >&2; exit 1; }
+fi
+linked=$(get "$e/applications/$application/resources" | jq -r --arg r "$iam_resource" '[(if type == "object" then .items else . end)[] | select((.id // .resource_id) == $r)] | length')
+if [[ "$linked" == 0 ]]; then
+  jq -n --arg a "$application" --arg r "$iam_resource" '{application_id:$a,resource_id:$r}' | write POST "$e/application-resources" >/dev/null
+  change "linked $APP_NAME -> the IAM resource"
+fi
+
+# The companion role: what "can manage members" hands out. It holds the
+# organization-administration permissions the members page needs, and
+# nothing that touches settings, domains, SSO or the audit log.
+members_perms='["iam:org:read","iam:org:members:read","iam:org:members:write","iam:org:roles:read","iam:org:roles:assign","iam:org:invitations:write","iam:org:api-keys:read","iam:org:api-keys:write"]'
+members_role_name="Seaport member admins"
+iam_roles=$(all "$e/roles")
+members_role=$(pick "$iam_roles" ".resource_id == $(q "$iam_resource") and .name == $(q "$members_role_name")")
+if [[ -z "$members_role" ]]; then
+  members_role=$(jq -n --arg n "$members_role_name" --arg r "$iam_resource" --argjson p "$members_perms" '{name:$n,resource_id:$r,permissions:$p}' |
+    write POST "$e/roles" | jq -er .id)
+  change "created role $members_role_name"
+else
+  have=$(jq -c --arg id "$members_role" '.[] | select(.id == $id) | .permissions // []' <<<"$iam_roles")
+  diff=$(changes "$have" "$members_perms")
+  if [[ -n "$diff" ]]; then
+    jq -n --arg n "$members_role_name" --arg r "$iam_resource" --argjson p "$members_perms" '{name:$n,resource_id:$r,permissions:$p}' |
+      write PUT "$e/roles/$members_role" >/dev/null
+    change "role $members_role_name: $diff"
+  else log "role $members_role_name"; fi
+fi
+
+# The confidential client that exchanges tokens. IAMKit shows its secret
+# once: reuse the one OUT already holds when that client is still live.
+clients=$(all "$e/oauth-clients?application_id=$application")
+exchanger=".public == false and .active != false and .resource_id == $(q "$iam_resource") and ((.grant_types // []) | index(\"urn:ietf:params:oauth:grant-type:token-exchange\"))"
+prev_id="" prev_secret=""
+if [[ -f "$OUT" ]]; then
+  prev_id=$(sed -n 's/^IAMKIT_SERVER_CLIENT_ID=//p' "$OUT" | tail -n 1)
+  prev_secret=$(sed -n 's/^IAMKIT_SERVER_CLIENT_SECRET=//p' "$OUT" | tail -n 1)
+fi
+# The client OUT names wins over other candidates (older ones whose secret is gone).
+server=""
+[[ -z "$prev_id" ]] || server=$(pick "$clients" "$exchanger and (.client_id // .id) == $(q "$prev_id")")
+[[ -n "$server" ]] || server=$(pick "$clients" "$exchanger")
+server_secret=""
+if [[ -n "$server" && "$server" == "$prev_id" && -n "$prev_secret" ]]; then
+  server_secret=$prev_secret
+  log "server client $server (secret kept from $(basename "$OUT"))"
+else
+  [[ -z "$server" ]] || log "NOTE: server client $server exists but its secret is not in $(basename "$OUT"); making a new one (disable the old one in IAMKit when nothing uses it)"
+  created=$(jq -n --arg a "$application" --arg r "$iam_resource" \
+    '{application_id:$a, resource_id:$r, public:false, redirect_uris:[], grant_types:["urn:ietf:params:oauth:grant-type:token-exchange"]}' |
+    write POST "$e/oauth-clients")
+  server=$(jq -er .client_id <<<"$created")
+  server_secret=$(jq -er '.client_secret // empty' <<<"$created" || true)
+  change "created server client $server"
+fi
+
+# Seaport must be granted to the organization before its members can sign in
+# to it through the grant-aware flows; a new organization needs this too.
+grants=$(get "$e/resource-grants?resource_id=$resource&organization_id=$organization")
+held=$(jq -r '[(if type == "object" then .items else . end)[]?] | length' <<<"$grants")
+if [[ "$held" == 0 ]]; then
+  jq -n --arg r "$resource" --arg o "$organization" '{resource_id:$r,organization_id:$o,role_ids:null}' | write PUT "$e/resource-grants" >/dev/null
+  change "granted Seaport to $ORG_NAME"
+else log "Seaport granted to $ORG_NAME"; fi
+fi
+
 if [[ -n "${OWNER_EMAIL:-}" ]]; then
-  step "7. First user $OWNER_EMAIL"
+  step "8. First user $OWNER_EMAIL"
   user=$(get "$e/users?search=$(jq -rn --arg v "$OWNER_EMAIL" '$v|@uri')&limit=100" |
     jq -r --arg m "$OWNER_EMAIL" '[(if type == "object" then .items else . end)[] | select(.email | ascii_downcase == ($m | ascii_downcase))][0].id // empty')
   if [[ -z "$user" && -n "${OWNER_PASSWORD:-}" ]]; then
@@ -298,6 +381,14 @@ if [[ -n "${OWNER_EMAIL:-}" ]]; then
         change "assigned the first role"
       fi
     fi
+    if [[ "$MEMBERS" == 1 ]]; then
+      held=$(all "$e/role-assignments?organization_id=$organization&user_id=$user&role_id=$members_role" | jq length)
+      if [[ "$held" == 0 ]]; then
+        jq -n --arg o "$organization" --arg u "$user" --arg r "$members_role" '{organization_id:$o,user_id:$u,role_id:$r}' |
+          write POST "$e/role-assignments" >/dev/null
+        change "assigned $members_role_name"
+      fi
+    fi
   fi
 fi
 
@@ -311,7 +402,7 @@ issuer=$(curl --fail --silent --show-error "$IAMKIT_URL/.well-known/openid-confi
 out_name=$(basename "$OUT")
 umask 077
 {
-  echo "# written by scripts/iamkit-provision.sh — keep out of git"
+  echo "# written by scripts/iamkit-provision.sh — holds a secret, keep out of git"
   echo "# load: set -a; . ./$out_name; set +a  (and set SEAPORT_SECRET_KEY yourself)"
   echo "SEAPORT_AUTH=iam"
   echo "SEAPORT_PUBLIC_URL=$APP_URL"
@@ -324,6 +415,11 @@ umask 077
   echo "IAMKIT_RESOURCE_ID=$resource"
   echo "IAMKIT_AUDIENCE=$AUDIENCE"
   echo "IAMKIT_WEB_CLIENT_ID=$web"
+  if [[ "$MEMBERS" == 1 ]]; then
+    echo "IAMKIT_MEMBERS_ROLE_ID=$members_role"
+    echo "IAMKIT_SERVER_CLIENT_ID=$server"
+    echo "IAMKIT_SERVER_CLIENT_SECRET=$server_secret"
+  fi
   for l in "${role_lines[@]+"${role_lines[@]}"}"; do echo "$l"; done
 } >"$OUT"
 chmod 600 "$OUT"

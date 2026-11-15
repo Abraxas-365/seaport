@@ -64,6 +64,12 @@ type IAMKit struct {
 	Resource    string // IAMKIT_RESOURCE_ID
 	Audience    string // IAMKIT_AUDIENCE
 	WebClientID string // IAMKIT_WEB_CLIENT_ID: the web app's public OAuth client
+	// Tenant administration from Seaport (optional; off while the client id
+	// is empty): the confidential client Seaport's server exchanges people's
+	// tokens with, and the "Seaport member admins" role.
+	ServerClientID     string // IAMKIT_SERVER_CLIENT_ID
+	ServerClientSecret string // IAMKIT_SERVER_CLIENT_SECRET
+	MembersRoleID      string // IAMKIT_MEMBERS_ROLE_ID
 }
 
 // Server is the configuration of `seaport serve`.
@@ -210,6 +216,10 @@ func LoadServer() (Server, error) {
 			Resource:    os.Getenv("IAMKIT_RESOURCE_ID"),
 			Audience:    os.Getenv("IAMKIT_AUDIENCE"),
 			WebClientID: os.Getenv("IAMKIT_WEB_CLIENT_ID"),
+
+			ServerClientID:     os.Getenv("IAMKIT_SERVER_CLIENT_ID"),
+			ServerClientSecret: os.Getenv("IAMKIT_SERVER_CLIENT_SECRET"),
+			MembersRoleID:      os.Getenv("IAMKIT_MEMBERS_ROLE_ID"),
 		},
 		LogLevel: env("SEAPORT_LOG_LEVEL", "info"),
 		Runtime:  Runtime(env("SEAPORT_RUNTIME", string(RuntimeOff))),
@@ -354,8 +364,20 @@ func (c Server) Validate() error {
 	return nil
 }
 
+// MembersEnabled: iam mode with the token-exchange client set, so people
+// can manage their organization from Seaport.
+func (c Server) MembersEnabled() bool {
+	return c.Auth == AuthIAM && c.IAMKit.ServerClientID != ""
+}
+
 func (c Server) validateIAM() error {
 	k := c.IAMKit
+	if (k.ServerClientID == "") != (k.ServerClientSecret == "") {
+		return errx.Validation("IAMKIT_SERVER_CLIENT_ID and IAMKIT_SERVER_CLIENT_SECRET go together (scripts/iamkit-provision.sh writes both)")
+	}
+	if k.ServerClientID == "" && k.MembersRoleID != "" {
+		return errx.Validation("IAMKIT_MEMBERS_ROLE_ID needs IAMKIT_SERVER_CLIENT_ID and IAMKIT_SERVER_CLIENT_SECRET")
+	}
 	for _, req := range []struct{ key, value string }{
 		{"IAMKIT_URL", k.URL}, {"IAMKIT_ENVIRONMENT_ID", k.Environment}, {"IAMKIT_APPLICATION_ID", k.Application},
 		{"IAMKIT_RESOURCE_ID", k.Resource}, {"IAMKIT_AUDIENCE", k.Audience}, {"IAMKIT_WEB_CLIENT_ID", k.WebClientID},

@@ -25,6 +25,11 @@ import type {
   Effect,
   GroupMode,
   Health,
+  Invitation,
+  IssuedMemberApiKey,
+  Member,
+  MemberAccess,
+  MemberApiKey,
   InboxItem,
   IssuedCrewToken,
   LibraryAgent,
@@ -301,6 +306,21 @@ export const api = {
   createCrewToken: (agent_id: string, name: string, expires_at?: string) =>
     request<IssuedCrewToken>("POST", `${v1}/crew/tokens`, { agent_id, name, expires_at }),
   revokeCrewToken: (id: string) => request<void>("DELETE", `${v1}/crew/tokens/${id}`),
+
+  memberAccess: () => request<MemberAccess>("GET", `${v1}/members/access`),
+  members: () => request<Paginated<Member>>("GET", `${v1}/members${qs({ limit: 100 })}`),
+  setMemberAccess: (id: string, role: string, manages_members: boolean) =>
+    request<Member>("PUT", `${v1}/members/${encodeURIComponent(id)}`, { role, manages_members }),
+  removeMember: (id: string) => request<void>("DELETE", `${v1}/members/${encodeURIComponent(id)}`),
+  memberInvitations: () => request<Paginated<Invitation>>("GET", `${v1}/members/invitations${qs({ limit: 100 })}`),
+  invite: (email: string, role: string, manages_members: boolean) =>
+    request<Invitation>("POST", `${v1}/members/invitations`, { email, role, manages_members }),
+  resendInvitation: (id: string) => request<Invitation>("POST", `${v1}/members/invitations/${encodeURIComponent(id)}/resend`),
+  revokeInvitation: (id: string) => request<void>("DELETE", `${v1}/members/invitations/${encodeURIComponent(id)}`),
+  memberApiKeys: () => request<Paginated<MemberApiKey>>("GET", `${v1}/members/api-keys${qs({ limit: 100 })}`),
+  createMemberApiKey: (name: string, role: string, expires_in?: string) =>
+    request<IssuedMemberApiKey>("POST", `${v1}/members/api-keys`, { name, role, expires_in }),
+  revokeMemberApiKey: (id: string) => request<void>("DELETE", `${v1}/members/api-keys/${encodeURIComponent(id)}`),
 
   environments: () => request<Paginated<Environment>>("GET", `${v1}/environments${qs({ limit: 100 })}`),
   environment: (id: string, version?: number) =>

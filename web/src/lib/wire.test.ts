@@ -21,7 +21,12 @@ import type {
   EventMap,
   Hosted,
   InboxItem,
+  Invitation,
+  IssuedMemberApiKey,
   LibraryAgent,
+  Member,
+  MemberAccess,
+  MemberApiKey,
   Paginated,
   Schedule,
   Ship,
@@ -102,6 +107,13 @@ export type ApiMatches = AllTrue<{
   vault_entries: Matches<Api["vault_entries"], Paginated<VaultEntrySummary>>
   vault_versions: Matches<Api["vault_versions"], { versions: VaultEntryVersion[] }>
   vault_hits: Matches<Api["vault_hits"], { hits: VaultHit[] }>
+  members_access: Matches<Api["members_access"], MemberAccess>
+  members: Matches<Api["members"], Paginated<Member>>
+  invitation: Matches<Api["invitation"], Invitation>
+  invitations: Matches<Api["invitations"], Paginated<Invitation>>
+  member_api_key: Matches<Api["member_api_key"], MemberApiKey>
+  member_api_keys: Matches<Api["member_api_keys"], Paginated<MemberApiKey>>
+  member_api_key_issued: Matches<Api["member_api_key_issued"], IssuedMemberApiKey>
 }>
 
 describe("wire fixtures vs TypeScript types", () => {
