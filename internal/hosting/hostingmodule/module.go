@@ -59,6 +59,9 @@ type Config struct {
 	AgentURL    string
 	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
 	SupervisePeriod time.Duration
+	// Viewers tells a slot's connection its browser's viewer opened or
+	// closed (the crew hub).
+	Viewers hosting.Viewers
 	// GatewayURLs is where the model gateway forwards each provider's
 	// calls (missing: the provider's own API, hosting.Providers).
 	GatewayURLs map[string]string
@@ -107,7 +110,7 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 	}
 	svc, err := hostingsvc.New(hostingpg.New(db, sealer), agents, cfg.Limits, events,
 		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
-		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod},
+		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod, Viewers: cfg.Viewers},
 		hostingsvc.Homes{Blobs: cfg.Blobs, SecretKey: cfg.SecretKey})
 	if err != nil {
 		if m.docker != nil {

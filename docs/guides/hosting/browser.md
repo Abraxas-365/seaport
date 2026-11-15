@@ -61,6 +61,7 @@ A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeov
 
 - **Sesiones** lists the sites the browser holds cookies of, with their expiry, and forgets one on demand. That's how you sign the agent out of a site.
 - While the agent is in a turn, the viewer is read-only (*El agente trabaja*): you see what it does without moving its mouse. **Tomar el control** overrides that.
+- The agent knows you are there: when the viewer opens, the slot's connector tells the running turn that a person is using the browser and it should wait (or work on what doesn't need it), and when it closes, that the browser is its own again and it should check the page. A turn that starts while you are in the viewer gets the same note. It is a hint to the model, not a lock: the agent's browser tools keep working.
 - One viewer per slot at a time; a second opener gets `409`. A viewer ends after 10 minutes without a message or 2 hours in all.
 - The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Alojamiento** section.
 

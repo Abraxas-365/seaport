@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -105,7 +106,16 @@ func (s *Service) OpenBrowser(ctx context.Context, org identity.OrganizationID, 
 		return nil, errx.Business("the slot's browser is not reachable: " + text.Clean(string(first)))
 	}
 	s.events.Publish(org, hosting.EventSlotBrowser, hosting.BrowserEvent{Agent: input.Agent, Slot: input.Index, State: hosting.BrowserOpened, By: by})
+	s.viewerChanged(org, input.Agent, input.Index, crew.ViewerOn)
 	return c, nil
+}
+
+// viewerChanged tells the slot's connection a person is in its browser,
+// or left it (a hint for the agent; nothing waits on it).
+func (s *Service) viewerChanged(org identity.OrganizationID, agent identity.AgentID, slot int, viewer string) {
+	if v := s.slots.cfg.Viewers; v != nil {
+		v.ViewerChanged(org, agent, slot, viewer)
+	}
 }
 
 // startViewer runs the relay in the slot in the service's background and
@@ -139,6 +149,7 @@ func (s *Service) startViewer(ref hosting.SlotRef, by string) *viewer {
 		}
 		cancel()
 		s.events.Publish(ref.Organization, hosting.EventSlotBrowser, hosting.BrowserEvent{Agent: ref.Agent, Slot: ref.Index, State: hosting.BrowserClosed, By: by})
+		s.viewerChanged(ref.Organization, ref.Agent, ref.Index, crew.ViewerOff)
 		slog.Info("browser viewer closed", "agent", ref.Agent, "slot", ref.Index, "by", by)
 	})
 	return v

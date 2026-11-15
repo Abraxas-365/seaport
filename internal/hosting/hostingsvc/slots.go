@@ -27,6 +27,9 @@ type Slots struct {
 	URL string
 	// Period overrides hosting.SupervisePeriod (tests).
 	Period time.Duration
+	// Viewers tells a slot's connection that its browser's viewer opened
+	// or closed (nil: nobody told).
+	Viewers hosting.Viewers
 }
 
 // slots runs a Service's slot starts and stops in the background.

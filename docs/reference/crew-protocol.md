@@ -32,6 +32,7 @@ client                                  port
   │── ack / release ───────────────────▶│
   │◀──────────────────────── profile ───│  (the kit changed)
   │── drain ───────────────────────────▶│  (no new deliveries)
+  │◀──────────────────────── browser ───│  (hosted slots: a person is in the viewer)
 ```
 
 1. The client sends `hello` within 10 seconds of connecting. Anything else as the first frame closes the connection.
@@ -53,6 +54,7 @@ client                                  port
 | `reply` | client → port | `conversation_id`, `text` |
 | `drain` | client → port | none |
 | `activity` | client → port | `delivery_id`, `items` |
+| `browser` | port → client | `viewer` |
 | `error` | port → client | `message` |
 
 ### hello
@@ -185,6 +187,14 @@ Send titles and status only, never a tool's input or output: those can hold file
 ```
 
 The agent's kit changed (a profile saved, or a secret changed). The frame has no fields: fetch the kit again from `GET /crew/profile` and, if its `revision` changed, send `drain` and reconnect with the new kit. The port sends it to every connection of that agent, in every process of the port. If the connection's send queue is full the frame is dropped; a connector also reads its kit again on each connection.
+
+### browser
+
+```json
+{"type":"browser","viewer":"on"}
+```
+
+Only for the connection of a [hosted slot](../guides/hosting/browser.md) (a slot token): a person opened the viewer of the slot's browser (`viewer: "on"`) or closed it (`"off"`). A hint, not a command: `seaport connect` tells every running turn (as a steer, when the agent takes them) that a person is using the browser and it should wait or work on what doesn't need it, then that the browser is its own again; a turn that starts while the viewer is open gets the same note before its prompt. Connections of people's tokens never get it. If the connection's send queue is full the frame is dropped.
 
 ### error
 

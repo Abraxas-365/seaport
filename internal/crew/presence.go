@@ -41,6 +41,9 @@ const (
 	// SignalProfile: Agent's kit changed (profile or secrets); tell its
 	// connections.
 	SignalProfile SignalKind = "profile"
+	// SignalViewer: a person opened or closed the viewer of Agent's slot
+	// Slot (Viewer: ViewerOn/ViewerOff); tell that slot's connection.
+	SignalViewer SignalKind = "viewer"
 )
 
 // Signal crosses processes (Presence.Send/Listen).
@@ -49,6 +52,9 @@ type Signal struct {
 	Organization identity.OrganizationID `json:"o"`
 	Token        identity.CrewTokenID    `json:"t,omitzero"`
 	Agent        identity.AgentID        `json:"a,omitzero"`
+	// Slot and Viewer: SignalViewer's hosted slot index and state.
+	Slot   int    `json:"s,omitempty"`
+	Viewer string `json:"v,omitempty"`
 	// From is the sending process (it acted locally already).
 	From string `json:"p"`
 }
