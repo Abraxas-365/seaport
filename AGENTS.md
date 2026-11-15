@@ -23,6 +23,8 @@ SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_tes
 SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
                                                 # + iam mode e2e against a real IAMKit container (Docker)
 go test -count=1 -p 1 ./cmd/seaport              # admin CLI e2e (cli_e2e_test.go: real port, `run` with captured stdout/stderr/stdin); needs the test DB
+go test -count=1 -run TestConnector ./internal/bootstrap/   # connector e2e: the real connector.Run against the real
+                                                # port (needs the test database) and a test-only ACP echo agent
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
 scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (docs/guides/operations/iam-mode.md)
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
@@ -164,6 +166,19 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - `connector` runs on the user's machine: it imports only foundation and
   domain roots (wire types), never services/adapters/wiring; only `cmd`
   imports it (`TestLayerDependencies`, "client" role).
+  Exception, by design: `connector/acptest` is a test-only ACP *echo agent*
+  (the ACP SDK's agent side, which the connector's client side talks to); it
+  lives under the connector prefix so the rule above holds without a
+  new `vendorSDKs` entry, and only `_test.go` files import it (the
+  architecture walk skips tests; nothing in a shipped binary does). The
+  tests re-execute their own test binary as the agent (`acptest.Command`,
+  `TestACPAgentMain` in `internal/bootstrap` and `internal/connector`; the
+  `SEAPORT_TEST_ACP_*` variables pick its capabilities: load, resume, image,
+  systemprompt, steer, http, modes, options), so no fake harness binary or
+  network is needed. Chat text is echoed as `echo: <text>`; a message may
+  carry directives (`hold:` blocks until a gate file, `tool:`, `ask: q|A|B`,
+  `fail:`). Its `ask_approval` goes through `POST /crew/approvals` (the echo
+  agent has no MCP client; the MCP tool is covered by the MCP e2e tests).
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, `coder/websocket` → `connector`, Fiber's
   websocket contrib → `crewws` and `hostinghttp` (the browser viewer's
@@ -229,7 +244,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - Docs drift (`docs_architecture_test.go`, no database): `docs/reference/*.md`
   is compared both ways with the code. `http-api.md` ↔ every Fiber route
   (`TestDocsHTTPAPI`); `configuration.md` ↔ every `SEAPORT_*`/`IAMKIT_*`/
-  `DATABASE_URL` variable read (`TestDocsConfiguration`); `mcp-tools.md` ↔
+  `DATABASE_URL` variable read, except the suite's own `SEAPORT_TEST_*`
+  (`TestDocsConfiguration`); `mcp-tools.md` ↔
   the tools `crewmcp` registers; `cli.md` ↔ the cases of `cmd/seaport`'s
   dispatch switches (a new dispatch switch goes in `cliSwitches`);
   `events.md` ↔ `EventPermissions` (with the permission); `permissions.md` ↔
