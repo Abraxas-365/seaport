@@ -46,6 +46,8 @@ var systemWide = map[string]string{
 	"ship.Commands.ReleaseExpired":     "lease sweeper requeues every organization",
 	"ship.Repository.ReleaseExpired":   "lease sweeper requeues every organization",
 	"ship.Commands.SweepApprovals":     "approval sweeper expires the pending approvals of every organization",
+	"agent.Commands.SweepTakeovers":    "takeover sweeper ends the unattended takeovers of every organization",
+	"agent.Repository.StaleTakeovers":  "takeover sweeper lists the agents with unattended takeovers of every organization",
 	"ship.Repository.ExpireApprovals":  "approval sweeper expires the pending approvals of every organization",
 	"ship.Commands.SweepTrash":         "blob sweeper deletes unused media of every organization",
 	"ship.Repository.DueTrash":         "blob sweeper deletes unused media of every organization",

@@ -64,6 +64,7 @@ type App struct {
 	crew   *crewmodule.Module
 	docks  *dockmodule.Module
 	ships  *shipmodule.Module
+	agents *agentmodule.Module
 	hosted *hostingmodule.Module
 	// schedules posts the prompts of schedules when they are due.
 	schedules *schedulemodule.Module
@@ -355,7 +356,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})
 
-	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, hosted: hosted, schedules: schedules, signIn: signIn, cfg: cfg,
+	return &App{web: srv, db: db, lockDB: lockDB, bus: bus, crew: crew, docks: docks, ships: ships, agents: agents, hosted: hosted, schedules: schedules, signIn: signIn, cfg: cfg,
 		blobs: blobs, sweep: sweep, scheduleTick: scheduleTick, done: done, stopOnce: func() { once.Do(func() { close(done) }) }}, nil
 }
 
@@ -457,6 +458,9 @@ func (a *App) Start(ctx context.Context) {
 				}
 				if _, err := a.ships.Service.SweepApprovals(ctx, time.Now()); err != nil {
 					slog.Error("expire approvals", "err", err)
+				}
+				if _, err := a.agents.Service.SweepTakeovers(ctx, time.Now()); err != nil {
+					slog.Error("expire takeovers", "err", err)
 				}
 				if _, err := a.bus.Sweep(ctx, time.Now().Add(-config.EventRetention)); err != nil {
 					slog.Error("sweep old events", "err", err)

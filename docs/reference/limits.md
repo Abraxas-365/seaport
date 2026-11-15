@@ -252,6 +252,9 @@ Environment fields are described in [Environment spec](environment-spec.md).
 | Homes deleted per sweep | 100 | `hosting.MaxHomeSweep` | No |
 | Blobs deleted per trash sweep | 100 | `ship.MaxTrashSweep` | No |
 | Staged blob kept before deletion | 1 h | `ship.TrashGrace` | No |
+| Open takeovers per agent | 8 | `agent.MaxTakeovers` | No |
+| Takeover waits for a person | 1 h | `agent.TakeoverTTL` | No |
+| Longest `ask_takeover` wait | 290 s | `agent.MaxTakeoverWait` | No |
 
 `0` for the two `SEAPORT_HOST_MAX_*` values means no limit.
 

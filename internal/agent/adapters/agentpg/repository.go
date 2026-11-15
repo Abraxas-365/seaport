@@ -13,6 +13,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"strconv"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -221,6 +222,21 @@ func (r *Repository) SetTakeovers(ctx context.Context, org identity.Organization
 		return a, pgerr.Map(err, "commit takeovers")
 	}
 	return a, r.withDocks(ctx, org, []*agent.Agent{&a})
+}
+
+// StaleTakeovers: agents with a takeover whose `at` is at or before
+// cutoff (the jsonb is small: at most agent.MaxTakeovers per agent).
+func (r *Repository) StaleTakeovers(ctx context.Context, cutoff time.Time) ([]agent.AgentRef, error) {
+	refs := []agent.AgentRef{}
+	err := r.db.SelectContext(ctx, &refs, `SELECT organization_id, id FROM agents
+		WHERE deleted_at IS NULL AND EXISTS (
+			SELECT 1 FROM jsonb_array_elements(takeovers) t
+			WHERE (t->>'at')::timestamptz <= $1)
+		ORDER BY organization_id, id`, cutoff)
+	if err != nil {
+		return nil, pgerr.Map(err, "list stale takeovers")
+	}
+	return refs, nil
 }
 
 // holdWaiting holds the inbound ships waiting for the agent (of one dock,

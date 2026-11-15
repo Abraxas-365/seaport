@@ -45,6 +45,8 @@ Left to itself, the agent tells the person in the conversation. The profile's `b
 
 One notice per host: asking again for the same host updates the takeover and sends nothing. When the person presses **Listo** (or `DELETE /api/v1/agents/{id}/takeovers/{host}`), the agent gets a system message (`system:browser`) in the conversation the notice went to — else the one the call named — addressed to it, so it wakes up and goes on in the browser; a takeover nobody was told about in any conversation wakes nobody (the agent finds out when it retries). The agent can also wait in the call (`wait_seconds`, up to 290 s) when the step is short: a code, a captcha.
 
+A takeover nobody attends within an hour is swept (every 30 s, with the other sweepers): it leaves the **Navegador** card and the agent gets a system message saying nobody came, in the same place, so it goes on without that step or asks again when it matters.
+
 ```sh
 seaport agents profile set surf -browser on -browser-assist conversation
 seaport agents profile set surf -browser-assist oncall     # a destination of one of its docks
