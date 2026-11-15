@@ -7,8 +7,10 @@ package agent
 import (
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -69,6 +71,12 @@ type Takeover struct {
 	// Note is what the agent was trying to do (optional, one line; required
 	// for KindOther).
 	Note string `json:"note"`
+	// By says who asked: the agent (ask_takeover) or the connector's
+	// detector (TakeoverBys; "" in old rows reads as the agent).
+	By TakeoverBy `json:"by,omitempty"`
+	// Path is the page's URL path when the detector asked ("" otherwise;
+	// never the query or the page's content).
+	Path string `json:"path,omitempty"`
 	// Conversation is the one the agent was working, when it said so.
 	Conversation *identity.ConversationID `json:"conversation_id,omitempty"`
 	At           time.Time                `json:"at"`
@@ -106,8 +114,38 @@ const (
 // TakeoverKinds are the valid kinds.
 var TakeoverKinds = []TakeoverKind{KindLogin, KindCaptcha, Kind2FA, KindOther}
 
+// TakeoverBy is who asked for the takeover.
+type TakeoverBy string
+
+const (
+	// TakeoverByAgent: the agent called ask_takeover.
+	TakeoverByAgent TakeoverBy = "agent"
+	// TakeoverByDetector: the connector's page detector (the profile's
+	// browser_detect) saw a page only a person can pass.
+	TakeoverByDetector TakeoverBy = "detector"
+)
+
+// TakeoverBys are the valid askers.
+var TakeoverBys = []TakeoverBy{TakeoverByAgent, TakeoverByDetector}
+
+// Asker is who asked, the agent for rows from before By existed.
+func (t Takeover) Asker() TakeoverBy {
+	if t.By == "" {
+		return TakeoverByAgent
+	}
+	return t.By
+}
+
 // MaxTakeovers bounds an agent's open takeovers (the oldest go).
 const MaxTakeovers = 8
+
+// DetectEvery is how often the detector asks a takeover for the same host
+// again while the page still needs a person (a page reloads, a sign-in
+// has several steps).
+const DetectEvery = 10 * time.Minute
+
+// MaxTakeoverPath bounds Takeover.Path.
+const MaxTakeoverPath = 200
 
 // TakeoverTTL is how long a takeover waits for a person: older ones are
 // swept (Commands.SweepTakeovers) and the agent is told nobody came.
@@ -142,12 +180,17 @@ func (l Takeovers) Expired(now time.Time) (live, expired Takeovers) {
 	return live, expired
 }
 
-// AskTakeover is what ask_takeover asks for.
+// AskTakeover is what ask_takeover (and the detector) asks for.
 type AskTakeover struct {
 	Host string
 	// Kind defaults to KindLogin.
 	Kind TakeoverKind
 	Note string
+	// By defaults to TakeoverByAgent.
+	By TakeoverBy
+	// Path is the page's URL path (the detector's; "" from the agent). No
+	// query: it may carry tokens.
+	Path string
 	// Conversation is optional: the one the agent is working.
 	Conversation *identity.ConversationID
 	// Wait blocks the call until a person ends the takeover, at most
@@ -174,6 +217,12 @@ func (r AskTakeover) Validate() error {
 	if kind == KindOther && strings.TrimSpace(r.Note) == "" {
 		return errx.InvalidField("note", "say what the person must do when kind is other")
 	}
+	if !slices.Contains(TakeoverBys, r.by()) {
+		return errx.InvalidField("by", "by must be agent or detector")
+	}
+	if r.Path != "" && (len(r.Path) > MaxTakeoverPath || !strings.HasPrefix(r.Path, "/") || strings.ContainsAny(r.Path, "?#") || text.HasForbiddenControl(r.Path) || strings.ContainsFunc(r.Path, unicode.IsSpace)) {
+		return errx.InvalidField("path", "path must be a URL path (/a/b) of at most "+strconv.Itoa(MaxTakeoverPath)+" characters, without query or fragment")
+	}
 	return text.Optional("note", r.Note, maxTakeoverNote)
 }
 
@@ -182,6 +231,13 @@ func (r AskTakeover) kind() TakeoverKind {
 		return KindLogin
 	}
 	return r.Kind
+}
+
+func (r AskTakeover) by() TakeoverBy {
+	if r.By == "" {
+		return TakeoverByAgent
+	}
+	return r.By
 }
 
 // ValidHost checks a takeover's host: a site's DNS name.
@@ -199,7 +255,7 @@ func ValidHost(host string) error {
 func (r AskTakeover) Add(list Takeovers, now time.Time) Takeovers {
 	host := strings.ToLower(strings.TrimSpace(r.Host))
 	out := make(Takeovers, 0, len(list)+1)
-	t := Takeover{Host: host, Kind: r.kind(), Note: text.Clean(r.Note), Conversation: r.Conversation, At: now}
+	t := Takeover{Host: host, Kind: r.kind(), Note: text.Clean(r.Note), By: r.by(), Path: r.Path, Conversation: r.Conversation, At: now}
 	for _, l := range list {
 		if l.Host == host {
 			t.NotifiedAt, t.NotifiedIn = l.NotifiedAt, l.NotifiedIn

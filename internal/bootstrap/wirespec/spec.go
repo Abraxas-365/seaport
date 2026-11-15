@@ -171,6 +171,7 @@ func Spec() wire.Spec {
 			{Name: "TurnOutcome", Type: of[ship.TurnOutcome](), Anchor: "TurnAcked"},
 			{Name: "DeliveryState", Type: of[ship.DeliveryState](), Anchor: "DeliveryClaimed"},
 			{Name: "TakeoverKind", Type: of[agent.TakeoverKind](), Anchor: "KindLogin"},
+			{Name: "TakeoverBy", Type: of[agent.TakeoverBy](), Anchor: "TakeoverByAgent"},
 			{Name: "VaultMode", Type: of[vault.Mode](), Anchor: "ModeRead"},
 			{Name: "ProvenanceKind", Type: of[vault.ProvenanceKind](), Anchor: "WrittenByAgent"},
 			// string fields in Go: the block of constants says the values

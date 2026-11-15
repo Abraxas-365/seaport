@@ -401,7 +401,11 @@ export const takeoverLabel: Record<TakeoverKind, string> = {
   other: "hagas algo en",
 }
 
-/** The sites where the agent asked a person to take over its browser (ask_takeover). */
+/**
+ * The sites where a person must take over the agent's browser: asked by the
+ * agent (ask_takeover) or found by the connector's page detector (the
+ * profile's browser_detect), which names the page's path.
+ */
 export function Takeovers({ agent, canClear, onOpen }: { agent: LibraryAgent; canClear: boolean; onOpen?: (host: string) => void }) {
   const end = useEndTakeover(agent.id)
   const now = useNow()
@@ -413,8 +417,13 @@ export function Takeovers({ agent, canClear, onOpen }: { agent: LibraryAgent; ca
         <li key={r.host} className="flex flex-wrap items-center gap-2 px-3 py-2">
           <Lock className="size-3.5 text-warning" />
           <span className="min-w-0 flex-1">
-            El agente necesita que {takeoverLabel[r.kind] ?? takeoverLabel.other} <Mono>{r.host}</Mono>
-            {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+            {r.by === "detector" ? "Seaport detectó que el navegador necesita que" : "El agente necesita que"}{" "}
+            {takeoverLabel[r.kind] ?? takeoverLabel.other}{" "}
+            <Mono>
+              {r.host}
+              {r.by === "detector" && r.path ? r.path : ""}
+            </Mono>
+            {r.by !== "detector" && r.note && <span className="text-muted-foreground"> · {r.note}</span>}
             <span className="text-xs text-muted-foreground"> · {formatRelative(r.at, now)}</span>
           </span>
           {onOpen && (

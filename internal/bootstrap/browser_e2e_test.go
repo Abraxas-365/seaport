@@ -464,3 +464,110 @@ func TestTakeoverExpires(t *testing.T) {
 		t.Fatalf("history after sweeps: %d ships", n)
 	}
 }
+
+// TestDetectorTakeover: the connector's page detector asks a takeover over
+// HTTP (POST /crew/takeovers, agent tokens only) with the same rules as the
+// tool, recorded as the detector's with the page's path, told as
+// browser_assist says and ended by Listo like any other; the profile's
+// browser_detect / browser_ignore_hosts reach the kit and are validated.
+func TestDetectorTakeover(t *testing.T) {
+	p := startPort(t)
+	ag := p.agent("watcher")
+	d := p.openDock("watcher-d")
+	p.assignAs(adminToken, d.ID, ag.ID, true)
+	tok := p.issueAs(adminToken, ag.ID, "laptop")
+	agentPath := "/api/v1/agents/" + ag.ID.String()
+
+	// Profile: detection needs the browser; the ignore list is validated and
+	// normalized; everything reaches the kit.
+	for name, body := range map[string]map[string]any{
+		"detect without browser": {"base": 0, "browser_detect": true},
+		"ignore without browser": {"base": 0, "browser_ignore_hosts": []string{"a.example.com"}},
+		"ignore not a host":      {"base": 0, "browser": true, "browser_ignore_hosts": []string{"not a host"}},
+		"ignore twice":           {"base": 0, "browser": true, "browser_ignore_hosts": []string{"a.example.com", "A.example.com"}},
+	} {
+		if _, code := p.saveProfile(ag.ID, body); code != http.StatusBadRequest {
+			t.Fatalf("%s: %d", name, code)
+		}
+	}
+	prof, code := p.saveProfile(ag.ID, map[string]any{"base": 0, "browser": true, "browser_detect": true, "browser_assist": "conversation",
+		"browser_ignore_hosts": []string{" Intranet.example.com ", "wiki.example.com"}})
+	if code != http.StatusOK || !prof.BrowserDetect || strings.Join(prof.BrowserIgnoreHosts, ",") != "intranet.example.com,wiki.example.com" {
+		t.Fatalf("profile: %d %+v", code, prof)
+	}
+	kit, code := p.kit(tok.Value)
+	if code != http.StatusOK || !kit.Browser || !kit.BrowserDetect || len(kit.BrowserIgnoreHosts) != 2 {
+		t.Fatalf("kit: %d %+v", code, kit)
+	}
+
+	conn := p.dialCrewAs(tok.Value, crew.Frame{Type: crew.FrameHello, Agent: "laptop", Concurrency: 1})
+	first := p.inject(d, "1", "m1", "hi")
+	ack(conn, delivered(t, conn, first))
+	conv := first.Conversation
+
+	post := func(token string, req crew.TakeoverRequest) (crew.TakeoverAnswer, int) {
+		var out crew.TakeoverAnswer
+		code := p.call(http.MethodPost, crew.TakeoversPath, token, req, &out)
+		return out, code
+	}
+	// Refusals: a people's token, a bad path, a conversation of another dock.
+	if _, code := post(adminToken, crew.TakeoverRequest{Host: "a.example.com"}); code != http.StatusUnauthorized && code != http.StatusForbidden {
+		t.Fatalf("admin token on a crew route: %d", code)
+	}
+	if _, code := post(tok.Value, crew.TakeoverRequest{Host: "a.example.com", Detected: true, Path: "/login?token=x"}); code != http.StatusBadRequest {
+		t.Fatalf("path with a query: %d", code)
+	}
+	if _, code := post(tok.Value, crew.TakeoverRequest{Host: "a.example.com", Kind: "payment"}); code != http.StatusBadRequest {
+		t.Fatalf("bad kind: %d", code)
+	}
+	elsewhere := p.openDock("watcher-elsewhere")
+	foreign := p.inject(elsewhere, "9", "m9", "yo").Conversation
+	if _, code := post(tok.Value, crew.TakeoverRequest{Host: "a.example.com", ConversationID: &foreign}); code != http.StatusNotFound {
+		t.Fatalf("a conversation off the agent's docks: %d", code)
+	}
+
+	// The detector's ask: recorded with by/path, told in the conversation
+	// with the detector's wording.
+	ans, code := post(tok.Value, crew.TakeoverRequest{Host: "SSO.example.com", Kind: "login", Detected: true, Path: "/signin", ConversationID: &conv})
+	if code != http.StatusCreated || !ans.Notified || ans.Done || ans.Pending != 1 || ans.Host != "sso.example.com" {
+		t.Fatalf("detected ask: %d %+v", code, ans)
+	}
+	var a agent.Agent
+	if code := p.admin(http.MethodGet, agentPath, nil, &a); code != http.StatusOK || len(a.Takeovers) != 1 ||
+		a.Takeovers[0].By != agent.TakeoverByDetector || a.Takeovers[0].Path != "/signin" || a.Takeovers[0].Kind != agent.KindLogin ||
+		a.Takeovers[0].NotifiedIn == nil || *a.Takeovers[0].NotifiedIn != conv {
+		t.Fatalf("takeover: %d %+v", code, a.Takeovers)
+	}
+	hist := p.history(conv)
+	if len(hist) != 2 || !strings.Contains(hist[0].Text, "Seaport detectó que el navegador del agente *watcher* necesita que una persona inicie sesión en sso.example.com/signin") ||
+		!strings.Contains(hist[0].Text, "pulsa Listo") {
+		t.Fatalf("notice: %+v", hist)
+	}
+	// The same host again (the page still needs someone) updates and tells
+	// nobody twice; the model's own ask over HTTP is the agent's.
+	if ans, code := post(tok.Value, crew.TakeoverRequest{Host: "sso.example.com", Detected: true, Path: "/signin/step2", ConversationID: &conv}); code != http.StatusCreated || !ans.Notified || ans.Pending != 1 {
+		t.Fatalf("again: %d %+v", code, ans)
+	}
+	if ans, code := post(tok.Value, crew.TakeoverRequest{Host: "shop.example.com", Kind: "captcha"}); code != http.StatusCreated || ans.Notified || ans.Pending != 2 {
+		t.Fatalf("agent's ask: %d %+v", code, ans)
+	}
+	a = agent.Agent{} // a decode into the old value keeps omitted fields
+	p.admin(http.MethodGet, agentPath, nil, &a)
+	if len(a.Takeovers) != 2 || a.Takeovers[0].Asker() != agent.TakeoverByAgent || a.Takeovers[0].Path != "" || a.Takeovers[0].NotifiedAt != nil ||
+		a.Takeovers[1].Path != "/signin/step2" || a.Takeovers[1].NotifiedAt == nil {
+		t.Fatalf("takeovers: %+v", a.Takeovers)
+	}
+	if n := len(p.history(conv)); n != 2 {
+		t.Fatalf("one notice per host: %d ships", n)
+	}
+	// Listo ends it and wakes the agent where the notice went.
+	if code := p.admin(http.MethodDelete, agentPath+"/takeovers/sso.example.com", nil, nil); code != http.StatusOK {
+		t.Fatalf("listo: %d", code)
+	}
+	f := conn.read()
+	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].SenderID != ship.SystemBrowser ||
+		!strings.Contains(f.Delivery.Ships[0].Text, "[takeover sso.example.com] a person is done (login)") {
+		t.Fatalf("wake: %+v", f)
+	}
+	ack(conn, f)
+}

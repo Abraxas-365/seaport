@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,12 @@ func TestAskTakeover(t *testing.T) {
 		"no host":            {agent.AskTakeover{}, false},
 		"not a host":         {agent.AskTakeover{Host: "localhost"}, false},
 		"long note":          {agent.AskTakeover{Host: "a.example.com", Note: string(make([]byte, 201))}, false},
+		"by the detector":    {agent.AskTakeover{Host: "a.example.com", By: agent.TakeoverByDetector, Path: "/login"}, true},
+		"unknown asker":      {agent.AskTakeover{Host: "a.example.com", By: "person"}, false},
+		"path with a query":  {agent.AskTakeover{Host: "a.example.com", Path: "/login?token=x"}, false},
+		"relative path":      {agent.AskTakeover{Host: "a.example.com", Path: "login"}, false},
+		"path with a space":  {agent.AskTakeover{Host: "a.example.com", Path: "/a b"}, false},
+		"long path":          {agent.AskTakeover{Host: "a.example.com", Path: "/" + strings.Repeat("a", agent.MaxTakeoverPath)}, false},
 	} {
 		if err := c.in.Validate(); (err == nil) != c.ok {
 			t.Errorf("%s: Validate() = %v", name, err)
@@ -97,4 +104,55 @@ func TestAskTakeover(t *testing.T) {
 			t.Fatal("the older h3 stayed")
 		}
 	}
+	if list[0].By != agent.TakeoverByAgent || list[0].Asker() != agent.TakeoverByAgent {
+		t.Fatalf("the agent asks by default: %+v", list[0])
+	}
+	list = agent.AskTakeover{Host: "h3.example.com", By: agent.TakeoverByDetector, Path: "/signin"}.Add(list, now)
+	if list[0].By != agent.TakeoverByDetector || list[0].Path != "/signin" {
+		t.Fatalf("detector: %+v", list[0])
+	}
+	if (agent.Takeover{}).Asker() != agent.TakeoverByAgent {
+		t.Fatal("an old row (no by) reads as the agent's")
+	}
+}
+
+func TestProfileBrowserDetect(t *testing.T) {
+	for name, c := range map[string]struct {
+		in agent.SaveProfile
+		ok bool
+	}{
+		"detect with browser":    {agent.SaveProfile{Browser: true, BrowserDetect: true}, true},
+		"detect without browser": {agent.SaveProfile{BrowserDetect: true}, false},
+		"ignore without browser": {agent.SaveProfile{BrowserIgnoreHosts: []string{"a.example.com"}}, false},
+		"ignore hosts":           {agent.SaveProfile{Browser: true, BrowserIgnoreHosts: []string{"a.example.com", "B.example.com"}}, true},
+		"ignore not a host":      {agent.SaveProfile{Browser: true, BrowserIgnoreHosts: []string{"https://a.example.com"}}, false},
+		"ignore twice":           {agent.SaveProfile{Browser: true, BrowserIgnoreHosts: []string{"a.example.com", "A.example.com"}}, false},
+		"too many ignored":       {agent.SaveProfile{Browser: true, BrowserIgnoreHosts: manyHosts(agent.MaxIgnoreHosts + 1)}, false},
+		"just enough ignored":    {agent.SaveProfile{Browser: true, BrowserIgnoreHosts: manyHosts(agent.MaxIgnoreHosts)}, true},
+	} {
+		if err := c.in.Validate(); (err == nil) != c.ok {
+			t.Errorf("%s: Validate() = %v", name, err)
+		}
+	}
+	got := agent.SaveProfile{Browser: true, BrowserIgnoreHosts: []string{" A.Example.com "}}.IgnoreHosts()
+	if len(got) != 1 || got[0] != "a.example.com" {
+		t.Fatalf("IgnoreHosts() = %v", got)
+	}
+	if (agent.SaveProfile{}).IgnoreHosts() == nil {
+		t.Fatal("never nil")
+	}
+	hosts := []string{"intranet.example.com"}
+	for h, want := range map[string]bool{"intranet.example.com": true, "SSO.intranet.example.com": true, "notintranet.example.com": false, "example.com": false} {
+		if agent.HostIgnored(h, hosts) != want {
+			t.Errorf("HostIgnored(%s) != %v", h, want)
+		}
+	}
+}
+
+func manyHosts(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("h%d.example.com", i)
+	}
+	return out
 }

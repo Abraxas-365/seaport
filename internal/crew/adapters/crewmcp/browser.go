@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -80,14 +81,6 @@ func (t tools) askTakeover(ctx context.Context, _ *mcp.CallToolRequest, in AskTa
 	if err != nil {
 		return failure(err), AskTakeoverOut{}, nil
 	}
-	out := AskTakeoverOut{Host: strings.ToLower(strings.TrimSpace(in.Host)), Kind: string(ask.Kind), Recorded: true, Pending: len(a.Takeovers)}
-	if out.Kind == "" {
-		out.Kind = string(agent.KindLogin)
-	}
-	if tk, open := a.Takeovers.Find(out.Host); open {
-		out.Notified = tk.NotifiedAt != nil
-	} else {
-		out.Done = true
-	}
-	return nil, out, nil
+	ans := crew.AnswerTakeover(a, ask)
+	return nil, AskTakeoverOut{Host: ans.Host, Kind: string(ans.Kind), Recorded: true, Notified: ans.Notified, Done: ans.Done, Pending: ans.Pending}, nil
 }

@@ -26,6 +26,7 @@ package crew
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
@@ -87,6 +88,66 @@ func (r AskRequest) Ask(agent identity.AgentID) ship.AskApproval {
 }
 
 func (r AskRequest) Validate() error { return r.Ask(identity.NewAgentID()).Validate() }
+
+// TakeoversPath is where the agent's connector asks a person to take over
+// its browser over HTTP (crew auth, agent tokens): the MCP ask_takeover
+// for the connector's page detector. POST asks (and, with wait_seconds,
+// blocks until the person is done).
+const TakeoversPath = "/crew/takeovers"
+
+// TakeoverRequest is the body of POST TakeoversPath.
+type TakeoverRequest struct {
+	Host string `json:"host"`
+	// Kind: login (default), captcha, 2fa or other.
+	Kind string `json:"kind,omitempty"`
+	Note string `json:"note,omitempty"`
+	// Detected: the connector's detector asks (recorded as by: detector),
+	// not the agent.
+	Detected bool `json:"detected,omitempty"`
+	// Path is the page's URL path (no query), for people to find it.
+	Path           string                   `json:"path,omitempty"`
+	ConversationID *identity.ConversationID `json:"conversation_id,omitempty"`
+	WaitSeconds    int                      `json:"wait_seconds,omitempty"`
+}
+
+// Ask is the request as the agent domain's input.
+func (r TakeoverRequest) Ask() agent.AskTakeover {
+	by := agent.TakeoverByAgent
+	if r.Detected {
+		by = agent.TakeoverByDetector
+	}
+	return agent.AskTakeover{Host: r.Host, Kind: agent.TakeoverKind(strings.ToLower(strings.TrimSpace(r.Kind))), Note: r.Note,
+		By: by, Path: r.Path, Conversation: r.ConversationID, Wait: time.Duration(r.WaitSeconds) * time.Second}
+}
+
+func (r TakeoverRequest) Validate() error { return r.Ask().Validate() }
+
+// TakeoverAnswer is what POST TakeoversPath answers (the MCP tool's
+// output): whether a person was told and, after a wait, whether they are
+// done.
+type TakeoverAnswer struct {
+	Host     string             `json:"host"`
+	Kind     agent.TakeoverKind `json:"kind"`
+	Notified bool               `json:"notified"`
+	Done     bool               `json:"done"`
+	Pending  int                `json:"pending_takeovers"`
+}
+
+// AnswerTakeover reads the asked host's state off the agent RequestTakeover
+// returned: open (notified or not) or already done.
+func AnswerTakeover(a agent.Agent, ask agent.AskTakeover) TakeoverAnswer {
+	host := strings.ToLower(strings.TrimSpace(ask.Host))
+	out := TakeoverAnswer{Host: host, Kind: ask.Kind, Pending: len(a.Takeovers)}
+	if out.Kind == "" {
+		out.Kind = agent.KindLogin
+	}
+	if tk, open := a.Takeovers.Find(host); open {
+		out.Notified = tk.NotifiedAt != nil
+	} else {
+		out.Done = true
+	}
+	return out
+}
 
 // FrameType names a frame.
 type FrameType string

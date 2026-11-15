@@ -29,17 +29,26 @@ type profileRow struct {
 	Effort       string    `db:"effort"`
 	Browser      bool      `db:"browser"`
 	Assist       string    `db:"browser_assist"`
+	Detect       bool      `db:"browser_detect"`
+	IgnoreHosts  []byte    `db:"browser_ignore_hosts"`
 	CreatedBy    string    `db:"created_by"`
 	CreatedAt    time.Time `db:"created_at"`
 }
 
-const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, created_by, created_at`
+const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts, created_by, created_at`
 
 func (row profileRow) profile(id identity.AgentID) (agent.Profile, error) {
 	p := agent.Profile{Agent: id, Version: row.Version, Instructions: row.Instructions, Approve: row.Approve,
-		Model: row.Model, Effort: row.Effort, Browser: row.Browser, BrowserAssist: row.Assist, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
+		Model: row.Model, Effort: row.Effort, Browser: row.Browser, BrowserAssist: row.Assist, BrowserDetect: row.Detect,
+		BrowserIgnoreHosts: []string{}, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
 	if err := json.Unmarshal(row.Skills, &p.Skills); err != nil {
 		return p, errx.Wrap(err, "decode profile skills", errx.TypeInternal)
+	}
+	if err := json.Unmarshal(row.IgnoreHosts, &p.BrowserIgnoreHosts); err != nil {
+		return p, errx.Wrap(err, "decode profile ignore hosts", errx.TypeInternal)
+	}
+	if p.BrowserIgnoreHosts == nil {
+		p.BrowserIgnoreHosts = []string{}
 	}
 	if err := json.Unmarshal(row.MCPServers, &p.MCPServers); err != nil {
 		return p, errx.Wrap(err, "decode profile mcp servers", errx.TypeInternal)
@@ -142,11 +151,12 @@ func (r *Repository) SaveProfile(ctx context.Context, org identity.OrganizationI
 	}
 	skills, _ := json.Marshal(in.Skills)
 	servers, _ := json.Marshal(in.MCPServers)
+	ignore, _ := json.Marshal(in.IgnoreHosts())
 	var row profileRow
 	if err := tx.GetContext(ctx, &row, `INSERT INTO agent_profiles
-		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING `+profileColumns,
-		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.BrowserAssist, in.CreatedBy); err != nil {
+		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING `+profileColumns,
+		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.BrowserAssist, in.BrowserDetect, ignore, in.CreatedBy); err != nil {
 		return agent.Profile{}, pgerr.MapWith(err, "insert profile", messages)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET profile_version = $3, updated_at = now()

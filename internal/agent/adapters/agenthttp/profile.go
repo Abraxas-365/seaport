@@ -46,6 +46,10 @@ type profileRequest struct {
 	Browser      bool              `json:"browser"`
 	// BrowserAssist: "", "conversation" or a destination name.
 	BrowserAssist string `json:"browser_assist"`
+	// BrowserDetect: the connector asks takeovers itself; BrowserIgnoreHosts
+	// are the sites it leaves alone.
+	BrowserDetect      bool     `json:"browser_detect"`
+	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
 }
 
 func (h *Handler) saveProfile(c fiber.Ctx) error {
@@ -67,7 +71,8 @@ func (h *Handler) saveProfile(c fiber.Ctx) error {
 	}
 	out, err := h.commands.SaveProfile(c.Context(), p.Organization, id, agent.SaveProfile{Base: req.Base,
 		Instructions: req.Instructions, Skills: req.Skills, MCPServers: req.MCPServers, Approve: req.Approve,
-		Model: req.Model, Effort: req.Effort, Browser: req.Browser, BrowserAssist: req.BrowserAssist, CreatedBy: by})
+		Model: req.Model, Effort: req.Effort, Browser: req.Browser, BrowserAssist: req.BrowserAssist,
+		BrowserDetect: req.BrowserDetect, BrowserIgnoreHosts: req.BrowserIgnoreHosts, CreatedBy: by})
 	if err != nil {
 		return err
 	}

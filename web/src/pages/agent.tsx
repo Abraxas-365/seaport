@@ -84,6 +84,8 @@ const empty: ProfileInput = {
   effort: "",
   browser: false,
   browser_assist: "",
+  browser_detect: false,
+  browser_ignore_hosts: [],
 }
 
 function inputOf(p: AgentProfile): ProfileInput {
@@ -96,6 +98,8 @@ function inputOf(p: AgentProfile): ProfileInput {
     effort: p.effort,
     browser: p.browser,
     browser_assist: p.browser_assist ?? "",
+    browser_detect: p.browser_detect ?? false,
+    browser_ignore_hosts: p.browser_ignore_hosts ?? [],
   }
 }
 
@@ -297,6 +301,16 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
   )
 }
 
+/** hostsOf parses a comma-separated host list: lowercase, trimmed, unique. */
+export function hostsOf(text: string): string[] {
+  const out: string[] = []
+  for (const raw of text.split(/[,\s]+/)) {
+    const h = raw.trim().toLowerCase()
+    if (h && !out.includes(h)) out.push(h)
+  }
+  return out
+}
+
 function ProfileFields({
   profile: p,
   readOnly,
@@ -306,6 +320,14 @@ function ProfileFields({
   readOnly: boolean
   set: (patch: Partial<ProfileInput>) => void
 }) {
+  // The ignore list is typed as text and parsed on blur (a half-typed host
+  // shouldn't be refused while typing).
+  const ignoreKey = p.browser_ignore_hosts.join(",")
+  const [ignore, setIgnore] = React.useState({ key: ignoreKey, text: p.browser_ignore_hosts.join(", ") })
+  // The list changed under us (saved, discarded, reloaded): show it.
+  if (ignore.key !== ignoreKey) setIgnore({ key: ignoreKey, text: p.browser_ignore_hosts.join(", ") })
+  const ignoreText = ignore.text
+  const setIgnoreText = (text: string) => setIgnore({ key: ignoreKey, text })
   return (
     <FieldGroup>
       <Field>
@@ -386,9 +408,56 @@ function ProfileFields({
           id="profile-browser"
           checked={p.browser}
           disabled={readOnly}
-          onCheckedChange={(browser) => set({ browser, ...(browser ? {} : { browser_assist: "" }) })}
+          onCheckedChange={(browser) =>
+            set({
+              browser,
+              // Turning the browser on turns detection on too (the usual
+              // case); off clears what needs it.
+              ...(browser
+                ? { browser_detect: true }
+                : { browser_assist: "", browser_detect: false, browser_ignore_hosts: [] }),
+            })
+          }
         />
       </Field>
+
+      {p.browser && (
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor="profile-browser-detect">Detectar páginas que piden a una persona</FieldLabel>
+            <FieldDescription>
+              Seaport mira las páginas que el navegador carga y, cuando una pide iniciar sesión, un captcha o un
+              código de verificación, registra el takeover y avisa por sí mismo, sin esperar a que el agente lo pida.
+              El agente recibe una nota para que no intente pasarla.
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id="profile-browser-detect"
+            checked={p.browser_detect}
+            disabled={readOnly}
+            onCheckedChange={(browser_detect) => set({ browser_detect })}
+          />
+        </Field>
+      )}
+
+      {p.browser && p.browser_detect && (
+        <Field>
+          <FieldLabel htmlFor="profile-browser-ignore">Sitios que no se detectan</FieldLabel>
+          <Input
+            id="profile-browser-ignore"
+            value={ignoreText}
+            readOnly={readOnly}
+            onChange={(e) => setIgnoreText(e.target.value)}
+            onBlur={() => set({ browser_ignore_hosts: hostsOf(ignoreText) })}
+            placeholder="intranet.example.com, otro.example.com"
+            className="font-mono"
+          />
+          <FieldDescription>
+            Sitios (y sus subdominios) donde el detector nunca pide un takeover, separados por comas: una página con
+            campo de contraseña que el agente no necesita pasar. Como mucho 32.
+          </FieldDescription>
+        </Field>
+      )}
 
       {p.browser && (
         <Field>
@@ -403,8 +472,8 @@ function ProfileFields({
             maxLength={64}
           />
           <FieldDescription>
-            Cuando el agente pide que alguien tome el control (<Mono>ask_takeover</Mono>), Seaport lo anuncia con un
-            enlace a su navegador: vacío, a nadie (el aviso queda solo en esta página); <Mono>conversation</Mono>, en
+            Cuando el agente pide que alguien tome el control (<Mono>ask_takeover</Mono>) o el detector encuentra una
+            página que lo necesita, Seaport lo anuncia con un enlace a su navegador: vacío, a nadie (el aviso queda solo en esta página); <Mono>conversation</Mono>, en
             la conversación que el agente trabaja; o el nombre de un destino de uno de sus docks, donde abre una
             conversación. Al pulsar Listo, el agente recibe un mensaje de sistema en el mismo sitio y sigue.
           </FieldDescription>

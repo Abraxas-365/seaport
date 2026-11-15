@@ -53,6 +53,22 @@ type Agent struct {
 	briefs map[acp.SessionId]brief
 	// failures counts turns failed in a row (the release backoff).
 	failures int
+	// jobs is the work in flight and the browser's state, shared by every
+	// connection of this harness (table()).
+	jobs *jobTable
+}
+
+// table is the harness's job table (made on first use).
+func (a *Agent) table() *jobTable {
+	if a == nil {
+		return newJobTable()
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.jobs == nil {
+		a.jobs = newJobTable()
+	}
+	return a.jobs
 }
 
 // failed records a failed turn and answers how long to wait before

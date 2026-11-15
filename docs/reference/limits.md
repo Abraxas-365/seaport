@@ -255,6 +255,9 @@ Environment fields are described in [Environment spec](environment-spec.md).
 | Open takeovers per agent | 8 | `agent.MaxTakeovers` | No |
 | Takeover waits for a person | 1 h | `agent.TakeoverTTL` | No |
 | Longest `ask_takeover` wait | 290 s | `agent.MaxTakeoverWait` | No |
+| Takeover path length | 200 characters | `agent.MaxTakeoverPath` | No |
+| Hosts the browser detector ignores, per profile | 32 | `agent.MaxIgnoreHosts` | No |
+| Detector asks the same host again after | 10 min | `agent.DetectEvery` | No |
 
 `0` for the two `SEAPORT_HOST_MAX_*` values means no limit.
 

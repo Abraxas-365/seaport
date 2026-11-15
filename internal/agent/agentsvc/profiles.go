@@ -154,7 +154,8 @@ func assemble(a agent.Agent, p agent.Profile, secrets []agent.SecretValue) (agen
 	values := make(map[string]string, len(secrets))
 	k := agent.Kit{Agent: a.ID, Name: a.Name, Version: p.Version, Instructions: p.Instructions,
 		Skills: make([]agent.Skill, 0, len(p.Skills)), MCPServers: make([]agent.MCPServer, 0, len(p.MCPServers)),
-		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser, Env: map[string]string{}}
+		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser, BrowserDetect: p.BrowserDetect,
+		BrowserIgnoreHosts: append([]string{}, p.BrowserIgnoreHosts...), Env: map[string]string{}}
 	for _, sec := range secrets {
 		values[sec.Name] = sec.Value
 		if sec.Env {
