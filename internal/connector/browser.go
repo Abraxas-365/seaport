@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -98,7 +97,7 @@ func StartBrowser(ctx context.Context, engine, state string) (*Browser, error) {
 	cmd.Env = append(os.Environ(), "HOME="+os.Getenv("HOME"))
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &browserLog{} // dbus noise is dropped; the rest is logged
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	ownProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		b.closeBridge()
 		return nil, errx.Wrap(err, "start the browser", errx.TypeInternal)
@@ -126,13 +125,7 @@ func (b *Browser) Stop() {
 		return
 	}
 	if b.cmd != nil && b.cmd.Process != nil {
-		_ = syscall.Kill(-b.cmd.Process.Pid, syscall.SIGTERM)
-		select {
-		case <-b.done:
-		case <-time.After(5 * time.Second):
-			_ = syscall.Kill(-b.cmd.Process.Pid, syscall.SIGKILL)
-			<-b.done
-		}
+		endProcessGroup(b.cmd, b.done, 5*time.Second)
 	}
 	b.closeBridge()
 }

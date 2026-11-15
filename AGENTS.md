@@ -30,7 +30,9 @@ scripts/fuzz.sh 10s                             # every FuzzX target, TIME each 
 scripts/upgrade-smoke.sh OLD_IMAGE NEW_IMAGE    # seed on one image, start the next on the same DB, read it back (Docker)
 ```
 
-CI (`.github/workflows/ci.yml`): gofmt, vet, `go test -race` against a
+CI (`.github/workflows/ci.yml`): gofmt, vet, a cross-compile of every
+goos/goarch goreleaser releases (platform-specific code goes in
+`_unix.go`/`_windows.go` files, as `connector/browser_*.go`), `go test -race` against a
 Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
 IAMKit + its Postgres; with `CI` set, a missing test database or IAMKit
 fails instead of skipping), a `fuzz` job (every native `FuzzX` target, 10 s
