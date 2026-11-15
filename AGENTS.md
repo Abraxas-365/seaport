@@ -224,6 +224,20 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   handlers of unknown types fail too (`TestEveryEventTypeHasALiveHandler`).
   A new event also gets a sample in `wire_fixtures_test.go`
   (`TestWireFixturesCoverEveryEvent`) and a case in `live.test.ts`.
+- Docs drift (`docs_architecture_test.go`, no database): `docs/reference/*.md`
+  is compared both ways with the code. `http-api.md` ↔ every Fiber route
+  (`TestDocsHTTPAPI`); `configuration.md` ↔ every `SEAPORT_*`/`IAMKIT_*`/
+  `DATABASE_URL` variable read (`TestDocsConfiguration`); `mcp-tools.md` ↔
+  the tools `crewmcp` registers; `cli.md` ↔ the cases of `cmd/seaport`'s
+  dispatch switches (a new dispatch switch goes in `cliSwitches`);
+  `events.md` ↔ `EventPermissions` (with the permission); `permissions.md` ↔
+  `iam/permissions.json` (catalog, role grants, the "holds all N" count);
+  `crew-protocol.md` ↔ the `crew.Frame…` constants; `limits.md`: every Go
+  name it cites exists and every configurable limit variable is listed (one
+  direction for constants: the page picks which to list). A new route,
+  variable, tool, command, event, permission or frame comes with its doc
+  row; each check has a "catches violations" fixture
+  (`TestDocsRulesCatchViolations`).
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.

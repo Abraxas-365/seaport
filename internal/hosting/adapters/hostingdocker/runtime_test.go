@@ -32,11 +32,25 @@ func dockerRuntime(t *testing.T) *Runtime {
 	return r
 }
 
+// plainImage is the public image the tests build on and run directly.
+const plainImage = "debian:bookworm-slim"
+
+// pullPlain makes plainImage present: ContainerCreate pulls nothing, and
+// with -shuffle=on no earlier build can be relied on to have fetched it.
+func pullPlain(t *testing.T, r *Runtime) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := r.pull(ctx, plainImage, io.Discard); err != nil {
+		t.Fatalf("pull %s: %v", plainImage, err)
+	}
+}
+
 // fakeBase builds a tiny image labeled as Seaport's base for harness.
 func fakeBase(t *testing.T, r *Runtime, tag, labels string) {
 	t.Helper()
 	ctx := context.Background()
-	df := "FROM debian:bookworm-slim\nRUN useradd --create-home --uid 1000 agent\nLABEL " + labels + "\nUSER 1000:1000\n"
+	df := "FROM " + plainImage + "\nRUN useradd --create-home --uid 1000 agent\nLABEL " + labels + "\nUSER 1000:1000\n"
 	res, err := r.api.ImageBuild(ctx, contextOf(t, map[string]string{"Dockerfile": df}), client.ImageBuildOptions{Tags: []string{tag}, Remove: true})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +114,7 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("other harness: %v", err)
 	}
 	plain := req
-	plain.Base = "debian:bookworm-slim"
+	plain.Base = plainImage
 	if _, err := r.Build(ctx, plain, &log); !errx.IsType(err, errx.TypeBusiness) || !strings.Contains(err.Error(), "not built FROM") {
 		t.Fatalf("not our base: %v", err)
 	}

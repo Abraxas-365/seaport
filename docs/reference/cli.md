@@ -46,7 +46,7 @@ An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed
 | `seaport dock replies <dock-id> on\|off` | Whether the crew may answer on it. `off` makes the dock a [trigger](../guides/linked-conversations.md#docks-that-only-trigger): its messages still wake the agent, nothing is posted there. `dock list` shows it in the `REPLIES` column. |
 | `seaport dock destinations <dock-id>` | Lists the dock's [destinations](../guides/destinations.md): name, channel, target, title. |
 | `seaport dock destination set <dock-id> <name> <target> [-title T]` | Creates or updates a destination: a Slack channel id, a WhatsApp `+number` or group JID, an `api` chat id. |
-| `seaport dock destination rm <dock-id> <name>` | Removes it; conversations opened there stay. |
+| `seaport dock destination rm <dock-id> <name>` | Removes it (alias `remove`); conversations opened there stay. |
 | `seaport dock open <dock-id> <name> [-thread-of CONV] <text>` | Opens (or continues) the conversation at a destination with `text`; `-thread-of` links it to that conversation's thread. Prints the conversation and ship ids. |
 | `seaport dock unlink <dock-id>` | Disconnects the channel; history stays. WhatsApp: logs the device out (`relink` pairs it again). GitHub: uninstalls the App's installations and deletes the App's record (the App itself stays on GitHub). Jira: deletes the stored credentials (nothing is revoked in Jira). Slack: uninstalls an app Seaport created, best effort, and deletes the stored credentials. Webhook: deletes the secret and template (the URL answers `404`). Datadog: deletes the secret and mirror (the URL answers `404`). Email: deletes the stored password, thread records and folder position (nothing is deleted from the mailbox). |
 | `seaport dock delete <dock-id> -yes` | Unlinks and deletes the dock with all its conversations and ships. `-yes` must be the second argument. |
@@ -183,7 +183,7 @@ Prompts the port posts into a conversation on a cron timetable. See [Schedules](
 | `seaport schedules [list [<conversation-id>]]` | Table of schedules (alias `schedule`, `cron`): ID, name, cron, zone, on, next, last, conversation. |
 | `seaport schedules add <conversation-id> <name> -cron "…" -text "…" [-timezone Z] [-agent A] [-disabled]` | Creates one. `-timezone` is an IANA name (default `UTC`); `-agent` names the agent to call. Prints the next three times. |
 | `seaport schedules edit <id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A\|none]` | Changes the fields given; `-agent none` clears the agent. |
-| `seaport schedules enable <id>` / `disable <id>` | Switches it on or off. |
+| `seaport schedules enable <id>` / `seaport schedules disable <id>` | Switches it on or off. |
 | `seaport schedules run <id>` | Posts its message now, through the same path as the runner (its next time doesn't change). |
 | `seaport schedules preview "<cron>" [-timezone Z]` | The next three times an expression runs, saving nothing. |
 | `seaport schedules delete <id> -yes` | Deletes it. |
@@ -236,6 +236,7 @@ These run inside a hosted slot's container and aren't meant to be called by hand
 | :--- | :--- |
 | `seaport agent-run` | A slot's entrypoint: reads its environment (`SEAPORT_URL`, `SEAPORT_CREW_TOKEN`, `SEAPORT_SLOT`, `SEAPORT_HARNESS`), prepares the workspace and runs the connector. |
 | `seaport agent-login` | The subscription sign-in the port runs in a slot and relays. |
+| `seaport browser-relay` | The slot's managed browser for the port's viewer: Chrome DevTools Protocol as lines on stdin and stdout. The port runs it in the slot and relays it. |
 | `seaport agent-account` | Prints how the slot's harness is signed in, as JSON; the port asks. |
 | `seaport home-setup` | Finishes an environment's harness home while its image is built. |
 | `seaport git-credential` | Git's credential helper in a slot: asks the port for repo credentials each time (the environment's, else a [GitHub App](../guides/github.md#act-on-github-as-the-app) token), so no token stays on disk. |

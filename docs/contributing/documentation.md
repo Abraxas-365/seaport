@@ -68,6 +68,8 @@ npm run check:links   # rendered links, anchors and assets (run after build)
 
 `npm test` runs the loader tests, including one that fails when a page under `docs/` is missing from the sidebar or listed twice.
 
+The pages under `docs/reference/` are also checked against the code by `go test ./internal/bootstrap -run Docs` (no database needed): routes, environment variables, MCP tools, CLI commands, event types, permissions, crew frames and the names `limits.md` cites. When you add or remove one of those, update its reference page in the same change, in the existing table format, or the test fails and says which row is missing.
+
 The page title and description come from the H1 and the first paragraph, and the build removes the duplicate H1 and rewrites relative links.
 
 > [!WARNING]
