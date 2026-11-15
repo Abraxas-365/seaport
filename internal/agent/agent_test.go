@@ -1,7 +1,9 @@
 package agent_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -55,6 +57,44 @@ func TestNames(t *testing.T) {
 	} {
 		if err := agent.ValidName(name); (err == nil) != ok {
 			t.Errorf("ValidName(%q) = %v", name, err)
+		}
+	}
+}
+
+func TestAskTakeover(t *testing.T) {
+	for name, c := range map[string]struct {
+		in agent.AskTakeover
+		ok bool
+	}{
+		"login by default":   {agent.AskTakeover{Host: "App.Example.com"}, true},
+		"captcha":            {agent.AskTakeover{Host: "a.example.com", Kind: agent.KindCaptcha}, true},
+		"other with note":    {agent.AskTakeover{Host: "a.example.com", Kind: agent.KindOther, Note: "pay the invoice"}, true},
+		"other without note": {agent.AskTakeover{Host: "a.example.com", Kind: agent.KindOther}, false},
+		"unknown kind":       {agent.AskTakeover{Host: "a.example.com", Kind: "payment"}, false},
+		"no host":            {agent.AskTakeover{}, false},
+		"not a host":         {agent.AskTakeover{Host: "localhost"}, false},
+		"long note":          {agent.AskTakeover{Host: "a.example.com", Note: string(make([]byte, 201))}, false},
+	} {
+		if err := c.in.Validate(); (err == nil) != c.ok {
+			t.Errorf("%s: Validate() = %v", name, err)
+		}
+	}
+	now := time.Now()
+	conv := identity.NewConversationID()
+	var list agent.Takeovers
+	for i := range agent.MaxTakeovers + 2 {
+		list = agent.AskTakeover{Host: fmt.Sprintf("h%d.example.com", i), Conversation: &conv}.Add(list, now)
+	}
+	if len(list) != agent.MaxTakeovers || list[0].Host != fmt.Sprintf("h%d.example.com", agent.MaxTakeovers+1) || list[0].Kind != agent.KindLogin || list[0].Conversation == nil {
+		t.Fatalf("add: %+v", list)
+	}
+	list = agent.AskTakeover{Host: "H3.Example.com", Kind: agent.Kind2FA, Note: " code "}.Add(list, now)
+	if len(list) != agent.MaxTakeovers || list[0].Host != "h3.example.com" || list[0].Kind != agent.Kind2FA || list[0].Note != "code" {
+		t.Fatalf("replace: %+v", list[:2])
+	}
+	for _, l := range list[1:] {
+		if l.Host == "h3.example.com" {
+			t.Fatal("the older h3 stayed")
 		}
 	}
 }

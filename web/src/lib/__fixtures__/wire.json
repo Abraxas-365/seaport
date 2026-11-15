@@ -11,15 +11,17 @@
         }
       ],
       "id": "00000000-0000-4000-8000-000000000005",
-      "login_requests": [
-        {
-          "at": "2030-01-02T03:02:00Z",
-          "host": "app.example.com",
-          "reason": "read the dashboard"
-        }
-      ],
       "name": "support-bot",
       "profile_version": 3,
+      "takeovers": [
+        {
+          "at": "2030-01-02T03:02:00Z",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "host": "app.example.com",
+          "kind": "login",
+          "note": "read the dashboard"
+        }
+      ],
       "updated_at": "2030-01-02T03:01:00Z"
     },
     "agents": {
@@ -35,15 +37,17 @@
             }
           ],
           "id": "00000000-0000-4000-8000-000000000005",
-          "login_requests": [
-            {
-              "at": "2030-01-02T03:02:00Z",
-              "host": "app.example.com",
-              "reason": "read the dashboard"
-            }
-          ],
           "name": "support-bot",
           "profile_version": 3,
+          "takeovers": [
+            {
+              "at": "2030-01-02T03:02:00Z",
+              "conversation_id": "00000000-0000-4000-8000-000000000002",
+              "host": "app.example.com",
+              "kind": "login",
+              "note": "read the dashboard"
+            }
+          ],
           "updated_at": "2030-01-02T03:01:00Z"
         }
       ],
@@ -868,15 +872,17 @@
         }
       ],
       "id": "00000000-0000-4000-8000-000000000005",
-      "login_requests": [
-        {
-          "at": "2030-01-02T03:02:00Z",
-          "host": "app.example.com",
-          "reason": "read the dashboard"
-        }
-      ],
       "name": "support-bot",
       "profile_version": 3,
+      "takeovers": [
+        {
+          "at": "2030-01-02T03:02:00Z",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "host": "app.example.com",
+          "kind": "login",
+          "note": "read the dashboard"
+        }
+      ],
       "updated_at": "2030-01-02T03:01:00Z"
     },
     "conversation.updated": {

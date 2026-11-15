@@ -29,11 +29,11 @@ type Commands interface {
 	SetSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SetSecret) (Secret, error)
 	// DeleteSecret removes one (Conflict while the current profile uses it).
 	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
-	// RequestLogin records that the agent needs a person to sign its
-	// browser in to a site (MCP login_needed); ClearLoginRequest drops
-	// the host's request once done. Both publish agent.updated.
-	RequestLogin(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input RequestLogin) (Agent, error)
-	ClearLoginRequest(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, host string) (Agent, error)
+	// RequestTakeover records that the agent needs a person to take over
+	// its browser at a site (MCP ask_takeover); EndTakeover drops the
+	// host's takeover once done. Both publish agent.updated.
+	RequestTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input AskTakeover) (Agent, error)
+	EndTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, host string) (Agent, error)
 }
 
 type Queries interface {
@@ -101,7 +101,7 @@ type Repository interface {
 	Secrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Secret, error)
 	// OpenSecrets are the agent's secrets with their values.
 	OpenSecrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]SecretValue, error)
-	// SetLoginRequests replaces the agent's login requests under its row
-	// lock, through change (the current list in, the new one out).
-	SetLoginRequests(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, change func(LoginRequests) LoginRequests) (Agent, error)
+	// SetTakeovers replaces the agent's takeovers under its row lock,
+	// through change (the current list in, the new one out).
+	SetTakeovers(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, change func(Takeovers) Takeovers) (Agent, error)
 }

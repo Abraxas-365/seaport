@@ -586,16 +586,16 @@ export function useDeleteSecret(id: string) {
   })
 }
 
-/** Clears a site the agent asked a sign-in for (once someone signed in). */
-export function useClearLoginRequest(id: string) {
+/** Ends a browser takeover the agent asked for (once a person did it). */
+export function useEndTakeover(id: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (host: string) => api.clearLoginRequest(id, host),
+    mutationFn: (host: string) => api.endTakeover(id, host),
     onSuccess: (a) => {
       qc.setQueryData(keys.agent(id), a)
       qc.invalidateQueries({ queryKey: keys.agents, exact: true })
     },
-    onError: fail("No se pudo quitar la solicitud"),
+    onError: fail("No se pudo dar por hecho el relevo"),
   })
 }
 

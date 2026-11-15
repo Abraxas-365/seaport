@@ -376,8 +376,8 @@ function ProfileFields({
           </FieldLabel>
           <FieldDescription>
             El agente usa el navegador gestionado de su entorno (herramientas MCP de Chrome DevTools y la herramienta{" "}
-            <Mono>login_needed</Mono>). Las sesiones viven en la instancia; las personas inician sesión en los sitios
-            desde la pestaña Navegador. Solo surte efecto en agentes alojados en un entorno con navegador.
+            <Mono>ask_takeover</Mono>). Las sesiones viven en la instancia; cuando un sitio pide algo que solo una persona
+            puede hacer (iniciar sesión, un captcha, un código), ella toma el control desde la pestaña Navegador. Solo surte efecto en agentes alojados en un entorno con navegador.
           </FieldDescription>
         </FieldContent>
         <Switch

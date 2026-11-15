@@ -68,7 +68,7 @@ func (m *Module) Bind(ships interface {
 	vault.Queries
 	vault.Writer
 }) {
-	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Logins: agents, Docks: docks,
+	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Takeovers: agents, Docks: docks,
 		Vaults: vaults, VaultWrites: vaults, Version: m.version})
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}

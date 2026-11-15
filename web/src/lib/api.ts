@@ -277,8 +277,8 @@ export const api = {
     request<AgentSecret>("PUT", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
   deleteSecret: (id: string, name: string) =>
     request<void>("DELETE", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`),
-  clearLoginRequest: (id: string, host: string) =>
-    request<LibraryAgent>("DELETE", `${v1}/agents/${id}/login-requests/${encodeURIComponent(host)}`),
+  endTakeover: (id: string, host: string) =>
+    request<LibraryAgent>("DELETE", `${v1}/agents/${id}/takeovers/${encodeURIComponent(host)}`),
   /** The browser viewer's WebSocket URL (CDP as it is; the session cookie authenticates). */
   browserSocket: (agent: string, slot: number) =>
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${v1}/agents/${agent}/hosting/slots/${slot}/browser`,

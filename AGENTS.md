@@ -671,13 +671,17 @@ net/http mux; only `/healthz` answers 405.
   `Runtime.Exec` and pipes messages (≤ `MaxBrowserMessage`, idle
   `BrowserIdle`, at most `BrowserMax`), keeping nothing; open and close
   publish `slot.browser` (`hosting.BrowserEvent`, an audit trail). A site
-  asking for credentials is a person's job: the MCP tool `login_needed`
-  (`crewmcp.addLoginNeeded`, only with the profile's browser on) records
-  `agent.LoginRequest`s (`agents.login_requests`, at most
-  `agent.MaxLoginRequests` = 8, one per host, newest first;
-  `Commands.RequestLogin`/`ClearLoginRequest`, `DELETE
-  /api/v1/agents/{id}/login-requests/{host}`, `BrowserUse`), published with
-  `agent.updated`; the web's **Navegador** card shows them with the viewer.
+  asking for credentials, a captcha or a code is a person's job: the MCP
+  tool `ask_takeover` (`crewmcp.addTakeover`, only with the profile's
+  browser on; `kind` login|captcha|2fa|other, `note` required for other,
+  optional `conversation_id` of a dock the agent is on) records
+  `agent.Takeover`s (`agents.takeovers` jsonb, migration 00038, at most
+  `agent.MaxTakeovers` = 8, one per host, newest first;
+  `Commands.RequestTakeover`/`EndTakeover`, `DELETE
+  /api/v1/agents/{id}/takeovers/{host}`, `BrowserUse`), published with
+  `agent.updated`; the web's **Navegador** card shows them per kind with
+  the viewer. Plan `~/.rness/plans/puerto/browser-assist.md` (next: notify
+  a person and wake the agent when done).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel
