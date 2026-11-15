@@ -189,3 +189,7 @@ Read by the `seaport` binary when it is not serving (see [CLI](cli.md)).
 | `SEAPORT_CREW_TOKEN` | none | `connect` | The agent's crew token (`-token`); it names the agent. Not needed against a `none` port. |
 | `SEAPORT_AGENT` | none | `connect` | The agent to work as (`-agent`). Required against a `none` port; optional with a crew token. |
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | `seaport healthcheck` | The local address it asks for `/healthz` (a wildcard host becomes `127.0.0.1`). |
+| `SEAPORT_SLOT` | none | `agent-run` | The slot's name (`<agent>-<n>`). Set by the port in a hosted slot. |
+| `SEAPORT_HARNESS` | none | `agent-run`, `home-setup` | The slot's harness (`rness` or `claude-code`). Set by the port in a hosted slot. |
+| `SEAPORT_GATEWAY` | none | `agent-run` | The model gateway's base URL, set in a slot whose environment names a model key. When it is set, the connector keeps the kit's `env` from replacing the slot's model variables. |
+| `SEAPORT_GH` | none | `gh` | Path of the real GitHub CLI for Seaport's `gh` shim. Without it the shim tries `/usr/local/bin/gh`, then the next `gh` on `PATH`. |

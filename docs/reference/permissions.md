@@ -55,11 +55,12 @@ The three roles ship in `iam/permissions.json`. `scripts/iamkit-provision.sh` cr
 | `seaport:environments:write` | yes | | |
 | `seaport:schedules:read` | yes | yes | yes |
 | `seaport:schedules:write` | yes | yes | |
+| `seaport:browser:use` | yes | yes | |
 
 In short:
 
-- **Admin** holds all 17 permissions.
-- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules. It can't change docks, customs, agents, tokens or environments.
+- **Admin** holds all 18 permissions.
+- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules and opens a hosted agent's browser viewer. It can't change docks, customs, agents, tokens or environments.
 - **Viewer** reads docks, conversations, history, customs, the crew, agents, environments and schedules. It can't change anything and can't see crew tokens.
 
 You can also grant single permissions or build your own roles in IAMKit; the catalog is what counts.
