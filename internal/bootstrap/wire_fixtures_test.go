@@ -32,6 +32,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/vault"
 )
 
 const wireFixturesFile = "web/src/lib/__fixtures__/wire.json"
@@ -67,6 +68,8 @@ func wireFixtures() map[string]any {
 		ruleID   = fixtureID(identity.ParseRuleID, 11)
 		tokenID  = fixtureID(identity.ParseCrewTokenID, 12)
 		doorID   = fixtureID(identity.ParseConversationID, 13)
+		vaultID  = fixtureID(identity.ParseVaultID, 14)
+		entryID  = fixtureID(identity.ParseEntryID, 15)
 	)
 
 	dk := dock.Dock{ID: dockID, Channel: dock.ChannelSlack, Name: "Support", Address: "example-workspace",
@@ -119,6 +122,15 @@ func wireFixtures() map[string]any {
 	status := crew.Status{Agents: []crew.Agent{{Session: "session-1", AgentID: agentID, AgentName: "support-bot",
 		Name: "laptop", Concurrency: 2, Steer: true, ProfileVersion: 3, Outdated: false, Remote: "203.0.113.7",
 		ConnectedAt: at(0), Deliveries: []crew.AgentDelivery{{ID: delivery, Conversation: convID, Ships: 1, Since: at(3)}}}}}
+
+	vlt := vault.Vault{ID: vaultID, Name: "company", Title: "Company", Description: "What everyone should know", Entries: 1,
+		CreatedAt: at(0), UpdatedAt: at(2)}
+	byAgent := vault.Provenance{Kind: vault.WrittenByAgent, By: "support-bot", Conversation: &convID, Dock: &dockID}
+	entry := vault.Entry{ID: entryID, Vault: vaultID, Name: "support-hours", Body: "# Support hours\n\nMonday to Friday, 9 to 18 (Madrid).",
+		Version: 2, Provenance: byAgent, CreatedAt: at(0), UpdatedAt: at(2)}
+	vaultGrants := vault.Grants{
+		Agents: []vault.AgentGrant{{Agent: agentID, Name: "support-bot", Mode: vault.ModeWrite, CreatedAt: at(1)}},
+		Docks:  []vault.DockGrant{{Dock: dockID, Name: "Support", Channel: dock.ChannelSlack, Mode: vault.ModeRead, CreatedAt: at(1)}}}
 
 	libAgent := agent.Agent{ID: agentID, Name: "support-bot", Description: "Answers support questions", CreatedBy: "admin",
 		CreatedAt: at(0), UpdatedAt: at(1), ProfileVersion: 3,
@@ -176,6 +188,11 @@ func wireFixtures() map[string]any {
 		schedule.EventUpdated:           sched,
 		schedule.EventDeleted:           sched,
 		schedule.EventFired:             sched,
+		vault.EventCreated:              vlt,
+		vault.EventUpdated:              vlt,
+		vault.EventDeleted:              vlt,
+		vault.EventEntry: vault.EntryChange{Vault: vaultID, Entry: entryID, Name: entry.Name, Version: entry.Version,
+			Deleted: false, Provenance: byAgent},
 	}
 
 	api := map[string]any{
@@ -205,6 +222,24 @@ func wireFixtures() map[string]any {
 		"environments":    query.Paginated[hosting.Environment]{Items: []hosting.Environment{env}, Page: page(1)},
 		"build":           build,
 		"hosted":          hosted,
+		"vault":           vlt,
+		"vaults":          query.Paginated[vault.Vault]{Items: []vault.Vault{vlt}, Page: page(1)},
+		"vault_detail": struct {
+			vault.Vault
+			vault.Grants
+		}{vlt, vaultGrants},
+		"vault_access": []vault.Access{{Vault: vlt, Mode: vault.ModeWrite}},
+		"vault_entry":  entry,
+		"vault_entries": query.Paginated[vault.Summary]{Items: []vault.Summary{{ID: entryID, Name: entry.Name, FirstLine: "Support hours",
+			Version: entry.Version, Provenance: byAgent, UpdatedAt: at(2)}}, Page: page(1)},
+		"vault_versions": struct {
+			Versions []vault.Version `json:"versions"`
+		}{[]vault.Version{{Entry: entryID, Version: 2, Name: entry.Name, Body: entry.Body, Provenance: byAgent, CreatedAt: at(2)},
+			{Entry: entryID, Version: 1, Name: entry.Name, Body: "# Support hours\n\nMonday to Friday, 9 to 17.", Provenance: vault.Provenance{Kind: vault.WrittenByUser, By: "admin"}, CreatedAt: at(0)}}},
+		"vault_hits": struct {
+			Hits []vault.Hit `json:"hits"`
+		}{[]vault.Hit{{Vault: vaultID, VaultName: vlt.Name, Entry: entryID, Name: entry.Name, Snippet: "Monday to Friday, **9** to 18",
+			Version: entry.Version, Provenance: byAgent, UpdatedAt: at(2)}}},
 	}
 
 	return map[string]any{

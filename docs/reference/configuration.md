@@ -25,7 +25,7 @@ The CLI and the connector read a few variables of their own (`SEAPORT_URL`, `SEA
 
 Rules checked at start:
 
-- `none` refuses a `SEAPORT_ADDR` that is not loopback (`127.0.0.1`, `::1`, `localhost`). While it runs, requests with a foreign `Host` or with forwarding headers are refused too (DNS rebinding, proxies that would make remote callers look local).
+- `none` refuses a `SEAPORT_ADDR` that is not loopback (`127.0.0.1`, `::1`, `localhost`). While it runs, requests with a foreign `Host` or with forwarding headers are refused too (DNS rebinding, proxies that would make remote callers look local). Agents need no token (`seaport connect -agent <name>`), but a crew token sent anyway is honoured: the caller works as that token's agent, and a wrong token is refused.
 - `none` can't be combined with `SEAPORT_RUNTIME=docker` or `SEAPORT_EGRESS_ADDR` (hosted slots sign in with tokens).
 - `token` needs `SEAPORT_ADMIN_TOKEN`.
 - `iam` needs the [IAMKit variables](#iamkit), `SEAPORT_SECRET_KEY` and no admin token.
@@ -145,6 +145,7 @@ Each organization gets the same limits (one organization in `none` and `token` m
 | `SEAPORT_MAX_CREW_CONNECTIONS` | `20` | Agents connected at once per organization, counted across every process. |
 | `SEAPORT_MAX_SLOTS` | `10` | Hosted-agent slots per organization (see [Hosting](#hosting)). |
 | `SEAPORT_MAX_SCHEDULES` | `100` | [Schedules](../guides/schedules.md) per organization. |
+| `SEAPORT_MAX_VAULTS` | `64` | [Vaults](../guides/vaults.md) per organization. `0` turns the limit off. |
 
 ## Rate limit
 

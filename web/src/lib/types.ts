@@ -616,6 +616,10 @@ export interface EventMap {
   "schedule.updated": Schedule
   "schedule.deleted": Schedule
   "schedule.fired": Schedule
+  "vault.created": Vault
+  "vault.updated": Vault
+  "vault.deleted": Vault
+  "vault.entry": VaultEntryChange
 }
 export type EventType = keyof EventMap
 
@@ -809,4 +813,107 @@ export interface UsageDay {
   output_tokens: number
   cache_write_tokens: number
   cache_read_tokens: number
+}
+
+// Vaults: the organization's shared markdown memory.
+
+export type VaultMode = "read" | "write"
+
+/** A vault (GET /api/v1/vaults); `entries` counts its entries. */
+export interface Vault {
+  id: ID
+  /** What agents call it: ^[a-z0-9][a-z0-9_-]{0,63}$, unique in the organization. */
+  name: string
+  title: string
+  description: string
+  entries: number
+  created_at: string
+  updated_at: string
+}
+
+export interface VaultAgentGrant {
+  agent_id: ID
+  name: string
+  mode: VaultMode
+  created_at: string
+}
+
+export interface VaultDockGrant {
+  dock_id: ID
+  name: string
+  channel: Channel
+  mode: VaultMode
+  created_at: string
+}
+
+/** A vault with who it is granted to (GET /api/v1/vaults/{id}). */
+export interface VaultDetail extends Vault {
+  agents: VaultAgentGrant[] | null
+  docks: VaultDockGrant[] | null
+}
+
+/** A vault with the mode one agent or dock has on it. */
+export interface VaultAccess {
+  vault: Vault
+  mode: VaultMode
+}
+
+/** Who wrote an entry; an agent's write also names the conversation and dock it was working. */
+export interface Provenance {
+  kind: "agent" | "user"
+  by: string
+  conversation_id?: ID
+  dock_id?: ID
+}
+
+/** An entry without its body (the list). */
+export interface VaultEntrySummary {
+  id: ID
+  name: string
+  first_line: string
+  version: number
+  provenance: Provenance
+  updated_at: string
+}
+
+export interface VaultEntry {
+  id: ID
+  vault_id: ID
+  name: string
+  body: string
+  version: number
+  provenance: Provenance
+  created_at: string
+  updated_at: string
+}
+
+export interface VaultEntryVersion {
+  entry_id: ID
+  version: number
+  name: string
+  body: string
+  provenance: Provenance
+  created_at: string
+}
+
+/** A search hit (GET /vaults/{id}/entries?q=). */
+export interface VaultHit {
+  vault_id: ID
+  vault: string
+  entry_id: ID
+  name: string
+  snippet: string
+  version: number
+  provenance: Provenance
+  updated_at: string
+}
+
+/** Data of the `vault.entry` event: never carries a body. */
+export interface VaultEntryChange {
+  vault_id: ID
+  entry_id: ID
+  name: string
+  version: number
+  deleted: boolean
+  provenance: Provenance
 }

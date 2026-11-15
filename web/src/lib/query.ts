@@ -70,4 +70,12 @@ export const keys = {
   slotAccount: (agent: string, slot: number) => ["slot-account", agent, slot] as const,
   egress: (agent: string) => ["egress", agent] as const,
   usage: (agent: string, days: number) => ["usage", agent, days] as const,
+  // Vault detail keys share the list's prefix: invalidate the list with exact: true.
+  vaults: ["vaults"] as const,
+  vault: (id: string) => ["vaults", id] as const,
+  vaultEntries: (id: string, q = "") => (q ? (["vaults", id, "entries", "q", q] as const) : (["vaults", id, "entries"] as const)),
+  vaultEntry: (id: string, entry: string) => ["vaults", id, "entries", entry] as const,
+  vaultVersions: (id: string, entry: string) => ["vaults", id, "entries", entry, "versions"] as const,
+  agentVaults: (agent: string) => ["agent-vaults", agent] as const,
+  dockVaults: (dock: string) => ["dock-vaults", dock] as const,
 }

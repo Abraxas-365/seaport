@@ -40,6 +40,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/schedule/schedulemodule"
 	"github.com/Abraxas-365/seaport/internal/ship"
 	"github.com/Abraxas-365/seaport/internal/ship/shipmodule"
+	"github.com/Abraxas-365/seaport/internal/vault/vaultmodule"
 	"github.com/Abraxas-365/seaport/migrations"
 	"github.com/Abraxas-365/seaport/web"
 	"github.com/gofiber/fiber/v3"
@@ -288,7 +289,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks.BindMirror(ships.Service, convs.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
-	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service)
+	vaults := vaultmodule.New(db, agents.Service, docks.Service, convs.Service, bus, cfg.MaxVaults)
+	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service, vaults.Service)
 	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)
 	schedules.Bind(ships.Service)
 	hostCfg := hostingmodule.Config{
@@ -339,7 +341,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 
 	srv := newServer(cfg.Auth != config.AuthNone, func(app *fiber.App) {
 		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register},
+			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register, vaults.Register},
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
 			askApproval: crew.AskApproval(), approval: crew.Approval(),
@@ -368,7 +370,7 @@ func newProcessID() string {
 func authenticator(cfg config.Server, crewTokens httpx.CrewResolver) httpx.Authenticator {
 	switch cfg.Auth {
 	case config.AuthNone:
-		return httpx.Open{Organization: config.DefaultOrganization}
+		return httpx.Open{Organization: config.DefaultOrganization, CrewTokens: crewTokens}
 	default:
 		return httpx.Tokens{Organization: config.DefaultOrganization, CrewTokens: crewTokens,
 			Sessions: httpx.Sessions{Token: cfg.AdminToken, TTL: config.SessionTTL,

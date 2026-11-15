@@ -23,6 +23,7 @@ import type {
   Paginated,
   Ship,
   Turn,
+  Vault,
 } from "./types"
 import { apiData, eventData, wire } from "@/test/wire"
 import { infinite, invalidated, newClient, page } from "@/test/query"
@@ -273,6 +274,58 @@ describe("schedule events", () => {
       expect(invalidated(qc, keys.schedules("other"))).toBe(false)
     })
   }
+})
+
+describe("vault events", () => {
+  it("vault.created refetches the list only", () => {
+    seed(keys.vaults, page<Vault>([]))
+    apply("vault.created")
+    expect(invalidated(qc, keys.vaults)).toBe(true)
+  })
+
+  it("vault.updated refetches the vault, the list and every agent's and dock's grants", () => {
+    const v = eventData("vault.updated")
+    seed(keys.vault(v.id), v)
+    seed(keys.vaults, page<Vault>([v]))
+    seed(keys.agentVaults("a"))
+    seed(keys.dockVaults("d"))
+    apply("vault.updated")
+    expect(invalidated(qc, keys.vault(v.id))).toBe(true)
+    expect(invalidated(qc, keys.vaults)).toBe(true)
+    expect(invalidated(qc, keys.agentVaults("a"))).toBe(true)
+    expect(invalidated(qc, keys.dockVaults("d"))).toBe(true)
+  })
+
+  it("vault.deleted drops the vault and its entries, and refetches the list and the grants", () => {
+    const v = eventData("vault.deleted")
+    seed(keys.vault(v.id), v)
+    seed(keys.vaultEntries(v.id))
+    seed(keys.vaults, page<Vault>([v]))
+    seed(keys.agentVaults("a"))
+    apply("vault.deleted")
+    expect(qc.getQueryData(keys.vault(v.id))).toBeUndefined()
+    expect(qc.getQueryData(keys.vaultEntries(v.id))).toBeUndefined()
+    expect(invalidated(qc, keys.vaults)).toBe(true)
+    expect(invalidated(qc, keys.agentVaults("a"))).toBe(true)
+  })
+
+  it("vault.entry carries no body: the entries, the entry, its versions and the vault's count refetch", () => {
+    const ev = eventData("vault.entry")
+    expect("body" in ev).toBe(false)
+    seed(keys.vaultEntries(ev.vault_id))
+    seed(keys.vaultEntry(ev.vault_id, ev.entry_id))
+    seed(keys.vaultVersions(ev.vault_id, ev.entry_id))
+    seed(keys.vault(ev.vault_id))
+    seed(keys.vaults, page<Vault>([]))
+    seed(keys.vault("other"))
+    apply("vault.entry")
+    expect(invalidated(qc, keys.vaultEntries(ev.vault_id))).toBe(true)
+    expect(invalidated(qc, keys.vaultEntry(ev.vault_id, ev.entry_id))).toBe(true)
+    expect(invalidated(qc, keys.vaultVersions(ev.vault_id, ev.entry_id))).toBe(true)
+    expect(invalidated(qc, keys.vault(ev.vault_id))).toBe(true)
+    expect(invalidated(qc, keys.vaults)).toBe(true)
+    expect(invalidated(qc, keys.vault("other"))).toBe(false)
+  })
 })
 
 describe("hosting events", () => {

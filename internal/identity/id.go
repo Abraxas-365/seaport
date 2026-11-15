@@ -112,6 +112,8 @@ type (
 	scheduleTag     struct{}
 
 	approvalTag struct{}
+	vaultTag    struct{}
+	entryTag    struct{}
 )
 
 func tagName[T any]() string {
@@ -143,6 +145,10 @@ func tagName[T any]() string {
 		return "schedule_id"
 	case approvalTag:
 		return "approval_id"
+	case vaultTag:
+		return "vault_id"
+	case entryTag:
+		return "entry_id"
 	default:
 		return "id"
 	}
@@ -248,3 +254,18 @@ type ApprovalID = ID[approvalTag]
 
 func NewApprovalID() ApprovalID                      { return NewID[approvalTag]() }
 func ParseApprovalID(raw string) (ApprovalID, error) { return ParseID[approvalTag](raw) }
+
+// VaultID identifies a vault: a named set of markdown entries of an
+// organization that agents and docks are granted.
+type VaultID = ID[vaultTag]
+
+func NewVaultID() VaultID                      { return NewID[vaultTag]() }
+func ParseVaultID(raw string) (VaultID, error) { return ParseID[vaultTag](raw) }
+func MustParseVaultID(raw string) VaultID      { return MustParseID[vaultTag](raw) }
+
+// EntryID identifies one entry of a vault.
+type EntryID = ID[entryTag]
+
+func NewEntryID() EntryID                      { return NewID[entryTag]() }
+func ParseEntryID(raw string) (EntryID, error) { return ParseID[entryTag](raw) }
+func MustParseEntryID(raw string) EntryID      { return MustParseID[entryTag](raw) }

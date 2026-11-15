@@ -9,6 +9,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/vault"
 )
 
 // EventPermissions is the read permission an admin needs to receive each
@@ -40,4 +41,8 @@ var EventPermissions = map[string]string{
 	schedule.EventUpdated:           permission.SchedulesRead,
 	schedule.EventDeleted:           permission.SchedulesRead,
 	schedule.EventFired:             permission.SchedulesRead,
+	vault.EventCreated:              permission.VaultsRead,
+	vault.EventUpdated:              permission.VaultsRead,
+	vault.EventDeleted:              permission.VaultsRead,
+	vault.EventEntry:                permission.VaultsRead,
 }

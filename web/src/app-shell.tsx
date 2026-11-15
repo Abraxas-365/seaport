@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from "react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, Server, ShieldCheck, Sun, Users } from "lucide-react"
+import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, Server, ShieldCheck, Sun, Users, Vault } from "lucide-react"
 
 import { api } from "@/lib/api"
 import { useCan, useCrew, useDocks, useSession } from "@/lib/hooks"
@@ -78,6 +78,7 @@ function AppSidebar() {
     { to: "/docks", label: "Muelles", icon: Anchor, badge: undefined, perm: Perm.DocksRead },
     { to: "/agents", label: "Agentes", icon: Users, badge: undefined, perm: Perm.AgentsRead },
     { to: "/environments", label: "Entornos", icon: Server, badge: undefined, perm: Perm.EnvironmentsRead },
+    { to: "/vaults", label: "Bóvedas", icon: Vault, badge: undefined, perm: Perm.VaultsRead },
     { to: "/crew", label: "Tripulación", icon: Bot, badge: agents.length || undefined, perm: Perm.CrewRead },
     { to: "/tokens", label: "Tokens de agentes", icon: KeyRound, badge: undefined, perm: Perm.CrewTokensRead },
   ].filter((item) => can(item.perm))

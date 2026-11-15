@@ -9,14 +9,14 @@ import (
 
 // Tenancy rule (AGENTS.md "Rules"; ~/.rness/plans/puerto/modes-and-tenancy.md):
 // Seaport is multi-tenant inside whatever the run mode, so every method of a
-// tenant domain's (dock, conversation, ship, crew, agent, hosting, schedule) Commands, Queries, CustomsCommands, CustomsQueries,
+// tenant domain's (dock, conversation, ship, crew, agent, hosting, schedule, vault) Commands, Queries, CustomsCommands, CustomsQueries,
 // Messenger, Repository, CustomsRepository, Token*, Presence, DockLocker, ApprovalLocker,
 // Owners, Relay, Kits and Gate port takes
 // `organization identity.OrganizationID` right after ctx. A method that is
 // genuinely system-wide must be listed in systemWide with the reason.
 
 // tenantDomains own tenant rows (organization_id).
-var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true, "schedule": true}
+var tenantDomains = map[string]bool{"dock": true, "conversation": true, "ship": true, "crew": true, "agent": true, "hosting": true, "schedule": true, "vault": true}
 
 // tenantPorts are the port interfaces the rule covers.
 var tenantPorts = map[string]bool{

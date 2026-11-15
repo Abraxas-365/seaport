@@ -23,6 +23,14 @@ Where you may run into limits, what to expect and what you can do about it. It d
 - **Permission requests are rejected by default.** The connector rejects a harness's tool permission requests unless the agent's profile or `-approve allow` says otherwise.
 - **The connector speaks ACP only.** Harnesses that don't speak ACP need an adapter.
 
+## Vaults
+
+- **Full-text search only.** [Vault](../guides/vaults.md) search matches words in entry names and bodies. There are no embeddings, so a search for "refund" doesn't find an entry that says "money back".
+- **Markdown text only.** An entry is text up to 64 KiB, with no files or images. A vault holds at most 2000 entries.
+- **Agents' own harness memory is separate.** rness's `~/.rness/memory` stays in each slot's state volume and isn't shared; a vault is the memory that doesn't depend on the harness.
+- **No approval of agent writes.** A `write` grant lets the agent save without a person's review, including on a dock open to strangers. The trail is provenance, versions and a secret check, not a `propose` mode.
+- **The admin API reads versions only of existing entries.** A deleted entry's versions stay stored until its vault is deleted, but to restore one you save the text again (`vault pull` snapshots are the easy way).
+
 ## Hosted agents
 
 - **Docker only, and not in `none` mode.** Hosting needs `SEAPORT_RUNTIME=docker` and `SEAPORT_AUTH=token` or `iam`, because slots sign in with tokens. With `off` (the default), builds and slots are refused. See [hosted agents](../guides/hosting/hosted-agents.md).

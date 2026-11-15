@@ -26,6 +26,13 @@ import type {
   Schedule,
   Ship,
   Turn,
+  Vault,
+  VaultAccess,
+  VaultDetail,
+  VaultEntry,
+  VaultEntrySummary,
+  VaultEntryVersion,
+  VaultHit,
 } from "./types"
 
 type Events = typeof wire.events
@@ -87,6 +94,14 @@ export type ApiMatches = AllTrue<{
   environments: Matches<Api["environments"], Paginated<Environment>>
   build: Matches<Api["build"], Build>
   hosted: Matches<Api["hosted"], Hosted>
+  vault: Matches<Api["vault"], Vault>
+  vaults: Matches<Api["vaults"], Paginated<Vault>>
+  vault_detail: Matches<Api["vault_detail"], VaultDetail>
+  vault_access: Matches<Api["vault_access"], VaultAccess[]>
+  vault_entry: Matches<Api["vault_entry"], VaultEntry>
+  vault_entries: Matches<Api["vault_entries"], Paginated<VaultEntrySummary>>
+  vault_versions: Matches<Api["vault_versions"], { versions: VaultEntryVersion[] }>
+  vault_hits: Matches<Api["vault_hits"], { hits: VaultHit[] }>
 }>
 
 describe("wire fixtures vs TypeScript types", () => {

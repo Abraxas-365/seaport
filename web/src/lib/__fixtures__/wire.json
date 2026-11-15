@@ -700,6 +700,157 @@
         "offset": 0,
         "total": 1
       }
+    },
+    "vault": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "description": "What everyone should know",
+      "entries": 1,
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "company",
+      "title": "Company",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "vault_access": [
+      {
+        "mode": "write",
+        "vault": {
+          "created_at": "2030-01-02T03:00:00Z",
+          "description": "What everyone should know",
+          "entries": 1,
+          "id": "00000000-0000-4000-8000-000000000014",
+          "name": "company",
+          "title": "Company",
+          "updated_at": "2030-01-02T03:02:00Z"
+        }
+      }
+    ],
+    "vault_detail": {
+      "agents": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "created_at": "2030-01-02T03:01:00Z",
+          "mode": "write",
+          "name": "support-bot"
+        }
+      ],
+      "created_at": "2030-01-02T03:00:00Z",
+      "description": "What everyone should know",
+      "docks": [
+        {
+          "channel": "slack",
+          "created_at": "2030-01-02T03:01:00Z",
+          "dock_id": "00000000-0000-4000-8000-000000000001",
+          "mode": "read",
+          "name": "Support"
+        }
+      ],
+      "entries": 1,
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "company",
+      "title": "Company",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "vault_entries": {
+      "items": [
+        {
+          "first_line": "Support hours",
+          "id": "00000000-0000-4000-8000-000000000015",
+          "name": "support-hours",
+          "provenance": {
+            "by": "support-bot",
+            "conversation_id": "00000000-0000-4000-8000-000000000002",
+            "dock_id": "00000000-0000-4000-8000-000000000001",
+            "kind": "agent"
+          },
+          "updated_at": "2030-01-02T03:02:00Z",
+          "version": 2
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    },
+    "vault_entry": {
+      "body": "# Support hours\n\nMonday to Friday, 9 to 18 (Madrid).",
+      "created_at": "2030-01-02T03:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000015",
+      "name": "support-hours",
+      "provenance": {
+        "by": "support-bot",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "kind": "agent"
+      },
+      "updated_at": "2030-01-02T03:02:00Z",
+      "vault_id": "00000000-0000-4000-8000-000000000014",
+      "version": 2
+    },
+    "vault_hits": {
+      "hits": [
+        {
+          "entry_id": "00000000-0000-4000-8000-000000000015",
+          "name": "support-hours",
+          "provenance": {
+            "by": "support-bot",
+            "conversation_id": "00000000-0000-4000-8000-000000000002",
+            "dock_id": "00000000-0000-4000-8000-000000000001",
+            "kind": "agent"
+          },
+          "snippet": "Monday to Friday, **9** to 18",
+          "updated_at": "2030-01-02T03:02:00Z",
+          "vault": "company",
+          "vault_id": "00000000-0000-4000-8000-000000000014",
+          "version": 2
+        }
+      ]
+    },
+    "vault_versions": {
+      "versions": [
+        {
+          "body": "# Support hours\n\nMonday to Friday, 9 to 18 (Madrid).",
+          "created_at": "2030-01-02T03:02:00Z",
+          "entry_id": "00000000-0000-4000-8000-000000000015",
+          "name": "support-hours",
+          "provenance": {
+            "by": "support-bot",
+            "conversation_id": "00000000-0000-4000-8000-000000000002",
+            "dock_id": "00000000-0000-4000-8000-000000000001",
+            "kind": "agent"
+          },
+          "version": 2
+        },
+        {
+          "body": "# Support hours\n\nMonday to Friday, 9 to 17.",
+          "created_at": "2030-01-02T03:00:00Z",
+          "entry_id": "00000000-0000-4000-8000-000000000015",
+          "name": "support-hours",
+          "provenance": {
+            "by": "admin",
+            "kind": "user"
+          },
+          "version": 1
+        }
+      ]
+    },
+    "vaults": {
+      "items": [
+        {
+          "created_at": "2030-01-02T03:00:00Z",
+          "description": "What everyone should know",
+          "entries": 1,
+          "id": "00000000-0000-4000-8000-000000000014",
+          "name": "company",
+          "title": "Company",
+          "updated_at": "2030-01-02T03:02:00Z"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
     }
   },
   "events": {
@@ -1071,6 +1222,46 @@
       ],
       "updated_at": "2030-01-02T03:01:00Z",
       "updated_by": "admin"
+    },
+    "vault.created": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "description": "What everyone should know",
+      "entries": 1,
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "company",
+      "title": "Company",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "vault.deleted": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "description": "What everyone should know",
+      "entries": 1,
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "company",
+      "title": "Company",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "vault.entry": {
+      "deleted": false,
+      "entry_id": "00000000-0000-4000-8000-000000000015",
+      "name": "support-hours",
+      "provenance": {
+        "by": "support-bot",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "kind": "agent"
+      },
+      "vault_id": "00000000-0000-4000-8000-000000000014",
+      "version": 2
+    },
+    "vault.updated": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "description": "What everyone should know",
+      "entries": 1,
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "company",
+      "title": "Company",
+      "updated_at": "2030-01-02T03:02:00Z"
     }
   },
   "home_rules": {

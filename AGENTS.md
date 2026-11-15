@@ -145,6 +145,8 @@ internal/
   schedule/           schedules (cron.go: pure cron parser; schedule.go): schedulesvc
                       (runner.go: the tick loop), schedulemodule, adapters/{schedulepg,
                       schedulehttp}
+  vault/              vaults: shared markdown memory (vault.go: modes, pure Resolve,
+                      secret scan): vaultsvc, vaultmodule, adapters/{vaultpg, vaulthttp}
   connector           agent side (`seaport connect`): WS client + ACP client,
                       applies the agent's kit (kit.go, wire.go: systemPrompt)
 iam/permissions.json  permissions + roles (prefix seaport), source of truth
@@ -167,7 +169,7 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   (`TestLayerDependencies`).
 - `ports.go` declares only interfaces (`TestPortsAreInterfaces`); services
   export no constants (`TestServicesExportNoConstants`).
-- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting`/`schedule` `Commands`,
+- Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting`/`schedule`/`vault` `Commands`,
   `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
   `Relay`, `Gate` and `crew` `Token*`, `Presence` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
@@ -226,6 +228,12 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `Reveal` only from `hostingsvc`, `OpenWorkspace` only from `hostinghttp`
   (the slot's own token) and `ModelKey` only from `hostinggateway` (it
   forwards with the key, never answers it).
+- Vault writes (`vault_architecture_test.go`, `TestVaultWritesCheckAccess`):
+  the crew's adapters (`crew/adapters/*`: the MCP tools) never call
+  `vault.Commands` `SaveEntry`/`DeleteEntry`/`Revert` (`vaultWriteCalls`);
+  agents write only through `vault.Writer` `WriteAs`/`DeleteAs`, which check
+  the agent's write grant on the vault (its own, or its dock's for the
+  conversation it works).
 - Blob store (`blob_architecture_test.go`, `TestOnlyOwnersReachBlobs`):
   only `blob` itself, its adapter, `bootstrap` (opens it), and the
   services/modules that own sealed blobs (`ship/shipsvc`,
@@ -348,7 +356,7 @@ net/http mux; only `/healthz` answers 405.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `ApprovalID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `ApprovalID`, `VaultID`, `EntryID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -777,6 +785,28 @@ net/http mux; only `/healthz` answers 405.
   evaluated is disabled. At most `SEAPORT_MAX_SCHEDULES` per organization,
   counted under `schedulepg.createLock` (`7_401_012`). Permissions
   `schedules:read|write`; events `schedule.created|updated|deleted|fired`.
+- Vaults (`vault`, migration 00037): an organization's shared memory. A vault
+  (`vaults`, unique name `^[a-z0-9][a-z0-9_-]{0,63}$`, at most
+  `SEAPORT_MAX_VAULTS` = 64 per organization, 0 = off, counted under
+  `vaultpg.createLock` `7_401_011`) holds markdown entries (`vault_entries`,
+  at most `vault.MaxEntries` per vault, body ≤ `MaxEntryBody`, full-text
+  searched with the `simple` configuration). Every save appends a
+  `vault_entry_versions` row (who: agent or user, and for an agent the
+  conversation and dock) under the vault row's `FOR UPDATE`; `SaveEntry.Base`
+  is optimistic like profiles (0 creates, else the current version, else
+  `Conflict`); deleting an entry keeps its versions until the vault goes;
+  `Revert` saves an old body as a new version. Bodies that look like
+  credentials (`text.Secrets`) are refused, naming the kind, never the match.
+  Grants: `vault_agents` (the agent, everywhere) and `vault_docks` (while the
+  agent works a conversation of that dock), each `read|write`, composite FKs;
+  `vault.Resolve` (pure) merges them, widest mode wins. The crew's MCP tools
+  (`vaults`, `memory_search|read|save|delete`, `crewmcp/vaults.go`) exist only
+  when the agent has any grant (`Queries.AnyFor`: its own or any of its
+  docks'), each takes an optional `conversation_id`, and a dock's grants apply
+  only if that conversation belongs to a dock the agent is on
+  (`Queries.AccessFor`; anything else adds nothing); results name who wrote
+  each entry. Permissions `vaults:read|write`; events `vault.created|updated|
+  deleted|entry` (`vaults:read`; never an entry body).
 - Claims are leases (`config.ClaimLease`), renewed by the hub while the
   connection lives. A claim records its connection (`ships.claimed_by` =
   the `crew_connections` session; joined ships inherit it), so whatever a
@@ -890,7 +920,10 @@ net/http mux; only `/healthz` answers 405.
   grant every permission. Services never see the mode. `none` is loopback-only: `config.Validate` refuses other listen
   addresses, and `httpx.Open` refuses foreign `Host` names (DNS rebinding)
   and requests with forwarding headers (a local proxy/tunnel would make
-  remote callers look local). Public routes (`/healthz`, `/api/v1/config`)
+  remote callers look local). A crew request in `none` mode that carries a
+  bearer anyway is resolved as that crew token's principal (its agent; a
+  wrong token is 401, never ignored); without one the caller is the local
+  owner and names the agent (`hello.as`, `X-Seaport-Agent`). Public routes (`/healthz`, `/api/v1/config`)
   reveal nothing about any organization.
 - Tenancy: every tenant row has `organization_id`; single-owner modes use
   `config.DefaultOrganization`. Child rows reference parents by

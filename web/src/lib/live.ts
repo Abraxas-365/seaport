@@ -210,6 +210,28 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
     qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
     qc.invalidateQueries({ queryKey: keys.environments, exact: true })
   },
+  // A vault changed or a grant did (vault.updated also covers grants): the
+  // detail, the list and every agent's/dock's grants refetch. Entry events
+  // carry no body: the vault's entries, entry and versions refetch.
+  "vault.created": (qc) => qc.invalidateQueries({ queryKey: keys.vaults, exact: true }),
+  "vault.updated": (qc, v) => {
+    qc.invalidateQueries({ queryKey: keys.vault(v.id), exact: true })
+    qc.invalidateQueries({ queryKey: keys.vaults, exact: true })
+    qc.invalidateQueries({ queryKey: ["agent-vaults"] })
+    qc.invalidateQueries({ queryKey: ["dock-vaults"] })
+  },
+  "vault.deleted": (qc, v) => {
+    qc.invalidateQueries({ queryKey: keys.vaults, exact: true })
+    qc.removeQueries({ queryKey: keys.vault(v.id) })
+    qc.invalidateQueries({ queryKey: ["agent-vaults"] })
+    qc.invalidateQueries({ queryKey: ["dock-vaults"] })
+  },
+  "vault.entry": (qc, ev) => {
+    qc.invalidateQueries({ queryKey: keys.vaultEntries(ev.vault_id) })
+    // Its entry count (and last change) moved.
+    qc.invalidateQueries({ queryKey: keys.vault(ev.vault_id), exact: true })
+    qc.invalidateQueries({ queryKey: keys.vaults, exact: true })
+  },
 }
 
 /** One shared stream for the whole app. */

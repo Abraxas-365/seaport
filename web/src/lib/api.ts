@@ -56,6 +56,14 @@ import type {
   Turn,
   Approval,
   TeamMember,
+  Vault,
+  VaultAccess,
+  VaultDetail,
+  VaultEntry,
+  VaultEntrySummary,
+  VaultEntryVersion,
+  VaultHit,
+  VaultMode,
 } from "./types"
 
 export class ApiError extends Error {
@@ -338,4 +346,31 @@ export const api = {
     request<SlotAccount>("GET", `${v1}/agents/${agent}/hosting/slots/${slot}/account`),
   egress: (agent: string) => request<{ denials: Denial[] }>("GET", `${v1}/agents/${agent}/hosting/egress`),
   usage: (agent: string, days = 30) => request<{ days: UsageDay[] }>("GET", `${v1}/agents/${agent}/usage${qs({ days })}`),
+
+  vaults: () => request<Paginated<Vault>>("GET", `${v1}/vaults${qs({ limit: 100 })}`),
+  vault: (id: string) => request<VaultDetail>("GET", `${v1}/vaults/${id}`),
+  createVault: (body: { name: string; title: string; description: string }) => request<Vault>("POST", `${v1}/vaults`, body),
+  updateVault: (id: string, patch: { title?: string; description?: string }) => request<Vault>("PATCH", `${v1}/vaults/${id}`, patch),
+  deleteVault: (id: string) => request<void>("DELETE", `${v1}/vaults/${id}`),
+  grantVaultAgent: (id: string, agent: string, mode: VaultMode) =>
+    request<unknown>("PUT", `${v1}/vaults/${id}/agents/${agent}`, { mode }),
+  revokeVaultAgent: (id: string, agent: string) => request<void>("DELETE", `${v1}/vaults/${id}/agents/${agent}`),
+  grantVaultDock: (id: string, dock: string, mode: VaultMode) =>
+    request<unknown>("PUT", `${v1}/vaults/${id}/docks/${dock}`, { mode }),
+  revokeVaultDock: (id: string, dock: string) => request<void>("DELETE", `${v1}/vaults/${id}/docks/${dock}`),
+  vaultEntries: (id: string, limit: number, offset: number) =>
+    request<Paginated<VaultEntrySummary>>("GET", `${v1}/vaults/${id}/entries${qs({ limit, offset })}`),
+  searchVault: (id: string, q: string) => request<{ hits: VaultHit[] | null }>("GET", `${v1}/vaults/${id}/entries${qs({ q })}`),
+  vaultEntry: (id: string, entry: string) => request<VaultEntry>("GET", `${v1}/vaults/${id}/entries/${entry}`),
+  createVaultEntry: (id: string, name: string, body: string) =>
+    request<VaultEntry>("POST", `${v1}/vaults/${id}/entries`, { name, body }),
+  saveVaultEntry: (id: string, entry: string, body: string, base: number) =>
+    request<VaultEntry>("PUT", `${v1}/vaults/${id}/entries/${entry}`, { body, base }),
+  deleteVaultEntry: (id: string, entry: string) => request<void>("DELETE", `${v1}/vaults/${id}/entries/${entry}`),
+  vaultVersions: (id: string, entry: string) =>
+    request<{ versions: VaultEntryVersion[] | null }>("GET", `${v1}/vaults/${id}/entries/${entry}/versions`),
+  revertVaultEntry: (id: string, entry: string, version: number) =>
+    request<VaultEntry>("POST", `${v1}/vaults/${id}/entries/${entry}/revert`, { version }),
+  agentVaults: (agent: string) => request<{ vaults: VaultAccess[] | null }>("GET", `${v1}/agents/${agent}/vaults`),
+  dockVaults: (dock: string) => request<{ vaults: VaultAccess[] | null }>("GET", `${v1}/docks/${dock}/vaults`),
 }

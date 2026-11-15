@@ -28,6 +28,8 @@ import type {
   ProfileInput,
   ScheduleInput,
   Ship,
+  VaultEntrySummary,
+  VaultMode,
 } from "./types"
 
 export type InboxFilter = { status?: CustomsStatus; dock_id?: string }
@@ -949,4 +951,169 @@ export function useSchedulePreview(cron: string, timezone: string) {
     staleTime: 60_000,
     retry: false,
   })
+}
+
+// Vaults: shared markdown memory, its entries and who may use it.
+
+export function useVaults() {
+  const can = useCan()
+  return useQuery({ queryKey: keys.vaults, queryFn: api.vaults, enabled: can(Perm.VaultsRead) })
+}
+
+export function useVault(id: string) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.vault(id), queryFn: () => api.vault(id), enabled: can(Perm.VaultsRead) })
+}
+
+/** The vault's entries newest first; with q, the full-text hits instead. */
+export function useVaultEntries(id: string) {
+  const can = useCan()
+  return useInfiniteQuery({
+    enabled: can(Perm.VaultsRead),
+    queryKey: keys.vaultEntries(id),
+    queryFn: ({ pageParam }) => api.vaultEntries(id, PAGE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: nextOffset<VaultEntrySummary>,
+  })
+}
+
+export function useVaultSearch(id: string, q: string) {
+  const can = useCan()
+  return useQuery({
+    enabled: can(Perm.VaultsRead) && q !== "",
+    queryKey: keys.vaultEntries(id, q),
+    queryFn: () => api.searchVault(id, q),
+  })
+}
+
+export function useVaultEntry(id: string, entry: string | undefined) {
+  const can = useCan()
+  return useQuery({
+    enabled: !!entry && can(Perm.VaultsRead),
+    queryKey: keys.vaultEntry(id, entry ?? ""),
+    queryFn: () => api.vaultEntry(id, entry!),
+  })
+}
+
+export function useVaultVersions(id: string, entry: string | undefined, enabled: boolean) {
+  const can = useCan()
+  return useQuery({
+    enabled: !!entry && enabled && can(Perm.VaultsRead),
+    queryKey: keys.vaultVersions(id, entry ?? ""),
+    queryFn: () => api.vaultVersions(id, entry!),
+  })
+}
+
+/** The vaults an agent or a dock is granted, with the mode of each. */
+export function useVaultsOf(kind: "agent" | "dock", id: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: kind === "agent" ? keys.agentVaults(id) : keys.dockVaults(id),
+    queryFn: () => (kind === "agent" ? api.agentVaults(id) : api.dockVaults(id)),
+    enabled: can(Perm.VaultsRead),
+  })
+}
+
+/** What a vault change touches: its lists and every grants view. */
+function useVaultsChanged() {
+  const qc = useQueryClient()
+  return (id?: string) => {
+    qc.invalidateQueries({ queryKey: keys.vaults, exact: true })
+    if (id) qc.invalidateQueries({ queryKey: keys.vault(id), exact: true })
+    qc.invalidateQueries({ queryKey: ["agent-vaults"] })
+    qc.invalidateQueries({ queryKey: ["dock-vaults"] })
+  }
+}
+
+export function useCreateVault() {
+  const changed = useVaultsChanged()
+  return useMutation({
+    mutationFn: (b: { name: string; title: string; description: string }) => api.createVault(b),
+    onSuccess: () => changed(),
+    onError: fail("No se pudo crear la bóveda"),
+  })
+}
+
+export function useUpdateVault(id: string) {
+  const changed = useVaultsChanged()
+  return useMutation({
+    mutationFn: (patch: { title?: string; description?: string }) => api.updateVault(id, patch),
+    onSuccess: () => changed(id),
+    onError: fail("No se pudo guardar la bóveda"),
+  })
+}
+
+export function useDeleteVault() {
+  const qc = useQueryClient()
+  const changed = useVaultsChanged()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteVault(id),
+    onSuccess: (_, id) => {
+      qc.removeQueries({ queryKey: keys.vault(id) })
+      changed()
+      toast.success("Bóveda eliminada")
+    },
+    onError: fail("No se pudo eliminar la bóveda"),
+  })
+}
+
+/** Grants and revokes of a vault to an agent or a dock (a new grant on a taken pair changes its mode). */
+export function useVaultGrants() {
+  const changed = useVaultsChanged()
+  return {
+    grant: useMutation({
+      mutationFn: ({ vault, kind, target, mode }: { vault: string; kind: "agent" | "dock"; target: string; mode: VaultMode }) =>
+        kind === "agent" ? api.grantVaultAgent(vault, target, mode) : api.grantVaultDock(vault, target, mode),
+      onSuccess: (_, { vault }) => changed(vault),
+      onError: fail("No se pudo dar acceso"),
+    }),
+    revoke: useMutation({
+      mutationFn: ({ vault, kind, target }: { vault: string; kind: "agent" | "dock"; target: string }) =>
+        kind === "agent" ? api.revokeVaultAgent(vault, target) : api.revokeVaultDock(vault, target),
+      onSuccess: (_, { vault }) => changed(vault),
+      onError: fail("No se pudo quitar el acceso"),
+    }),
+  }
+}
+
+/**
+ * Entry writes. Errors are not toasted: the editor shows them next to the
+ * text (a 409 means someone saved meanwhile, a 422 is the API's own words,
+ * e.g. the secret scan's).
+ */
+export function useVaultEntryActions(id: string) {
+  const qc = useQueryClient()
+  const changed = () => {
+    qc.invalidateQueries({ queryKey: keys.vaultEntries(id) })
+    qc.invalidateQueries({ queryKey: keys.vault(id), exact: true })
+    qc.invalidateQueries({ queryKey: keys.vaults, exact: true })
+  }
+  return {
+    create: useMutation({
+      mutationFn: ({ name, body }: { name: string; body: string }) => api.createVaultEntry(id, name, body),
+      onSuccess: changed,
+    }),
+    save: useMutation({
+      mutationFn: ({ entry, body, base }: { entry: string; body: string; base: number }) =>
+        api.saveVaultEntry(id, entry, body, base),
+      onSuccess: changed,
+    }),
+    remove: useMutation({
+      mutationFn: (entry: string) => api.deleteVaultEntry(id, entry),
+      onSuccess: (_, entry) => {
+        qc.removeQueries({ queryKey: keys.vaultEntry(id, entry) })
+        changed()
+        toast.success("Entrada eliminada")
+      },
+      onError: fail("No se pudo eliminar la entrada"),
+    }),
+    revert: useMutation({
+      mutationFn: ({ entry, version }: { entry: string; version: number }) => api.revertVaultEntry(id, entry, version),
+      onSuccess: (e, { version }) => {
+        changed()
+        toast.success(`Entrada revertida a la versión ${version}`, { description: `Ahora es la v${e.version}.` })
+      },
+      onError: fail("No se pudo revertir"),
+    }),
+  }
 }

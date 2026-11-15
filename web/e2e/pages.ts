@@ -12,6 +12,7 @@ export class Pages {
   readonly environments: EnvironmentsPage
   readonly crew: CrewPage
   readonly customs: CustomsPage
+  readonly vaults: VaultsPage
 
   constructor(readonly page: Page) {
     this.docks = new DocksPage(page)
@@ -21,6 +22,7 @@ export class Pages {
     this.environments = new EnvironmentsPage(page)
     this.crew = new CrewPage(page)
     this.customs = new CustomsPage(page)
+    this.vaults = new VaultsPage(page)
   }
 }
 
@@ -140,5 +142,42 @@ export class CustomsPage {
   async open() {
     await this.page.goto("/customs")
     await expect(this.page.getByRole("heading", { name: "Aduana" })).toBeVisible()
+  }
+}
+
+export class VaultsPage {
+  constructor(private readonly page: Page) {}
+
+  async open() {
+    await this.page.goto("/vaults")
+    await expect(this.page.getByRole("heading", { name: "Bóvedas" })).toBeVisible()
+  }
+
+  /** "Nueva bóveda": names it and creates it. */
+  async create(name: string, title: string) {
+    await this.page.getByRole("button", { name: "Nueva bóveda" }).first().click()
+    const dialog = this.page.getByRole("dialog", { name: "Nueva bóveda" })
+    await dialog.getByLabel("Nombre").fill(name)
+    await dialog.getByLabel("Título").fill(title)
+    await dialog.getByRole("button", { name: "Crear" }).click()
+  }
+
+  /** The vault's row in the list (a link to its page). */
+  card(name: string): Locator {
+    return this.page.getByRole("main").getByRole("link", { name: new RegExp(name) })
+  }
+
+  /** "Nueva entrada" on a vault's page. */
+  async createEntry(name: string, body: string) {
+    await this.page.getByRole("button", { name: "Nueva entrada" }).click()
+    const dialog = this.page.getByRole("dialog", { name: "Nueva entrada" })
+    await dialog.getByLabel("Nombre").fill(name)
+    await dialog.getByLabel("Contenido").fill(body)
+    await dialog.getByRole("button", { name: "Crear" }).click()
+  }
+
+  /** An entry in the list of the vault's page. */
+  entry(name: string): Locator {
+    return this.page.getByRole("main").getByRole("button", { name: new RegExp(`^${name}\\b`) })
   }
 }

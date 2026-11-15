@@ -83,6 +83,14 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport schedules run <id>            post its message now (its schedule is untouched)
   seaport schedules preview "<cron>" [-timezone Z]   the next times an expression runs
   seaport schedules delete <id> -yes
+  seaport vault [list]                  shared memory of the organization: markdown entries agents read and write
+  seaport vault create <name> [-title T] [-description D]
+  seaport vault show|update|delete <vault> [-title T] [-description D] [-yes]
+  seaport vault grant <vault> (-agent A|-dock ID) -mode read|write     revoke <vault> (-agent A|-dock ID)
+  seaport vault entries <vault> [-q words]     list or search      get <vault> <name>  print the text
+  seaport vault put <vault> <name> (-file F|"text")   rm <vault> <name>   versions <vault> <name>   revert <vault> <name> <version>
+  seaport vault pull <vault> <dir>      one <name>.md per entry
+  seaport vault push <vault> <dir> [-prune]   create/update entries from <name>.md files
   seaport env [list]                    environments: where hosted agents run (harness, image, repos, network)
   seaport env apply -f env.yaml         create it, or save a new version (an unchanged file makes none)
   seaport env export <env> [-version N] print it as YAML (the format of apply)
@@ -270,6 +278,8 @@ func run(ctx context.Context, args []string) error {
 		return env(ctx, rest)
 	case "schedules", "schedule", "cron":
 		return schedules(ctx, rest)
+	case "vault", "vaults":
+		return vaultCmd(ctx, rest)
 	case "agents", "agent":
 		return agents(ctx, rest)
 	case "crew":

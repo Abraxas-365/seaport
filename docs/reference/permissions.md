@@ -25,6 +25,8 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:environments:write` | Create, change and delete environments, start builds, upload homes, host and unhost agents, and start, stop and sign in slots. Read slot logs. |
 | `seaport:schedules:read` | View schedules (prompts posted into conversations at set times) and preview cron expressions. Read `schedule.*` events. |
 | `seaport:schedules:write` | Create, change, run and delete schedules. |
+| `seaport:vaults:read` | View vaults (shared memory of agents), their entries, versions and who they are granted to. Read `vault.*` events. |
+| `seaport:vaults:write` | Create, change and delete vaults, save, revert and delete their entries, and grant them to agents and docks. |
 | `seaport:browser:use` | Open a hosted agent's browser viewer to sign in to sites for it, and clear its login requests. Read `slot.browser` events. |
 
 The permissions that guard each route are in [HTTP API](http-api.md). The permission that reads each event type is in [Events](events.md#event-types).
@@ -55,13 +57,15 @@ The three roles ship in `iam/permissions.json`. `scripts/iamkit-provision.sh` cr
 | `seaport:environments:write` | yes | | |
 | `seaport:schedules:read` | yes | yes | yes |
 | `seaport:schedules:write` | yes | yes | |
+| `seaport:vaults:read` | yes | yes | yes |
+| `seaport:vaults:write` | yes | yes | |
 | `seaport:browser:use` | yes | yes | |
 
 In short:
 
-- **Admin** holds all 18 permissions.
-- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules and opens a hosted agent's browser viewer. It can't change docks, customs, agents, tokens or environments.
-- **Viewer** reads docks, conversations, history, customs, the crew, agents, environments and schedules. It can't change anything and can't see crew tokens.
+- **Admin** holds all 20 permissions.
+- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules and vaults and may open a hosted agent's browser. It can't change docks, customs, agents, tokens or environments.
+- **Viewer** reads docks, conversations, history, customs, the crew, agents, environments, schedules and vaults. It can't change anything and can't see crew tokens.
 
 You can also grant single permissions or build your own roles in IAMKit; the catalog is what counts.
 

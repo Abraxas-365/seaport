@@ -23,6 +23,8 @@ import { AgentsPage } from "@/pages/agents"
 import { AgentPage } from "@/pages/agent"
 import { EnvironmentsPage } from "@/pages/environments"
 import { EnvironmentPage } from "@/pages/environment"
+import { VaultsPage } from "@/pages/vaults"
+import { VaultPage } from "@/pages/vault"
 import { DesignSystemPage } from "@/pages/design-system"
 
 export function App() {
@@ -72,6 +74,7 @@ function Gate() {
       { to: "/docks", perm: Perm.DocksRead },
       { to: "/agents", perm: Perm.AgentsRead },
       { to: "/environments", perm: Perm.EnvironmentsRead },
+      { to: "/vaults", perm: Perm.VaultsRead },
       { to: "/crew", perm: Perm.CrewRead },
       { to: "/tokens", perm: Perm.CrewTokensRead },
     ].find((s) => can(s.perm))?.to ?? "/none"
@@ -144,6 +147,22 @@ function Gate() {
           element={
             <Guard perm={Perm.EnvironmentsRead} what="los entornos">
               <EnvironmentPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/vaults"
+          element={
+            <Guard perm={Perm.VaultsRead} what="las bóvedas">
+              <VaultsPage />
+            </Guard>
+          }
+        />
+        <Route
+          path="/vaults/:vaultId"
+          element={
+            <Guard perm={Perm.VaultsRead} what="las bóvedas">
+              <VaultPage />
             </Guard>
           }
         />

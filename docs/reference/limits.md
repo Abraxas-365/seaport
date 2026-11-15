@@ -14,6 +14,7 @@ Counted per organization. `0` turns a configurable quota off.
 | Agents connected at once (all processes) | 20 | `config.Server.MaxCrewConnections` | `SEAPORT_MAX_CREW_CONNECTIONS` |
 | Hosted-agent slots | 10 | `config.Server.MaxSlots` | `SEAPORT_MAX_SLOTS` |
 | Schedules | 100 | `config.Server.MaxSchedules` | `SEAPORT_MAX_SCHEDULES` |
+| Vaults | 64 | `config.Server.MaxVaults` | `SEAPORT_MAX_VAULTS` |
 | Outbound messages per organization per hour | 1000 | `config.Server.SendOrgPerHour` | `SEAPORT_SEND_ORG_PER_HOUR` |
 | Active crew tokens | 100 | `crew.MaxTokens` | No |
 | Agents | 100 | `agent.MaxAgents` | No |
@@ -210,6 +211,21 @@ Profile fields are described in [Agent profile](agent-profile.md).
 | Header value | 4096 characters | `agent.MaxHeaderValue` | No |
 | Secret value | 16384 bytes | `agent.MaxSecretValue` | No |
 | Model and effort values | 100 characters | `agent.MaxOptionValue` | No |
+
+## Vaults
+
+See [Vaults](../guides/vaults.md).
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Entries per vault | 2000 | `vault.MaxEntries` | No |
+| Entry text | 65536 bytes | `vault.MaxEntryBody` | No |
+| Vault and entry name | 64 characters | `vault.MaxEntryName` | No |
+| Vault description | 1000 characters | `vault.MaxDescription` | No |
+| Hits of one search | 20 | `vault.MaxSearchHits` | No |
+| Entries in the `vaults` tool's index, per vault | 200 | `vault.MaxIndex` | No |
+| Versions listed for one entry | 100 | `vault.MaxVersions` | No |
+| First line shown in a summary | 160 characters | `vault.FirstLineMax` | No |
 
 ## Environments and homes
 

@@ -224,6 +224,8 @@ seaport agents profile versions pm                                       # every
 
 A saved change reaches the agent at once: each connector finishes what it is doing, restarts its harness with the new profile and resumes its sessions.
 
+**Shared memory.** Agents also share **vaults**: markdown notes you own, granted to an agent (seen everywhere) or to a dock (seen while working that dock), `read` or `write`. They search and save through MCP tools, every save is a version with who wrote it, and `seaport vault pull|push` turns a vault into a folder you can keep in git. See [Vaults](docs/guides/vaults.md).
+
 For a complete one, see [`examples/github-reviewer`](examples/github-reviewer/): a `qa` agent that reviews pull requests when someone writes `@qa review this`, with its instructions, two skills and an optional workflow.
 
 ## Let the port host them
@@ -278,6 +280,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | Decide who reaches your agents | [Customs](docs/guides/customs.md) |
 | Route messages between agents | [Agents and routing](docs/guides/agents-and-routing.md) |
 | Write profiles: instructions, skills, MCP, secrets | [Agent profiles](docs/guides/profiles.md) |
+| Give agents a shared memory | [Vaults](docs/guides/vaults.md) |
 | Send and receive images and files | [Messages and images](docs/guides/messages-and-images.md) |
 | Host agents on the port | [Hosted agents](docs/guides/hosting/hosted-agents.md) |
 | Tune limits, quotas and storage | [Configuration](docs/reference/configuration.md) |
@@ -296,6 +299,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | `internal/conversation` | Chats and customs |
 | `internal/ship` | Messages, images and the delivery queue |
 | `internal/agent` | Agent library, routing, profiles and secrets |
+| `internal/vault` | Vaults: shared markdown memory granted to agents and docks, versions, secret scan |
 | `internal/crew` | Crew tokens, the WebSocket hub and the MCP tools |
 | `internal/hosting` | Environments, slots, image builds, model gateway, egress proxy, harness homes |
 | `internal/connector` | The agent side: WebSocket + ACP client |

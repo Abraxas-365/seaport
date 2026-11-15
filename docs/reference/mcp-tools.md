@@ -42,6 +42,11 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
 | `destinations` | only with destinations | Lists the places where the agent may open a conversation. |
 | `open` | only with destinations | Opens a conversation at a destination with a first message, optionally in the thread of another conversation. |
+| `vaults` | only with vaults | Lists the vaults the agent can use here, its mode on each and an index of their entries. |
+| `memory_search` | only with vaults | Searches the entries of the agent's vaults by words. |
+| `memory_read` | only with vaults | Reads one entry in full, with its version and who wrote it. |
+| `memory_save` | only with vaults | Creates an entry or saves a new version of one, in a vault the agent can write. |
+| `memory_delete` | only with vaults | Deletes an entry of a vault the agent can write. |
 | `login_needed` | only with the browser on | Tells the agent's people that a site in the managed browser asks for a sign-in they must do. |
 
 ### reply
@@ -244,6 +249,76 @@ Result:
 ```
 
 The request appears on the agent's page (`login_requests` of the agent, `agent.updated`); a person opens the browser viewer, signs in, and clears it. An agent keeps at most 8 open requests, one per host. Errors: `host must be a site's DNS name`, and `no agent: a login request belongs to an agent` when the call has no agent.
+
+### Vaults
+
+`vaults`, `memory_search`, `memory_read`, `memory_save` and `memory_delete` are added when the calling agent has any [vault](../guides/vaults.md) grant, its own or on any dock it works (an agent with none sees none of them). They need an agent: without one (`none` mode, no header) they fail with `vaults belong to agents: connect with an agent's token`.
+
+Which vaults a call may use is decided per call. The agent's own vaults are usable everywhere; the vaults of a dock only when the call passes a `conversation_id` of a conversation of a dock the agent is assigned to; a vault reachable both ways has the widest mode. Every tool takes this optional argument:
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `conversation_id` | string | no | The conversation the agent is working (the one in the prompt), to add its dock's vaults. |
+
+Entries come with a `source`: `{"kind","by","conversation_id","description"}`, where `description` reads like `written by agent pm from a slack conversation` or `written by a person`, so the model can weigh them.
+
+#### vaults
+
+Arguments: `conversation_id` only. Result:
+
+```json
+{
+  "vaults": [
+    {
+      "name": "company",
+      "title": "About the company",
+      "description": "Facts about customers and past decisions.",
+      "mode": "write",
+      "entries": 42,
+      "index": [
+        {
+          "name": "support-hours",
+          "first_line": "Support answers 09:00-18:00 CET.",
+          "updated_at": "2025-01-15T10:30:00Z",
+          "source": { "kind": "user", "by": "Ana", "description": "written by a person Ana" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+`index` lists the newest 200 entries of each vault; `entries` is the total. The rest is found with `memory_search`.
+
+#### memory_search
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `query` | string | yes | The words to look for. |
+| `vault` | string | no | Search only this vault (default: every vault usable here). |
+| `conversation_id` | string | no | As above. |
+
+Result: `{"hits":[{"vault","name","snippet","version","updated_at","source"}]}`, at most 20, best first. Search is full text (the `simple` configuration: no stemming, no embeddings). A `vault` that isn't usable here is `not found`.
+
+#### memory_read
+
+Arguments: `vault` and `name` (required), `conversation_id`. Result: `{"vault","name","body","version","mode","updated_at","source"}`. Errors: `no vault named <name> is available to you here` (a dock's vault needs `conversation_id`), `no entry named <name>`.
+
+#### memory_save
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `vault` | string | yes | The vault's name. The agent needs `write` on it here. |
+| `name` | string | yes | The entry's name: 1 to 64 lowercase letters, digits, `-` or `_`. |
+| `body` | string | yes | The markdown text, up to 64 KiB. |
+| `base` | integer | no | The version being edited. Omit it to create a new entry. |
+| `conversation_id` | string | no | As above. |
+
+Result: `{"vault","name","version","mode","updated_at","source"}` (no body). Errors: `409` conflict when the entry exists and `base` is missing, or when it changed since `base` (read it again and redo the edit); `not found` for `base` on an entry that doesn't exist; `403` `this vault is read-only for you here` when the mode is `read`; `400` when the text looks like a credential (it names the kind, never the match); `422 QUOTA_EXCEEDED` past 2000 entries. The entry records the agent, the conversation and the dock as its provenance.
+
+#### memory_delete
+
+Arguments: `vault` and `name` (required), `conversation_id`. Result: `{"deleted":"<name>","last_version":3}`. Needs `write` like `memory_save`. People can read the versions of an existing entry; those of a deleted one aren't served by the admin API.
 
 ## Errors
 

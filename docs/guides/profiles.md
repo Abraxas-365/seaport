@@ -61,6 +61,8 @@ Skill names are 1 to 64 lowercase letters, digits, `-` or `_`.
 
 Skills are not written to the agent's machine. The port serves them through its MCP `skill` tool. The tool's description lists every skill's name and description; the agent calls `skill` with a name to read the body when a task matches. The list is read per request from the current profile, so a changed skill applies to the next call. An agent with no skills has no `skill` tool.
 
+Skills are instructions you write. For facts that agents learn and share (about the company, a customer, a past decision), use a [vault](vaults.md): memory the agents read and write through the port, on any harness.
+
 ## MCP servers
 
 Add servers the agent should be able to use, such as an issue tracker. Each needs a name (1 to 32 lowercase letters, digits, `-` or `_`, and not `seaport`, which is the port's own server) and an `http` or `https` URL that speaks streamable HTTP. Headers may use secrets as `${NAME}`:

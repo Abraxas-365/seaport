@@ -102,6 +102,10 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, or the agent it names is gone). |
 | `schedule.deleted` | `seaport:schedules:read` | Schedule | A schedule was deleted. |
 | `schedule.fired` | `seaport:schedules:read` | Schedule | A schedule posted its message (by the runner or **run now**); `last_at` and `next_at` are current. |
+| `vault.created` | `seaport:vaults:read` | [Vault](http-api.md#vaults) | A vault was created. |
+| `vault.updated` | `seaport:vaults:read` | Vault | A vault's title or description changed, or a grant to an agent or a dock was added, changed or removed. Refetch the vault for its grants. |
+| `vault.deleted` | `seaport:vaults:read` | Vault | A vault was deleted, as it was. |
+| `vault.entry` | `seaport:vaults:read` | `{"vault_id","entry_id","name","version","deleted","provenance"}` | An entry was saved (by a person or an agent), reverted or deleted; `deleted` is true when it is gone and `version` is its last. |
 | `environment.build` | `seaport:environments:read` | Build, without its log | An environment version's build started, finished or failed. |
 
 Two more event names are part of the stream protocol itself and aren't in the permission table: `ready` and `reset`.
@@ -155,6 +159,7 @@ A delivery without tool calls stores no turn. A lease that expires (the sweeper 
 
 - `agent.updated` is not sent for the agent that stops being a dock's default when another one becomes it. Refetch the agent list when you see an agent become a default.
 - `crew.changed` is the whole list of connected agents (each with `session`, `agent_id`, `agent_name`, `name`, `concurrency`, `steer`, `profile_version`, `outdated`, `remote`, `connected_at` and `deliveries`), not a diff.
+- `vault.*` events never carry an entry's text: `vault.entry` names the entry, its version and who wrote it, and a client that needs the text reads the entry.
 - `environment.build` never carries the build log. Fetch it from the build route (see the [HTTP API](http-api.md)).
 
 For how events fit in the system, read [Architecture](../architecture.md).

@@ -84,6 +84,7 @@ import {
   Mono,
   PairingPanel,
   StatusBadge,
+  VaultsCard,
   channelLabel,
   channelReplies,
   dockLabel,
@@ -357,6 +358,8 @@ function DockDetail({ dock }: { dock: Dock }) {
         {dock.channel === "email" && <EmailDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
+
+        {can(Perm.VaultsRead) && <VaultsCard kind="dock" id={dock.id} channel={dock.channel} />}
 
         {dock.channel === "api" && can(Perm.ShipsWrite) && <ApiDockCard dock={dock} />}
 
