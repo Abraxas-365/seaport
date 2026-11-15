@@ -88,6 +88,22 @@ func withSystemPrompt(line []byte, text string) ([]byte, bool) {
 	return append(b, '\n'), true
 }
 
+// gated is a reader that hands out nothing until open is closed. The ACP
+// SDK starts its receive goroutine in the constructor, and that goroutine
+// logs through the connection's logger when the agent's output ends
+// (shutdownReceive), so a harness that exits at once makes it read the
+// logger while StartAgent is still setting it: a data race. Gating the first
+// read until SetLogger has run removes it.
+type gated struct {
+	r    io.Reader
+	open <-chan struct{}
+}
+
+func (g *gated) Read(p []byte) (int, error) {
+	<-g.open
+	return g.r.Read(p)
+}
+
 // sniffer passes the agent's output through, reading the system prompt
 // capability off the first message that carries agentCapabilities (the
 // initialize response); after it, bytes go straight through.

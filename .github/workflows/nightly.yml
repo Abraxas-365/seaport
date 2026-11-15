@@ -88,7 +88,7 @@ jobs:
           test "$(docker inspect -f '{{.Config.User}} {{index .Config.Labels "io.seaport.base"}} {{index .Config.Labels "io.seaport.harness"}}' seaport-rness:nightly)" = "1000:1000 1 rness"
           python3 images/acp-smoke.py seaport-rness:nightly rness
       - name: docker runtime tests
-        run: go test -count=1 -p 1 ./internal/hosting/adapters/hostingdocker/ ./internal/bootstrap/ -run 'Docker|Runtime|Build|Slot|Exec'
+        run: go test -count=1 ./internal/hosting/adapters/hostingdocker/ ./internal/bootstrap/ -run 'Docker|Runtime|Build|Slot|Exec'
 
   # What a release ships: binaries for every platform (the web app is built
   # by the before hook), without publishing anything.

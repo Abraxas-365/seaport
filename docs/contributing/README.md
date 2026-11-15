@@ -36,20 +36,26 @@ For UI work, `cd web && pnpm dev` serves the app with hot reload on `:5173`, pro
 go test ./...                             # unit and architecture tests; always run
 ```
 
-The integration tests need a database of their own and **wipe it**. Create it once, then point the tests at it:
+The integration tests need a Postgres and **wipe the databases they use**. Each test package works on a database of its own (`<base>_<package>`, such as `seaport_test_bootstrap`), made on demand by `internal/testdb`, so packages run in parallel and `-p 1` is not needed. There are two ways to give them a server:
 
 ```sh
+# 1. Docker running, nothing to set: the tests start one postgres:16-alpine
+#    named seaport-testdb and share it.
+go test -count=1 ./...
+
+# 2. Your own server (the dev compose one): create the base database once,
+#    then point the tests at it. The role needs CREATEDB.
 PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
-  go test -count=1 -p 1 ./...
+  go test -count=1 ./...
 ```
 
-Use `-p 1`: packages share that database. Without the variable, the integration tests skip.
+With neither, the integration tests skip (and say why); in CI they fail instead. The Docker container is left running between runs, so the next one starts at once; remove it with `docker rm -f seaport-testdb`. Databases of the other route stay on your server (`seaport_test_<package>`); drop them like any database.
 
 The iam mode end-to-end tests start a real IAMKit container (and its Postgres) through testcontainers, so they need Docker:
 
 ```sh
-SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
+SEAPORT_TEST_IAMKIT=1 go test -count=1 ./internal/bootstrap/
 ```
 
 Run the integration tests before finishing any change to a repository, the hub, the MCP tools or the HTTP API. Add the IAMKit tests for anything touching auth, permissions, sessions or tenancy.
@@ -88,7 +94,7 @@ goreleaser release --snapshot --clean     # release binaries into dist/
 
 | Job | What it checks |
 | :--- | :--- |
-| `go` | `gofmt`, `go vet`, then `go test -race -count=1 -p 1 -shuffle=on ./...` against a Postgres 16 service and with `SEAPORT_TEST_IAMKIT=1`. In CI a missing test database or IAMKit fails instead of skipping. |
+| `go` | `gofmt`, `go vet`, then `go test -race -count=1 -shuffle=on ./...` against a Postgres 16 service and with `SEAPORT_TEST_IAMKIT=1`. In CI a missing test database or IAMKit fails instead of skipping. |
 | `web` | `pnpm lint`, `pnpm test` and `pnpm build` in `web/`. |
 | `website` | `npm test`, `npm run build` and `npm run check:links` in `website/`. |
 | `docker` | builds the image and checks that `seaport version` prints the commit. |

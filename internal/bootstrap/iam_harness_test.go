@@ -6,7 +6,8 @@ package bootstrap_test
 // permission catalog (so the tests can't drift from iam/permissions.json).
 // Each test gets its own port (startPortWith), organizations and users.
 //
-// Run: SEAPORT_TEST_IAMKIT=1 plus SEAPORT_TEST_DATABASE_URL (Docker needed);
+// Run: SEAPORT_TEST_IAMKIT=1 (Docker needed; the port's database comes from
+// internal/testdb);
 // SEAPORT_TEST_IAMKIT_IMAGE overrides the image. In CI a missing
 // SEAPORT_TEST_IAMKIT fails instead of skipping.
 

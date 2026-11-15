@@ -325,7 +325,7 @@ Useful checks from the repository root:
 go build ./... && go vet ./... && go test ./...
 docker compose up -d && PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
-  go test -count=1 -p 1 ./...      # integration tests (they wipe that database)
+  go test -count=1 ./...           # integration tests (each package wipes its own seaport_test_<pkg> database)
 (cd web && pnpm lint && pnpm build)
 ```
 

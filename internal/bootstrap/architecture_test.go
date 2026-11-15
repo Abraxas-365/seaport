@@ -33,6 +33,8 @@ var foundation = map[string]bool{
 	// Postgres plumbing shared by adapters: LISTEN connections, session
 	// advisory locks
 	"pglisten": true, "pglock": true,
+	// test support: the per-package test database (only _test.go files import it)
+	"testdb": true,
 }
 
 // wiring packages (composition root) may import everything.
@@ -66,7 +68,8 @@ var vendorSDKs = map[string][]string{
 	"golang.org/x/time": {"httpx"},
 	// pgx itself (not via database/sql): opening the pool, error codes, and
 	// LISTEN connections (pglisten: event log, crew signals)
-	"github.com/jackc/pgx": {"bootstrap", "pgerr", "pglisten"},
+	// (testdb: creates each test package's database)
+	"github.com/jackc/pgx": {"bootstrap", "pgerr", "pglisten", "testdb"},
 	// the Docker Engine API (hosted agents' runtime) and its error kinds
 	"github.com/moby/moby":          {"hosting/adapters/hostingdocker"},
 	"github.com/containerd/errdefs": {"hosting/adapters/hostingdocker"},

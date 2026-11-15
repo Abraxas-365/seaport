@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/seal"
+	"github.com/Abraxas-365/seaport/internal/testdb"
 	"github.com/jmoiron/sqlx"
 	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/store"
@@ -35,13 +35,7 @@ func testDB(t *testing.T) (*sqlx.DB, *sqlstore.Container) {
 // testDBAt migrates up to version (0: all).
 func testDBAt(t *testing.T, version int64) (*sqlx.DB, *sqlstore.Container) {
 	t.Helper()
-	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
-	if url == "" {
-		if os.Getenv("CI") != "" {
-			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
-		}
-		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
-	}
+	url := testdb.URL(t)
 	ctx := context.Background()
 	db, err := bootstrap.OpenDB(ctx, url)
 	if err != nil {

@@ -17,12 +17,17 @@ go test ./...                                   # architecture tests always run
 docker compose up -d                            # dev Postgres 127.0.0.1:5449
 docker build -t seaport .                        # image (web + binary, distroless)
 # deploy/: production compose (Postgres, Seaport, Caddy TLS, backups); docs/guides/operations/deploy.md
-PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once
+go test -count=1 ./...                          # + integration tests when Docker is up: no variable needed,
+                                                # internal/testdb starts one postgres:16-alpine ("seaport-testdb",
+                                                # left running; docker rm -f seaport-testdb) shared by every package
+PGPASSWORD=seaport createdb -h 127.0.0.1 -p 5449 -U seaport seaport_test   # once, to use the dev Postgres instead
 SEAPORT_TEST_DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport_test?sslmode=disable" \
-  go test -count=1 -p 1 ./...                   # + integration tests (they wipe that database)
-SEAPORT_TEST_IAMKIT=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -p 1 ./internal/bootstrap/
+  go test -count=1 ./...                        # integration tests on that server; each package wipes its own
+                                                # database `seaport_test_<pkg>` (created on demand, role needs
+                                                # CREATEDB), so packages run in parallel: no -p 1
+SEAPORT_TEST_IAMKIT=1 go test -count=1 ./internal/bootstrap/
                                                 # + iam mode e2e against a real IAMKit container (Docker)
-go test -count=1 -p 1 ./cmd/seaport              # admin CLI e2e (cli_e2e_test.go: real port, `run` with captured stdout/stderr/stdin); needs the test DB
+go test -count=1 ./cmd/seaport                  # admin CLI e2e (cli_e2e_test.go: real port, `run` with captured stdout/stderr/stdin); needs the test DB
 go test -count=1 -run TestConnector ./internal/bootstrap/   # connector e2e: the real connector.Run against the real
                                                 # port (needs the test database) and a test-only ACP echo agent
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
@@ -34,8 +39,8 @@ scripts/upgrade-smoke.sh OLD_IMAGE NEW_IMAGE    # seed on one image, start the n
 
 CI (`.github/workflows/ci.yml`): gofmt, vet, a cross-compile of every
 goos/goarch goreleaser releases (platform-specific code goes in
-`_unix.go`/`_windows.go` files, as `connector/browser_*.go`), `go test -race` against a
-Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
+`_unix.go`/`_windows.go` files, as `connector/browser_*.go`), `go test -race` (no `-p 1`: each
+package has its own database) against a Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
 IAMKit + its Postgres; with `CI` set, a missing test database or IAMKit
 fails instead of skipping), a `fuzz` job (every native `FuzzX` target, 10 s
 each, 4 parallel shards; `scripts/fuzz.sh` finds them with `go test -list`, so a new
@@ -91,6 +96,7 @@ cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx seal   foundation (import no domain)
   pglisten pglock     Postgres LISTEN connections / session advisory locks (foundation)
+  testdb              test support: a Postgres database per test package (foundation; _test.go only)
   blob (+adapters/    object storage port (immutable Put, tenant keys, image
    gocloudblob)       sniffing) + its gocloud adapter: file://, s3://, mem:// (foundation)
   permission          permission catalog generated from iam/permissions.json (foundation)
@@ -227,6 +233,13 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `POST /datadog/webhook/{dock}`, which carry their own proof: a sealed state, the App's HMAC, a GitHub
   Actions OIDC token for this port or the dock's secret as
   HMAC/bearer/token).
+- Test database (`testdb_architecture_test.go`, `TestOnlyTestsImportTestdb`):
+  every DB-backed test package asks `testdb.URL(t)` for its own database
+  (`<base>_<pkg>`; the server is `SEAPORT_TEST_DATABASE_URL`'s, else a Docker
+  `seaport-testdb` container, else skip/fail in CI) and keeps wiping and
+  migrating it per test; only `_test.go` files import `internal/testdb`, and
+  nobody else names the variable, so packages never share a database and
+  `go test` needs no `-p 1`. A new DB-backed package just calls `testdb.URL`.
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
   constant of a domain root (`conversation`, `agent`) has a Spanish entry
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since

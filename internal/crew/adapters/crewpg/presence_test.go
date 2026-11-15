@@ -2,7 +2,6 @@ package crewpg_test
 
 import (
 	"context"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew/adapters/crewpg"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/testdb"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -20,13 +20,7 @@ var org = identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001
 
 func freshDB(t *testing.T) *sqlx.DB {
 	t.Helper()
-	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
-	if url == "" {
-		if os.Getenv("CI") != "" {
-			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
-		}
-		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
-	}
+	url := testdb.URL(t)
 	ctx := context.Background()
 	db, err := bootstrap.OpenDB(ctx, url)
 	if err != nil {
