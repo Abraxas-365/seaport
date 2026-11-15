@@ -22,6 +22,11 @@ import (
 //   - Every route registered on a mux with a "/api/v1/" pattern wraps its
 //     handler in httpx.Require / httpx.RequireFunc(permission.X, ...),
 //     unless it is listed in unguardedRoutes with the reason.
+//   - The one other guard is httpx.Delegated(h): the handler acts with the
+//     caller's own IAMKit token and IAMKit enforces the iam:org:* permissions
+//     (tenant administration, not part of Seaport's catalog). It is accepted
+//     only under auth/adapters/authhttp (delegatedHome); anywhere else the
+//     route needs a Seaport permission.
 //   - Every other route (outside "/api/v1/", outside the connector, which
 //     serves its own machine) is behind auth.Admin / auth.Crew, or listed
 //     in publicRoutes with the reason: it then checks its own proof.
@@ -43,6 +48,10 @@ var unguardedRoutes = map[string]string{
 	"GET /api/v1/session/login": "public: starts the IAMKit sign-in (iam mode)",
 	"GET /api/v1/events":        "filters every event by its read permission (EventPermissions)",
 }
+
+// delegatedHome is the only place httpx.Delegated may guard a route: the
+// adapter that calls IAMKit as the signed-in person.
+const delegatedHome = "auth/adapters/authhttp/"
 
 // publicRoutes: route outside /api/v1/ → why no Seaport credential guards it.
 var publicRoutes = map[string]string{
@@ -162,6 +171,13 @@ func routeViolations(files []goFile) []string {
 			if _, ok := unguardedRoutes[rc.pattern]; ok {
 				return true
 			}
+			if delegated(rc.handler) {
+				if !strings.HasPrefix(f.rel, delegatedHome) {
+					out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
+						" uses httpx.Delegated outside "+delegatedHome+"; wrap it in httpx.Require/RequireFunc(permission.X, …)")
+				}
+				return true
+			}
 			if !guarded(rc.handler) {
 				out = append(out, f.fset.Position(rc.call.Pos()).String()+": route "+rc.pattern+
 					" must be wrapped in httpx.Require/RequireFunc(permission.X, …) (or listed in unguardedRoutes with the reason)")
@@ -170,6 +186,27 @@ func routeViolations(files []goFile) []string {
 		})
 	}
 	sort.Strings(out)
+	return out
+}
+
+// delegated: httpx.Delegated(h).
+func delegated(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	return ok && len(call.Args) == 1 && isSelector(call.Fun, "httpx", "Delegated")
+}
+
+// delegatedRoutes lists the "/api/v1/" routes guarded by httpx.Delegated
+// (the e2e tests check each one).
+func delegatedRoutes(files []goFile) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range files {
+		ast.Inspect(f.file, func(n ast.Node) bool {
+			if rc, ok := routeCallOf(n); ok && delegated(rc.handler) {
+				out[bracePattern(rc.pattern)] = true
+			}
+			return true
+		})
+	}
 	return out
 }
 
@@ -395,10 +432,19 @@ func register(app *fiber.App) {
 	app.Get("/crew/sprockets", limit, auth.Crew(), g.crew)
 	_ = c.Get("X-Request-ID")
 }`,
+		"auth/adapters/authhttp/members.go": `package authhttp
+func (m *Members) Register(r httpx.Router) {
+	r.Get("/api/v1/members", httpx.Delegated(m.list))
+}`,
+		"gadget/adapters/gadgethttp/delegated.go": `package gadgethttp
+func register(app *fiber.App) {
+	app.Get("/api/v1/gizmos", httpx.Delegated(g.list))
+}`,
 		"permission/permission_gen.go": `package permission
 const DocksRead = "seaport:docks:read"`,
 	})
 	expectViolations(t, routeViolations(files),
+		"route GET /api/v1/gizmos uses httpx.Delegated outside auth/adapters/authhttp/",
 		"route POST /api/v1/widgets must be wrapped",
 		"route DELETE /api/v1/widgets/{id} must be wrapped",
 		"route POST /api/v1/gadgets must be wrapped",

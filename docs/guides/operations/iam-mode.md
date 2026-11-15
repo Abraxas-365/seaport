@@ -35,6 +35,7 @@ Set these on the port (in `deploy/.env` when you use the compose file):
 | `IAMKIT_PUBLIC_URL` | How browsers reach IAMKit, when that differs. For example when IAMKit is on the same Docker network. |
 | `IAMKIT_ISSUER` | The issuer of IAMKit's tokens, when it differs from the public URL. |
 | `IAMKIT_ENVIRONMENT_ID`, `IAMKIT_APPLICATION_ID`, `IAMKIT_RESOURCE_ID`, `IAMKIT_AUDIENCE`, `IAMKIT_WEB_CLIENT_ID` | Identify Seaport inside IAMKit. The provisioning script writes them. |
+| `IAMKIT_SERVER_CLIENT_ID`, `IAMKIT_SERVER_CLIENT_SECRET`, `IAMKIT_MEMBERS_ROLE_ID` | Optional. Turn on the **Miembros y accesos** page ([Members](../members.md)). The script writes them; the secret is the only one it writes. |
 
 `SEAPORT_ADMIN_TOKEN` must be unset: the port refuses to start with both. These URLs and `SEAPORT_PUBLIC_URL` must be `https`, except on localhost. `IAMKIT_URL` may also be plain `http` on a private network, such as `http://iamkit:8080`. `IAMKIT_AUDIENCE` is fixed when the resource is created. See [Configuration](../../reference/configuration.md) for each one.
 
@@ -56,9 +57,10 @@ It creates, when missing:
 - the application, and the Seaport resource with its permission catalog and roles,
 - the browser OAuth client, with the redirect `APP_URL/auth/callback`,
 - organization API keys, enabled and allowed every Seaport permission,
-- a first user, `OWNER_EMAIL`, made an `Admin` (when you give it).
+- for the [members page](../members.md): IAMKit's IAM resource linked to the application, the role **Seaport member admins** on it, a confidential OAuth client allowed to exchange a person's token, and Seaport granted to the organization (`MEMBERS=0` skips all of this),
+- a first user, `OWNER_EMAIL`, made an `Admin` and a member admin (when you give it).
 
-It writes `.iamkit.env` with `SEAPORT_AUTH`, `SEAPORT_PUBLIC_URL` and the `IAMKIT_*` settings. Keep that file out of git. Seaport reads only those settings from it; the role and organization ids are for you.
+It writes `.iamkit.env` with `SEAPORT_AUTH`, `SEAPORT_PUBLIC_URL` and the `IAMKIT_*` settings. Seaport reads only those settings from it; the role and organization ids are for you. The file now holds one secret, `IAMKIT_SERVER_CLIENT_SECRET` (mode `0600`): keep it out of git. IAMKit shows that secret once, so a later run reuses the one in the file, and makes a new client only when the file has none.
 
 Then start the port with them and a secret key:
 
@@ -74,9 +76,22 @@ With the compose file, paste the `.iamkit.env` values into `deploy/.env` instead
 
 Removing a permission from the manifest keeps it in IAMKit until you pass `--prune`, because IAMKit strips a removed permission from every role and key at once. Add the new permission, deploy, and only then run the script with `--prune`.
 
+## Manage people from Seaport
+
+With `IAMKIT_SERVER_CLIENT_ID` set, administrators invite people, change their role and issue API keys from the web app, without opening IAMKit's admin. Seaport does it **as the person who clicks**: its server client exchanges that person's token for one on IAMKit's IAM resource, and IAMKit's own `iam:org:*` permissions decide what is allowed. Seaport never holds a standing admin credential for your organizations. See [Members](../members.md) for the page.
+
+What a person needs:
+
+- **Seaport granted to the organization.** The script grants it to `ORG_NAME`'s organization. **Every new organization needs the same grant** (IAMKit's admin: the resource's grants, or `PUT /resource-grants`), or its people can't sign in to Seaport.
+- **The role "Seaport member admins"** for whoever should manage people. The script gives it to `OWNER_EMAIL`; after that, an administrator hands it out with **Puede gestionar miembros** on the page. Without the role a person still sees Seaport, but not the members page, and the routes answer `403`.
+
+Seaport only changes its own roles (`Admin`, `Operator`, `Viewer`) and "Seaport member admins". Any other IAMKit role a member holds is shown and left alone. It refuses to change your own access or remove you, and it refuses to give a Seaport role or key permissions you don't hold yourself.
+
+Without `IAMKIT_SERVER_CLIENT_ID` nothing changes: the routes don't exist and the page isn't offered.
+
 ## Sign in
 
-Open the port's URL. Seaport sends you to IAMKit, you sign in, and IAMKit sends you back with a session. The first sign-in is the `OWNER_EMAIL` you provisioned. Add other people to the organization in IAMKit and give them one of the roles.
+Open the port's URL. Seaport sends you to IAMKit, you sign in, and IAMKit sends you back with a session. The first sign-in is the `OWNER_EMAIL` you provisioned. Invite other people from the [members page](../members.md), or add them to the organization in IAMKit and give them one of the roles.
 
 For the CLI, create an organization API key in IAMKit's admin with the permissions you want, then:
 
@@ -92,7 +107,7 @@ Seaport asks IAMKit about people's tokens and API keys on every request:
 
 - **Removing someone, suspending them, or revoking an API key** works on their next request.
 - **Revoking a crew token** closes that agent's connections at once.
-- **A role change** reaches a person at their next access token: at the session's next refresh, at most the access token's lifetime (15 minutes by IAMKit's default), or when they sign in again.
+- **A role change** reaches a person at their next access token: at the session's next refresh, at most the access token's lifetime (15 minutes by IAMKit's default), or when they sign in again. That includes the page's role changes and "can manage members".
 - **An access token used as a bearer** keeps the permissions it was issued with until it expires.
 - **An API key** keeps the permissions it was created with. A role change never touches it: revoke it and create another.
 

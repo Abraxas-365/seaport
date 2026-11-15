@@ -24,6 +24,7 @@ import type {
   GroupMode,
   Harness,
   InboxItem,
+  MemberAccess,
   Paginated,
   ProfileInput,
   ScheduleInput,
@@ -440,6 +441,124 @@ export function useRevokeCrewToken() {
       toast.success("Token revocado", { description: "Sus agentes conectados se desconectaron." })
     },
     onError: fail("No se pudo revocar el token"),
+  })
+}
+
+// Tenant administration (iam mode, optional). These routes are guarded by
+// IAMKit's own iam:org:* permissions, which are not in Seaport's catalog, so
+// `useCan` can't know them: the page and the nav item follow what
+// GET /api/v1/members/access answers instead (all false: nothing to show).
+
+const noMemberAccess: MemberAccess = {
+  members: false,
+  invite: false,
+  assign_roles: false,
+  remove: false,
+  keys_read: false,
+  keys_write: false,
+}
+
+export function useMemberAccess(): MemberAccess & { pending: boolean } {
+  const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
+  const session = useSession()
+  const access = useQuery({
+    queryKey: keys.memberAccess,
+    queryFn: api.memberAccess,
+    // Only iam mode has the routes (elsewhere they answer 404).
+    enabled: config.data?.auth === "iam" && !!session.data?.authenticated,
+    staleTime: 60_000,
+    retry: false,
+  })
+  return { ...(access.data ?? noMemberAccess), pending: config.isPending || (access.isPending && access.fetchStatus !== "idle") }
+}
+
+export function useMembers(enabled = true) {
+  return useQuery({ queryKey: keys.members, queryFn: api.members, enabled })
+}
+
+export function useSetMemberAccess() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, role, manages_members }: { id: string; role: string; manages_members: boolean }) =>
+      api.setMemberAccess(id, role, manages_members),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members })
+      toast.success("Acceso actualizado", { description: "Les llega en su próximo inicio de sesión." })
+    },
+    onError: fail("No se pudo cambiar el acceso"),
+  })
+}
+
+export function useRemoveMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.removeMember(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members })
+      toast.success("Miembro eliminado", { description: "Su sesión deja de funcionar al instante." })
+    },
+    onError: fail("No se pudo eliminar al miembro"),
+  })
+}
+
+export function useMemberInvitations(enabled = true) {
+  return useQuery({ queryKey: keys.memberInvitations, queryFn: api.memberInvitations, enabled })
+}
+
+export function useInvite() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ email, role, manages_members }: { email: string; role: string; manages_members: boolean }) =>
+      api.invite(email, role, manages_members),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.memberInvitations }),
+    onError: fail("No se pudo invitar"),
+  })
+}
+
+export function useResendInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.resendInvitation(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.memberInvitations }),
+    onError: fail("No se pudo reenviar la invitación"),
+  })
+}
+
+export function useRevokeInvitation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeInvitation(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.memberInvitations })
+      toast.success("Invitación revocada")
+    },
+    onError: fail("No se pudo revocar la invitación"),
+  })
+}
+
+export function useMemberApiKeys(enabled = true) {
+  return useQuery({ queryKey: keys.memberApiKeys, queryFn: api.memberApiKeys, enabled })
+}
+
+export function useCreateMemberApiKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, role, expires_in }: { name: string; role: string; expires_in?: string }) =>
+      api.createMemberApiKey(name, role, expires_in),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.memberApiKeys }),
+    onError: fail("No se pudo crear la llave"),
+  })
+}
+
+export function useRevokeMemberApiKey() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeMemberApiKey(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.memberApiKeys })
+      toast.success("Llave revocada", { description: "Deja de funcionar al instante." })
+    },
+    onError: fail("No se pudo revocar la llave"),
   })
 }
 

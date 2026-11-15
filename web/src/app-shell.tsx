@@ -1,9 +1,9 @@
 import { NavLink, Outlet, useLocation } from "react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, Server, ShieldCheck, Sun, Users, Vault } from "lucide-react"
+import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, Server, ShieldCheck, Sun, UserCog, Users, Vault } from "lucide-react"
 
 import { api } from "@/lib/api"
-import { useCan, useCrew, useDocks, useSession } from "@/lib/hooks"
+import { useCan, useCrew, useDocks, useMemberAccess, useSession } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { keys } from "@/lib/query"
 import { useTheme } from "@/components/theme-provider"
@@ -63,6 +63,7 @@ function AppSidebar() {
   const can = useCan()
   const docks = useDocks()
   const crew = useCrew()
+  const members = useMemberAccess()
   const pending = useQuery({
     queryKey: keys.inbox({ status: "pending", limit: 1 }),
     queryFn: () => api.inbox({ status: "pending", limit: 1 }),
@@ -72,7 +73,7 @@ function AppSidebar() {
   const working = agents.reduce((n, a) => n + a.deliveries.length, 0)
 
   // Only what the user's role can open (the server enforces it anyway).
-  const nav = [
+  const allowed = [
     { to: "/inbox", label: "Bandeja", icon: Inbox, badge: undefined as number | undefined, perm: Perm.ConversationsRead },
     { to: "/customs", label: "Aduana", icon: ShieldCheck, badge: pending.data?.page.total || undefined, perm: Perm.CustomsRead },
     { to: "/docks", label: "Muelles", icon: Anchor, badge: undefined, perm: Perm.DocksRead },
@@ -82,6 +83,11 @@ function AppSidebar() {
     { to: "/crew", label: "Tripulación", icon: Bot, badge: agents.length || undefined, perm: Perm.CrewRead },
     { to: "/tokens", label: "Tokens de agentes", icon: KeyRound, badge: undefined, perm: Perm.CrewTokensRead },
   ].filter((item) => can(item.perm))
+  // "Miembros y accesos" follows the API's own answer, not `can`: IAMKit's
+  // iam:org:* permissions are not in Seaport's catalog (see useMemberAccess).
+  const nav = members.members
+    ? [...allowed, { to: "/members", label: "Miembros y accesos", icon: UserCog, badge: undefined }]
+    : allowed
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">

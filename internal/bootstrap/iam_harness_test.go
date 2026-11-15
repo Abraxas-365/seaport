@@ -58,7 +58,16 @@ var iam struct {
 	base, key                          string
 	environment, application, resource string
 	roles                              map[string]string // manifest role name → IAMKit role id
+	// Tenant administration (scripts/iamkit-provision.sh step 7): IAMKit's
+	// own IAM resource linked to the application, the "Seaport member
+	// admins" companion role on it, and the confidential token-exchange
+	// client Seaport's server uses.
+	iamResource, membersRole         string
+	serverClient, serverClientSecret string
 }
+
+// membersRoleName is the companion role's name (iam.roles keeps its id too).
+const membersRoleName = "Seaport member admins"
 
 var iamSeq atomic.Int64
 
@@ -202,6 +211,9 @@ func provisionIAMKit() error {
 		}
 		iam.roles[r.Name] = id.ID
 	}
+	if err := provisionMembers(); err != nil {
+		return err
+	}
 	// The CLI authenticates with organization API keys (ik_key_…).
 	if err := management("PUT", envPath("/api-key-policy"), map[string]any{"user_keys": false, "organization_keys": true,
 		"max_per_user": 10, "max_per_organization": iamOrgKeyLimit}, nil); err != nil {
@@ -209,6 +221,52 @@ func provisionIAMKit() error {
 	}
 	return management("PUT", envPath("/resources/"+iam.resource+"/api-key-permissions"),
 		map[string]any{"user": []string{}, "organization": permission.All}, nil)
+}
+
+// provisionMembers is step 7 of scripts/iamkit-provision.sh: link IAMKit's
+// IAM resource, create the companion role (organization administration
+// without settings, domains, SSO or audit) and the exchange client.
+func provisionMembers() error {
+	var resources struct {
+		Items []struct {
+			ID     string `json:"id"`
+			Prefix string `json:"prefix"`
+		} `json:"items"`
+	}
+	if err := management("GET", envPath("/resources"), nil, &resources); err != nil {
+		return err
+	}
+	for _, r := range resources.Items {
+		if r.Prefix == "iam" {
+			iam.iamResource = r.ID
+		}
+	}
+	if iam.iamResource == "" {
+		return fmt.Errorf("IAMKit has no IAM resource (prefix iam)")
+	}
+	if err := management("POST", envPath("/application-resources"),
+		map[string]any{"application_id": iam.application, "resource_id": iam.iamResource}, nil); err != nil {
+		return err
+	}
+	var id struct {
+		ID string `json:"id"`
+	}
+	if err := management("POST", envPath("/roles"), map[string]any{"name": membersRoleName, "resource_id": iam.iamResource,
+		"permissions": []string{"iam:org:read", "iam:org:members:read", "iam:org:members:write", "iam:org:roles:read", "iam:org:roles:assign",
+			"iam:org:invitations:write", "iam:org:api-keys:read", "iam:org:api-keys:write"}}, &id); err != nil {
+		return err
+	}
+	iam.membersRole = id.ID
+	var client struct {
+		ID     string `json:"client_id"`
+		Secret string `json:"client_secret"`
+	}
+	if err := management("POST", envPath("/oauth-clients"), map[string]any{"application_id": iam.application, "resource_id": iam.iamResource,
+		"public": false, "redirect_uris": []string{}, "grant_types": []string{"urn:ietf:params:oauth:grant-type:token-exchange"}}, &client); err != nil {
+		return err
+	}
+	iam.serverClient, iam.serverClientSecret = client.ID, client.Secret
+	return nil
 }
 
 func envPath(p string) string { return "/environments/" + iam.environment + p }
@@ -339,8 +397,15 @@ func newOrgAPIKey(t *testing.T, org iamOrg, perms ...string) iamAPIKey {
 }
 
 // startIAMPort starts a port in iam mode with its own public OAuth client
-// (hosted login, redirect to this port's /auth/callback).
+// (hosted login, redirect to this port's /auth/callback). Tenant
+// administration is on (the exchange client and the companion role).
 func startIAMPort(t *testing.T) (*port, config.Server) {
+	t.Helper()
+	return startIAMPortWith(t, true)
+}
+
+// startIAMPortWith is startIAMPort with tenant administration on or off.
+func startIAMPortWith(t *testing.T, members bool) (*port, config.Server) {
 	t.Helper()
 	needIAMKit(t)
 	var cfg config.Server
@@ -357,6 +422,9 @@ func startIAMPort(t *testing.T) (*port, config.Server) {
 		c.Auth, c.AdminToken, c.SecretKey = config.AuthIAM, "", iamSecretKey
 		c.IAMKit = config.IAMKit{URL: iam.base, PublicURL: iam.base, Issuer: iamIssuer, Environment: iam.environment,
 			Application: iam.application, Resource: iam.resource, Audience: iamAudience, WebClientID: client.ID}
+		if members {
+			c.IAMKit.ServerClientID, c.IAMKit.ServerClientSecret, c.IAMKit.MembersRoleID = iam.serverClient, iam.serverClientSecret, iam.membersRole
+		}
 		if err := c.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -486,4 +554,54 @@ func (p page) field(name string) string {
 		return f[0]
 	}
 	return ""
+}
+
+// grantSeaport grants the Seaport resource to org (what the provisioning
+// script does for a new organization): without the grant its administrators
+// can't assign Seaport's roles or issue its API keys.
+func grantSeaport(t *testing.T, org iamOrg) {
+	t.Helper()
+	mustManage(t, "PUT", envPath("/resource-grants"), map[string]any{"resource_id": iam.resource, "organization_id": org.ID, "role_ids": nil}, nil)
+}
+
+// newIAMMemberAdmin is a member of org with a Seaport role and, when
+// manages is set, the companion role that opens the members page.
+func newIAMMemberAdmin(t *testing.T, org iamOrg, role string, manages bool) iamUser {
+	t.Helper()
+	u := newIAMRoleUser(t, org, role)
+	if manages {
+		mustManage(t, "POST", envPath("/role-assignments"), map[string]any{"organization_id": org.ID, "user_id": u.ID, "role_id": iam.membersRole}, nil)
+	}
+	return u
+}
+
+// acceptInvitation accepts the invitation behind link as a new person
+// (IAMKit's identity API, as the invitee's browser would) and returns them.
+func acceptInvitation(t *testing.T, link, email string) iamUser {
+	t.Helper()
+	u, err := url.Parse(link)
+	if err != nil || u.Query().Get("token") == "" {
+		t.Fatalf("invitation link %q has no token", link)
+	}
+	name := "Invitada " + email
+	raw, _ := json.Marshal(map[string]string{"token": u.Query().Get("token"), "name": name, "password": iamPassword})
+	req, _ := http.NewRequest(http.MethodPost, iam.base+"/identity/v1/invitations/accept", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", freshIP())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusCreated {
+		t.Fatalf("accept invitation: %d %s", res.StatusCode, body)
+	}
+	var out struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil || out.UserID == "" {
+		t.Fatalf("accept invitation: %v %s", err, body)
+	}
+	return iamUser{ID: out.UserID, Name: name, Email: email}
 }

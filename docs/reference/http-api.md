@@ -630,6 +630,24 @@ Shared memory of agents: see [Vaults](../guides/vaults.md). `{id}` is a vault's 
 
 An entry: `id`, `vault_id`, `name`, `body`, `version` (1 at creation, +1 per save), `provenance` and `created_at`, `updated_at`. `provenance` is `{"kind":"user"|"agent","by","conversation_id","dock_id"}`: the person's name, or the agent's name with the conversation and dock it was working. A vault: `id`, `name`, `title`, `description`, `entries`, `created_at`, `updated_at`.
 
+### Members and access (iam mode, optional)
+
+Only with `SEAPORT_AUTH=iam` and `IAMKIT_SERVER_CLIENT_ID` set (otherwise these routes don't exist: `404`). They have no Seaport permission: any signed-in person may call them, and Seaport acts **as that person** against IAMKit, which enforces its own `iam:org:*` permissions (a refusal is `403` with IAMKit's message). The caller must be a person, by browser session or bearer access token; an API key is `403` (`sign in as a person`). See [IAM mode](../guides/operations/iam-mode.md) and [Members](../guides/members.md).
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/members/access` | IAMKit `iam:org:*` | What the caller may do: `{"members","invite","assign_roles","remove","keys_read","keys_write"}`, all `false` when they can't administer the organization (never an error). |
+| `GET` | `/members` | `iam:org:members:read` + `iam:org:roles:read` | Members: `id`, `name`, `email`, `active`, `you`, `role` (`Admin`, `Operator`, `Viewer` or empty), `manages_members` and `other_roles` (IAMKit roles Seaport leaves alone). |
+| `PUT` | `/members/{user}` | `iam:org:roles:assign` | Body `{"role","manages_members"}`. Replaces the member's Seaport role (and the "Seaport member admins" companion role); other roles are untouched. The member. `422` for your own access, `403` for a role you don't hold. Takes effect at the person's next token refresh (15 minutes at most). |
+| `DELETE` | `/members/{user}` | `iam:org:members:write` | `204`. Immediate. `422` for yourself. |
+| `GET` | `/members/invitations` | `iam:org:invitations:write` + `iam:org:roles:assign` | Pending invitations: `id`, `email`, `status`, `role`, `manages_members`, `expires_at`, `link`. |
+| `POST` | `/members/invitations` | `iam:org:invitations:write` + `iam:org:roles:assign` | Body `{"email","role","manages_members"}`. `201` with the invitation; `link` is the accept URL (IAMKit may not email it). `403` for a role you don't hold. |
+| `POST` | `/members/invitations/{id}/resend` | `iam:org:invitations:write` | A new token and `link`. |
+| `DELETE` | `/members/invitations/{id}` | `iam:org:invitations:write` | `204`. |
+| `GET` | `/members/api-keys` | `iam:org:api-keys:read` | The organization's API keys on Seaport: `id`, `name`, `role`, `permissions`, `hint` (last characters), `state` (`active`, `revoked`, `expired`), `expires_at`, `last_used_at`, `created_at`. |
+| `POST` | `/members/api-keys` | `iam:org:api-keys:write` | Body `{"name","role","expires_in"}` (`expires_in`: `1h`–`8760h` or `never`). `201` with the key and its `value`, **shown once**. `403` for a role you don't hold. |
+| `DELETE` | `/members/api-keys/{id}` | `iam:org:api-keys:write` | `204`. `404` for a key that isn't an organization key of Seaport. |
+
 ### Events
 
 | Method | Path | Permission | Response |

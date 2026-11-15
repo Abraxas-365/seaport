@@ -654,6 +654,38 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 			t.Errorf("org B %s %s: %d, want 404", r.method, r.path, code)
 		}
 	}
+	// The members routes (guarded by httpx.Delegated, not a Seaport
+	// permission) are listed too: each one is in the code, and an
+	// administrator of Seaport without the companion role, or an API key,
+	// gets 403 on every one (the access probe answers 200, all false).
+	membersListed := map[string]bool{}
+	for _, r := range membersRoutes("nobody", "inv", "key") {
+		membersListed[r.pattern] = true
+	}
+	inCodeDelegated := delegatedRoutes(sources(t, false))
+	for pattern := range membersListed {
+		if !inCodeDelegated[pattern] {
+			t.Errorf("%s is not a delegated route in the code", pattern)
+		}
+	}
+	for pattern := range inCodeDelegated {
+		if !membersListed[pattern] {
+			t.Errorf("delegated route %s is missing from membersRoutes", pattern)
+		}
+	}
+	keyA := newOrgAPIKey(t, orgA, permission.All...)
+	for _, r := range membersRoutes("nobody", "inv", "key") {
+		for who, token := range map[string]string{"an administrator without the companion role": adminA, "an API key": keyA.Value} {
+			code := p.call(r.method, r.path, token, r.body, nil)
+			want := http.StatusForbidden
+			if r.pattern == "GET /api/v1/members/access" && token == adminA {
+				want = http.StatusOK
+			}
+			if code != want {
+				t.Errorf("%s: %s %s: %d, want %d", who, r.method, r.path, code, want)
+			}
+		}
+	}
 	var docks query.Paginated[dock.Dock]
 	if code := p.call(http.MethodGet, "/api/v1/docks", adminB, nil, &docks); code != http.StatusOK || len(docks.Items) != 0 {
 		t.Fatalf("org B docks: %d %+v", code, docks.Items)

@@ -74,6 +74,25 @@ func Require(perm string, h fiber.Handler) fiber.Handler {
 	}
 }
 
+// Delegated runs h for any admin principal of an organization, without a
+// Seaport permission: the handler acts with the caller's own IAMKit token,
+// and IAMKit enforces the iam:org:* permissions that decide what the caller
+// may do (its 403 reaches the client). Only the adapters that call IAMKit as
+// the caller use it (TestAdminRoutesRequirePermission allows it under
+// auth/adapters/authhttp); everything else names a Seaport permission.
+func Delegated(h fiber.Handler) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		p, ok := PrincipalFrom(c.Context())
+		switch {
+		case !ok:
+			return errx.Unauthorized("missing or invalid token")
+		case p.Role != RoleAdmin:
+			return errx.Forbidden("administrators only")
+		}
+		return h(c)
+	}
+}
+
 // RequireFunc is Require for a handler function.
 func RequireFunc(perm string, h func(fiber.Ctx) error) fiber.Handler { return Require(perm, h) }
 

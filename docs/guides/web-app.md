@@ -31,6 +31,7 @@ A sidebar lists the sections you may use. A section you have no permission for i
 | **Entornos** (Environments) | where [hosted agents](hosting/hosted-agents.md) run |
 | **Tripulación** (Crew) | connected agents. A badge counts them. |
 | **Tokens de agentes** (Agent tokens) | credentials agents connect with |
+| **Miembros** (Members) | `iam` mode with the members settings, for organization administrators: [people, invitations and API keys](members.md) |
 
 The footer shows the [live indicator](#live-updates) and a summary of the crew: "N en curso" (agents working), "N libre(s)" (idle) or "sin agentes". The account menu shows who you are (**Administrador**, **Local**, or your name and organization in `iam` mode), the version, the theme, and **Cerrar sesión** (sign out). In `iam` mode it also has **Cambiar de organización** (switch organization). On a phone, the sidebar opens from a header button.
 
@@ -153,4 +154,4 @@ Open the account menu and choose **Tema**: **Claro** (light), **Oscuro** (dark) 
 
 The app shows only what you may do. Sections you can't read are missing from the sidebar, and a page you can't open shows a "no access" message. Buttons that need a write permission (allow, block, create, revoke, reply) are hidden or disabled.
 
-In `none` and `token` modes the person using the app can do everything. In `iam` mode, roles come from IAMKit: **Admin**, **Operator** and **Viewer**. See [Permissions](../reference/permissions.md) and [Operations: IAM mode](operations/iam-mode.md).
+In `none` and `token` modes the person using the app can do everything. In `iam` mode, roles come from IAMKit: **Admin**, **Operator** and **Viewer**. Administrators can manage them from **Miembros y accesos**: see [Members](members.md). See also [Permissions](../reference/permissions.md) and [Operations: IAM mode](operations/iam-mode.md).

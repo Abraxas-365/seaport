@@ -19,6 +19,7 @@ import { DocksPage } from "@/pages/docks"
 import { DockPage } from "@/pages/dock"
 import { CrewPage } from "@/pages/crew"
 import { TokensPage } from "@/pages/tokens"
+import { MembersPage } from "@/pages/members"
 import { AgentsPage } from "@/pages/agents"
 import { AgentPage } from "@/pages/agent"
 import { EnvironmentsPage } from "@/pages/environments"
@@ -182,6 +183,7 @@ function Gate() {
             </Guard>
           }
         />
+        <Route path="/members" element={<MembersPage />} />
         <Route path="/none" element={<NoAccess what="ninguna sección de Seaport" className="h-full" />} />
         <Route path="*" element={<Navigate to={home} replace />} />
       </Route>

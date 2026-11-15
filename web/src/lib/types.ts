@@ -482,6 +482,68 @@ export interface IssuedCrewToken extends CrewToken {
   value: string
 }
 
+/** Seaport role names a person or key can hold (iam mode). */
+export type MemberRole = "Admin" | "Operator" | "Viewer"
+
+/**
+ * What the signed-in person may do on the members page (GET
+ * /api/v1/members/access), read from IAMKit's iam:org:* permissions, which
+ * are not part of Seaport's catalog. All false: no page.
+ */
+export interface MemberAccess {
+  members: boolean
+  invite: boolean
+  assign_roles: boolean
+  remove: boolean
+  keys_read: boolean
+  keys_write: boolean
+}
+
+/** A person of the organization with their access to Seaport. */
+export interface Member {
+  id: string
+  name: string
+  email: string
+  active: boolean
+  /** The signed-in person (their own access can't be changed here). */
+  you: boolean
+  /** The Seaport role they hold; "" when none. */
+  role: string
+  /** They hold the companion role that opens the members page. */
+  manages_members: boolean
+  /** IAMKit roles Seaport shows but never changes. */
+  other_roles: string[]
+}
+
+export interface Invitation {
+  id: string
+  email: string
+  status: string
+  role: string
+  manages_members: boolean
+  expires_at: string | null
+  /** The accept link, only when IAMKit didn't email it (created or resent just now). */
+  link?: string
+}
+
+/** An organization API key for the CLI. */
+export interface MemberApiKey {
+  id: string
+  name: string
+  role: string
+  permissions: string[]
+  /** Start of the value, to tell keys apart. */
+  hint: string
+  state: string
+  expires_at: string | null
+  last_used_at: string | null
+  created_at: string
+}
+
+export interface IssuedMemberApiKey extends MemberApiKey {
+  value: string
+}
+
 export interface Health {
   status: string
   version: string

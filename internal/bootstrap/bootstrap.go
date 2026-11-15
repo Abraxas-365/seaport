@@ -339,9 +339,14 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		}
 	}
 
+	admin := []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register, vaults.Register}
+	if signIn != nil {
+		// Tenant administration (iam mode, only with IAMKIT_SERVER_CLIENT_ID).
+		admin = append(admin, signIn.Register)
+	}
 	srv := newServer(cfg.Auth != config.AuthNone, func(app *fiber.App) {
 		mountNative(app, nativeRoutes{cfg: cfg, auth: auth, limit: httpx.NewRateLimit(cfg.APIRate, cfg.APIBurst),
-			admin:  []func(httpx.Router){convs.Register, ships.Register, docks.Register, agents.Register, crew.Register, hosted.Register, schedules.Register, vaults.Register},
+			admin:  admin,
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
 			askApproval: crew.AskApproval(), approval: crew.Approval(),

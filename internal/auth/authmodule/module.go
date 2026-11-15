@@ -24,6 +24,17 @@ const SweepInterval = time.Hour
 type Module struct {
 	Authenticator httpx.Authenticator
 	Service       auth.Commands
+	// Members is the tenant administration API (nil unless
+	// IAMKIT_SERVER_CLIENT_ID is set).
+	Members *authhttp.Members
+}
+
+// Register mounts the members routes on r; without the feature there are
+// none (404).
+func (m *Module) Register(r httpx.Router) {
+	if m.Members != nil {
+		m.Members.Register(r)
+	}
 }
 
 func New(db *sqlx.DB, cfg config.Server, crew httpx.CrewResolver) (*Module, error) {
@@ -37,7 +48,14 @@ func New(db *sqlx.DB, cfg config.Server, crew httpx.CrewResolver) (*Module, erro
 		ClientID: k.WebClientID, RedirectURI: cfg.PublicURL + authhttp.CallbackPath, AfterLogout: cfg.PublicURL + "/"})
 	svc := authsvc.New(provider, authpg.New(db, sealer), config.SessionTTL)
 	secure := strings.HasPrefix(cfg.PublicURL, "https://")
-	return &Module{Service: svc, Authenticator: authhttp.New(svc, sealer, crew, secure, config.SessionTTL)}, nil
+	mod := &Module{Service: svc, Authenticator: authhttp.New(svc, sealer, crew, secure, config.SessionTTL)}
+	if cfg.MembersEnabled() {
+		dir := authiam.NewDirectory(authiam.DirectoryConfig{URL: k.URL, Environment: k.Environment, Resource: k.Resource,
+			ServerClientID: k.ServerClientID, ServerClientSecret: k.ServerClientSecret})
+		members := authsvc.NewMembers(dir, k.MembersRoleID)
+		mod.Members = authhttp.NewMembers(svc, members, members)
+	}
+	return mod, nil
 }
 
 // Sweep deletes expired sessions every SweepInterval until ctx ends.

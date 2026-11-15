@@ -38,6 +38,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Give a hosted agent a browser and sign in to sites for it | [Browser](guides/hosting/browser.md) |
 | Deploy on a server with HTTPS | [Deploy on one server](guides/operations/deploy.md) |
 | Serve many organizations | [IAM mode](guides/operations/iam-mode.md) |
+| Invite people and issue API keys from the web app (IAM mode) | [Members and access](guides/members.md) |
 | Run several Seaport processes | [Several processes](guides/operations/several-processes.md) |
 | Back up, restore and upgrade | [Backups and upgrades](guides/operations/backups-and-upgrades.md) |
 | Look up a setting, command, route or limit | [Configuration](reference/configuration.md), [CLI](reference/cli.md), [HTTP API](reference/http-api.md), [Limits](reference/limits.md) |

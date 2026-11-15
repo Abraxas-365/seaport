@@ -84,6 +84,9 @@ prefer `getByRole`/`getByLabel`/`getByText`, add a `data-testid` only where none
 is stable, never `waitForTimeout` (wait with `expect(...)`), and seed through the
 API what the UI can't create. Specs and page objects (`web/e2e/pages.ts`) are in
 English; `pnpm e2e:types` typechecks them (`tsc -b`, ESLint and Vitest skip `web/e2e`).
+`TestUIMembers` (`ui_members_test.go`, `web/e2e/tests/members.spec.ts`) is the iam-mode
+spec: the port against a real IAMKit (`SEAPORT_TEST_IAMKIT=1` too, Docker), people signed
+in by the Go side and handed to Playwright as storage state; the token-mode run skips it.
 
 ## Web conventions
 
@@ -119,7 +122,10 @@ internal/
                       maps each event type to the permission that reads it)
   auth/               iam mode: browser sessions, bearer checks; authsvc, authmodule,
                       adapters/{authiam (IAMKit SDK), authpg (web_sessions), authhttp
-                      (httpx.Authenticator + OAuth routes)}
+                      (httpx.Authenticator + OAuth routes)}; members.go: tenant
+                      administration (members, invitations, org API keys) as the
+                      signed-in person: authsvc/members.go, authiam/directory.go
+                      (token exchange + org admin API), authhttp/members.go
   dock/               channels: domain, ports.go, docksvc, dockmodule,
                       adapters/{dockpg, dockhttp, dockwa (whatsmeow), dockapi,
                       dockgithub (GitHub App: stdlib REST, no SDK),
@@ -171,11 +177,13 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   export no constants (`TestServicesExportNoConstants`).
 - Tenancy: every method of the `dock`/`conversation`/`ship`/`agent`/`hosting`/`schedule`/`vault` `Commands`,
   `Queries`, `Kits`, `Messenger`, `Repository`, `Customs*`, `DockLocker`, `Owners`,
-  `Relay`, `Gate` and `crew` `Token*`, `Presence` ports takes
+  `Relay`, `Gate`, `crew` `Token*`, `Presence` and `auth` `MemberCommands`,
+  `MemberQueries`, `Directory` ports takes
   `(ctx, organization identity.OrganizationID, ...)`; the few system-wide
   ones (gateway callbacks, lease sweep, crew token sign-in, crew presence
-  touch/reap/signals, dock lease renew/claim/release-all and relay serve)
-  are listed with their reason in `systemWide` (`TestTenantFirstPorts`).
+  touch/reap/signals, dock lease renew/claim/release-all and relay serve, and
+  `auth.Commands`' session-keyed sign-in) are listed with their reason in
+  `systemWide` (`TestTenantFirstPorts`).
 - Exported service methods call `Validate()` on their inputs
   (`TestServicesValidateInputs`).
 - In `docksvc`, gateway `Link`/`Unlink`/`Restore`/`Send`/`Open` are called
@@ -219,7 +227,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   somewhere (`TestEveryPermissionIsChecked`); every event type maps to a
   permission in `bootstrap.EventPermissions` (`TestEveryEventTypeHasAPermission`);
   the generated Go/TS files match `iam/permissions.json` (drift tests in
-  `internal/permission/gen`).
+  `internal/permission/gen`). The one other guard is `httpx.Delegated(h)`
+  (an admin principal, no Seaport permission): the handler calls IAMKit as the
+  caller, who needs IAMKit's own `iam:org:*` permissions, which aren't in
+  Seaport's catalog. It is accepted only under `auth/adapters/authhttp`
+  (`delegatedHome`); a route anywhere else with it fails the rule.
 - Agent secrets (`secret_architecture_test.go`, `TestOnlyTheCrewEquips`):
   `Equip` (the kit, secrets resolved) is called only by `crewhttp`
   (`GET /crew/profile`, the agent's own crew credential) and `OpenSecrets`
@@ -944,6 +956,28 @@ net/http mux; only `/healthz` answers 405.
   advisory lock (`tokenLock`). Every crew token belongs to one agent
   (`agent_id`, required): there are no generic or static crew tokens (the
   server ignores `SEAPORT_CREW_TOKEN`, with a warning).
+- Members page (iam mode, optional; `auth/members.go`, `authsvc/members.go`,
+  `authiam/directory.go`, `authhttp/members.go`, routes `/api/v1/members*`):
+  on only with `IAMKIT_SERVER_CLIENT_ID` (+ `_SECRET`; `IAMKIT_MEMBERS_ROLE_ID`
+  = the companion role "Seaport member admins"), otherwise the routes aren't
+  registered (404) and the web hides the page. Seaport holds **no admin
+  credential**: every call acts as the person (`auth.Actor`: cookie session →
+  its access token, bearer user token → itself, API key → 403 "sign in as a
+  person"). The `Directory` adapter exchanges that token (RFC 8693, the
+  confidential server client) for one on IAMKit's IAM resource, cached per
+  sha256(token) until 30 s before it expires ("can't administer" =
+  `invalid_target`, cached 60 s), and calls `apiclient…OrgAdmin(org)`; IAMKit
+  enforces `iam:org:*`, the page's `access` comes from the exchanged JWT's
+  permissions (so the web uses `access.*`, not `useCan`). The service touches
+  only Seaport's roles (`permission.Roles`) and the companion role; any other
+  role is read-only (`other_roles`). It refuses changing or removing yourself,
+  and granting a Seaport role or key permissions the caller lacks. Role
+  changes reach a person at their next token refresh (≤ 15 min); removal and
+  suspension are immediate. Keys listed are the organization keys on
+  Seaport's resource only. `scripts/iamkit-provision.sh` links the IAM
+  resource, creates the role and client and grants Seaport to the first
+  organization; a new organization needs the grant and its first admin the
+  companion role (docs/guides/operations/iam-mode.md).
 - Admin auth (token mode): bearer token, or the `seaport_session` cookie
   (stateless HMAC of the expiry keyed by the admin token) from
   `POST /api/v1/session`; cookie writes go through
