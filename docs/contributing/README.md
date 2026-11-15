@@ -58,8 +58,18 @@ Run the integration tests before finishing any change to a repository, the hub, 
 
 ```sh
 cd web
-pnpm lint && pnpm build                   # eslint, then tsc + vite into web/dist
+pnpm lint && pnpm test && pnpm build      # eslint, vitest, then tsc + vite into web/dist
 ```
+
+`pnpm test` runs [Vitest](https://vitest.dev) (jsdom, Testing Library) over `src/**/*.test.{ts,tsx}`: the live-event handlers against seeded query caches (`src/lib/live.test.ts`), the pure helpers (`cron`, `format`, `archive`, `homes`, `env-yaml`) and a few components and pages. Shared helpers live in `src/test/`.
+
+The web tests don't hand-write server payloads. `internal/bootstrap/wire_fixtures_test.go` marshals one sample of every live event and of the main API responses with the real Go JSON tags into `web/src/lib/__fixtures__/wire.json`; the web tests load it, and `src/lib/wire.test.ts` makes `tsc` check that the fixtures match the types in `src/lib/types.ts`. When you change an event payload or an API shape, regenerate and commit the file, then fix whatever the web tests and `pnpm build` report:
+
+```sh
+SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run TestWireFixtures
+```
+
+Without the variable the test fails if the committed file is out of date. A new event type needs a handler in `web/src/lib/live.ts` (or an entry with its reason in `unhandledEvents` in `web_architecture_test.go`).
 
 ### Generated code and releases
 
@@ -78,8 +88,9 @@ goreleaser release --snapshot --clean     # release binaries into dist/
 
 | Job | What it checks |
 | :--- | :--- |
-| `go` | `gofmt`, `go vet`, then `go test -race -count=1 -p 1 ./...` against a Postgres 16 service and with `SEAPORT_TEST_IAMKIT=1`. In CI a missing test database or IAMKit fails instead of skipping. |
-| `web` | `pnpm lint` and `pnpm build` in `web/`. |
+| `go` | `gofmt`, `go vet`, then `go test -race -count=1 -p 1 -shuffle=on ./...` against a Postgres 16 service and with `SEAPORT_TEST_IAMKIT=1`. In CI a missing test database or IAMKit fails instead of skipping. |
+| `web` | `pnpm lint`, `pnpm test` and `pnpm build` in `web/`. |
+| `website` | `npm test`, `npm run build` and `npm run check:links` in `website/`. |
 | `docker` | builds the image and checks that `seaport version` prints the commit. |
 | `images` | builds the hosted agents' base images (`rness`, `claude-code`), checks their contract (uid 1000, `io.seaport.*` labels, entrypoint, harness binary) and an ACP smoke test. |
 
@@ -104,7 +115,7 @@ Pushing a `v*` tag runs [`release.yml`](../../.github/workflows/release.yml), wh
 ## Before you open a pull request
 
 1. Explain the user-visible behavior and the boundary it touches.
-2. Run `gofmt`, `go vet ./...` and `go test ./...`; run the integration tests (and the IAMKit tests when relevant) for the areas listed above; run `pnpm lint && pnpm build` for web changes.
+2. Run `gofmt`, `go vet ./...` and `go test ./...`; run the integration tests (and the IAMKit tests when relevant) for the areas listed above; run `pnpm lint && pnpm test && pnpm build` for web changes.
 3. Update the docs and [AGENTS.md](../../AGENTS.md) when behavior or an invariant changes (see [documentation](documentation.md)), and [known limitations](../project/known-limitations.md) when a limit appears or disappears.
 4. Say which checks you ran and what remains unverified.
 

@@ -40,8 +40,9 @@ jobs:
         run: test -z "$(gofmt -l . | tee /dev/stderr)"
       - run: go vet ./...
       # Architecture tests always run; the integration tests use the service
-      # database (they wipe it, hence -p 1) and IAMKit containers.
-      - run: go test -race -count=1 -p 1 ./...
+      # database (they wipe it, hence -p 1) and IAMKit containers. Shuffled so
+      # a test that depends on another's leftovers fails here, not by luck.
+      - run: go test -race -count=1 -p 1 -shuffle=on ./...
 
   web:
     runs-on: ubuntu-latest
@@ -60,7 +61,29 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - run: pnpm test
       - run: pnpm build
+
+  # The documentation site (website/, the same steps as website.yml minus the
+  # publish): its tests, the build and the rendered links, on every PR.
+  website:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    env:
+      SITE_BASE: /seaport
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:links
 
   docker:
     runs-on: ubuntu-latest
