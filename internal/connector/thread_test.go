@@ -100,3 +100,30 @@ func TestPromptNamesReadOnlyDoors(t *testing.T) {
 		t.Fatalf("steer = %s", steer)
 	}
 }
+
+// A door whose dock keeps its history from agents is named so, and the
+// prompt never points to `history` there; a withheld file is named with
+// why it isn't shown.
+func TestPromptRespectsDockTools(t *testing.T) {
+	wa := conversation.Conversation{ID: identity.NewConversationID(), Channel: dock.ChannelWhatsApp, Kind: conversation.KindDirect, Title: "Ana", ExternalID: "+34600000001"}
+	slack := conversation.Conversation{ID: identity.NewConversationID(), Channel: dock.ChannelSlack, Kind: conversation.KindGroup, Title: "#dev", ExternalID: "C1/1.0"}
+	when := time.Date(2026, 1, 2, 15, 4, 0, 0, time.UTC)
+	file := ship.Attachment{ID: identity.NewAttachmentID(), Kind: ship.AttachmentImage, Name: "foto.png", Withheld: true}
+	d := ship.Delivery{Conversation: wa, NoHistory: []identity.ConversationID{wa.ID},
+		Ships: []ship.Ship{{Conversation: wa.ID, SenderName: "Ana", Text: "mira", SentAt: when, Attachments: []ship.Attachment{file}}}}
+	got := Prompt(d, false, nil)
+	for _, want := range []string{"Earlier messages of this conversation are not available", "[image foto.png attached; its dock's owner keeps files from agents]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "`history`") {
+		t.Fatalf("the prompt points to history on a door without it:\n%s", got)
+	}
+	// From another door of the thread, the door is marked.
+	d2 := ship.Delivery{Conversation: slack, Thread: []conversation.Conversation{wa, slack}, NoHistory: d.NoHistory,
+		Ships: []ship.Ship{{Conversation: slack.ID, SenderName: "bob", Text: "hola", SentAt: when}}}
+	if got := Prompt(d2, false, nil); !strings.Contains(got, "(direct, no history)") || !strings.Contains(got, "`history`") {
+		t.Fatalf("other door not marked:\n%s", got)
+	}
+}

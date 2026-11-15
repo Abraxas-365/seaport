@@ -41,6 +41,25 @@ A team can have **one default** agent. Assigning an agent with `-default` makes 
 
 An agent can be on several docks, and a dock can have several agents. Unassigning an agent holds the messages that were waiting for it on that dock.
 
+## What agents may read
+
+An agent always gets the messages routed to it. Besides those, each dock has three switches, all on by default, for what the agents working it may read there:
+
+| Switch | On | Off |
+| :--- | :--- | :--- |
+| `history` | The agent reads earlier messages with the `history` tool. | `history` on the dock's conversations is refused, and a `thread: true` read from another door skips them. The prompt tells the agent earlier messages are not available. |
+| `conversations` | The dock's chats appear in the `conversations` tool. | They are left out of that list. |
+| `attachments` | The agent sees the images and files people send (in its prompt and with the `attachment` tool). | The agent is told a file came, with its kind and name, but can't open it. |
+
+The switches bind agents only: people read everything their role allows in the web app and the admin API. They apply wherever an agent reads (MCP tools, crew routes, the connector's prompt). When every dock of an agent has a switch off, its MCP server doesn't offer that tool at all.
+
+```sh
+seaport dock tools <dock-id>                         # shows them
+seaport dock tools <dock-id> history off attachments off
+```
+
+In the web app, use the **Herramientas del agente** card on the dock's page. A WhatsApp dock on a personal number is a typical case: the agent answers the chats it is handed without reading the rest.
+
 ## Routing
 
 Seaport picks the agent **once, when a message arrives** (after [customs](customs.md) lets it in). It goes through the dock's team in this order and stops at the first match:

@@ -20,6 +20,7 @@ import {
   Star,
   Trash2,
   Users,
+  Wrench,
   X,
   Zap,
 } from "lucide-react"
@@ -52,7 +53,15 @@ import {
 } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
-import type { DatadogMirror, Destination, Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
+import type {
+  DatadogMirror,
+  Destination,
+  Dock,
+  DockTools,
+  EmailEndpoint,
+  WebhookPreview,
+  WebhookTemplate,
+} from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -383,6 +392,8 @@ function DockDetail({ dock }: { dock: Dock }) {
 
         {channelReplies[dock.channel] && dock.replies && <DestinationsCard dock={dock} write={write} />}
 
+        <AgentToolsCard dock={dock} write={write} />
+
         <Card>
           <CardHeader>
             <CardTitle>Detalles</CardTitle>
@@ -443,6 +454,68 @@ function RepliesCard({ dock, write }: { dock: Dock; write: boolean }) {
             onCheckedChange={(on) => replies.mutate({ id: dock.id, replies: on })}
           />
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The dock's agent tool switches (dock.Tools), in the order the card shows them. */
+const agentTools: { key: keyof DockTools; label: string; on: string; off: string }[] = [
+  {
+    key: "history",
+    label: "Leer el historial",
+    on: "El agente puede leer mensajes anteriores de las conversaciones de este muelle.",
+    off: "El agente solo ve los mensajes que le llegan; no puede leer los anteriores.",
+  },
+  {
+    key: "conversations",
+    label: "Listar las conversaciones",
+    on: "El agente puede ver la lista de chats de este muelle.",
+    off: "Los chats de este muelle no aparecen en la lista del agente.",
+  },
+  {
+    key: "attachments",
+    label: "Abrir archivos",
+    on: "El agente ve las imágenes y archivos que la gente envía aquí.",
+    off: "El agente sabe que llegó un archivo, pero no puede abrirlo.",
+  },
+]
+
+/**
+ * What agents may read on this dock besides the messages they are handed.
+ * People keep reading everything their role allows; only agents are bound.
+ */
+function AgentToolsCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const { tools } = useDockAction()
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Wrench className="size-4" /> Herramientas del agente
+        </CardTitle>
+        <CardDescription>
+          Qué puede consultar el agente en este muelle además de los mensajes que recibe. Solo limita a los
+          agentes; las personas siguen viendo todo según su rol.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {agentTools.map((t) => {
+          const on = dock.tools[t.key]
+          return (
+            <div key={t.key} className="flex items-center justify-between gap-4 rounded-md border px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{t.label}</div>
+                <div className="text-xs text-muted-foreground">{on ? t.on : t.off}</div>
+              </div>
+              <Switch
+                aria-label={t.label}
+                checked={on}
+                disabled={!write || tools.isPending}
+                onCheckedChange={(v) => tools.mutate({ id: dock.id, tools: { [t.key]: v } })}
+              />
+            </div>
+          )
+        })}
       </CardContent>
     </Card>
   )

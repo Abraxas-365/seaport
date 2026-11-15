@@ -91,6 +91,7 @@ A batch of queued messages of one conversation, handed to the agent.
     "conversation": { "id": "…", "thread_id": "…", "dock_id": "…", "channel": "whatsapp", "kind": "direct", "title": "Ana", "…": "…" },
     "thread": [ { "id": "…", "channel": "whatsapp", "…": "…" }, { "id": "…", "channel": "slack", "…": "…" } ],
     "read_only": [ "…" ],
+    "no_history": [ "…" ],
     "ships": [
       { "id": "…", "conversation_id": "…", "direction": "in", "sender_name": "Ana", "text": "Hi", "status": "claimed", "…": "…" }
     ]
@@ -101,8 +102,9 @@ A batch of queued messages of one conversation, handed to the agent.
 - `delivery.id` is the claim token. Send it back in `ack` and `release`.
 - `delivery.conversation` is the [conversation](http-api.md#conversations) object of the oldest ship. `delivery.thread` lists every conversation [linked](../guides/linked-conversations.md) with it (absent for a thread of one); the ships of one delivery may come from several of them, each naming its `conversation_id`, the one to reply on.
 - `delivery.read_only` names the conversations of the delivery (the main one, or doors of the thread) whose dock takes no replies: its channel only triggers, or the owner turned [replies off](../guides/linked-conversations.md#docks-that-only-trigger). A `reply` there is refused; the agent answers on another door or stays silent. Absent when every door takes replies.
+- `delivery.no_history` names the doors whose dock keeps earlier messages from agents (its [`history` switch](../guides/agents-and-routing.md#what-agents-may-read) is off): `history` there is refused. Absent when every door allows it.
 - `delivery.approvals` lists the agent's [approvals](../guides/approvals.md) that matter to this delivery: the ones still pending in its conversations and the ones answered by (or waking the agent with) its ships. Each has `id`, `text`, `options`, `status`, `answer` and `answered_by`. Absent when there are none. A wake-up for an answer, cancellation or expiry arrives as an inbound ship from `system:approval` (`@agent [approval <id>] answered "X" by Y. Question: …`).
-- `delivery.ships` are the ships (messages) of the batch, with their `attachments` metadata. Fetch an image from `GET /crew/attachments/{id}` or with the MCP `attachment` tool.
+- `delivery.ships` are the ships (messages) of the batch, with their `attachments` metadata. Fetch an image from `GET /crew/attachments/{id}` or with the MCP `attachment` tool. An attachment with `withheld: true` belongs to a dock whose `attachments` switch is off: it is named, but fetching it answers `403`.
 - A thread (a conversation and the ones linked with it) has at most one delivery in flight, so the agent never gets two prompts for one matter at once.
 - A delivery is a lease. The port renews it while the connection lives, and puts the ships back in the queue when the connection ends or the lease runs out.
 

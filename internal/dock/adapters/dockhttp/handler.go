@@ -34,6 +34,9 @@ type updateRequest struct {
 	Name *string `json:"name"`
 	// Replies: whether the crew may answer on this dock (nil: unchanged).
 	Replies *bool `json:"replies"`
+	// Tools: switches of what agents may read on this dock (each nil:
+	// unchanged).
+	Tools *dock.ToolsPatch `json:"tools"`
 }
 
 func (h *Handler) update(c fiber.Ctx) error {
@@ -49,7 +52,7 @@ func (h *Handler) update(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	d, err := h.commands.Update(c.Context(), org, id, dock.Update{Name: req.Name, Replies: req.Replies})
+	d, err := h.commands.Update(c.Context(), org, id, dock.Update{Name: req.Name, Replies: req.Replies, Tools: req.Tools})
 	if err != nil {
 		return err
 	}

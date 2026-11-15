@@ -489,10 +489,12 @@ const inboxItems: InboxItem[] = [
   },
 ]
 
+const allTools = { history: true, conversations: true, attachments: true }
+
 const sampleDocks: Dock[] = [
-  { id: "d1", channel: "whatsapp", name: "WhatsApp oficina", address: "51999123436:12@s.whatsapp.net", status: "linked", replies: true, created_at: ago(60 * 24 * 30), updated_at: ago(5) },
-  { id: "d2", channel: "whatsapp", name: "Soporte", address: "", status: "linking", replies: true, created_at: ago(2), updated_at: ago(1) },
-  { id: "d3", channel: "api", name: "Formulario web", address: "", status: "linked", replies: true, created_at: ago(60 * 24 * 3), updated_at: ago(60) },
+  { id: "d1", channel: "whatsapp", name: "WhatsApp oficina", address: "51999123436:12@s.whatsapp.net", status: "linked", replies: true, tools: allTools, created_at: ago(60 * 24 * 30), updated_at: ago(5) },
+  { id: "d2", channel: "whatsapp", name: "Soporte", address: "", status: "linking", replies: true, tools: allTools, created_at: ago(2), updated_at: ago(1) },
+  { id: "d3", channel: "api", name: "Formulario web", address: "", status: "linked", replies: true, tools: allTools, created_at: ago(60 * 24 * 3), updated_at: ago(60) },
 ]
 
 const sampleAgent: Agent = {

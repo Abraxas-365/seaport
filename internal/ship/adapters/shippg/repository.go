@@ -570,14 +570,23 @@ func (r *Repository) ThreadHistory(ctx context.Context, org identity.Organizatio
 	return r.history(ctx, org, conv, inThread("$1", "$2"), page)
 }
 
-func (r *Repository) history(ctx context.Context, org identity.OrganizationID, conv identity.ConversationID, scope string, page query.Pagination) (query.Paginated[ship.Ship], error) {
+func (r *Repository) HistoryOf(ctx context.Context, org identity.OrganizationID, convs []identity.ConversationID, page query.Pagination) (query.Paginated[ship.Ship], error) {
+	ids := make([]string, len(convs))
+	for i, id := range convs {
+		ids[i] = id.String()
+	}
+	return r.history(ctx, org, ids, "conversation_id = ANY($2::uuid[])", page)
+}
+
+// history lists ships of scope (a condition on $1 = org, $2 = arg).
+func (r *Repository) history(ctx context.Context, org identity.OrganizationID, arg any, scope string, page query.Pagination) (query.Paginated[ship.Ship], error) {
 	out := query.Paginated[ship.Ship]{Items: []ship.Ship{}, Page: query.Page{Limit: page.Limit, Offset: page.Offset}}
 	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*) FROM ships
-		WHERE organization_id = $1 AND `+scope, org, conv); err != nil {
+		WHERE organization_id = $1 AND `+scope, org, arg); err != nil {
 		return out, pgerr.Map(err, "count ships")
 	}
 	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM ships WHERE organization_id = $1 AND `+scope+`
-		ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT $3 OFFSET $4`, org, conv, page.Limit, page.Offset)
+		ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT $3 OFFSET $4`, org, arg, page.Limit, page.Offset)
 	if err != nil {
 		return out, pgerr.Map(err, "list ships")
 	}

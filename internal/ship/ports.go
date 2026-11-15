@@ -94,8 +94,13 @@ type Queries interface {
 	// Inbox lists conversations (newest activity first) with previews.
 	Inbox(ctx context.Context, organization identity.OrganizationID, filter conversation.Filter, page query.Pagination) (query.Paginated[InboxItem], error)
 	// OpenAttachment reads an attachment's bytes (unsealed); an agent
-	// reads only those of conversations on its docks (else NotFound).
+	// reads only those of conversations on its docks (else NotFound) whose
+	// dock lets agents open files (else Forbidden).
 	OpenAttachment(ctx context.Context, organization identity.OrganizationID, input OpenAttachment) (AttachmentFile, error)
+	// AgentHistory is History (or ThreadHistory) as an agent reads it:
+	// scoped to its docks and their tool switches (see AgentHistory). The
+	// crew's adapters read history only through it.
+	AgentHistory(ctx context.Context, organization identity.OrganizationID, input AgentHistory) (query.Paginated[Ship], error)
 	// Turns lists a conversation's turn summaries, newest first.
 	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)
 	// FindApproval reads one approval (NotFound in another organization).
@@ -179,6 +184,8 @@ type Repository interface {
 	ReleaseExpired(ctx context.Context, before time.Time) (map[identity.OrganizationID]int, error)
 	History(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	ThreadHistory(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
+	// HistoryOf lists the ships of these conversations, newest first.
+	HistoryOf(ctx context.Context, organization identity.OrganizationID, conversations []identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	// SaveTurn inserts a turn (created false when its delivery has one).
 	SaveTurn(ctx context.Context, organization identity.OrganizationID, turn Turn) (created bool, err error)
 	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)

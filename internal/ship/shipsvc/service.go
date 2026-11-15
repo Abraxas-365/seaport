@@ -233,6 +233,13 @@ func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id 
 	if err != nil {
 		return ship.Delivery{}, err
 	}
+	cache := toolsCache{}
+	if d.NoHistory, err = s.noHistory(ctx, org, doors, cache); err != nil {
+		return ship.Delivery{}, err
+	}
+	if err := s.withhold(ctx, org, d.Ships, cache); err != nil {
+		return ship.Delivery{}, err
+	}
 	if len(ships) > 0 && ships[0].Agent != nil {
 		d.Approvals, err = s.repo.DeliveryApprovals(ctx, org, convID, *ships[0].Agent, idsOf(ships), s.now())
 		if err != nil {

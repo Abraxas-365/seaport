@@ -190,6 +190,50 @@ func dockReplies(ctx context.Context, args []string) error {
 	return nil
 }
 
+const dockToolsUsage = "usage: seaport dock tools <dock-id> [history|conversations|attachments on|off ...]"
+
+// dockTools shows a dock's agent tool switches, or flips some
+// (`history off attachments off`) and shows the result.
+func dockTools(ctx context.Context, args []string) error {
+	if len(args) == 0 || len(args)%2 == 0 {
+		return errx.Validation(dockToolsUsage)
+	}
+	patch := map[string]bool{}
+	for i := 1; i < len(args); i += 2 {
+		name, v := args[i], args[i+1]
+		if (name != "history" && name != "conversations" && name != "attachments") || (v != "on" && v != "off") {
+			return errx.Validation(dockToolsUsage)
+		}
+		patch[name] = v == "on"
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	var d dock.Dock
+	path := "/api/v1/docks/" + url.PathEscape(args[0])
+	if len(patch) == 0 {
+		err = a.do(ctx, http.MethodGet, path, nil, &d)
+	} else {
+		err = a.do(ctx, http.MethodPatch, path, map[string]any{"tools": patch}, &d)
+	}
+	if err != nil {
+		return err
+	}
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
+	fmt.Fprintf(stdout, "dock %s (%s), what agents may read:\n", d.ID, d.Name)
+	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(w, "  history\t%s\tearlier messages of its conversations\n", onOff(d.Tools.History))
+	fmt.Fprintf(w, "  conversations\t%s\tthe list of its chats\n", onOff(d.Tools.Conversations))
+	fmt.Fprintf(w, "  attachments\t%s\tthe files people send there\n", onOff(d.Tools.Attachments))
+	return w.Flush()
+}
+
 func dockDestinations(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return errx.Validation("usage: seaport dock destinations <dock-id>")

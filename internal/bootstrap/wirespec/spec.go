@@ -53,6 +53,7 @@ func Spec() wire.Spec {
 		Types: map[string]reflect.Type{
 			// docks
 			"Dock":        of[dock.Dock](),
+			"DockTools":   of[dock.Tools](),
 			"Destination": of[dock.Destination](),
 			"DockDeleted": of[dock.Deleted](),
 			// per-channel dock settings (GET /docks/{id}/<channel>)

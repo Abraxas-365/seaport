@@ -78,11 +78,11 @@ func wireFixtures() map[string]any {
 	)
 
 	dk := dock.Dock{ID: dockID, Channel: dock.ChannelSlack, Name: "Support", Address: "example-workspace",
-		Status: dock.StatusLinked, Replies: true, CreatedAt: at(0), UpdatedAt: at(1)}
+		Status: dock.StatusLinked, Replies: true, Tools: dock.AllTools, CreatedAt: at(0), UpdatedAt: at(1)}
 	linking := dock.Dock{ID: dockID, Channel: dock.ChannelWhatsApp, Name: "Phone", Address: "",
-		Status: dock.StatusLinking, Replies: true, CreatedAt: at(0), UpdatedAt: at(1), QRCode: "2@example-pairing-code"}
+		Status: dock.StatusLinking, Replies: true, Tools: dock.AllTools, CreatedAt: at(0), UpdatedAt: at(1), QRCode: "2@example-pairing-code"}
 	trigger := dock.Dock{ID: fixtureID(identity.ParseDockID, 14), Channel: dock.ChannelWebhook, Name: "Alerts",
-		Status: dock.StatusLinked, Replies: false, CreatedAt: at(0), UpdatedAt: at(1)}
+		Status: dock.StatusLinked, Replies: false, Tools: dock.Tools{Conversations: true}, CreatedAt: at(0), UpdatedAt: at(1)}
 
 	conv := conversation.Conversation{ID: convID, Dock: dockID, Channel: dock.ChannelSlack, ExternalID: "C0EXAMPLE/1700000000.000100",
 		Kind: conversation.KindGroup, Title: "#support", Access: conversation.AccessAuto, GroupMode: conversation.GroupAll,

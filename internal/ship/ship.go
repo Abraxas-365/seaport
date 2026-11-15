@@ -1,6 +1,7 @@
 package ship
 
 import (
+	"slices"
 	"strconv"
 	"time"
 
@@ -251,6 +252,10 @@ type Delivery struct {
 	// turned replies off. A reply there is refused; the agent answers on
 	// another door or stays silent.
 	ReadOnly []identity.ConversationID `json:"read_only,omitempty"`
+	// NoHistory names the doors whose dock keeps earlier messages from
+	// agents (dock.Tools.History off): history there is refused. Files of
+	// a dock that keeps them from agents come Withheld in Ships.
+	NoHistory []identity.ConversationID `json:"no_history,omitempty"`
 	// Approvals are the agent's approvals of the thread that are still
 	// pending, and those answered by a ship of this delivery (see
 	// approval.go).
@@ -266,6 +271,11 @@ func (d Delivery) CanReply(door identity.ConversationID) bool {
 		}
 	}
 	return true
+}
+
+// HasHistory: the agent may read earlier messages of this door.
+func (d Delivery) HasHistory(door identity.ConversationID) bool {
+	return !slices.Contains(d.NoHistory, door)
 }
 
 // Claim asks for the next delivery of an agent: a conversation whose

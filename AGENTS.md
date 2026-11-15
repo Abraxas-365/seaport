@@ -269,6 +269,11 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `hosting/hostingsvc` and their modules) import `internal/blob`
   (`blobOwners`); everyone else reads through the owner's checked queries
   (`OpenAttachment`, `HomeFile`/`HomeArchive`).
+- Agent reads (`tools_architecture_test.go`, `TestCrewReadsCheckTools`):
+  the crew's adapters (`crew/adapters/*`) never call or pass
+  `ship.Queries` `History`/`ThreadHistory` (`unscopedReads`); they read
+  through `AgentHistory`, which keeps an agent to its docks and their
+  `dock.Tools` switches.
 - Fiber contexts (`fiber_architecture_test.go`, `TestNoFiberCtxInGoroutines`):
   a `fiber.Ctx` is pooled, so no `go` statement uses the one of its
   function (closure, receiver or argument); hand the goroutine
@@ -449,6 +454,24 @@ net/http mux; only `/healthz` answers 405.
   `dock.Queries`); the connector marks them in the prompt, sends the agent
   to a door that takes replies (or tells it to stay silent) and auto-replies
   go to the first such door (`answerDoor`).
+- Agent tools per dock (migration 00042, `docks.tool_history|
+  tool_conversations|tool_attachments`, `dock.Tools`, all on by default;
+  `PATCH /docks/{id}` `{"tools":{…}}` = `dock.ToolsPatch`, `seaport dock
+  tools <id> history off …`, the web's **Herramientas del agente** card):
+  what agents may read on the dock besides what they are handed. They bind
+  agents only (people read through `History`/`ThreadHistory`/
+  `OpenAttachment` without an agent). `shipsvc/tools.go` enforces them:
+  `AgentHistory` (the crew's only history read, see
+  `TestCrewReadsCheckTools`) refuses a door whose history is off
+  (`Forbidden`) and a thread read skips such doors (`Repository.HistoryOf`);
+  `OpenAttachment` with an agent refuses a dock whose attachments are off;
+  every ship handed to an agent (deliveries, steers, `AgentHistory`) gets
+  `Attachment.Withheld` there (`withhold`) and `Delivery.NoHistory` names
+  the doors without history. The connector skips withheld files, names
+  them in the prompt and drops its `history` hints on such doors.
+  `crewmcp.toolSet` registers `history`/`attachment`/`conversations` only
+  while some dock of the agent has the switch on, and `conversations` lists
+  only docks with it on.
 - Approvals (human in the loop; `ship/approval.go`, migration 00033,
   `shipsvc/approvals.go`, `shippg/approvals.go`): an agent asks people to
   choose (`ask_approval` MCP tool, `POST /crew/approvals` = `seaport ask`):

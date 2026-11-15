@@ -94,3 +94,20 @@ describe("a dock that replies", () => {
     expect(screen.getByText("Envía un mensaje de prueba con el formulario de arriba.")).toBeInTheDocument()
   })
 })
+
+describe("the agent tools card", () => {
+  it("shows each switch as the dock has it, read-only without docks:write", () => {
+    // The trigger fixture keeps only the conversations list on.
+    const dock = apiData<Dock>("dock_trigger")
+    renderDock(dock, (qc) => qc.setQueryData(keys.webhook(dock.id), webhookInfo()))
+    expect(screen.getByText("Herramientas del agente")).toBeInTheDocument()
+    const history = screen.getByRole("switch", { name: "Leer el historial" })
+    const list = screen.getByRole("switch", { name: "Listar las conversaciones" })
+    const files = screen.getByRole("switch", { name: "Abrir archivos" })
+    expect(history).not.toBeChecked()
+    expect(list).toBeChecked()
+    expect(files).not.toBeChecked()
+    expect(history).toBeDisabled()
+    expect(screen.getByText("El agente sabe que llegó un archivo, pero no puede abrirlo.")).toBeInTheDocument()
+  })
+})

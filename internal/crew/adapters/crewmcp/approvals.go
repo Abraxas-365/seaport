@@ -76,7 +76,7 @@ func (t tools) approval(ctx context.Context, _ *mcp.CallToolRequest, in Approval
 	if err != nil {
 		return failure(err), ApprovalOut{}, nil
 	}
-	cur, err := t.d.History.FindApproval(ctx, org, id)
+	cur, err := t.d.Reads.FindApproval(ctx, org, id)
 	if err != nil {
 		return failure(err), ApprovalOut{}, nil
 	}

@@ -27,8 +27,11 @@ import (
 )
 
 type Deps struct {
-	Ships         ship.Commands
-	History       ship.Queries
+	Ships ship.Commands
+	// Reads answers the agent's reads (history, attachments, approvals);
+	// history only through AgentHistory, which checks the docks' tool
+	// switches (TestCrewReadsCheckTools).
+	Reads         ship.Queries
 	Conversations conversation.Queries
 	// Agents scopes a token's tools to its agent's docks.
 	Agents agent.Queries
@@ -105,12 +108,15 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 			"(reports, screenshots; base64). Only allowed conversations accept replies. For files on disk, prefer the shell: " +
 			"`seaport reply <conversation_id> -file report.md -file shot.png \"text\"`.",
 	}, t.reply)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "history",
-		Description: "Read the latest messages of a conversation, newest first (inbound and outbound). " +
-			"With thread: true, the messages of every conversation linked with it (the same matter seen from " +
-			"other channels: a pull request and the Slack thread about it), each naming its conversation_id.",
-	}, t.history)
+	on := t.toolSet(ctx)
+	if on.History {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "history",
+			Description: "Read the latest messages of a conversation, newest first (inbound and outbound). " +
+				"With thread: true, the messages of every conversation linked with it (the same matter seen from " +
+				"other channels: a pull request and the Slack thread about it), each naming its conversation_id.",
+		}, t.history)
+	}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "ask_approval",
 		Description: "Ask the people of a conversation to choose between 2 to 6 options before you do something consequential. " +
@@ -123,14 +129,18 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 		Name:        "approval",
 		Description: "Read an approval you asked (status pending | answered | expired | cancelled, and the answer); wait_seconds blocks while it is pending.",
 	}, t.approval)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "attachment",
-		Description: "Look at a file attached to a message (an image, a document), by the attachment id that history lists.",
-	}, t.attachment)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "conversations",
-		Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
-	}, t.conversations)
+	if on.Attachments {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "attachment",
+			Description: "Look at a file attached to a message (an image, a document), by the attachment id that history lists.",
+		}, t.attachment)
+	}
+	if on.Conversations {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "conversations",
+			Description: "List the allowed conversations the agent can reply to (those of the docks it works on).",
+		}, t.conversations)
+	}
 	t.addSkill(ctx, srv)
 	t.addOpen(ctx, srv)
 	t.addTakeover(ctx, srv)
@@ -139,6 +149,34 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 }
 
 type tools struct{ d Deps }
+
+// toolSet says which of the dock-switched tools (dock.Tools) the caller
+// gets: those some dock of its agent turns on. Each call checks the
+// conversation's own dock again (the ship service for history and
+// attachments, conversations by filtering). Without an agent (the local
+// owner) or a dock reader, or for an agent on no dock (it finds nothing
+// anyway), every one.
+func (t tools) toolSet(ctx context.Context) dock.Tools {
+	org, agentID, err := caller(ctx)
+	if err != nil || agentID == nil || t.d.Docks == nil {
+		return dock.AllTools
+	}
+	ids, err := t.docks(ctx, org, *agentID)
+	if err != nil || len(ids) == 0 {
+		return dock.AllTools
+	}
+	var on dock.Tools
+	for _, id := range ids {
+		d, err := t.d.Docks.Find(ctx, org, id)
+		if err != nil {
+			continue
+		}
+		on.History = on.History || d.Tools.History
+		on.Conversations = on.Conversations || d.Tools.Conversations
+		on.Attachments = on.Attachments || d.Tools.Attachments
+	}
+	return on
+}
 
 // caller is the crew principal that made the HTTP request (the stateless
 // handler runs each call under the request's context): its organization,
@@ -248,12 +286,14 @@ type Message struct {
 }
 
 // AttachmentInfo names a message's file; the attachment tool shows it.
+// A withheld one (its dock keeps files from agents) has no id.
 type AttachmentInfo struct {
-	ID   string `json:"attachment_id"`
-	Kind string `json:"kind"`
-	MIME string `json:"mime"`
-	Size int64  `json:"size"`
-	Name string `json:"name,omitempty"`
+	ID       string `json:"attachment_id,omitempty"`
+	Kind     string `json:"kind"`
+	MIME     string `json:"mime"`
+	Size     int64  `json:"size"`
+	Name     string `json:"name,omitempty"`
+	Withheld bool   `json:"withheld,omitempty"`
 }
 
 type HistoryOut struct {
@@ -270,16 +310,12 @@ func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
-	if err := t.visible(ctx, org, agentID, id); err != nil {
-		return failure(err), HistoryOut{}, nil
-	}
-	read := t.d.History.History
-	if in.Thread {
-		// The thread's other doors are read too: the owner linked them, and
-		// the prompt names them. Replies still go only to the agent's docks.
-		read = t.d.History.ThreadHistory
-	}
-	page, err := read(ctx, org, id, query.Pagination{Limit: in.Limit})
+	// AgentHistory scopes the read to the agent's docks and their tool
+	// switches. With Thread, the thread's other doors are read too (the
+	// owner linked them, and the prompt names them); replies still go only
+	// to the agent's docks.
+	page, err := t.d.Reads.AgentHistory(ctx, org, ship.AgentHistory{Agent: agentID, Conversation: id,
+		Thread: in.Thread, Page: query.Pagination{Limit: in.Limit}})
 	if err != nil {
 		return failure(err), HistoryOut{}, nil
 	}
@@ -296,8 +332,11 @@ func (t tools) history(ctx context.Context, _ *mcp.CallToolRequest, in HistoryIn
 			m.ConversationID = s.Conversation.String()
 		}
 		for _, a := range s.Attachments {
-			m.Attachments = append(m.Attachments, AttachmentInfo{ID: a.ID.String(), Kind: string(a.Kind),
-				MIME: a.MIME, Size: a.Size, Name: a.Name})
+			info := AttachmentInfo{Kind: string(a.Kind), MIME: a.MIME, Size: a.Size, Name: a.Name, Withheld: a.Withheld}
+			if !a.Withheld {
+				info.ID = a.ID.String()
+			}
+			m.Attachments = append(m.Attachments, info)
 		}
 		out.Messages = append(out.Messages, m)
 	}
@@ -319,7 +358,7 @@ func (t tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, in Attach
 	if err != nil {
 		return failure(err), nil, nil
 	}
-	f, err := t.d.History.OpenAttachment(ctx, org, ship.OpenAttachment{ID: id, Agent: agentID})
+	f, err := t.d.Reads.OpenAttachment(ctx, org, ship.OpenAttachment{ID: id, Agent: agentID})
 	if err != nil {
 		return failure(err), nil, nil
 	}
@@ -356,8 +395,23 @@ func (t tools) conversations(ctx context.Context, _ *mcp.CallToolRequest, _ Conv
 	allowed := conversation.StatusAllowed
 	filter := conversation.Filter{Status: &allowed}
 	if agentID != nil {
-		if filter.Docks, err = t.docks(ctx, org, *agentID); err != nil {
+		ids, err := t.docks(ctx, org, *agentID)
+		if err != nil {
 			return failure(err), ConversationsOut{}, nil
+		}
+		// Only docks whose owner lets agents list their chats.
+		filter.Docks = []identity.DockID{}
+		for _, id := range ids {
+			if t.d.Docks != nil {
+				d, err := t.d.Docks.Find(ctx, org, id)
+				if err != nil {
+					return failure(err), ConversationsOut{}, nil
+				}
+				if !d.Tools.Conversations {
+					continue
+				}
+			}
+			filter.Docks = append(filter.Docks, id)
 		}
 	}
 	page, err := t.d.Conversations.List(ctx, org, filter, query.Pagination{Limit: query.MaxLimit})

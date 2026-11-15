@@ -10,6 +10,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/text"
 )
 
@@ -62,6 +63,10 @@ type Attachment struct {
 	Name         string                  `db:"name" json:"name,omitempty"`
 	SHA256       string                  `db:"sha256" json:"sha256"`
 	Key          string                  `db:"blob_key" json:"-"`
+	// Withheld: the dock keeps its files from agents
+	// (dock.Tools.Attachments off); set on what an agent is handed, which
+	// names the file but can't open it.
+	Withheld bool `db:"-" json:"withheld,omitempty"`
 }
 
 // Media is a file arriving with an inbound message: its bytes (at most
@@ -130,10 +135,32 @@ type AttachmentFile struct {
 }
 
 // OpenAttachment asks for an attachment's bytes. Agent, when set, is the
-// reader's agent: it sees only attachments of conversations on its docks.
+// reader's agent: it sees only attachments of conversations on its docks,
+// and only where the dock lets agents open files (dock.Tools.Attachments).
 type OpenAttachment struct {
 	ID    identity.AttachmentID
 	Agent *identity.AgentID
+}
+
+// AgentHistory is the crew reading earlier messages. An agent reads a
+// conversation on one of its docks (else NotFound) whose dock lets agents
+// read history (dock.Tools.History, else Forbidden); with Thread, every
+// door of its thread whose dock lets them (the owner linked them; doors
+// whose dock has history off are left out); attachments of a dock that
+// keeps files from agents come Withheld. Agent nil is the local owner of
+// an open port acting without an agent: it reads like the admin API.
+type AgentHistory struct {
+	Agent        *identity.AgentID
+	Conversation identity.ConversationID
+	Thread       bool
+	Page         query.Pagination
+}
+
+func (h AgentHistory) Validate() error {
+	if h.Conversation.IsZero() {
+		return errx.InvalidField("conversation_id", "conversation_id is required")
+	}
+	return nil
 }
 
 // File is a file an agent sends with a reply. Its kind and type are

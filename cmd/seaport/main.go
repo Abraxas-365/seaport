@@ -55,6 +55,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
   seaport dock replies <dock-id> on|off  whether the crew may answer on it (off: a trigger; it still wakes the agent)
+  seaport dock tools <dock-id> [history|conversations|attachments on|off ...]
+                                        what agents may read there besides the messages they get (no switches: show them)
   seaport dock destinations <dock-id>   places where agents may open conversations
   seaport dock destination set <dock-id> <name> <target> [-title T]   a Slack channel id, a WhatsApp +number or group JID, an api chat id
   seaport dock destination rm <dock-id> <name>
@@ -262,6 +264,8 @@ func run(ctx context.Context, args []string) error {
 			return dockRename(ctx, rest[1:])
 		case "replies":
 			return dockReplies(ctx, rest[1:])
+		case "tools":
+			return dockTools(ctx, rest[1:])
 		case "webhook":
 			return dockWebhook(ctx, rest[1:])
 		case "datadog":

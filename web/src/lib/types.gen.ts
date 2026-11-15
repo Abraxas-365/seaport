@@ -319,6 +319,12 @@ export interface Attachment {
   size: number
   name?: string
   sha256: string
+  /**
+   * Withheld: the dock keeps its files from agents
+   * (dock.Tools.Attachments off); set on what an agent is handed, which
+   * names the file but can't open it.
+   */
+  withheld?: boolean
 }
 
 /**
@@ -457,6 +463,12 @@ export interface Delivery {
    */
   read_only?: ID[]
   /**
+   * NoHistory names the doors whose dock keeps earlier messages from
+   * agents (dock.Tools.History off): history there is refused. Files of
+   * a dock that keeps them from agents come Withheld in Ships.
+   */
+  no_history?: ID[]
+  /**
    * Approvals are the agent's approvals of the thread that are still
    * pending, and those answered by a ship of this delivery (see
    * approval.go).
@@ -520,6 +532,8 @@ export interface Dock {
    * (Business) and the agent is told to answer elsewhere, or not at all.
    */
   replies: boolean
+  /** Tools are the owner's switches of what agents may read on this dock. */
+  tools: DockTools
   created_at: string
   updated_at: string
   /** QRCode is the current pairing code while linking (never stored). */
@@ -529,6 +543,31 @@ export interface Dock {
 /** DockDeleted is the payload of EventDeleted. */
 export interface DockDeleted {
   id: ID
+}
+
+/**
+ * DockTools are a dock's switches of what the agents working it may read
+ * besides the messages they are handed (all on by default). They bind
+ * agents only: people (the admin API) read everything their role allows.
+ * Every agent read goes through the ship service, which checks them
+ * (history, attachments) whatever asks: MCP tools, crew routes, the
+ * connector.
+ */
+export interface DockTools {
+  /**
+   * History: agents may read earlier messages of the dock's
+   * conversations (the history tool; a thread read skips doors whose
+   * dock has it off).
+   */
+  history: boolean
+  /** Conversations: the conversations tool lists the dock's chats. */
+  conversations: boolean
+  /**
+   * Attachments: agents may open the files people send on the dock
+   * (images in their prompt, the attachment tool); off, they are told a
+   * file came, not what it holds.
+   */
+  attachments: boolean
 }
 
 /** EmailAccount is a dock's mailbox as the admin API shows it (no password). */
