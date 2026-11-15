@@ -41,3 +41,15 @@ func (l Link) Validate() error {
 	}
 	return nil
 }
+
+// Open is a conversation the crew opened at a destination (ship.Commands.
+// Open): the chat the channel made, allowed by the owner's choice of the
+// place (Access = AccessAllow), and linked to the thread of ThreadOf when
+// set.
+type Open struct {
+	Chat Ensure
+	// ThreadOf is a door of the thread to join (zero: a thread of one).
+	ThreadOf identity.ConversationID
+}
+
+func (o Open) Validate() error { return o.Chat.Validate() }

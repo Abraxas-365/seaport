@@ -38,3 +38,10 @@ func (*Gateway) Unlink(context.Context, dock.Dock) error { return nil }
 func (*Gateway) NewMessageID(identity.DockID) (string, error) { return "api-" + uuid.NewString(), nil }
 
 func (*Gateway) Send(context.Context, dock.Outgoing) error { return nil }
+
+// Open makes the conversation named by the target (a chat id your app
+// reads through the admin API, direct like a received message without a
+// chat_kind); nothing is delivered anywhere.
+func (*Gateway) Open(_ context.Context, o dock.Opening) (dock.Opened, error) {
+	return dock.Opened{ChatID: o.Target, Kind: "direct", Title: o.Target, Handles: []string{o.Target}}, nil
+}

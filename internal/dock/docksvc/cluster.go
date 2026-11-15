@@ -128,7 +128,7 @@ func (s *Service) route(ctx context.Context, d dock.Dock, g dock.Gateway, req do
 	if !s.clustered(g) {
 		return s.local(ctx, d.Organization, req)
 	}
-	if req.Kind == dock.RequestSend && s.owns(d.ID) && g.Running(d.ID) {
+	if (req.Kind == dock.RequestSend || req.Kind == dock.RequestOpen) && s.owns(d.ID) && g.Running(d.ID) {
 		return s.local(ctx, d.Organization, req)
 	}
 	if s.stopping() {
@@ -207,6 +207,13 @@ func replyError(err error) *errx.Error {
 func (s *Service) local(ctx context.Context, org identity.OrganizationID, req dock.Request) (dock.Reply, error) {
 	if req.Kind == dock.RequestSend {
 		return dock.Reply{}, s.sendHere(ctx, org, *req.Outgoing)
+	}
+	if req.Kind == dock.RequestOpen {
+		opened, err := s.openHere(ctx, org, *req.Opening)
+		if err != nil {
+			return dock.Reply{}, err
+		}
+		return dock.Reply{Opened: &opened}, nil
 	}
 	unlock := s.lock(req.Dock)
 	defer unlock()

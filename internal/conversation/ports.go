@@ -21,6 +21,10 @@ type Commands interface {
 	Link(ctx context.Context, organization identity.OrganizationID, input Link) ([]Conversation, error)
 	// Unlink takes a conversation out of its thread (a thread of one again).
 	Unlink(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (Conversation, error)
+	// Open ensures the conversation the crew opened at a destination,
+	// allowed (the owner named the place), and links it to the thread of
+	// Open.ThreadOf.
+	Open(ctx context.Context, organization identity.OrganizationID, input Open) (Conversation, error)
 }
 
 type Queries interface {

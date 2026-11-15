@@ -203,6 +203,39 @@ func (o Outbound) Validate() error {
 	return text.Required("text", o.Text, text.MaxMessage)
 }
 
+// Open is a new conversation the crew opens at a destination of a dock
+// (dock.Destination): the first message goes out there, the conversation
+// the channel made is stored allowed and, when ThreadOf is set, linked to
+// that conversation's thread. The owner named the place; the agent picks
+// it by name.
+type Open struct {
+	Dock        identity.DockID
+	Destination string
+	Text        string
+	// Agent is the agent opening (nil: a person, from the admin).
+	Agent *identity.AgentID
+	Files []File
+	// ThreadOf is a door of the thread the new conversation joins (zero:
+	// a thread of its own).
+	ThreadOf identity.ConversationID
+}
+
+func (o Open) Validate() error {
+	if o.Dock.IsZero() {
+		return errx.InvalidField("dock_id", "dock_id is required")
+	}
+	if err := dock.ValidDestinationName(o.Destination); err != nil {
+		return errx.InvalidField("destination", "destination must be a destination name of the dock")
+	}
+	if len(o.Files) > 0 {
+		if err := ValidateFiles(o.Files); err != nil {
+			return err
+		}
+		return text.Optional("text", o.Text, text.MaxMessage)
+	}
+	return text.Required("text", o.Text, text.MaxMessage)
+}
+
 // Delivery is a batch of queued ships of one conversation handed to a crew
 // member. Its ID is the claim token.
 type Delivery struct {

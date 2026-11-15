@@ -79,6 +79,8 @@ An agent replies with the `reply` tool, you reply from the web app's composer or
 
 Storing before sending is what lets the port recognize the channel's echo of your own message as a duplicate.
 
+**Opening** a conversation (the `open` tool, `seaport dock open`, `POST /docks/{id}/destinations/{name}/ships`) is the same path with a step before it: the port asks the dock's channel for the chat at the [destination](../guides/destinations.md) (Slack posts the message and its thread is the chat; WhatsApp and `api` name the chat by the target), creates or finds the conversation, allowed and linked to `thread_of` if given, and then sends the first message as a reply. Opening is refused on a dock whose replies are off, or that isn't linked.
+
 ## What the agent sees
 
 For each delivery, the connector builds a prompt like this:

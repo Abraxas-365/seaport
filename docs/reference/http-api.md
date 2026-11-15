@@ -167,6 +167,10 @@ All under `/api/v1`. "Read" and "write" below are the permissions of [Permission
 | `POST` | `/docks/{id}/relink` | `docks:write` | Starts pairing again. The dock. |
 | `POST` | `/docks/{id}/unlink` | `docks:write` | Logs the device out (a GitHub dock: uninstalls and forgets its App; a Jira dock: forgets its site, token and secret; a Slack dock: uninstalls the app it created and forgets it; a webhook dock: forgets its secret and template; an email dock: forgets the mailbox, its password and its threads). The dock. |
 | `POST` | `/docks/{id}/ships` | `ships:write` | Injects an inbound message into an `api` dock. See below. |
+| `GET` | `/docks/{id}/destinations` | `docks:read` | The dock's [destinations](../guides/destinations.md), sorted by name, each with the dock's `channel`. |
+| `PUT` | `/docks/{id}/destinations/{name}` | `docks:write` | Body `{"target":"…","title":"…"}` (`title` optional). Creates or updates the destination; `200` with it. `400` for a bad name (`^[a-z0-9][a-z0-9_-]{0,63}$`), `422` on a dock whose replies are off or past 64 destinations. |
+| `DELETE` | `/docks/{id}/destinations/{name}` | `docks:write` | `204`; `404` when there is none. Conversations opened there stay. |
+| `POST` | `/docks/{id}/destinations/{name}/ships` | `ships:write` | Body `{"text":"…","thread_of":"<conversation id>"}` (`thread_of` optional). Opens (or continues) the conversation at the destination and sends `text` as the first message, as the agent's `open` tool does. `201` with the ship; the conversation is its `conversation_id`. |
 
 A dock:
 

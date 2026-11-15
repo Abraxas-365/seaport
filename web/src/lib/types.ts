@@ -20,6 +20,17 @@ export interface Dock {
   qr_code?: string
 }
 
+/** A place where agents may open conversations on a dock (GET /docks/{id}/destinations). */
+export interface Destination {
+  dock_id: ID
+  name: string
+  /** A Slack channel id, a WhatsApp +number or group JID, an api chat id. */
+  target: string
+  title?: string
+  channel?: Channel
+  created_at: string
+}
+
 /** A GitHub dock's App and installations (GET /docks/{id}/github; no secret). */
 export interface GitHubApp {
   app_id: number

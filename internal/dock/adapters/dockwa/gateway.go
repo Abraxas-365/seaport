@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -380,6 +381,46 @@ func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
 		id = ""
 	}
 	return nil
+}
+
+// Open sends the first message to a chat (a destination's target: a phone
+// as +<digits> or a JID, a group's JID) through Send; the conversation is
+// that chat, as a message from it would make it (direct or group, same
+// handles for customs).
+func (g *Gateway) Open(ctx context.Context, o dock.Opening) (dock.Opened, error) {
+	s := g.session(o.Dock)
+	if s == nil {
+		return dock.Opened{}, errx.Business("whatsapp dock is not connected")
+	}
+	to, err := chatJID(o.Target)
+	if err != nil {
+		return dock.Opened{}, err
+	}
+	if err := g.Send(ctx, dock.Outgoing{Dock: o.Dock, ChatID: to.String(), MessageID: o.MessageID, Text: o.Text, Files: o.Files}); err != nil {
+		return dock.Opened{}, err
+	}
+	out := dock.Opened{ChatID: to.String(), Kind: string(conversation.KindDirect), Handles: s.handles(ctx, to), Title: "+" + to.User}
+	if to.Server == types.GroupServer {
+		out.Kind, out.Title, out.Handles = string(conversation.KindGroup), s.groupTitle(ctx, to), []string{to.String()}
+	}
+	return out, nil
+}
+
+// chatJID reads a destination target: +<digits> (a phone), or a JID.
+func chatJID(target string) (types.JID, error) {
+	target = strings.TrimSpace(target)
+	if strings.HasPrefix(target, "+") {
+		digits := target[1:]
+		if digits == "" || strings.Trim(digits, "0123456789") != "" {
+			return types.JID{}, errx.Validation("a WhatsApp destination is +<digits> or a chat JID: " + target)
+		}
+		return types.NewJID(digits, types.DefaultUserServer), nil
+	}
+	j, err := types.ParseJID(target)
+	if err != nil || j.User == "" {
+		return types.JID{}, errx.Validation("a WhatsApp destination is +<digits> or a chat JID: " + target)
+	}
+	return j, nil
 }
 
 // fileMessage uploads a file (encrypted, to WhatsApp's media servers) and

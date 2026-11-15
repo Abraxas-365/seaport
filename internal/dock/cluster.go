@@ -17,10 +17,12 @@ const (
 	RequestLink   RequestKind = "link"
 	RequestUnlink RequestKind = "unlink"
 	RequestSend   RequestKind = "send"
+	// RequestOpen opens a new conversation at a place (Gateway.Open).
+	RequestOpen RequestKind = "open"
 )
 
 func (k RequestKind) Valid() bool {
-	return k == RequestLink || k == RequestUnlink || k == RequestSend
+	return k == RequestLink || k == RequestUnlink || k == RequestSend || k == RequestOpen
 }
 
 // Request is one piece of work for a dock's owner.
@@ -29,6 +31,8 @@ type Request struct {
 	Kind RequestKind     `json:"kind"`
 	// Outgoing is the message of a send.
 	Outgoing *Outgoing `json:"outgoing,omitempty"`
+	// Opening is the first message of an open.
+	Opening *Opening `json:"opening,omitempty"`
 }
 
 func (r Request) Validate() error {
@@ -36,21 +40,28 @@ func (r Request) Validate() error {
 		return errx.InvalidField("dock", "dock is required")
 	}
 	if !r.Kind.Valid() {
-		return errx.InvalidField("kind", "kind must be link, unlink or send")
+		return errx.InvalidField("kind", "kind must be link, unlink, send or open")
 	}
-	if r.Kind != RequestSend {
-		return nil
+	switch r.Kind {
+	case RequestSend:
+		if r.Outgoing == nil || r.Outgoing.Dock != r.Dock {
+			return errx.InvalidField("outgoing", "a send carries a message of its dock")
+		}
+		return r.Outgoing.Validate()
+	case RequestOpen:
+		if r.Opening == nil || r.Opening.Dock != r.Dock {
+			return errx.InvalidField("opening", "an open carries a message of its dock")
+		}
+		return r.Opening.Validate()
 	}
-	if r.Outgoing == nil || r.Outgoing.Dock != r.Dock {
-		return errx.InvalidField("outgoing", "a send carries a message of its dock")
-	}
-	return r.Outgoing.Validate()
+	return nil
 }
 
-// Reply is the owner's answer: the dock's status after a link, or the
-// error the work ended with.
+// Reply is the owner's answer: the dock's status after a link, the
+// conversation an open made, or the error the work ended with.
 type Reply struct {
 	Status Status      `json:"status,omitempty"`
+	Opened *Opened     `json:"opened,omitempty"`
 	Error  *errx.Error `json:"error,omitempty"`
 }
 

@@ -55,6 +55,12 @@ func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
 	return nil
 }
 
+// Open: an email dock has no destinations yet (a first message to an
+// address would start a new thread; not done).
+func (*Gateway) Open(context.Context, dock.Opening) (dock.Opened, error) {
+	return dock.Opened{}, errx.Business("email docks have no destinations yet")
+}
+
 // build writes the reply as RFC 5322: a text part (quoted-printable) and
 // one attachment per file.
 func build(a Account, t Thread, msg dock.Outgoing) ([]byte, error) {

@@ -32,7 +32,7 @@ seaport history <conversation-id> -thread               # messages of every door
 
 From the [HTTP API](../reference/http-api.md#conversations): `GET /api/v1/conversations/{id}/thread`, `POST …/links` with `{"conversation_id":"…"}` and `DELETE …/links`. Linking takes `conversations:write`.
 
-Linking an agent's own conversations from a tool is not available yet: a person links them.
+An agent links conversations only by opening one: the `open` tool's `thread_of` puts the conversation it starts at a [destination](destinations.md) in the thread of the one it was working. Linking two existing conversations is a person's job.
 
 ## Docks that only trigger
 
@@ -56,5 +56,6 @@ The agent is told. Each delivery names the read-only doors (`read_only`), the pr
 ## See also
 
 - [Agents and routing](agents-and-routing.md)
+- [Destinations](destinations.md): where an agent may open a door of its own
 - [The connector](connector.md#sessions-one-per-thread)
 - [MCP tools: history](../reference/mcp-tools.md#history)

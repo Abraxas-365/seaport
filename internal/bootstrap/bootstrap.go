@@ -285,7 +285,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks.BindReceiver(ships.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
-	crew.Bind(ships.Service, convs.Service, agents.Service)
+	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service)
 	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)
 	schedules.Bind(ships.Service)
 	hostCfg := hostingmodule.Config{

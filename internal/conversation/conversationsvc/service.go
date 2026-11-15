@@ -154,6 +154,55 @@ func (s *Service) Link(ctx context.Context, org identity.OrganizationID, input c
 	return doors, nil
 }
 
+func (s *Service) Open(ctx context.Context, org identity.OrganizationID, input conversation.Open) (conversation.Conversation, error) {
+	if err := input.Validate(); err != nil {
+		return conversation.Conversation{}, err
+	}
+	chat := input.Chat
+	chat.ExternalID = text.Clean(chat.ExternalID)
+	chat.Title = text.Clean(chat.Title)
+	chat.Handles = conversation.CleanHandles(append(chat.Handles, chat.ExternalID))
+	unlock, err := s.lock(ctx, org, chat.Dock)
+	if err != nil {
+		return conversation.Conversation{}, err
+	}
+	defer unlock()
+	customs, err := s.load(ctx, org, chat.Dock)
+	if err != nil {
+		return conversation.Conversation{}, err
+	}
+	// The owner chose the place: the door is allowed whatever the dock's
+	// rules say (an existing chat keeps its override unless it was auto).
+	conv, _, err := s.repo.Upsert(ctx, org, identity.NewConversationID(), chat, conversation.StatusAllowed)
+	if err != nil {
+		return conversation.Conversation{}, errx.Wrap(err, "ensure conversation", errx.TypeInternal)
+	}
+	if conv.Access == conversation.AccessAuto {
+		allow := conversation.AccessAllow
+		if conv, err = s.repo.Update(ctx, org, conv.ID, conversation.Update{Access: &allow}); err != nil {
+			return conversation.Conversation{}, errx.Wrap(err, "allow opened conversation", errx.TypeInternal)
+		}
+	}
+	if conv, err = s.redecide(ctx, org, customs, conv); err != nil {
+		return conversation.Conversation{}, err
+	}
+	s.events.Publish(org, conversation.EventUpdated, conv)
+	if input.ThreadOf.IsZero() || input.ThreadOf == conv.ID {
+		return conv, nil
+	}
+	doors, err := s.repo.Link(ctx, org, conversation.Link{Conversation: conv.ID, With: input.ThreadOf}, identity.NewThreadID())
+	if err != nil {
+		return conversation.Conversation{}, errx.Wrap(err, "link opened conversation", errx.TypeInternal)
+	}
+	for _, c := range doors {
+		s.events.Publish(org, conversation.EventUpdated, c)
+		if c.ID == conv.ID {
+			conv = c
+		}
+	}
+	return conv, nil
+}
+
 func (s *Service) Unlink(ctx context.Context, org identity.OrganizationID, id identity.ConversationID) (conversation.Conversation, error) {
 	if id.IsZero() {
 		return conversation.Conversation{}, errx.InvalidField("conversation_id", "conversation_id is required")

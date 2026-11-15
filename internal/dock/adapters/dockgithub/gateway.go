@@ -181,6 +181,12 @@ func (g *Gateway) Unlink(ctx context.Context, d dock.Dock) error {
 // (our comments come back as bot events, which are ignored).
 func (*Gateway) NewMessageID(identity.DockID) (string, error) { return "gh-" + uuid.NewString(), nil }
 
+// Open: GitHub conversations start from an issue or pull request people
+// make; opening one from the crew is not supported yet.
+func (*Gateway) Open(context.Context, dock.Opening) (dock.Opened, error) {
+	return dock.Opened{}, errx.Business("GitHub docks have no destinations yet: open the conversation on another channel")
+}
+
 // Send posts the text as a comment on the issue or pull request.
 func (g *Gateway) Send(ctx context.Context, msg dock.Outgoing) error {
 	repo, number, ok := splitChat(msg.ChatID)

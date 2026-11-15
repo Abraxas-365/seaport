@@ -15,6 +15,7 @@ import type {
   WebhookTemplate,
   CrewStatus,
   CrewToken,
+  Destination,
   Customs,
   CustomsStatus,
   DefaultAccess,
@@ -196,6 +197,13 @@ export const api = {
     request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/install`),
   slackConnect: (id: string, body: { signing_secret: string; bot_token: string }) =>
     request<SlackInfo>("POST", `${v1}/docks/${id}/slack/connect`, body),
+  destinations: (id: string) => request<Destination[]>("GET", `${v1}/docks/${id}/destinations`),
+  putDestination: (id: string, name: string, body: { target: string; title: string }) =>
+    request<Destination>("PUT", `${v1}/docks/${id}/destinations/${encodeURIComponent(name)}`, body),
+  removeDestination: (id: string, name: string) =>
+    request<void>("DELETE", `${v1}/docks/${id}/destinations/${encodeURIComponent(name)}`),
+  openDestination: (id: string, name: string, body: { text: string; thread_of?: string }) =>
+    request<Ship>("POST", `${v1}/docks/${id}/destinations/${encodeURIComponent(name)}/ships`, body),
 
   inbox: (f: { status?: CustomsStatus; dock_id?: string; limit?: number; offset?: number }) =>
     request<Paginated<InboxItem>>("GET", `${v1}/inbox${qs(f)}`),

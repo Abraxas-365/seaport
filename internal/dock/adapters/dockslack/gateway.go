@@ -19,6 +19,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/text"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
@@ -198,6 +199,54 @@ func (g *Gateway) deliver(ctx context.Context, a App, channel, thread string, ms
 		return errx.Business("Slack does not let this app upload files (" + code(err) + "): add the files:write scope and install the app again")
 	}
 	return err
+}
+
+// Open posts the first message in a channel (a destination's target: its
+// id, C…) as a new top-level message; the thread under it is the
+// conversation (`<channel>/<ts>`, group), remembered so follow-ups there
+// arrive. The text goes first (its first part is the root; more parts and
+// files go in the thread).
+func (g *Gateway) Open(ctx context.Context, o dock.Opening) (dock.Opened, error) {
+	channel, thread, ok := splitChat(o.Target)
+	if !ok || thread != "" {
+		return dock.Opened{}, errx.Validation("a Slack destination is a channel id (C…): " + o.Target)
+	}
+	a, err := g.store.App(ctx, o.Dock)
+	if err != nil {
+		return dock.Opened{}, err
+	}
+	if !a.Installed() {
+		return dock.Opened{}, errx.Business("the Slack App of this dock is not installed")
+	}
+	parts := Split(o.Text, MaxMarkdown)
+	if strings.TrimSpace(o.Text) == "" {
+		parts = []string{"📎"} // files only: something to thread under
+	}
+	root, err := g.client.post(ctx, a.botToken, channel, "", parts[0])
+	if err != nil {
+		if revoked(err) {
+			g.lost(ctx, a)
+			return dock.Opened{}, errx.Business("Slack no longer accepts this app's token (uninstalled?): install it again from the dock")
+		}
+		if code(err) == "channel_not_found" || code(err) == "not_in_channel" {
+			return dock.Opened{}, errx.Business("the app is not in that Slack channel (" + code(err) + "): invite it there (/invite @app)")
+		}
+		return dock.Opened{}, err
+	}
+	rest := dock.Outgoing{Dock: o.Dock, ChatID: channel + "/" + root.TS, MessageID: o.MessageID,
+		Text: strings.Join(parts[1:], "\n"), Files: o.Files}
+	if err := g.deliver(ctx, a, channel, root.TS, rest); err != nil {
+		return dock.Opened{}, err
+	}
+	if err := g.store.RememberThread(ctx, a.Organization, a.Dock, channel, root.TS); err != nil {
+		return dock.Opened{}, err
+	}
+	name := g.client.channel(ctx, a.Dock, a.botToken, channel)
+	handles := []string{channel}
+	if strings.HasPrefix(name, "#") && name != "#"+channel {
+		handles = append(handles, name)
+	}
+	return dock.Opened{ChatID: channel + "/" + root.TS, Kind: "group", Title: clip(name, text.MaxName), Handles: handles}, nil
 }
 
 // lost: Slack refuses the token: forget it and mark the dock logged out.

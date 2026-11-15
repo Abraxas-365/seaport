@@ -21,6 +21,8 @@ Counted per organization. `0` turns a configurable quota off.
 | Environments | 50 | `hosting.MaxEnvironments` | No |
 | Harness homes | 500 | `hosting.MaxHomes` | No |
 | Slots per hosted agent | 10 | `hosting.MaxSlotsPerAgent` | No |
+| Destinations per dock | 64 | `dock.MaxDestinations` | No |
+| Conversations per thread | 16 | `conversation.MaxDoors` | No |
 
 Slot tokens (the ones a running slot uses) aren't counted against `crew.MaxTokens`.
 

@@ -32,6 +32,7 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/conversations/:id/ships", httpx.RequireFunc(permission.ShipsRead, h.history))
 	r.Get("/api/v1/conversations/:id/turns", httpx.RequireFunc(permission.ShipsRead, h.turns))
 	r.Post("/api/v1/conversations/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.send))
+	r.Post("/api/v1/docks/:id/destinations/:name/ships", httpx.RequireFunc(permission.ShipsWrite, h.open))
 	r.Post("/api/v1/docks/:id/ships", httpx.RequireFunc(permission.ShipsWrite, h.receive))
 	r.Get("/api/v1/approvals", httpx.RequireFunc(permission.ShipsRead, h.approvals))
 	r.Get("/api/v1/approvals/:id", httpx.RequireFunc(permission.ShipsRead, h.approval))
@@ -166,6 +167,37 @@ func (h *Handler) send(c fiber.Ctx) error {
 		return err
 	}
 	s, err := h.commands.Send(c.Context(), org, ship.Outbound{Conversation: id, Text: req.Text})
+	if err != nil {
+		return err
+	}
+	return httpx.Created(c, s.ID.String(), s)
+}
+
+type openRequest struct {
+	Text string `json:"text"`
+	// ThreadOf links the new conversation to that one's thread.
+	ThreadOf *identity.ConversationID `json:"thread_of"`
+}
+
+// open lets the owner start a conversation at a destination of a dock.
+func (h *Handler) open(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseDockID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	var req openRequest
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	in := ship.Open{Dock: id, Destination: httpx.Param(c, "name"), Text: req.Text}
+	if req.ThreadOf != nil {
+		in.ThreadOf = *req.ThreadOf
+	}
+	s, err := h.commands.Open(c.Context(), org, in)
 	if err != nil {
 		return err
 	}

@@ -188,6 +188,98 @@ func dockReplies(ctx context.Context, args []string) error {
 	return nil
 }
 
+func dockDestinations(ctx context.Context, args []string) error {
+	if len(args) != 1 {
+		return errx.Validation("usage: seaport dock destinations <dock-id>")
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	var list []dock.Destination
+	if err := a.do(ctx, http.MethodGet, "/api/v1/docks/"+url.PathEscape(args[0])+"/destinations", nil, &list); err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		fmt.Println("no destinations: seaport dock destination set <dock-id> <name> <target>")
+		return nil
+	}
+	for _, d := range list {
+		fmt.Printf("%-20s %-10s %s", d.Name, d.Channel, d.Target)
+		if d.Title != "" {
+			fmt.Printf("  (%s)", d.Title)
+		}
+		fmt.Println()
+	}
+	return nil
+}
+
+func dockDestination(ctx context.Context, args []string) error {
+	const usage = "usage: seaport dock destination set <dock-id> <name> <target> [-title T] | rm <dock-id> <name>"
+	if len(args) < 3 {
+		return errx.Validation(usage)
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	path := "/api/v1/docks/" + url.PathEscape(args[1]) + "/destinations/" + url.PathEscape(args[2])
+	switch args[0] {
+	case "set":
+		if len(args) < 4 {
+			return errx.Validation(usage)
+		}
+		fs := flag.NewFlagSet("destination set", flag.ContinueOnError)
+		title := fs.String("title", "", "what the place is for (shown to agents)")
+		if err := fs.Parse(args[4:]); err != nil {
+			return err
+		}
+		var d dock.Destination
+		if err := a.do(ctx, http.MethodPut, path, map[string]string{"target": args[3], "title": *title}, &d); err != nil {
+			return err
+		}
+		fmt.Printf("destination %s of dock %s → %s (%s)\n", d.Name, d.Dock, d.Target, d.Channel)
+		return nil
+	case "rm", "remove":
+		if err := a.do(ctx, http.MethodDelete, path, nil, nil); err != nil {
+			return err
+		}
+		fmt.Printf("destination %s removed\n", args[2])
+		return nil
+	}
+	return errx.Validation(usage)
+}
+
+func dockOpen(ctx context.Context, args []string) error {
+	const usage = "usage: seaport dock open <dock-id> <name> [-thread-of CONV] <text>"
+	if len(args) < 3 {
+		return errx.Validation(usage)
+	}
+	fs := flag.NewFlagSet("dock open", flag.ContinueOnError)
+	threadOf := fs.String("thread-of", "", "a conversation whose thread the new one joins")
+	if err := fs.Parse(args[2:]); err != nil {
+		return err
+	}
+	text := strings.Join(fs.Args(), " ")
+	if text == "" {
+		return errx.Validation(usage)
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	body := map[string]string{"text": text}
+	if *threadOf != "" {
+		body["thread_of"] = *threadOf
+	}
+	var s ship.Ship
+	if err := a.do(ctx, http.MethodPost, "/api/v1/docks/"+url.PathEscape(args[0])+"/destinations/"+url.PathEscape(args[1])+"/ships", body, &s); err != nil {
+		return err
+	}
+	fmt.Printf("opened conversation %s: ship %s %s\n", s.Conversation, s.ID, s.Status)
+	return nil
+}
+
 func dockUnlink(ctx context.Context, args []string) error {
 	if len(args) != 1 {
 		return errx.Validation("usage: seaport dock unlink <dock-id>")
