@@ -83,6 +83,7 @@ const empty: ProfileInput = {
   model: "",
   effort: "",
   browser: false,
+  browser_assist: "",
 }
 
 function inputOf(p: AgentProfile): ProfileInput {
@@ -94,6 +95,7 @@ function inputOf(p: AgentProfile): ProfileInput {
     model: p.model,
     effort: p.effort,
     browser: p.browser,
+    browser_assist: p.browser_assist ?? "",
   }
 }
 
@@ -384,9 +386,30 @@ function ProfileFields({
           id="profile-browser"
           checked={p.browser}
           disabled={readOnly}
-          onCheckedChange={(browser) => set({ browser })}
+          onCheckedChange={(browser) => set({ browser, ...(browser ? {} : { browser_assist: "" }) })}
         />
       </Field>
+
+      {p.browser && (
+        <Field>
+          <FieldLabel htmlFor="profile-browser-assist">Avisar a una persona</FieldLabel>
+          <Input
+            id="profile-browser-assist"
+            value={p.browser_assist}
+            readOnly={readOnly}
+            onChange={(e) => set({ browser_assist: e.target.value.trim().toLowerCase() })}
+            placeholder="nadie"
+            className="font-mono"
+            maxLength={64}
+          />
+          <FieldDescription>
+            Cuando el agente pide que alguien tome el control (<Mono>ask_takeover</Mono>), Seaport lo anuncia con un
+            enlace a su navegador: vacío, a nadie (el aviso queda solo en esta página); <Mono>conversation</Mono>, en
+            la conversación que el agente trabaja; o el nombre de un destino de uno de sus docks, donde abre una
+            conversación. Al pulsar Listo, el agente recibe un mensaje de sistema en el mismo sitio y sigue.
+          </FieldDescription>
+        </Field>
+      )}
 
       <SkillsField skills={p.skills} readOnly={readOnly} onChange={(skills) => set({ skills })} />
       <ServersField servers={p.mcp_servers} readOnly={readOnly} onChange={(mcp_servers) => set({ mcp_servers })} />

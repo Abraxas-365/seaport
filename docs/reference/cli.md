@@ -112,6 +112,7 @@ Flags of `profile set`:
 | `-model M` | Model, among the harness's options; `none` clears it. |
 | `-effort E` | Reasoning effort, among the harness's options; `none` clears it. |
 | `-browser on\|off` | Whether the agent uses its environment's [managed browser](../guides/hosting/browser.md). |
+| `-browser-assist none\|conversation\|NAME` | Whom Seaport tells when the agent asks for a browser takeover: nobody, the conversation it is working, or a destination `NAME` of one of its docks. |
 
 A `SKILL.md` has front matter with `name` (default: its directory's name) and a required one-line `description` (when to use the skill), then the instructions. MCP servers are edited with `-f` only.
 

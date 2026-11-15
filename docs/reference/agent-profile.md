@@ -26,6 +26,7 @@ For how to write a good profile, read [Profiles](../guides/profiles.md).
 | `model` | string | empty | one word, at most 100 characters | The model, picked among the harness's session options. Empty leaves the harness default. |
 | `effort` | string | empty | one word, at most 100 characters | The reasoning effort, picked among the harness's session options. Empty leaves the harness default. |
 | `browser` | boolean | `false` | | The agent uses the managed browser of its environment and gets the `ask_takeover` tool. Only a hosted agent on an environment with `browser.engine` gets one. See [Browser](../guides/hosting/browser.md). |
+| `browser_assist` | string | empty | empty, `conversation` or a destination name (1–64 lowercase letters, digits, `-` or `_`) | Whom Seaport tells when the agent asks for a takeover. Empty: nobody (the takeover shows only in the web). `conversation`: a message in the conversation the agent named in the call. A [destination](../guides/destinations.md) name: a new conversation opened at that destination of one of the agent's docks. Needs `browser` on. See [When a person must take over](../guides/hosting/browser.md#when-a-person-must-take-over). |
 
 Secrets are not a field of the profile: they belong to the agent and are set apart. See [Secrets](#secrets).
 
@@ -136,6 +137,8 @@ The same document, without `base`, is what `seaport agents profile show -json` p
   "approve": "allow",
   "model": "sonnet",
   "effort": "medium",
+  "browser": true,
+  "browser_assist": "conversation",
   "created_by": "admin",
   "created_at": "2025-01-15T10:30:00Z"
 }

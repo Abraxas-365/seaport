@@ -51,7 +51,14 @@ export interface HostingStatus {
 /** The fields the web edits of a profile (the rest is the server's). */
 export type ProfileInput = Pick<
   AgentProfile,
-  "instructions" | "skills" | "mcp_servers" | "approve" | "model" | "effort" | "browser"
+  | "instructions"
+  | "skills"
+  | "mcp_servers"
+  | "approve"
+  | "model"
+  | "effort"
+  | "browser"
+  | "browser_assist"
 >
 
 /** The body of POST /api/v1/schedules (the handler's createRequest). */

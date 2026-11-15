@@ -709,8 +709,24 @@ net/http mux; only `/healthz` answers 405.
   `Commands.RequestTakeover`/`EndTakeover`, `DELETE
   /api/v1/agents/{id}/takeovers/{host}`, `BrowserUse`), published with
   `agent.updated`; the web's **Navegador** card shows them per kind with
-  the viewer. Plan `~/.rness/plans/puerto/browser-assist.md` (next: notify
-  a person and wake the agent when done).
+  the viewer. The profile's `browser_assist` (migration 00039; `""`,
+  `conversation` or a destination name; needs `browser` on) makes
+  `agentsvc.RequestTakeover` tell a person once per host through
+  `agent.Assistant` (= `shipsvc.Takeovers`, bound late like `Gate`):
+  `Notify` sends the Spanish notice with the viewer link
+  (`shipsvc.Deps.PublicURL`) as an outbound ship on the call's conversation
+  (`Send`) or opens one at the destination of the first of the agent's
+  docks that has it (`Open`, `ThreadOf` when the dock is the
+  conversation's); `Takeover.NotifiedAt/NotifiedIn` record it and
+  `AskTakeover.Add` keeps them when the host is asked again. `wait_seconds`
+  (`AskTakeover.Wait`, ≤ `MaxTakeoverWait`, short of the deadline) polls
+  `Find` until the host is gone. `EndTakeover` (web **Listo**, the DELETE)
+  removes the takeover and `Wake`s the agent in `NotifiedIn` (else the
+  call's conversation) with a system inbound ship (`system:browser`,
+  external id `takeover-<agent>-<host>-<unix>`, `@agent` addressed) through
+  `Receive`; an agent off the team isn't woken; failures are logged, not
+  retried. Plan `~/.rness/plans/puerto/browser-assist.md` (steps 3–4
+  pending).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel

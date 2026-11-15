@@ -72,10 +72,25 @@ type Takeover struct {
 	// Conversation is the one the agent was working, when it said so.
 	Conversation *identity.ConversationID `json:"conversation_id,omitempty"`
 	At           time.Time                `json:"at"`
-	// NotifiedAt is when a person was told (nil: not yet).
+	// NotifiedAt is when a person was told (nil: nobody was, or the
+	// profile's browser_assist is off).
 	NotifiedAt *time.Time `json:"notified_at,omitempty"`
-	// DoneAt is when a person said it was done (nil: still open).
-	DoneAt *time.Time `json:"done_at,omitempty"`
+	// NotifiedIn is the conversation the notice went to: the call's, or the
+	// one opened at the profile's destination. The agent is woken there
+	// when the person is done.
+	NotifiedIn *identity.ConversationID `json:"notified_in,omitempty"`
+}
+
+// Find returns the host's takeover (every listed one is open: ending one
+// removes it).
+func (l Takeovers) Find(host string) (Takeover, bool) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	for _, t := range l {
+		if t.Host == host {
+			return t, true
+		}
+	}
+	return Takeover{}, false
 }
 
 // TakeoverKind is what the person must do in the browser.
@@ -102,11 +117,22 @@ type AskTakeover struct {
 	Note string
 	// Conversation is optional: the one the agent is working.
 	Conversation *identity.ConversationID
+	// Wait blocks the call until a person ends the takeover, at most
+	// MaxTakeoverWait and short of the request's deadline (0: return at
+	// once).
+	Wait time.Duration
 }
+
+// MaxTakeoverWait bounds AskTakeover.Wait (the MCP request's deadline is
+// 300 s; the margin is for the answer).
+const MaxTakeoverWait = 290 * time.Second
 
 func (r AskTakeover) Validate() error {
 	if err := ValidHost(r.Host); err != nil {
 		return err
+	}
+	if r.Wait < 0 || r.Wait > MaxTakeoverWait {
+		return errx.InvalidField("wait_seconds", "wait_seconds must be between 0 and 290")
 	}
 	kind := r.kind()
 	if !slices.Contains(TakeoverKinds, kind) {
@@ -134,15 +160,44 @@ func ValidHost(host string) error {
 	return nil
 }
 
-// Add puts the takeover in list (replacing the host's older one; at most
-// MaxTakeovers, newest first).
+// Add puts the takeover in list (replacing the host's older one, whose
+// notice is kept: a person was told once; at most MaxTakeovers, newest
+// first).
 func (r AskTakeover) Add(list Takeovers, now time.Time) Takeovers {
 	host := strings.ToLower(strings.TrimSpace(r.Host))
 	out := make(Takeovers, 0, len(list)+1)
-	out = append(out, Takeover{Host: host, Kind: r.kind(), Note: text.Clean(r.Note), Conversation: r.Conversation, At: now})
+	t := Takeover{Host: host, Kind: r.kind(), Note: text.Clean(r.Note), Conversation: r.Conversation, At: now}
+	for _, l := range list {
+		if l.Host == host {
+			t.NotifiedAt, t.NotifiedIn = l.NotifiedAt, l.NotifiedIn
+		}
+	}
+	out = append(out, t)
 	for _, l := range list {
 		if l.Host != host && len(out) < MaxTakeovers {
 			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Notified marks the host's takeover as told to a person in conv.
+func (l Takeovers) Notified(host string, conv identity.ConversationID, now time.Time) Takeovers {
+	out := slices.Clone(l)
+	for i := range out {
+		if out[i].Host == host {
+			out[i].NotifiedAt, out[i].NotifiedIn = &now, &conv
+		}
+	}
+	return out
+}
+
+// Without removes the host's takeover.
+func (l Takeovers) Without(host string) Takeovers {
+	out := Takeovers{}
+	for _, t := range l {
+		if t.Host != host {
+			out = append(out, t)
 		}
 	}
 	return out

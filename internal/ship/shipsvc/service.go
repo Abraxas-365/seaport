@@ -5,6 +5,7 @@ package shipsvc
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
@@ -52,6 +53,9 @@ type Deps struct {
 	// ApprovalPoll is how often a blocked ask looks for its answer (zero:
 	// ship.ApprovalPoll).
 	ApprovalPoll time.Duration
+	// PublicURL is where the web app is (a takeover's notice links the
+	// agent's browser there; "": no link).
+	PublicURL string
 }
 
 type Service struct {
@@ -70,6 +74,7 @@ type Service struct {
 	limits    ship.Limits
 	media     media
 	locks     ship.ApprovalLocker
+	publicURL string
 	// approvalTTL and poll: see Deps.
 	approvalTTL, poll time.Duration
 }
@@ -100,7 +105,7 @@ func New(d Deps) (*Service, error) {
 	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
 		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m,
-		approvalTTL: ttl, poll: poll, locks: d.ApprovalLocks}, nil
+		approvalTTL: ttl, poll: poll, locks: d.ApprovalLocks, publicURL: strings.TrimRight(d.PublicURL, "/")}, nil
 }
 
 var (

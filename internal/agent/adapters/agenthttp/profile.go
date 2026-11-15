@@ -44,6 +44,8 @@ type profileRequest struct {
 	Model        string            `json:"model"`
 	Effort       string            `json:"effort"`
 	Browser      bool              `json:"browser"`
+	// BrowserAssist: "", "conversation" or a destination name.
+	BrowserAssist string `json:"browser_assist"`
 }
 
 func (h *Handler) saveProfile(c fiber.Ctx) error {
@@ -65,7 +67,7 @@ func (h *Handler) saveProfile(c fiber.Ctx) error {
 	}
 	out, err := h.commands.SaveProfile(c.Context(), p.Organization, id, agent.SaveProfile{Base: req.Base,
 		Instructions: req.Instructions, Skills: req.Skills, MCPServers: req.MCPServers, Approve: req.Approve,
-		Model: req.Model, Effort: req.Effort, Browser: req.Browser, CreatedBy: by})
+		Model: req.Model, Effort: req.Effort, Browser: req.Browser, BrowserAssist: req.BrowserAssist, CreatedBy: by})
 	if err != nil {
 		return err
 	}

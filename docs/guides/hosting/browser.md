@@ -35,7 +35,23 @@ An agent with the switch on but hosted on an environment without a browser (or r
 
 When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
 
-A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `conversation_id`, `at`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
+### Telling a person, and resuming the agent
+
+Left to itself, the agent tells the person in the conversation. The profile's `browser_assist` makes Seaport do it, with a link to the agent's browser (`SEAPORT_PUBLIC_URL`; without it the message says where in the web app):
+
+- `conversation`: a message in the conversation the agent named in the call — *El agente **surf** necesita que una persona inicie sesión en app.example.com. … Abre su navegador: https://seaport.example.com/agents/…/hosting. Cuando termines, pulsa Listo.* The conversation must be allowed and the dock must take replies, as for any reply.
+- A [destination](../destinations.md) name (`oncall`, `it-support`): Seaport opens a conversation at that destination of one of the agent's docks (a Slack thread, a WhatsApp chat) with the same message; when the destination's dock is the conversation's own, the new conversation joins its thread.
+- Empty (default): nobody; the takeover shows only in the web.
+
+One notice per host: asking again for the same host updates the takeover and sends nothing. When the person presses **Listo** (or `DELETE /api/v1/agents/{id}/takeovers/{host}`), the agent gets a system message (`system:browser`) in the conversation the notice went to — else the one the call named — addressed to it, so it wakes up and goes on in the browser; a takeover nobody was told about in any conversation wakes nobody (the agent finds out when it retries). The agent can also wait in the call (`wait_seconds`, up to 290 s) when the step is short: a code, a captcha.
+
+```sh
+seaport agents profile set surf -browser on -browser-assist conversation
+seaport agents profile set surf -browser-assist oncall     # a destination of one of its docks
+seaport agents profile set surf -browser-assist none
+```
+
+A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `conversation_id`, `at`, `notified_at`, `notified_in`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
 
 ## The viewer
 

@@ -233,7 +233,7 @@ Errors: `no destination named <name> on your docks`, `several docks have a desti
 
 ### ask_takeover
 
-Only added when the calling agent's current [profile](agent-profile.md) has `browser` on. Its description tells the model never to guess or ask for passwords or codes: when a site in the [managed browser](../guides/hosting/browser.md) needs a person (a login page, an expired session, a captcha, a 2FA prompt, a "verify you are human" wall, a payment), call this, tell the person in the conversation that they are needed in the web app's browser tab, and go on with what doesn't need it.
+Only added when the calling agent's current [profile](agent-profile.md) has `browser` on. Its description tells the model never to guess or ask for passwords or codes: when a site in the [managed browser](../guides/hosting/browser.md) needs a person (a login page, an expired session, a captcha, a 2FA prompt, a "verify you are human" wall, a payment), call this. With the profile's `browser_assist` set, Seaport tells a person itself (a message with a link to the agent's browser, once per host); otherwise the model tells the person in the conversation. The model may wait for the person in the call (`wait_seconds`) or go on with what doesn't need the browser: when the person presses **Listo**, a system message (`system:browser`) arrives in the conversation where the notice went.
 
 Arguments:
 
@@ -242,15 +242,16 @@ Arguments:
 | `host` | string | yes | The site's host name, as in the address bar (`app.example.com`), at most 253 characters. |
 | `kind` | string | no | What the person must do: `login` (default), `captcha`, `2fa` or `other`. |
 | `note` | string | no | What the agent was doing there, one line, at most 200 characters. Required when `kind` is `other`. |
-| `conversation_id` | string | no | The conversation the agent is working (the one in the seaport prompt); it must be of a dock the agent is on. |
+| `conversation_id` | string | no | The conversation the agent is working (the one in the seaport prompt); it must be of a dock the agent is on. With `browser_assist: conversation`, the notice goes here; without it, nobody is told. |
+| `wait_seconds` | integer | no | Block up to this many seconds (at most 290, and always short of the request's deadline) for the person to finish; `0` (default) returns at once. |
 
 Result:
 
 ```json
-{ "host": "app.example.com", "kind": "login", "recorded": true, "pending_takeovers": 1 }
+{ "host": "app.example.com", "kind": "login", "recorded": true, "notified": true, "done": false, "pending_takeovers": 1 }
 ```
 
-The takeover appears on the agent's page (`takeovers` of the agent, `agent.updated`); a person opens the browser viewer, does what the site asks, and marks it done. An agent keeps at most 8 open takeovers, one per host (a new one for the same host replaces the older). Errors: `host must be a site's DNS name`, `kind must be one of login, captcha, 2fa, other`, `say what the person must do when kind is other`, a conversation the agent can't see (not found), and `no agent: a takeover belongs to an agent` when the call has no agent.
+`notified` says a person was told (now, or when this host was first asked: one notice per host); `done` says the person finished while the call waited (the takeover is gone). The takeover appears on the agent's page (`takeovers` of the agent, `agent.updated`); a person opens the browser viewer, does what the site asks, and presses **Listo**: the agent gets a system message `@agent [takeover app.example.com] a person is done (login) at app.example.com. Go on in the browser.` in the conversation the notice went to (else the one the call named). An agent keeps at most 8 open takeovers, one per host (a new one for the same host replaces the older and keeps its notice). Errors: `host must be a site's DNS name`, `kind must be one of login, captcha, 2fa, other`, `say what the person must do when kind is other`, `wait_seconds must be between 0 and 290`, a conversation the agent can't see (not found), and `no agent: a takeover belongs to an agent` when the call has no agent. A notice that can't go out (the conversation isn't allowed, the dock's replies are off, no dock of the agent has the destination) is logged and the takeover stays in the web.
 
 ### Vaults
 

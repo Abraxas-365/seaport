@@ -75,6 +75,9 @@ const (
 const (
 	SystemSenderPrefix = "system:"
 	SystemApproval     = "system:approval"
+	// SystemBrowser wakes an agent whose browser takeover a person ended
+	// (shipsvc.Takeovers).
+	SystemBrowser = "system:browser"
 )
 
 // Approval is a question an agent asked people (see AskApproval).
