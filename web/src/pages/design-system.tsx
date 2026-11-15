@@ -33,6 +33,7 @@ import {
   HomeTree,
   LogView,
   NoAccess,
+  OpenDockWarning,
   PairingPanel,
   SeaportLogo,
   SeaportMark,
@@ -43,8 +44,10 @@ import {
   LoginRequests,
   StatusBadge,
   StatusDot,
+  ProvenanceLine,
   ThreadChips,
   UsageChart,
+  VaultModeChip,
   customsLabel,
   customsTone,
   dockLabel,
@@ -603,6 +606,17 @@ function Domain() {
           <AgentChip name="pm" online isDefault />
           <AgentChip name="reviewer" online={false} />
           <AgentChip name="soporte" />
+        </Specimen>
+        <Specimen label="VaultModeChip (modo de un acceso a una bóveda: la escritura incluye la lectura)" className="flex flex-wrap items-center gap-2">
+          <VaultModeChip mode="read" />
+          <VaultModeChip mode="write" />
+        </Specimen>
+        <Specimen label="ProvenanceLine (quién escribió una entrada; el agente, desde qué canal)" className="space-y-1.5">
+          <ProvenanceLine provenance={{ kind: "agent", by: "pm" }} dock={{ name: "Soporte", channel: "whatsapp" }} />
+          <ProvenanceLine provenance={{ kind: "user", by: "Ana Torres" }} />
+        </Specimen>
+        <Specimen label="OpenDockWarning (aviso informativo: un muelle abierto con una bóveda de escritura)">
+          <OpenDockWarning />
         </Specimen>
         <Specimen label="ThreadChips (puertas de un hilo; la primera alterna esta puerta / todo el hilo)" className="lg:col-span-2">
           <ThreadChips doors={threadDoors} current={threadDoors[1].id} whole={false} onWhole={() => {}} className="rounded-lg border" />

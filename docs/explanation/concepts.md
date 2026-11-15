@@ -42,6 +42,10 @@ An **approval** is a question an agent asked people before acting: a message wit
 
 An **agent** is a named worker in your organization's library (`pm`, `support`). Its name is its `@mention`. An agent works on the docks it is assigned to (its dock's **team**), and a **profile** says how it behaves: instructions, skills, MCP servers, secrets. When a ship is allowed in, **routing** picks one agent of the dock's team for it. See [Agents and routing](../guides/agents-and-routing.md) and [Agent profiles](../guides/profiles.md).
 
+## Vaults
+
+A **vault** is a named set of markdown entries that belongs to your organization: the memory your agents share, independent of the harness they run on and of the slot they run in. You grant a vault to an **agent** (it sees the vault everywhere) or to a **dock** (the agent sees it while it works a conversation of that dock), each as `read` or `write`; the widest mode wins. Agents search, read and save entries through the port's MCP tools. Every save is a version with who wrote it, so a bad write can be reverted. See [Vaults](../guides/vaults.md).
+
 ## Crew, connectors and harnesses
 
 An agent in the library is only a name and a profile. The thing that does the work is a **harness**: a coding-agent program such as rness or Claude Code. A **connector** (`seaport connect`) starts a harness, connects to the port over a WebSocket and turns each batch of ships into a prompt. The harness answers through the port's MCP tools (`reply`, `history`…).

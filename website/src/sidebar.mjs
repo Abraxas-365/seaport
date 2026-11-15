@@ -30,6 +30,7 @@ export const sidebar = [
       page('guides/destinations'),
       page('guides/messages-and-images'),
       page('guides/approvals'),
+      page('guides/vaults'),
     ], false),
     group('Agents', [
       page('guides/agents-and-routing'),

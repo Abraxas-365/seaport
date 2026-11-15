@@ -6,7 +6,7 @@ A hosted agent starts from a clean image, so it doesn't know how you like to wor
 
 ## What goes in
 
-Only configuration is accepted. Sessions, history, sign-in, memory, caches and installed plugins are never uploaded.
+Only configuration is accepted. Sessions, history, sign-in, memory (use a [vault](../vaults.md) for memory shared between agents and slots), caches and installed plugins are never uploaded.
 
 | Harness | Home | Allowed paths |
 | :--- | :--- | :--- |

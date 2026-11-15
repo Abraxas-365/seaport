@@ -22,6 +22,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/vault"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -37,8 +38,13 @@ type Deps struct {
 	Logins agent.Commands
 	// Docks lists the destinations the agent may open conversations at
 	// (nil: no open tool).
-	Docks   dock.Queries
-	Version string
+	Docks dock.Queries
+	// Vaults and VaultWrites give the agent its memory (the vault tools;
+	// nil: none). Writes go only through VaultWrites, which checks the
+	// grant (TestVaultWritesCheckAccess).
+	Vaults      vault.Queries
+	VaultWrites vault.Writer
+	Version     string
 }
 
 // Handler returns the MCP endpoint. Each request gets a server of its own
@@ -87,7 +93,10 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 			"Each prompt from seaport names a conversation_id. Answer people with the reply tool; " +
 			"use history to read earlier messages of a conversation. Before anything consequential or irreversible " +
 			"(deploy, delete, spend, send on someone's behalf), ask people with ask_approval and act only on the " +
-			"option they choose; if it expires or is cancelled, do not do it.",
+			"option they choose; if it expires or is cancelled, do not do it. " +
+			"Long-term memory lives in vaults (when you have the vault tools): search it with memory_search before answering " +
+			"about the company, a customer or a past decision, and save durable facts with memory_save " +
+			"(one fact per entry, no secrets, nothing transient).",
 	})
 	t := tools{d: d}
 	mcp.AddTool(srv, &mcp.Tool{
@@ -125,6 +134,7 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	t.addSkill(ctx, srv)
 	t.addOpen(ctx, srv)
 	t.addLoginNeeded(ctx, srv)
+	t.addVaults(ctx, srv)
 	return srv
 }
 

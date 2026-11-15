@@ -58,6 +58,7 @@ import {
   Mono,
   SegmentedChoice,
   StatusBadge,
+  VaultsCard,
   type ChoiceOption,
 } from "@/components/seaport"
 import { BrowserCard, HostingCard, UsageCard } from "@/pages/agent-hosting"
@@ -157,6 +158,7 @@ function AgentDetail({ agent }: { agent: LibraryAgent }) {
         <HostingCard agent={agent} />
         <BrowserCard agent={agent} />
         <UsageCard agent={agent} />
+        {can(Perm.VaultsRead) && <VaultsCard kind="agent" id={agent.id} />}
         <SecretsCard agent={agent} write={can(Perm.AgentsWrite)} />
       </div>
     </div>

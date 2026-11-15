@@ -603,6 +603,33 @@ Builds, slots and hosted runs need `SEAPORT_RUNTIME=docker`; with it `off` they 
 
 A schedule: `id`, `conversation_id`, `agent_id` (absent: the dock's routing decides), `name`, `cron`, `timezone`, `text`, `enabled`, `next_at`, `last_at`, `last_ship_id`, `created_at`, `updated_at` and `preview` (the next three times, empty while it is switched off). See [Schedules](../guides/schedules.md).
 
+### Vaults
+
+Shared memory of agents: see [Vaults](../guides/vaults.md). `{id}` is a vault's id, `{entry}` an entry's id; a vault, entry, agent or dock of another organization is `404`.
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/vaults` | `vaults:read` | Paginated vaults (with their `entries` count). |
+| `POST` | `/vaults` | `vaults:write` | Body `{"name","title","description"}`. `201` with the vault. `400` for a bad name (`^[a-z0-9][a-z0-9_-]{0,63}$`); `409` when the name is taken; `422 QUOTA_EXCEEDED` (`vaults`) past `SEAPORT_MAX_VAULTS`. |
+| `GET` | `/vaults/{id}` | `vaults:read` | The vault plus who has it: `agents` (`agent_id`, `name`, `mode`, `created_at`) and `docks` (`dock_id`, `name`, `channel`, `mode`, `created_at`). |
+| `PATCH` | `/vaults/{id}` | `vaults:write` | Body with `title` and/or `description` (at least one). The vault. |
+| `DELETE` | `/vaults/{id}` | `vaults:write` | `204`. Deletes its entries, their versions and every grant. |
+| `PUT` | `/vaults/{id}/agents/{agent}` | `vaults:write` | Body `{"mode":"read"\|"write"}`. Grants the vault to the agent, or changes its mode. The vault's grants (`agents`, `docks`). |
+| `DELETE` | `/vaults/{id}/agents/{agent}` | `vaults:write` | `204`. `404` when the agent has no grant. |
+| `PUT` | `/vaults/{id}/docks/{dock}` | `vaults:write` | Body `{"mode":"read"\|"write"}`. As the agent's route, for a dock. |
+| `DELETE` | `/vaults/{id}/docks/{dock}` | `vaults:write` | `204`. `404` when the dock has no grant. |
+| `GET` | `/vaults/{id}/entries` | `vaults:read` | Paginated entry summaries (`id`, `name`, `first_line`, `version`, `provenance`, `updated_at`), by name. With `q=words` it searches instead: `{"hits":[{"vault_id","vault","entry_id","name","snippet","version","provenance","updated_at"}]}`, at most 20, not paginated. |
+| `POST` | `/vaults/{id}/entries` | `vaults:write` | Body `{"name","body"}`. `201` with the entry. `409` when the name exists; `400` for a bad name, a body over 64 KiB or one that looks like a credential (`details.field` = `body`); `422 QUOTA_EXCEEDED` (`vault_entries`) past 2000 entries. |
+| `GET` | `/vaults/{id}/entries/{entry}` | `vaults:read` | The entry, with its `body`, `version` and `provenance`. |
+| `PUT` | `/vaults/{id}/entries/{entry}` | `vaults:write` | Body `{"body","base"}`. `base` must be the entry's current version. A new version. `409` when the entry changed meanwhile (read it again). |
+| `DELETE` | `/vaults/{id}/entries/{entry}` | `vaults:write` | `204`. The versions are kept until the vault is deleted. |
+| `GET` | `/vaults/{id}/entries/{entry}/versions` | `vaults:read` | `{"versions":[{"entry_id","version","name","body","provenance","created_at"}]}`, newest first, at most 100. |
+| `POST` | `/vaults/{id}/entries/{entry}/revert` | `vaults:write` | Body `{"version":2}`. Saves that version's text as a new version. The entry. |
+| `GET` | `/agents/{id}/vaults` | `vaults:read` | `{"vaults":[{"vault","mode"}]}`: the vaults granted to the agent itself. |
+| `GET` | `/docks/{id}/vaults` | `vaults:read` | `{"vaults":[{"vault","mode"}]}`: the vaults granted to the dock. |
+
+An entry: `id`, `vault_id`, `name`, `body`, `version` (1 at creation, +1 per save), `provenance` and `created_at`, `updated_at`. `provenance` is `{"kind":"user"|"agent","by","conversation_id","dock_id"}`: the person's name, or the agent's name with the conversation and dock it was working. A vault: `id`, `name`, `title`, `description`, `entries`, `created_at`, `updated_at`.
+
 ### Events
 
 | Method | Path | Permission | Response |

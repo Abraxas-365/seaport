@@ -19,6 +19,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/permission"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/vault"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -63,8 +64,12 @@ func (m *Module) Bind(ships interface {
 	agent.Commands
 	agent.Queries
 	agent.Kits
-}, docks dock.Queries) {
-	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Logins: agents, Docks: docks, Version: m.version})
+}, docks dock.Queries, vaults interface {
+	vault.Queries
+	vault.Writer
+}) {
+	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Logins: agents, Docks: docks,
+		Vaults: vaults, VaultWrites: vaults, Version: m.version})
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}
 	m.reply = crewhttp.Reply{Ships: ships}

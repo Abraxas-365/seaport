@@ -27,6 +27,8 @@ const (
 	EnvironmentsWrite  = "seaport:environments:write"  // Create, change and delete environments, host agents and start or stop them
 	SchedulesRead      = "seaport:schedules:read"      // View schedules (prompts posted into conversations at set times)
 	SchedulesWrite     = "seaport:schedules:write"     // Create, change, run and delete schedules
+	VaultsRead         = "seaport:vaults:read"         // View vaults (shared memory of agents), their entries and grants
+	VaultsWrite        = "seaport:vaults:write"        // Create, change and delete vaults, their entries and who may use them
 	BrowserUse         = "seaport:browser:use"         // Open a hosted agent's browser to sign in to sites for it
 )
 
@@ -49,6 +51,8 @@ var All = []string{
 	EnvironmentsWrite,
 	SchedulesRead,
 	SchedulesWrite,
+	VaultsRead,
+	VaultsWrite,
 	BrowserUse,
 }
 
@@ -71,12 +75,14 @@ var Labels = map[string]string{
 	EnvironmentsWrite:  "Create, change and delete environments, host agents and start or stop them",
 	SchedulesRead:      "View schedules (prompts posted into conversations at set times)",
 	SchedulesWrite:     "Create, change, run and delete schedules",
+	VaultsRead:         "View vaults (shared memory of agents), their entries and grants",
+	VaultsWrite:        "Create, change and delete vaults, their entries and who may use them",
 	BrowserUse:         "Open a hosted agent's browser to sign in to sites for it",
 }
 
 // Roles on the resource, in manifest order.
 var Roles = []Role{
-	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite, EnvironmentsRead, EnvironmentsWrite, SchedulesRead, SchedulesWrite, BrowserUse}},
-	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead, SchedulesWrite, BrowserUse}},
-	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead}},
+	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite, EnvironmentsRead, EnvironmentsWrite, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
+	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
+	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead, VaultsRead}},
 }

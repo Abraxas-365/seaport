@@ -188,6 +188,28 @@ Prompts the port posts into a conversation on a cron timetable. See [Schedules](
 | `seaport schedules preview "<cron>" [-timezone Z]` | The next three times an expression runs, saving nothing. |
 | `seaport schedules delete <id> -yes` | Deletes it. |
 
+## Vaults
+
+The organization's shared memory: markdown entries agents read and write. See [Vaults](../guides/vaults.md). `<vault>` is a vault's name or id; `<name>` is an entry's name (1 to 64 lowercase letters, digits, `-` or `_`).
+
+| Command | What it does |
+| :--- | :--- |
+| `seaport vault [list]` | Table of vaults (alias `vaults`): ID, name, entries, title. |
+| `seaport vault create <name> [-title T] [-description D]` | Creates one. The description is what agents read to know when to use it. |
+| `seaport vault show <vault>` | Its details and who it is granted to: agents and docks, each with the mode. |
+| `seaport vault update <vault> [-title T] [-description D]` | Changes only the fields given. |
+| `seaport vault delete <vault> -yes` | Deletes the vault with its entries and versions, and every grant. |
+| `seaport vault grant <vault> (-agent <agent>\|-dock <dock-id>) -mode read\|write` | Grants it to an agent (seen everywhere) or a dock (seen while an agent works a conversation of it). Granting again changes the mode. |
+| `seaport vault revoke <vault> (-agent <agent>\|-dock <dock-id>)` | Takes the grant away. |
+| `seaport vault entries <vault> [-q words]` | Lists the entries (name, version, updated, who wrote it, first line), or with `-q` searches them and shows snippets. |
+| `seaport vault get <vault> <name>` | Prints the entry's text. |
+| `seaport vault put <vault> <name> (-file F.md\|"text")` | Creates the entry, or saves a new version of an existing one (it reads the current version first and sends it as `base`). `-file -` reads stdin. |
+| `seaport vault rm <vault> <name>` | Deletes the entry (its versions stay until the vault is deleted). |
+| `seaport vault versions <vault> <name>` | Every version: number, when, who, size, first line. |
+| `seaport vault revert <vault> <name> <version>` | Saves an old version's text as a new version. |
+| `seaport vault pull <vault> <dir>` | Writes one `<name>.md` per entry into `<dir>` (created if missing), overwriting. |
+| `seaport vault push <vault> <dir> [-prune]` | Creates and updates entries from the `<name>.md` files whose text differs, with `base`; files that aren't valid entry names are listed and skipped. `-prune` deletes entries with no file. Prints what it created, updated, deleted and left unchanged; exits non-zero if any entry failed (a conflict with a save made meanwhile, a secret in the text). |
+
 ## connect
 
 `seaport connect [flags] -- <agent command>` runs an agent harness on your machine, attached to a port. It dials out (no public address needed), speaks the [crew protocol](crew-protocol.md), starts `<agent command>` as an ACP agent in `-cwd`, and gives it the port's [MCP tools](mcp-tools.md). Example: `seaport connect -- rness --acp`. See [Connector](../guides/connector.md).

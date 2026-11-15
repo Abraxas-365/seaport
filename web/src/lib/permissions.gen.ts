@@ -19,6 +19,8 @@ export const permissions = [
   "seaport:environments:write",
   "seaport:schedules:read",
   "seaport:schedules:write",
+  "seaport:vaults:read",
+  "seaport:vaults:write",
   "seaport:browser:use",
 ] as const
 
@@ -43,6 +45,8 @@ export const Perm = {
   EnvironmentsWrite: "seaport:environments:write",
   SchedulesRead: "seaport:schedules:read",
   SchedulesWrite: "seaport:schedules:write",
+  VaultsRead: "seaport:vaults:read",
+  VaultsWrite: "seaport:vaults:write",
   BrowserUse: "seaport:browser:use",
 } as const satisfies Record<string, Permission>
 
@@ -65,5 +69,7 @@ export const permissionLabels: Record<Permission, string> = {
   "seaport:environments:write": "Create, change and delete environments, host agents and start or stop them",
   "seaport:schedules:read": "View schedules (prompts posted into conversations at set times)",
   "seaport:schedules:write": "Create, change, run and delete schedules",
+  "seaport:vaults:read": "View vaults (shared memory of agents), their entries and grants",
+  "seaport:vaults:write": "Create, change and delete vaults, their entries and who may use them",
   "seaport:browser:use": "Open a hosted agent's browser to sign in to sites for it",
 }

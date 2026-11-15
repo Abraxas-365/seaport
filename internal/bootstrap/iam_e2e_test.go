@@ -23,6 +23,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/schedule"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/vault"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -464,6 +465,15 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		t.Fatalf("create schedule: %d", code)
 	}
 	sc := sched.ID.String()
+	var vlt vault.Vault
+	if code := p.call(http.MethodPost, "/api/v1/vaults", adminA, map[string]string{"name": "notes"}, &vlt); code != http.StatusCreated {
+		t.Fatalf("create vault: %d", code)
+	}
+	var vent vault.Entry
+	if code := p.call(http.MethodPost, "/api/v1/vaults/"+vlt.ID.String()+"/entries", adminA, map[string]string{"name": "faq", "body": "hola"}, &vent); code != http.StatusCreated {
+		t.Fatalf("create entry: %d", code)
+	}
+	vl, ve := vlt.ID.String(), vent.ID.String()
 	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
 	home := "sha256:" + strings.Repeat("a", 64)
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
@@ -580,6 +590,24 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"DELETE", "/api/v1/schedules/" + sc, "DELETE /api/v1/schedules/{id}", nil, permission.SchedulesWrite},
 		{"POST", "/api/v1/schedules/" + sc + "/run", "POST /api/v1/schedules/{id}/run", nil, permission.SchedulesWrite},
 		{"GET", "/api/v1/conversations/" + cv + "/schedules", "GET /api/v1/conversations/{id}/schedules", nil, permission.SchedulesRead},
+		{"GET", "/api/v1/vaults", "GET /api/v1/vaults", nil, permission.VaultsRead},
+		{"POST", "/api/v1/vaults", "POST /api/v1/vaults", map[string]string{"name": "x"}, permission.VaultsWrite},
+		{"GET", "/api/v1/vaults/" + vl, "GET /api/v1/vaults/{id}", nil, permission.VaultsRead},
+		{"PATCH", "/api/v1/vaults/" + vl, "PATCH /api/v1/vaults/{id}", map[string]string{"title": "x"}, permission.VaultsWrite},
+		{"DELETE", "/api/v1/vaults/" + vl, "DELETE /api/v1/vaults/{id}", nil, permission.VaultsWrite},
+		{"PUT", "/api/v1/vaults/" + vl + "/agents/" + ag, "PUT /api/v1/vaults/{id}/agents/{agent}", map[string]string{"mode": "read"}, permission.VaultsWrite},
+		{"DELETE", "/api/v1/vaults/" + vl + "/agents/" + ag, "DELETE /api/v1/vaults/{id}/agents/{agent}", nil, permission.VaultsWrite},
+		{"PUT", "/api/v1/vaults/" + vl + "/docks/" + dk, "PUT /api/v1/vaults/{id}/docks/{dock}", map[string]string{"mode": "read"}, permission.VaultsWrite},
+		{"DELETE", "/api/v1/vaults/" + vl + "/docks/" + dk, "DELETE /api/v1/vaults/{id}/docks/{dock}", nil, permission.VaultsWrite},
+		{"GET", "/api/v1/vaults/" + vl + "/entries", "GET /api/v1/vaults/{id}/entries", nil, permission.VaultsRead},
+		{"POST", "/api/v1/vaults/" + vl + "/entries", "POST /api/v1/vaults/{id}/entries", map[string]string{"name": "x", "body": "x"}, permission.VaultsWrite},
+		{"GET", "/api/v1/vaults/" + vl + "/entries/" + ve, "GET /api/v1/vaults/{id}/entries/{entry}", nil, permission.VaultsRead},
+		{"PUT", "/api/v1/vaults/" + vl + "/entries/" + ve, "PUT /api/v1/vaults/{id}/entries/{entry}", map[string]any{"body": "x", "base": 1}, permission.VaultsWrite},
+		{"DELETE", "/api/v1/vaults/" + vl + "/entries/" + ve, "DELETE /api/v1/vaults/{id}/entries/{entry}", nil, permission.VaultsWrite},
+		{"GET", "/api/v1/vaults/" + vl + "/entries/" + ve + "/versions", "GET /api/v1/vaults/{id}/entries/{entry}/versions", nil, permission.VaultsRead},
+		{"POST", "/api/v1/vaults/" + vl + "/entries/" + ve + "/revert", "POST /api/v1/vaults/{id}/entries/{entry}/revert", map[string]int{"version": 1}, permission.VaultsWrite},
+		{"GET", "/api/v1/agents/" + ag + "/vaults", "GET /api/v1/agents/{id}/vaults", nil, permission.VaultsRead},
+		{"GET", "/api/v1/docks/" + dk + "/vaults", "GET /api/v1/docks/{id}/vaults", nil, permission.VaultsRead},
 		{"DELETE", "/api/v1/crew/tokens/" + tokA.ID.String(), "DELETE /api/v1/crew/tokens/{id}", nil, permission.CrewTokensWrite},
 	}
 	// The list covers every guarded route, with the permission the code checks.

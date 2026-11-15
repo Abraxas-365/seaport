@@ -258,6 +258,19 @@ func TestOpenModeNeedsNoCredentials(t *testing.T) {
 	c.quiet(100 * time.Millisecond)
 	waitCrew(t, p, func(st crew.Status) bool { return len(st.Agents) == 1 && st.Agents[0].AgentID == local.ID })
 
+	// A crew token sent anyway is honoured (the caller works as its agent,
+	// no X-Seaport-Agent needed); a wrong one is refused, not ignored.
+	issued := p.issueAs("", local.ID, "local-tool")
+	res, err := mcpSession(t, p, issued.Value).CallTool(context.Background(), &mcp.CallToolParams{Name: "conversations", Arguments: map[string]any{}})
+	if err != nil || res.IsError {
+		t.Fatalf("mcp with a crew token in open mode: %v %+v", err, res)
+	}
+	if _, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(context.Background(),
+		&mcp.StreamableClientTransport{Endpoint: p.srv.URL + "/mcp", HTTPClient: &http.Client{Transport: bearer{"sp_crew_wrong"}}}, nil); err == nil ||
+		!strings.Contains(strings.ToLower(err.Error()), "unauthorized") {
+		t.Fatalf("mcp with a wrong crew token in open mode: %v", err)
+	}
+
 	// A browser on another site still can't drive it.
 	req, _ := http.NewRequest(http.MethodPost, p.srv.URL+"/api/v1/docks", strings.NewReader(`{"channel":"api","name":"x"}`))
 	req.Header.Set("Content-Type", "application/json")

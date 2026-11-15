@@ -219,3 +219,61 @@ func TestOpenAuth(t *testing.T) {
 		t.Errorf("session from a foreign host: %d", resp.StatusCode)
 	}
 }
+
+// An open port's crew routes take a crew token when one is sent: the
+// principal is the token's (so its agent), a wrong token is refused, and
+// without one the caller is the local owner, as before.
+func TestOpenCrewTakesTokens(t *testing.T) {
+	tokens := crewTokens{"sp_crew_ok": {Organization: testOrg, Role: httpx.RoleCrew, Subject: "crew:bot"}}
+	open := httpx.Open{Organization: testOrg, CrewTokens: tokens}
+	app := newApp()
+	app.Get("/crew/who", open.Crew(), who)
+	app.Get("/api/v1/who", open.Admin(), who)
+	for _, c := range []struct {
+		name, path, bearer string
+		want               int
+		body               string
+	}{
+		{"no token", "/crew/who", "", 200, "crew:local"},
+		{"token", "/crew/who", "sp_crew_ok", 200, "crew:crew:bot"},
+		{"wrong token", "/crew/who", "sp_crew_no", 401, ""},
+		{"admin ignores crew tokens", "/api/v1/who", "sp_crew_ok", 200, "admin:local"},
+	} {
+		req := httptest.NewRequest("GET", "http://localhost:8740"+c.path, nil)
+		if c.bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+c.bearer)
+		}
+		resp, body := do(t, app, req)
+		if resp.StatusCode != c.want || (c.body != "" && body != c.body) {
+			t.Errorf("%s: %d %q, want %d %q", c.name, resp.StatusCode, body, c.want, c.body)
+		}
+	}
+	// Without a resolver (tests, tools), a token is simply not read.
+	req := httptest.NewRequest("GET", "http://localhost:8740/crew/who", nil)
+	req.Header.Set("Authorization", "Bearer sp_crew_no")
+	app = newApp()
+	app.Get("/crew/who", httpx.Open{Organization: testOrg}.Crew(), who)
+	if resp, body := do(t, app, req); resp.StatusCode != 200 || body != "crew:local" {
+		t.Errorf("no resolver: %d %q", resp.StatusCode, body)
+	}
+}
+
+// Bearer reads only the Bearer scheme: a bare token (no scheme) is not a
+// credential, the scheme is case-insensitive and "Bearer" alone (what
+// clients send for an empty token) is no token.
+func TestBearer(t *testing.T) {
+	app := newApp()
+	app.Get("/", func(c fiber.Ctx) error { return c.SendString(httpx.Bearer(c)) })
+	for hdr, want := range map[string]string{
+		"Bearer abc": "abc", "bearer abc": "abc", "Bearer  abc ": "abc", "Bearer": "", "Bearer ": "",
+		"abc": "", "Basic abc": "", "": "",
+	} {
+		req := httptest.NewRequest("GET", "http://localhost/", nil)
+		if hdr != "" {
+			req.Header.Set("Authorization", hdr)
+		}
+		if _, got := do(t, app, req); got != want {
+			t.Errorf("Bearer(%q) = %q, want %q", hdr, got, want)
+		}
+	}
+}

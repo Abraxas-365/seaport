@@ -119,9 +119,13 @@ type CrewResolver interface {
 	ResolveCrew(ctx context.Context, value string) (Principal, error)
 }
 
-// Bearer returns the request's bearer token, or "".
+// Bearer returns the request's bearer token, or "" (also for a bare
+// "Bearer" with nothing after it: clients send that for an empty token).
 func Bearer(c fiber.Ctx) string {
-	got, _ := strings.CutPrefix(c.Get("Authorization"), "Bearer ")
+	scheme, got, _ := strings.Cut(strings.TrimSpace(c.Get("Authorization")), " ")
+	if !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
 	return strings.TrimSpace(got)
 }
 
@@ -180,6 +184,10 @@ type SessionRoutes struct {
 // organization. The process only listens on loopback (config.Validate).
 type Open struct {
 	Organization identity.OrganizationID
+	// CrewTokens resolves a crew token an agent sends anyway (a connector
+	// configured with one, a tool run against a local port): the principal
+	// is then the token's, agent included, as in token mode. Optional.
+	CrewTokens CrewResolver
 }
 
 var _ Authenticator = Open{}
@@ -206,6 +214,9 @@ func (o Open) guard(role Role) fiber.Handler {
 }
 
 // allow checks the request is local and makes the open principal its own.
+// A crew request carrying a bearer token is resolved as that token's
+// principal (a wrong token is refused, not ignored: a caller that sends one
+// means it).
 func (o Open) allow(c fiber.Ctx, role Role) error {
 	p := Principal{Organization: o.Organization, Role: role, Subject: "local"}
 	if role == RoleAdmin {
@@ -216,6 +227,13 @@ func (o Open) allow(c fiber.Ctx, role Role) error {
 	}
 	if h := forwardedBy(c); h != "" {
 		return errx.Forbidden("an open port refuses proxied requests (" + h + "); use SEAPORT_AUTH=token behind a proxy")
+	}
+	if got := Bearer(c); role == RoleCrew && got != "" && o.CrewTokens != nil {
+		resolved, err := o.CrewTokens.ResolveCrew(c.Context(), got)
+		if err != nil {
+			return err
+		}
+		p = resolved
 	}
 	SetPrincipal(c, p)
 	return nil

@@ -102,6 +102,8 @@ type Server struct {
 	MaxDocks, MaxCrewConnections, SendOrgPerHour int
 	// SEAPORT_MAX_SCHEDULES (100): schedules per organization.
 	MaxSchedules int
+	// SEAPORT_MAX_VAULTS (64): vaults per organization.
+	MaxVaults int
 	// SEAPORT_API_RATE (20) and SEAPORT_API_BURST (60): requests per second
 	// per caller (organization + subject + credential) on /api, /crew/ws
 	// and /mcp; 0 disables.
@@ -255,6 +257,7 @@ func LoadServer() (Server, error) {
 		{"SEAPORT_HOST_MAX_MEMORY_MB", 8192, &c.HostMaxMemoryMB},
 		{"SEAPORT_MAX_SLOTS", 10, &c.MaxSlots},
 		{"SEAPORT_MAX_SCHEDULES", 100, &c.MaxSchedules},
+		{"SEAPORT_MAX_VAULTS", 64, &c.MaxVaults},
 	} {
 		if *l.dst, err = envInt(l.key, l.def); err != nil {
 			return c, err

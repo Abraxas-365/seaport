@@ -29,6 +29,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Follow a message from arrival to reply | [The life of a message](explanation/message-lifecycle.md) |
 | Run several agents and pick one with `@name` | [Agents and routing](guides/agents-and-routing.md) |
 | Give an agent instructions, skills, MCP servers and secrets | [Agent profiles](guides/profiles.md) |
+| Give agents a shared memory they read and write | [Vaults](guides/vaults.md) |
 | Connect rness, Claude Code or any ACP agent | [The connector](guides/connector.md) |
 | Let the port run the agent in a container | [Hosted agents](guides/hosting/hosted-agents.md) |
 | Keep model keys out of containers and limit their network | [Model gateway and egress](guides/hosting/network.md) |

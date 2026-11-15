@@ -1,6 +1,16 @@
 // Tone: the one place status → color meaning lives (see index.css).
 
-import type { ApprovalStatus, BuildState, CustomsStatus, DockStatus, ShipStatus, SlotState, ToolStatus, TurnOutcome } from "@/lib/types"
+import type {
+  ApprovalStatus,
+  BuildState,
+  CustomsStatus,
+  DockStatus,
+  ShipStatus,
+  SlotState,
+  ToolStatus,
+  TurnOutcome,
+  VaultMode,
+} from "@/lib/types"
 
 export type Tone = "neutral" | "brand" | "success" | "warning" | "danger" | "info"
 
@@ -122,6 +132,17 @@ export const buildLabel: Record<BuildState, string> = {
   building: "Construyendo",
   ready: "Lista",
   failed: "Falló",
+}
+
+/** What a vault grant allows: write includes read. */
+export const vaultModeTone: Record<VaultMode, Tone> = {
+  read: "info",
+  write: "brand",
+}
+
+export const vaultModeLabel: Record<VaultMode, string> = {
+  read: "Lectura",
+  write: "Escritura",
 }
 
 /** How a home's file differs from the version it's compared with. */

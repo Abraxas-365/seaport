@@ -526,6 +526,7 @@ var cliSwitches = map[string]string{
 	"envHome/sub":             "seaport env home",
 	"schedules/sub":           "seaport schedules",
 	"crewTokens/sub":          "seaport crew tokens",
+	"vaultCmd/sub":            "seaport vault",
 }
 
 // cliExtra: commands dispatched without a switch case.
@@ -533,6 +534,8 @@ var cliExtra = []string{
 	"seaport help",        // run: args[0] == "help"
 	"seaport crew tokens", // run: crew + rest[0] == "tokens"
 	"seaport customs rm",  // customs: rest[0] == "rm"
+	"seaport vault list",  // vaultCmd: sub == "list" before the switch
+	"seaport vault create",
 }
 
 // cliAliases: names that stand for another command; the doc may leave them
@@ -541,10 +544,13 @@ var cliAliases = map[string]string{
 	"seaport envs": "seaport env", "seaport environments": "seaport env",
 	"seaport schedule": "seaport schedules", "seaport cron": "seaport schedules",
 	"seaport agent": "seaport agents", "seaport convs": "seaport conversations",
-	"seaport threads": "seaport thread",
+	"seaport threads": "seaport thread", "seaport vaults": "seaport vault",
 	// subcommand aliases
 	"seaport dock destination remove": "seaport dock destination rm",
 	"seaport env show":                "seaport env export",
+	"seaport vault ls":                "seaport vault list",
+	"seaport vault add":               "seaport vault create",
+	"seaport vault edit":              "seaport vault update",
 }
 
 var cliTags = map[string]bool{"sub": true, "cmd": true, "args[0]": true, "rest[0]": true}
@@ -1071,7 +1077,9 @@ func other(d D) { switch d.Channel { case "ignored": } }`,
 			"command `seaport crew tokens` is in cmd/seaport but not documented",
 			"command `seaport customs rm` is in cmd/seaport but not documented",
 			"command `seaport dock rename` is in cmd/seaport but not documented",
-			"command `seaport mystery` is in cmd/seaport but not documented")
+			"command `seaport mystery` is in cmd/seaport but not documented",
+			"command `seaport vault create` is in cmd/seaport but not documented",
+			"command `seaport vault list` is in cmd/seaport but not documented")
 	})
 
 	t.Run("events", func(t *testing.T) {
