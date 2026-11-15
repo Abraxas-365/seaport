@@ -75,6 +75,20 @@ export function conversationName(c: Pick<Conversation, "title" | "external_id" |
   return c.title || prettyHandle(c.external_id)
 }
 
+/**
+ * Who is on the other side, for the header's subtitle. An email thread's
+ * external id is its first Message-ID (a1@example.com), which means nothing
+ * to a person: show the sender's address (the first handle with a user part)
+ * instead.
+ */
+export function conversationHandle(c: Pick<Conversation, "channel" | "external_id" | "handles">) {
+  if (c.channel === "email") {
+    const from = c.handles.find((h) => h.indexOf("@") > 0 && h !== c.external_id)
+    if (from) return from
+  }
+  return prettyHandle(c.external_id)
+}
+
 export function initials(name: string) {
   const words = name
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
