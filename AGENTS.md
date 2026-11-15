@@ -73,6 +73,18 @@ result: `SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run
 TestWireFixtures` (without the variable the test fails on drift). Fixture data
 is example data only (`+34600000000`…, `example.com`).
 
+Browser tests (`web/e2e/`, Playwright, CI job `ui`): `cd web && pnpm build`
+first (the port embeds `web/dist`), `npx playwright install chromium` once, then
+`SEAPORT_TEST_UI=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -run TestUI ./internal/bootstrap/ -v`.
+`TestUI` starts the port (token mode, embedded web), a fake Slack and the echo
+agent through the real connector, and runs the specs; it always skips without
+`SEAPORT_TEST_UI=1`, and with `CI` set a missing browser fails. Specs assert
+what people see (Spanish texts, roles, labels), never CSS classes or internals:
+prefer `getByRole`/`getByLabel`/`getByText`, add a `data-testid` only where none
+is stable, never `waitForTimeout` (wait with `expect(...)`), and seed through the
+API what the UI can't create. Specs and page objects (`web/e2e/pages.ts`) are in
+English; `pnpm e2e:types` typechecks them (`tsc -b`, ESLint and Vitest skip `web/e2e`).
+
 ## Web conventions
 
 - React 19 + Vite, no framework; shadcn/ui primitives in `src/components/ui`

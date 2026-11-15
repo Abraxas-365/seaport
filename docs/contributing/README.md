@@ -77,6 +77,18 @@ SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run TestWireFixtures
 
 Without the variable the test fails if the committed file is out of date. A new event type needs a handler in `web/src/lib/live.ts` (or an entry with its reason in `unhandledEvents` in `web_architecture_test.go`).
 
+### Browser tests (Playwright)
+
+`web/e2e/` holds Playwright specs that drive the admin app in Chromium. They run through a Go test, `TestUI` in `internal/bootstrap/ui_e2e_test.go`, which starts the real server with the embedded build (token mode), a fake Slack, the Datadog and webhook endpoints and the echo agent connected through the real connector, then runs `npx playwright test` against it. It is opt-in, so a plain `go test ./...` skips it:
+
+```sh
+cd web && pnpm install --frozen-lockfile && pnpm build   # the port embeds web/dist
+npx playwright install chromium                          # once
+cd .. && SEAPORT_TEST_UI=1 SEAPORT_TEST_DATABASE_URL=… go test -count=1 -run TestUI ./internal/bootstrap/ -v
+```
+
+With `CI` set, a missing browser fails instead of skipping. Traces of failed specs land in `web/e2e/test-results/` (git-ignored; CI uploads them). Specs assert what people see (the Spanish texts, roles and labels) and never use `waitForTimeout`; add a `data-testid` only where no role or text is stable. `pnpm e2e:types` typechecks them; `tsc -b`, ESLint and Vitest skip `web/e2e/`.
+
 ### Generated code and releases
 
 ```sh
@@ -96,6 +108,7 @@ goreleaser release --snapshot --clean     # release binaries into dist/
 | :--- | :--- |
 | `go` | `gofmt`, `go vet`, then `go test -race -count=1 -shuffle=on ./...` against a Postgres 16 service and with `SEAPORT_TEST_IAMKIT=1`. In CI a missing test database or IAMKit fails instead of skipping. |
 | `web` | `pnpm lint`, `pnpm test` and `pnpm build` in `web/`. |
+| `ui` | builds the web app and runs `TestUI` (Playwright, Chromium) against a Postgres 16 service; uploads `web/e2e/test-results` when it fails. |
 | `website` | `npm test`, `npm run build` and `npm run check:links` in `website/`. |
 | `docker` | builds the image and checks that `seaport version` prints the commit. |
 | `images` | builds the hosted agents' base images (`rness`, `claude-code`), checks their contract (uid 1000, `io.seaport.*` labels, entrypoint, harness binary) and an ACP smoke test. |

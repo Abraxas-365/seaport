@@ -10,6 +10,8 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test -c e2e",
+    "e2e:types": "tsc -p e2e/tsconfig.json",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -36,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10",
+    "@playwright/test": "1.65.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.10",
