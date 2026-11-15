@@ -99,12 +99,13 @@ func takeoverAction(tk agent.Takeover) string {
 	}
 }
 
-// Wake tells the agent, in the conversation its notice went to, that the
-// person is done: a system inbound ship through Receive (customs,
-// routing and threads apply), addressed to it by @mention. An agent no
-// longer on the dock's team is not woken (the mention would route
-// elsewhere); the ship's external id makes a repeat one ship.
-func (t Takeovers) Wake(ctx context.Context, org identity.OrganizationID, a agent.Agent, tk agent.Takeover, in identity.ConversationID) error {
+// Wake tells the agent, in the conversation its notice went to, how the
+// takeover ended (a person is done, or nobody came): a system inbound
+// ship through Receive (customs, routing and threads apply), addressed to
+// it by @mention. An agent no longer on the dock's team is not woken (the
+// mention would route elsewhere); the ship's external id makes a repeat
+// one ship.
+func (t Takeovers) Wake(ctx context.Context, org identity.OrganizationID, a agent.Agent, tk agent.Takeover, end agent.TakeoverEnd, in identity.ConversationID) error {
 	conv, err := t.s.convs.Find(ctx, org, in)
 	if err != nil {
 		return errx.Wrap(err, "find conversation", errx.TypeInternal)
@@ -119,9 +120,9 @@ func (t Takeovers) Wake(ctx context.Context, org identity.OrganizationID, a agen
 	now := t.s.now()
 	st, _, err := t.s.Receive(ctx, org, ship.Inbound{
 		Dock: conv.Dock, Channel: conv.Channel, ChatID: conv.ExternalID, ChatKind: conv.Kind, ChatTitle: conv.Title,
-		ExternalID: "takeover-" + a.ID.String() + "-" + tk.Host + "-" + strconv.FormatInt(now.Unix(), 10),
+		ExternalID: "takeover-" + a.ID.String() + "-" + tk.Host + "-" + string(end) + "-" + strconv.FormatInt(now.Unix(), 10),
 		SenderID:   ship.SystemBrowser, SenderName: "Seaport",
-		Text:   fmt.Sprintf("@%s [takeover %s] a person is done (%s) at %s. Go on in the browser.", a.Name, tk.Host, tk.Kind, tk.Host),
+		Text:   wakeText(a, tk, end),
 		SentAt: now, Addressed: true,
 	})
 	if err != nil {
@@ -131,4 +132,13 @@ func (t Takeovers) Wake(ctx context.Context, org identity.OrganizationID, a agen
 		slog.Info("takeover wake held", "agent", a.Name, "host", tk.Host, "reason", st.HoldReason)
 	}
 	return nil
+}
+
+// wakeText is the system message that wakes the agent.
+func wakeText(a agent.Agent, tk agent.Takeover, end agent.TakeoverEnd) string {
+	if end == agent.TakeoverExpired {
+		return fmt.Sprintf("@%s [takeover %s] nobody came within %s (%s) at %s. Go on without it, or ask again.",
+			a.Name, tk.Host, agent.TakeoverTTL, tk.Kind, tk.Host)
+	}
+	return fmt.Sprintf("@%s [takeover %s] a person is done (%s) at %s. Go on in the browser.", a.Name, tk.Host, tk.Kind, tk.Host)
 }

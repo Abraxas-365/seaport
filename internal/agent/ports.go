@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
@@ -37,6 +38,10 @@ type Commands interface {
 	// where it was told. Both publish agent.updated.
 	RequestTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input AskTakeover) (Agent, error)
 	EndTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, host string) (Agent, error)
+	// SweepTakeovers drops every organization's takeovers older than
+	// TakeoverTTL and wakes their agents once (TakeoverExpired); it
+	// answers how many ended. The claim sweeper runs it.
+	SweepTakeovers(ctx context.Context, now time.Time) (int, error)
 }
 
 // Assistant tells a person about a takeover and wakes the agent when it
@@ -50,8 +55,9 @@ type Assistant interface {
 	// went to.
 	Notify(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, where string) (identity.ConversationID, error)
 	// Wake posts a system message in the conversation, addressed to the
-	// agent, saying the person is done at the host.
-	Wake(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, in identity.ConversationID) error
+	// agent, saying the takeover at the host ended: a person is done, or
+	// nobody came (end).
+	Wake(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, end TakeoverEnd, in identity.ConversationID) error
 }
 
 type Queries interface {
@@ -122,4 +128,7 @@ type Repository interface {
 	// SetTakeovers replaces the agent's takeovers under its row lock,
 	// through change (the current list in, the new one out).
 	SetTakeovers(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, change func(Takeovers) Takeovers) (Agent, error)
+	// StaleTakeovers lists, across organizations, the live agents with a
+	// takeover asked at or before cutoff (the sweeper's input).
+	StaleTakeovers(ctx context.Context, cutoff time.Time) ([]AgentRef, error)
 }

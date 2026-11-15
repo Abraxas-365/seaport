@@ -109,6 +109,39 @@ var TakeoverKinds = []TakeoverKind{KindLogin, KindCaptcha, Kind2FA, KindOther}
 // MaxTakeovers bounds an agent's open takeovers (the oldest go).
 const MaxTakeovers = 8
 
+// TakeoverTTL is how long a takeover waits for a person: older ones are
+// swept (Commands.SweepTakeovers) and the agent is told nobody came.
+const TakeoverTTL = time.Hour
+
+// TakeoverEnd is why a takeover ended: a person said so (Listo), or
+// nobody came within TakeoverTTL.
+type TakeoverEnd string
+
+const (
+	TakeoverDone    TakeoverEnd = "done"
+	TakeoverExpired TakeoverEnd = "expired"
+)
+
+// AgentRef names an agent of an organization (the sweeper's unit of work).
+type AgentRef struct {
+	Organization identity.OrganizationID `db:"organization_id"`
+	Agent        identity.AgentID        `db:"id"`
+}
+
+// Expired splits the takeovers into the live ones and those asked before
+// now - TakeoverTTL.
+func (l Takeovers) Expired(now time.Time) (live, expired Takeovers) {
+	live = Takeovers{}
+	for _, t := range l {
+		if now.Sub(t.At) >= TakeoverTTL {
+			expired = append(expired, t)
+		} else {
+			live = append(live, t)
+		}
+	}
+	return live, expired
+}
+
 // AskTakeover is what ask_takeover asks for.
 type AskTakeover struct {
 	Host string

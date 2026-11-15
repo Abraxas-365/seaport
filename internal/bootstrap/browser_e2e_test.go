@@ -399,3 +399,56 @@ func TestTakeoverAssist(t *testing.T) {
 		t.Fatalf("ask nowhere: %v %v", failed, out)
 	}
 }
+
+// A takeover nobody attends within agent.TakeoverTTL is swept: it leaves
+// the agent and the agent is told nobody came, once, where the notice
+// went; a fresh one stays.
+func TestTakeoverExpires(t *testing.T) {
+	p := startPortWith(t, func(*config.Server) {}, bootstrap.Options{SweepInterval: 200 * time.Millisecond})
+	ag := p.agent("patient")
+	d := p.openDock("patient-d")
+	p.assignAs(adminToken, d.ID, ag.ID, true)
+	tok := p.issueAs(adminToken, ag.ID, "laptop")
+	if _, code := p.saveProfile(ag.ID, map[string]any{"base": 0, "browser": true, "browser_assist": "conversation"}); code != http.StatusOK {
+		t.Fatalf("profile: %d", code)
+	}
+	conn := p.dialCrewAs(tok.Value, crew.Frame{Type: crew.FrameHello, Agent: "laptop", Concurrency: 1})
+	first := p.inject(d, "1", "m1", "hi")
+	ack(conn, delivered(t, conn, first))
+	conv := first.Conversation
+	agentPath := "/api/v1/agents/" + ag.ID.String()
+	s := mcpSession(t, p, tok.Value)
+	for _, host := range []string{"old.example.com", "fresh.example.com"} {
+		if failed, _, out := tool(t, s, "ask_takeover", map[string]any{"host": host, "kind": "captcha", "conversation_id": conv.String()}); failed || out["notified"] != true {
+			t.Fatalf("ask %s: %v %v", host, failed, out)
+		}
+	}
+	// Backdate one past the TTL (the sweeper reads the jsonb's `at`).
+	db := testDB(t)
+	stale := time.Now().Add(-agent.TakeoverTTL - time.Minute).UTC().Format(time.RFC3339Nano)
+	if _, err := db.ExecContext(context.Background(), `UPDATE agents SET takeovers = (
+		SELECT jsonb_agg(CASE WHEN t->>'host' = 'old.example.com' THEN jsonb_set(t, '{at}', to_jsonb($2::text)) ELSE t END)
+		FROM jsonb_array_elements(takeovers) t) WHERE id = $1`, ag.ID, stale); err != nil {
+		t.Fatal(err)
+	}
+	var a agent.Agent
+	waitFor(t, func() bool {
+		p.admin(http.MethodGet, agentPath, nil, &a)
+		_, old := a.Takeovers.Find("old.example.com")
+		return !old
+	})
+	if _, fresh := a.Takeovers.Find("fresh.example.com"); !fresh || len(a.Takeovers) != 1 {
+		t.Fatalf("after the sweep: %+v", a.Takeovers)
+	}
+	f := conn.read()
+	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || f.Delivery.Ships[0].SenderID != ship.SystemBrowser ||
+		!strings.Contains(f.Delivery.Ships[0].Text, "@patient [takeover old.example.com] nobody came within 1h0m0s (captcha) at old.example.com") {
+		t.Fatalf("expiry wake: %+v", f)
+	}
+	ack(conn, f)
+	// Once: the next sweeps find nothing stale.
+	time.Sleep(600 * time.Millisecond)
+	if n := len(p.history(conv)); n != 4 { // hi, two notices, one wake
+		t.Fatalf("history after sweeps: %d ships", n)
+	}
+}

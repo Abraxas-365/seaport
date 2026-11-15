@@ -176,15 +176,56 @@ func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, 
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
 	if ended != nil {
-		s.wake(ctx, org, a, *ended)
+		s.wake(ctx, org, a, *ended, agent.TakeoverDone)
 	}
 	return a, nil
 }
 
-// wake tells the agent the person is done, where the notice went (else
-// in the conversation the call named); nowhere, nothing: the agent finds
-// out when it retries.
-func (s *Service) wake(ctx context.Context, org identity.OrganizationID, a agent.Agent, t agent.Takeover) {
+// SweepTakeovers ends the takeovers nobody attended within
+// agent.TakeoverTTL, agent by agent (its row lock; a concurrent Listo
+// wins: the sweep only drops what is still there), and wakes each agent
+// once per host. One agent's failure doesn't stop the others.
+func (s *Service) SweepTakeovers(ctx context.Context, now time.Time) (int, error) {
+	refs, err := s.repo.StaleTakeovers(ctx, now.Add(-agent.TakeoverTTL))
+	if err != nil {
+		return 0, errx.Wrap(err, "list stale takeovers", errx.TypeInternal)
+	}
+	n := 0
+	var firstErr error
+	for _, ref := range refs {
+		var expired agent.Takeovers
+		a, err := s.repo.SetTakeovers(ctx, ref.Organization, ref.Agent, func(l agent.Takeovers) agent.Takeovers {
+			var live agent.Takeovers
+			live, expired = l.Expired(now)
+			return live
+		})
+		if err != nil {
+			if errx.IsType(err, errx.TypeNotFound) {
+				continue // deleted meanwhile
+			}
+			slog.Error("expire takeovers", "agent", ref.Agent, "err", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if len(expired) == 0 {
+			continue
+		}
+		s.events.Publish(ref.Organization, agent.EventUpdated, a)
+		for _, t := range expired {
+			slog.Info("takeover expired: nobody came", "agent", a.Name, "host", t.Host, "asked", t.At)
+			s.wake(ctx, ref.Organization, a, t, agent.TakeoverExpired)
+			n++
+		}
+	}
+	return n, firstErr
+}
+
+// wake tells the agent how the takeover ended, where the notice went
+// (else in the conversation the call named); nowhere, nothing: the agent
+// finds out when it retries.
+func (s *Service) wake(ctx context.Context, org identity.OrganizationID, a agent.Agent, t agent.Takeover, end agent.TakeoverEnd) {
 	in := t.NotifiedIn
 	if in == nil {
 		in = t.Conversation
@@ -192,8 +233,8 @@ func (s *Service) wake(ctx context.Context, org identity.OrganizationID, a agent
 	if s.assistant == nil || in == nil {
 		return
 	}
-	if err := s.assistant.Wake(context.WithoutCancel(ctx), org, a, t, *in); err != nil {
-		slog.Warn("wake agent after takeover", "agent", a.Name, "host", t.Host, "err", err)
+	if err := s.assistant.Wake(context.WithoutCancel(ctx), org, a, t, end, *in); err != nil {
+		slog.Warn("wake agent after takeover", "agent", a.Name, "host", t.Host, "end", end, "err", err)
 	}
 }
 

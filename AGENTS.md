@@ -725,8 +725,12 @@ net/http mux; only `/healthz` answers 405.
   call's conversation) with a system inbound ship (`system:browser`,
   external id `takeover-<agent>-<host>-<unix>`, `@agent` addressed) through
   `Receive`; an agent off the team isn't woken; failures are logged, not
-  retried. Plan `~/.rness/plans/puerto/browser-assist.md` (steps 3–4
-  pending).
+  retried. A takeover nobody attends within `agent.TakeoverTTL` (1 h) is
+  swept by `agentsvc.SweepTakeovers` (claim sweeper; `Repository.
+  StaleTakeovers` reads the jsonb's `at`, `SetTakeovers` drops them under
+  the row lock so a concurrent Listo wins) and the agent is `Wake`d once
+  with `TakeoverExpired` (the external id carries the end). Plan
+  `~/.rness/plans/puerto/browser-assist.md` (steps 3b–4 pending).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel
