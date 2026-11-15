@@ -183,6 +183,12 @@ export function useWebhook(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.webhook(dock), queryFn: () => api.webhook(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
+/** A Datadog dock's endpoint and mirror (the secret never comes back from here). */
+export function useDatadog(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({ queryKey: keys.datadog(dock), queryFn: () => api.datadog(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
 export function useDestinations(dock: string, enabled = true) {
   const can = useCan()
   return useQuery({

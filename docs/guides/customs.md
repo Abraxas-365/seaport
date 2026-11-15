@@ -32,6 +32,7 @@ A rule allows or denies chats and senders whose **handles** match a pattern. Han
 | Slack | threads the channel id (`C0123ABCD`) and `#name`; authors the user id (`U0123ABCD`) and email ([Slack](slack.md#let-the-right-people-in)) |
 | GitHub | threads `owner/repo#12`, `owner/repo`, `owner`; authors `@login`, `github:member` or `github:outsider`, `association:<value>` ([GitHub](github.md#let-the-right-people-in)) |
 | Webhook | the template's `chat_id` and `tags`; senders by `sender_id` or `webhook:<first part of the dock id>` ([Webhooks](webhooks.md#what-agents-see)) |
+| Datadog | threads `monitor:<id>`, `scope:<scope>` and the alert's tags as `tag:<key>:<value>`; the sender is `system:datadog` ([Datadog](datadog.md#what-agents-see)) |
 | Jira | threads `PROJ-123` and `PROJ`; authors by Atlassian account id or email ([Jira](jira.md#what-agents-see)) |
 | Email | threads and authors by lowercase address (`ana@example.com`, `*@example.com`): a thread's handles are its participants ([Email](email.md#what-agents-see)) |
 

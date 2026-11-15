@@ -46,17 +46,18 @@ var unguardedRoutes = map[string]string{
 
 // publicRoutes: route outside /api/v1/ → why no Seaport credential guards it.
 var publicRoutes = map[string]string{
-	"GET /healthz":                "public liveness: nothing about any organization (served by the Fiber shell, bootstrap/server.go)",
-	"ALL /healthz":                "the 405 for every other method of /healthz (Fiber shell)",
-	"ALL /*":                      "the web UI's static files and its client routes (GET/HEAD), a 404 for everything else: the last route, behind the /api/ 404 that sits behind auth",
-	"GET /github/apps/created":    "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
-	"GET /github/apps/installed":  "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
-	"POST /github/webhook/{dock}": "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
-	"POST /jira/webhook/{dock}":   "Jira's webhooks and Automation rules: checks the HMAC signature (X-Hub-Signature) or the bearer secret of that dock, in constant time",
-	"GET /slack/oauth/callback":   "Slack's OAuth redirect: checks a sealed, expiring state naming the dock, then the code with Slack",
-	"POST /slack/events/{dock}":   "Slack's Events API: checks the HMAC signature (and its five-minute timestamp window) with that dock's app signing secret; url_verification is answered before the secret is known",
-	"POST /hooks/{dock}":          "generic webhook docks: checks that dock's secret (bearer, X-Seaport-Token, HMAC signature or ?token=) in constant time; unknown dock and wrong secret are the same 404",
-	"POST /github/actions/{dock}": "GitHub Actions: checks the job's OIDC token (GitHub's signature, audience = this port) and that the dock's App is installed on its repository",
+	"GET /healthz":                 "public liveness: nothing about any organization (served by the Fiber shell, bootstrap/server.go)",
+	"ALL /healthz":                 "the 405 for every other method of /healthz (Fiber shell)",
+	"ALL /*":                       "the web UI's static files and its client routes (GET/HEAD), a 404 for everything else: the last route, behind the /api/ 404 that sits behind auth",
+	"GET /github/apps/created":     "GitHub's manifest redirect: checks a sealed, expiring state naming the dock",
+	"GET /github/apps/installed":   "GitHub's install redirect: checks a sealed, expiring state, then the installation with GitHub",
+	"POST /github/webhook/{dock}":  "GitHub's webhooks: checks the HMAC signature with that dock's App secret",
+	"POST /jira/webhook/{dock}":    "Jira's webhooks and Automation rules: checks the HMAC signature (X-Hub-Signature) or the bearer secret of that dock, in constant time",
+	"GET /slack/oauth/callback":    "Slack's OAuth redirect: checks a sealed, expiring state naming the dock, then the code with Slack",
+	"POST /slack/events/{dock}":    "Slack's Events API: checks the HMAC signature (and its five-minute timestamp window) with that dock's app signing secret; url_verification is answered before the secret is known",
+	"POST /hooks/{dock}":           "generic webhook docks: checks that dock's secret (bearer, X-Seaport-Token, HMAC signature or ?token=) in constant time; unknown dock and wrong secret are the same 404",
+	"POST /datadog/webhook/{dock}": "Datadog docks: checks that dock's secret (X-Seaport-Token or bearer) in constant time; unknown dock and wrong secret are the same 404",
+	"POST /github/actions/{dock}":  "GitHub Actions: checks the job's OIDC token (GitHub's signature, audience = this port) and that the dock's App is installed on its repository",
 }
 
 // routeCall is one route registration found in the source: a net/http

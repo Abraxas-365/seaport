@@ -4,7 +4,7 @@ import type { Permission } from "./permissions.gen"
 
 export type ID = string
 
-export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack" | "webhook" | "email"
+export type Channel = "whatsapp" | "api" | "github" | "jira" | "slack" | "webhook" | "email" | "datadog"
 export type DockStatus = "linking" | "linked" | "logged_out" | "failed"
 
 export interface Dock {
@@ -115,6 +115,26 @@ export interface WebhookInfo {
   /** The secret: only in the answer that made it (rotate). */
   secret?: string
   preview?: WebhookPreview
+}
+
+/** Where a Datadog dock opens each new alert thread: a destination of another dock. */
+export interface DatadogMirror {
+  dock_id: string
+  destination: string
+}
+
+/** A Datadog dock's endpoint (GET /docks/{id}/datadog; never the secret). */
+export interface DatadogInfo {
+  url: string
+  /** false: Datadog can't reach this port (plain http or loopback). */
+  reachable: boolean
+  /** The payload to paste in Datadog's webhook integration. */
+  payload: string
+  has_secret: boolean
+  mirror: DatadogMirror | null
+  created_at?: string
+  /** The secret: only in the answer that made it (rotate). */
+  secret?: string
 }
 
 /** One server of a mailbox; tls is "tls" (implicit) or "starttls". */

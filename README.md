@@ -48,6 +48,7 @@ WhatsApp · HTTP api   ──▶      ▲                        (or a slot the 
 | WhatsApp | a number linked as a device (a QR, like WhatsApp Web) | a chat that customs lets in writes; groups by mention | [WhatsApp](docs/guides/whatsapp.md) |
 | `api` | an endpoint you post to from your own systems | you post a message | [api docks](docs/guides/api-docks.md) |
 | Webhook | an endpoint any system POSTs JSON to (alerts, CI, payments); a trigger, it takes no replies | a call with the dock's secret; a template shapes the message | [Webhooks](docs/guides/webhooks.md) |
+| Datadog | an endpoint for Datadog's Webhooks integration; a trigger, mirrored to a Slack channel or a WhatsApp group where people and the agent talk | a monitor alerts; the recovery lands in the same thread | [Datadog](docs/guides/datadog.md) |
 
 <table>
 <tr>
@@ -142,6 +143,7 @@ seaport dock add slack       # then create or paste the app in the web app
 seaport dock add github      # creates a GitHub App from the web app; install it on your repositories
 seaport dock add jira        # then enter the site and the service account's API token in the web app
 seaport dock add webhook     # an endpoint for alerts, CI or any system; then make its secret: seaport dock webhook <dock-id> -rotate
+seaport dock add datadog     # an endpoint for Datadog's monitors; then make its secret: seaport dock datadog <dock-id> -rotate
 seaport dock add email       # then seaport dock email <dock-id> -address support@example.com -provider gmail
 seaport dock add whatsapp    # scan the QR: WhatsApp → Linked devices → Link a device
 ```

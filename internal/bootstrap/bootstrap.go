@@ -22,6 +22,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation/conversationmodule"
 	"github.com/Abraxas-365/seaport/internal/crew/crewmodule"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockdatadog"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockemail"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
@@ -238,6 +239,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		Jira:    dockjira.Config{PublicURL: cfg.PublicURL, Hosts: cfg.JiraHosts},
 		Slack:   dockslack.Config{PublicURL: cfg.PublicURL, WebURL: cfg.SlackURL, APIURL: cfg.SlackAPIURL},
 		Webhook: dockwebhook.Config{PublicURL: cfg.PublicURL},
+		Datadog: dockdatadog.Config{PublicURL: cfg.PublicURL},
 		Email:   dockemail.Config{Private: cfg.EmailPrivate, Hosts: cfg.EmailHosts, AllowUnverified: !cfg.EmailRequireAuth, TLS: opts.Email.TLS, Poll: opts.Email.Poll, Recheck: opts.Email.Recheck}})
 	if err != nil {
 		bus.Close()
@@ -283,6 +285,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	docks.BindReceiver(ships.Service)
+	docks.BindMirror(ships.Service, convs.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
 	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service)

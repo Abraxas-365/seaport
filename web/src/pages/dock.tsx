@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router"
 import {
+  Activity,
   ArrowLeft,
   Check,
   Copy,
@@ -34,10 +35,12 @@ import {
   useAssignAgent,
   useCan,
   useCrew,
+  useDatadog,
   useDestinationActions,
   useDestinations,
   useDock,
   useDockAction,
+  useDocks,
   useDockTeam,
   useGitHub,
   useEmail,
@@ -49,7 +52,7 @@ import {
 } from "@/lib/hooks"
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
-import type { Destination, Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
+import type { DatadogMirror, Destination, Dock, EmailEndpoint, WebhookPreview, WebhookTemplate } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -252,6 +255,24 @@ function DockDetail({ dock }: { dock: Dock }) {
                     onConfirm={() => actions.unlink.mutateAsync(dock.id)}
                   />
                 )}
+                {dock.channel === "datadog" && dock.status === "linked" && (
+                  <ConfirmAction
+                    trigger={
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <Link2Off /> Cerrar el webhook
+                      </DropdownMenuItem>
+                    }
+                    title="¿Cerrar el webhook de Datadog?"
+                    description={
+                      <>
+                        <p>Seaport olvida el secreto y el espejo: la dirección deja de responder.</p>
+                        <p>Las conversaciones se conservan; al reconectar se genera un secreto nuevo.</p>
+                      </>
+                    }
+                    actionLabel="Cerrar"
+                    onConfirm={() => actions.unlink.mutateAsync(dock.id)}
+                  />
+                )}
                 {wa && dock.status === "linked" && (
                   <ConfirmAction
                     trigger={
@@ -332,6 +353,7 @@ function DockDetail({ dock }: { dock: Dock }) {
         {dock.channel === "jira" && <JiraDockCard dock={dock} write={write} />}
         {dock.channel === "slack" && <SlackDockCard dock={dock} write={write} />}
         {dock.channel === "webhook" && <WebhookDockCard dock={dock} write={write} />}
+        {dock.channel === "datadog" && <DatadogDockCard dock={dock} write={write} />}
         {dock.channel === "email" && <EmailDockCard dock={dock} write={write} />}
 
         {can(Perm.AgentsRead) && <DockTeam dock={dock} />}
@@ -501,6 +523,7 @@ const targetHint: Record<Dock["channel"], string> = {
   jira: "Los muelles de Jira aún no tienen destinos",
   webhook: "Los muelles webhook no tienen destinos: solo disparan",
   email: "Los muelles de correo aún no tienen destinos",
+  datadog: "Los muelles de Datadog no tienen destinos: solo disparan",
 }
 
 function DestinationForm({
@@ -1343,6 +1366,224 @@ function WebhookDockCard({ dock, write }: { dock: Dock; write: boolean }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/** A Datadog dock: its URL, secret (shown once), the payload for Datadog and the mirror. */
+function DatadogDockCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const info = useDatadog(dock.id)
+  const docks = useDocks()
+  const qc = useQueryClient()
+  const { relink } = useDockAction()
+  const [secret, setSecret] = React.useState<string>()
+  const [mirrorDock, setMirrorDock] = React.useState<string>()
+  const [busy, setBusy] = React.useState(false)
+
+  if (dock.status !== "linked")
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="size-4" /> Webhook de Datadog cerrado
+          </CardTitle>
+          <CardDescription>
+            La dirección no responde. Reconecta el muelle para generar una dirección nueva con otro secreto.
+          </CardDescription>
+        </CardHeader>
+        {write && (
+          <CardContent>
+            <Button onClick={() => relink.mutate(dock.id)} disabled={relink.isPending}>
+              {relink.isPending ? <Spinner /> : <RefreshCw />} Reconectar
+            </Button>
+          </CardContent>
+        )}
+      </Card>
+    )
+  if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
+  if (!info.data) return <Skeleton className="h-48 rounded-xl" />
+  const dd = info.data
+  const candidates = (docks.data?.items ?? []).filter((d) => d.id !== dock.id && channelReplies[d.channel] && d.replies)
+  const pickedDock = mirrorDock ?? dd.mirror?.dock_id ?? ""
+  const mirrorName = docks.data?.items.find((d) => d.id === dd.mirror?.dock_id)?.name ?? dd.mirror?.dock_id
+
+  const accept = (next: typeof dd) => {
+    qc.setQueryData(keys.datadog(dock.id), { ...next, secret: undefined })
+    if (next.secret) setSecret(next.secret)
+  }
+  const save = async (mirror: DatadogMirror | null) => {
+    setBusy(true)
+    try {
+      accept(await api.saveDatadog(dock.id, { mirror }))
+      setMirrorDock(undefined)
+      toast.success(mirror ? "Espejo guardado" : "Espejo quitado")
+    } catch (err) {
+      toast.error("No se pudo guardar el espejo", { description: (err as Error).message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="size-4" /> Datadog
+        </CardTitle>
+        <CardDescription>
+          Cada alerta de un monitor despierta al agente del equipo; las alertas de un mismo monitor y alcance son una
+          conversación (la recuperación llega al mismo hilo). El agente no responde aquí: lo hace en el espejo o en otra
+          puerta del hilo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!dd.reachable && (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+            Datadog no puede llegar a esta dirección (<Mono>{dd.url}</Mono>): necesita HTTPS público. Configura{" "}
+            <code>SEAPORT_PUBLIC_URL</code> o usa un túnel.
+          </p>
+        )}
+        <CopyField label="URL del webhook" value={dd.url} />
+        {secret ? (
+          <>
+            <CopyField label="Secreto" value={secret} />
+            <p className="text-xs text-muted-foreground">
+              Cópialo ahora: Seaport lo guarda cifrado y no lo vuelve a mostrar. En la integración Webhooks de Datadog va
+              como cabecera personalizada: <code>{`{"X-Seaport-Token": "…"}`}</code>.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            El secreto no se puede volver a ver. Genera uno nuevo para copiarlo (el anterior deja de valer).
+          </p>
+        )}
+        {write && (
+          <ConfirmAction
+            trigger={
+              <Button size="sm" variant="outline">
+                <RefreshCw /> {secret ? "Generar otro secreto" : "Generar secreto"}
+              </Button>
+            }
+            title="¿Generar un secreto nuevo?"
+            description={<p>El anterior deja de valer: actualiza la cabecera del webhook en Datadog.</p>}
+            actionLabel="Generar"
+            onConfirm={async () => {
+              try {
+                accept(await api.rotateDatadogSecret(dock.id))
+              } catch (err) {
+                toast.error("No se pudo generar el secreto", { description: (err as Error).message })
+              }
+            }}
+          />
+        )}
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium text-muted-foreground">Payload (pégalo en el webhook de Datadog)</div>
+          <div className="flex items-start gap-2 rounded-lg bg-muted p-2 pl-3">
+            <pre className="min-w-0 flex-1 overflow-auto whitespace-pre font-mono text-xs">{dd.payload}</pre>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Copiar payload"
+              onClick={() => navigator.clipboard.writeText(dd.payload).then(() => toast.success("Copiado"))}
+            >
+              <Copy />
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <FieldLabel htmlFor="datadog-mirror-dock">Espejo</FieldLabel>
+          <p className="text-xs text-muted-foreground">
+            Un destino de otro muelle donde Seaport publica cada alerta nueva y el agente responde debajo: un canal de
+            Slack, un grupo de WhatsApp… Las recuperaciones llegan al mismo hilo.
+          </p>
+          {dd.mirror && !mirrorDock && (
+            <p className="text-sm">
+              Ahora: <Mono>{mirrorName}</Mono> · <Mono>{dd.mirror.destination}</Mono>
+            </p>
+          )}
+          {!dd.mirror && !mirrorDock && (
+            <p className="text-sm text-muted-foreground">Sin espejo: las alertas solo despiertan al agente.</p>
+          )}
+          {write && (
+            <div className="flex flex-wrap items-end gap-2">
+              <Select value={pickedDock} onValueChange={setMirrorDock}>
+                <SelectTrigger id="datadog-mirror-dock" className="w-56" aria-label="Muelle del espejo">
+                  <SelectValue placeholder="Elegir un muelle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {candidates.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {pickedDock && (
+                <MirrorDestinationPicker
+                  dock={pickedDock}
+                  current={dd.mirror}
+                  busy={busy}
+                  onPick={(name) => save({ dock_id: pickedDock, destination: name })}
+                />
+              )}
+              {dd.mirror && (
+                <Button size="sm" variant="ghost" onClick={() => save(null)} disabled={busy}>
+                  <X /> Quitar el espejo
+                </Button>
+              )}
+            </div>
+          )}
+          {write && candidates.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              Ningún otro muelle puede responder. Crea uno (Slack, WhatsApp, API) y dale un destino.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The destinations of the mirror's dock, one to pick. */
+function MirrorDestinationPicker({
+  dock,
+  current,
+  busy,
+  onPick,
+}: {
+  dock: string
+  current: DatadogMirror | null
+  busy: boolean
+  onPick: (name: string) => void
+}) {
+  const dests = useDestinations(dock)
+  if (dests.isLoading) return <Skeleton className="h-9 w-56" />
+  const items = dests.data ?? []
+  if (items.length === 0)
+    return (
+      <p className="text-xs text-muted-foreground">
+        Ese muelle no tiene destinos:{" "}
+        <Link to={`/docks/${dock}`} className="underline">
+          crea uno
+        </Link>{" "}
+        y vuelve aquí.
+      </p>
+    )
+  const value = current?.dock_id === dock ? current.destination : undefined
+  return (
+    <Select value={value} onValueChange={onPick} disabled={busy}>
+      <SelectTrigger className="w-56" aria-label="Destino del espejo">
+        <SelectValue placeholder="Elegir un destino" />
+      </SelectTrigger>
+      <SelectContent>
+        {items.map((d) => (
+          <SelectItem key={d.name} value={d.name}>
+            {d.name}
+            {d.title ? ` · ${d.title}` : ""}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

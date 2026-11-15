@@ -8,6 +8,7 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockapi"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockdatadog"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockemail"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockhttp"
@@ -53,6 +54,8 @@ type Deps struct {
 	// Email configures email docks (on with a secret key: it seals the
 	// mailboxes' passwords).
 	Email dockemail.Config
+	// Datadog configures Datadog docks (on with a secret key, like webhook's).
+	Datadog dockdatadog.Config
 }
 
 // Receiver takes inbound messages (the ship domain, bound late).
@@ -74,6 +77,8 @@ type Module struct {
 	whHTTP   *dockwebhook.Handler
 	email    *dockemail.Gateway
 	emHTTP   *dockemail.Handler
+	dd       *dockdatadog.Gateway
+	ddHTTP   *dockdatadog.Handler
 	extra    []dock.Gateway
 }
 
@@ -123,6 +128,14 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		}
 		gateways = append(gateways, em)
 	}
+	var dd *dockdatadog.Gateway
+	if d.SecretKey != "" {
+		var err error
+		if dd, err = dockdatadog.Open(ctx, d.DB, d.SecretKey, d.Datadog); err != nil {
+			return nil, err
+		}
+		gateways = append(gateways, dd)
+	}
 	cluster := docksvc.Cluster{Owners: dockpg.NewOwners(d.DB), Relay: dockpg.NewRelay(d.DB), Process: d.Process, TTL: d.DockLease}
 	svc := docksvc.New(dockpg.New(d.DB), d.Events, d.MaxDocks, cluster, gateways...)
 	if wa != nil {
@@ -149,6 +162,10 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 		em.Bind(svc, nil)
 		m.emHTTP = dockemail.NewHandler(em, svc, svc)
 	}
+	if dd != nil {
+		m.dd = dd
+		m.ddHTTP = dockdatadog.NewHandler(dd, svc)
+	}
 	return m, nil
 }
 
@@ -172,10 +189,22 @@ func (m *Module) BindReceiver(r Receiver) {
 	if m.email != nil {
 		m.email.Bind(nil, r)
 	}
+	if m.dd != nil {
+		m.dd.Bind(r, nil, nil)
+	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
 			b.BindReceiver(r)
 		}
+	}
+}
+
+// BindMirror gives Datadog docks what mirroring an alert needs: the
+// opener of conversations at destinations (the ship domain) and the
+// conversation domain, both built later.
+func (m *Module) BindMirror(o dockdatadog.Opener, c dockdatadog.Conversations) {
+	if m.dd != nil {
+		m.dd.Bind(nil, o, c)
 	}
 }
 
@@ -210,6 +239,9 @@ func (m *Module) Register(r httpx.Router) {
 	if m.emHTTP != nil {
 		m.emHTTP.Register(r)
 	}
+	if m.ddHTTP != nil {
+		m.ddHTTP.Register(r)
+	}
 }
 
 // RegisterPublic mounts the routes GitHub calls without a Seaport
@@ -226,6 +258,9 @@ func (m *Module) RegisterPublic(r httpx.Router) {
 	}
 	if m.whHTTP != nil {
 		m.whHTTP.RegisterPublic(r)
+	}
+	if m.ddHTTP != nil {
+		m.ddHTTP.RegisterPublic(r)
 	}
 }
 

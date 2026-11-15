@@ -32,6 +32,7 @@ export const keys = {
   email: (dock: string) => ["email", dock] as const,
   slack: (dock: string) => ["slack", dock] as const,
   webhook: (dock: string) => ["webhook", dock] as const,
+  datadog: (dock: string) => ["datadog", dock] as const,
   destinations: (dock: string) => ["destinations", dock] as const,
   inboxAll: ["inbox"] as const,
   inbox: (f: object) => ["inbox", f] as const,

@@ -44,7 +44,7 @@ seaport dock replies <dock-id> off     # back with: on
 
 In the web app the switch is on the dock's page, under **Respuestas**; over the API, `PATCH /api/v1/docks/{id}` with `{"replies":false}`. The dock keeps receiving: customs, routing and deliveries work as before, and its messages still open and feed threads. What changes is that nothing can be posted there: a `reply` to one of its conversations is refused (`422`, nothing stored), by the agent, the web composer and the API alike.
 
-The agent is told. Each delivery names the read-only doors (`read_only`), the prompt marks the conversation ("This conversation is read-only") and sends the agent to a door of the thread that takes replies, or tells it to stay silent when none does. A connector with `-auto-reply` sends the final answer to the first door that takes replies. Some channels never take replies at all (a [webhook dock](webhooks.md), for instance); for those the switch can't be turned on.
+The agent is told. Each delivery names the read-only doors (`read_only`), the prompt marks the conversation ("This conversation is read-only") and sends the agent to a door of the thread that takes replies, or tells it to stay silent when none does. A connector with `-auto-reply` sends the final answer to the first door that takes replies. Some channels never take replies at all (a [webhook](webhooks.md) or [Datadog](datadog.md) dock, for instance); for those the switch can't be turned on.
 
 ## What linking doesn't change
 

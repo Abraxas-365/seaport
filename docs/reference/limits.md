@@ -51,6 +51,16 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Tags per message | 10 | `dockwebhook.MaxTags` | No |
 | Work of one event | 10 s | `dockwebhook.receiveWithin` | No |
 
+## Datadog docks
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Webhook body | 1 MiB | `dockdatadog.MaxBody` | No |
+| Calls per dock | 60 a minute, burst 60 (`429` + `Retry-After`) | `dockdatadog.PerMinute` | No |
+| Tags kept as handles | 12 | `dockdatadog.MaxTags` | No |
+| Work of one alert | 10 s | `dockdatadog.receiveWithin` | No |
+| Opening the mirror | 30 s | `dockdatadog.mirrorWithin` | No |
+
 ## Email docks
 
 | Limit | Value | Constant | Configurable |
