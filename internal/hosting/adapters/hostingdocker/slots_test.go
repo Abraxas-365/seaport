@@ -38,13 +38,14 @@ func TestTail(t *testing.T) {
 // lines only; a slot with no container is NotFound.
 func TestLogs(t *testing.T) {
 	r := dockerRuntime(t)
+	pullPlain(t, r)
 	ctx := context.Background()
 	ref := hosting.SlotRef{Organization: identity.OrganizationID(identity.NewAgentID()), Agent: identity.NewAgentID(), Index: 1}
 	if _, err := r.Logs(ctx, ref, 10); !errx.IsType(err, errx.TypeNotFound) {
 		t.Fatalf("no container: %v", err)
 	}
 	name := containerName(ref)
-	c, err := r.api.ContainerCreate(ctx, client.ContainerCreateOptions{Name: name, Image: "debian:bookworm-slim",
+	c, err := r.api.ContainerCreate(ctx, client.ContainerCreateOptions{Name: name, Image: plainImage,
 		// stdout and stderr are copied apart: space them so their order is the timestamps'.
 		Config: &container.Config{Entrypoint: []string{"sh", "-c", "echo one; sleep 0.2; echo two >&2; sleep 0.2; echo three"}}})
 	if err != nil {
@@ -82,12 +83,13 @@ func TestLogs(t *testing.T) {
 // run's container, or none, is refused.
 func TestExec(t *testing.T) {
 	r := dockerRuntime(t)
+	pullPlain(t, r)
 	ctx := context.Background()
 	ref := hosting.SlotRef{Organization: identity.OrganizationID(identity.NewAgentID()), Agent: identity.NewAgentID(), Index: 1}
 	if _, err := r.Exec(ctx, ref, "", []string{"true"}, nil, io.Discard); !errx.IsType(err, errx.TypeNotFound) {
 		t.Fatalf("no container: %v", err)
 	}
-	c, err := r.api.ContainerCreate(ctx, client.ContainerCreateOptions{Name: containerName(ref), Image: "debian:bookworm-slim",
+	c, err := r.api.ContainerCreate(ctx, client.ContainerCreateOptions{Name: containerName(ref), Image: plainImage,
 		Config: &container.Config{Entrypoint: []string{"sleep", "60"}, Labels: map[string]string{hosting.LabelRun: "run-1"}}})
 	if err != nil {
 		t.Fatal(err)
