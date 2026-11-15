@@ -199,10 +199,11 @@ func TestReplicasShareTheDocks(t *testing.T) {
 		return bootstrap.Options{Gateways: []dock.Gateway{exclusiveGateway{w: w, name: name}}}
 	}
 	none := func(*config.Server) {}
-	a := startPortWith(t, none, with("a"))
-	b := joinPort(t, none, with("b"))
+	b := startPortWith(t, none, with("b"))
 
-	// Created through b: b links it and owns it.
+	// Created through b: b links it and owns it. (a joins after: a process
+	// reconciling at that moment may claim a dock just inserted, before
+	// its creator acquires it; the port is symmetric, the test is not.)
 	var d dock.Dock
 	if code := b.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "whatsapp", "name": "wa"}, &d); code != http.StatusCreated {
 		t.Fatalf("create dock: %d", code)
@@ -210,6 +211,7 @@ func TestReplicasShareTheDocks(t *testing.T) {
 	if d.Status != dock.StatusLinked || w.owner(d.ID) != "b" {
 		t.Fatalf("dock %+v runs in %q", d, w.owner(d.ID))
 	}
+	a := joinPort(t, none, with("a"))
 
 	// A reply sent through a goes out through b.
 	db := testDB(t)
@@ -280,15 +282,16 @@ func TestPortAcrossProcesses(t *testing.T) {
 	}
 	none := func(*config.Server) {}
 	a := startPortWith(t, none, with("a"))
+	// The dock is created before b and c join (see TestReplicasShareTheDocks).
+	var d dock.Dock
+	if code := a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "whatsapp", "name": "wa"}, &d); code != http.StatusCreated || w.owner(d.ID) != "a" {
+		t.Fatalf("create dock: %d, runs in %q", code, w.owner(d.ID))
+	}
 	b := joinPort(t, none, with("b"))
 	c := joinPort(t, none, with("c"))
 	events := b.openEvents("")
 	next(t, events, "ready", nil)
 
-	var d dock.Dock
-	if code := a.admin(http.MethodPost, "/api/v1/docks", map[string]string{"channel": "whatsapp", "name": "wa"}, &d); code != http.StatusCreated || w.owner(d.ID) != "a" {
-		t.Fatalf("create dock: %d, runs in %q", code, w.owner(d.ID))
-	}
 	a.assignAs(adminToken, d.ID, a.agent(testAgent).ID, true)
 	c.token = a.crewToken()
 	agent := c.dialCrewWith(crew.Frame{Type: crew.FrameHello, Agent: "on-c", Concurrency: 1})
