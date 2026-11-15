@@ -46,10 +46,13 @@ test("a Datadog dock mirrors its alerts into a Slack channel", async ({ ctx, pag
   await page.getByRole("button", { name: /CPU high on web/ }).first().click()
   await expect(pages.conversation.bubble("CPU high on web", "in").first()).toBeVisible()
 
-  // …linked to the mirrored thread in Slack, where the agent answers.
+  // …linked to the mirrored thread in Slack, where the agent answers. There
+  // the alert is the message Seaport opened the thread with (outbound).
   const chips = page.locator('[data-slot="thread-chips"]')
   await expect(chips).toBeVisible()
+  const datadogDoor = page.url()
   await chips.getByRole("link").and(page.locator(':not([aria-current="page"])')).first().click()
-  await expect(pages.conversation.bubble("CPU high on web", "in").first()).toBeVisible()
+  await expect(page).not.toHaveURL(datadogDoor)
+  await expect(pages.conversation.bubble("CPU high on web", "out").first()).toBeVisible()
   await expect(pages.conversation.bubble(/echo: /, "out").first()).toBeVisible()
 })

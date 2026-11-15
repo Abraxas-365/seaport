@@ -142,11 +142,18 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
     qc.invalidateQueries({ queryKey: keys.inboxAll })
   },
   "ship.turn": (qc, turn) => {
-    qc.setQueryData<Paginated<Turn>>(keys.turns(turn.conversation_id), (old) =>
-      old && !old.items.some((t) => t.delivery_id === turn.delivery_id)
-        ? { items: [turn, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
-        : old,
-    )
+    const key = keys.turns(turn.conversation_id)
+    // A fetch in flight (the page just opened) may have been answered before
+    // the turn was stored, and would overwrite a patch: refetch instead.
+    if (qc.isFetching({ queryKey: key }) > 0) {
+      void qc.invalidateQueries({ queryKey: key })
+    } else {
+      qc.setQueryData<Paginated<Turn>>(key, (old) =>
+        old && !old.items.some((t) => t.delivery_id === turn.delivery_id)
+          ? { items: [turn, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
+          : old,
+      )
+    }
     turnStored(turn)
   },
   "ship.approval": (qc, a: Approval) => {
@@ -251,7 +258,18 @@ class LiveStream {
     const src = new EventSource("/api/v1/events", { withCredentials: true })
     this.source = src
     this.set("connecting")
-    src.addEventListener("ready", () => this.set("live"))
+    // The first "ready" of a new source: what the screens fetched before the
+    // stream subscribed may have missed events published in between (a new
+    // source has no Last-Event-ID to replay them), so refetch what is shown.
+    // Reconnects resend Last-Event-ID and replay instead.
+    let first = true
+    src.addEventListener("ready", () => {
+      this.set("live")
+      if (first) {
+        first = false
+        void qc.invalidateQueries({ type: "active" })
+      }
+    })
     src.addEventListener("reset", () => {
       clearActivity()
       qc.invalidateQueries()

@@ -115,24 +115,43 @@ func TestSlowSubscriberIsDropped(t *testing.T) {
 	if n == 0 || n >= 2000 || b.Subscribers() != 0 {
 		t.Fatalf("got %d events, %d subscribers", n, b.Subscribers())
 	}
+	// s was dropped when its queue filled, maybe with the fan-out still
+	// far from 2000: a client subscribing now would get the rest on C, more
+	// than its buffer, and be dropped too under load. Wait until the bus
+	// has fanned out all 2000 (event 2000 then replays after "1999").
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		probe, replay, _ := subscribe(t, b, orgA, "1999")
+		probe.Close()
+		if len(replay) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the bus never fanned out the 2000 events")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	// It reconnects: more than maxReplay behind resets, closer replays.
 	if _, _, reset := subscribe(t, b, orgA, "0"); !reset {
 		t.Fatal("2000 events behind must reset")
 	}
-	// (last, head] comes as replay and the rest on C (the fan-out may not
-	// have reached 2000 yet): 1501..2000, no gap, no duplicate.
+	// 1501..2000 come as replay: no gap, no duplicate.
 	s2, replay, reset := subscribe(t, b, orgA, "1500")
 	if reset {
 		t.Fatal("500 events behind must replay, not reset")
 	}
-	got := replay
-	for len(got) < 500 {
-		got = append(got, recv(t, s2))
+	if len(replay) != 500 {
+		t.Fatalf("replayed %d events, want 500", len(replay))
 	}
-	for i, e := range got {
+	for i, e := range replay {
 		if e.Seq != int64(1501+i) {
-			t.Fatalf("replay after drop: event %d is seq %d (replayed %d)", i, e.Seq, len(replay))
+			t.Fatalf("replay after drop: event %d is seq %d", i, e.Seq)
 		}
+	}
+	select {
+	case e, ok := <-s2.C:
+		t.Fatalf("an event after the replay: %+v %v", e, ok)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

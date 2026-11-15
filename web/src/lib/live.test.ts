@@ -7,7 +7,7 @@ import type { QueryClient } from "@tanstack/react-query"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { clearActivity, useActivity } from "./activity"
-import { handlers } from "./live"
+import { handlers, live } from "./live"
 import { keys } from "./query"
 import type {
   Approval,
@@ -193,6 +193,15 @@ describe("ship events", () => {
     expect(turns.items[0].tools[0].title).toBe(turn.tools[0].title)
   })
 
+  it("ship.turn refetches turns still loading instead of patching them", () => {
+    const turn = eventData("ship.turn")
+    const key = keys.turns(turn.conversation_id)
+    void qc.prefetchQuery({ queryKey: key, queryFn: () => new Promise<Paginated<Turn>>(() => {}) })
+    const invalidate = vi.spyOn(qc, "invalidateQueries")
+    apply("ship.turn")
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: key })
+  })
+
   it("ship.approval adds an approval, then updates it in place", () => {
     const a = eventData("ship.approval")
     const key = keys.approvals(a.conversation_id)
@@ -374,5 +383,40 @@ describe("hosting events", () => {
     // Go sends no environment_id (a zero id marshals as "") and no slots.
     apply("slot.updated", { ...h, environment_id: "", slots: [] })
     expect(qc.getQueryData(keys.hosted(h.agent_id))).toBeNull()
+  })
+})
+
+describe("the stream", () => {
+  class FakeSource {
+    static last: FakeSource | undefined
+    static readonly CLOSED = 2
+    readyState = 1
+    onerror: (() => void) | null = null
+    private listeners = new Map<string, (e: MessageEvent) => void>()
+    constructor() {
+      FakeSource.last = this
+    }
+    addEventListener(type: string, l: (e: MessageEvent) => void) {
+      this.listeners.set(type, l)
+    }
+    emit(type: string, data = "{}") {
+      this.listeners.get(type)?.(new MessageEvent(type, { data }))
+    }
+    close() {}
+  }
+  afterEach(() => {
+    live.stop()
+    vi.unstubAllGlobals()
+  })
+
+  it("refetches what is shown on its first ready only (events before it subscribed are not replayed)", () => {
+    vi.stubGlobal("EventSource", FakeSource)
+    const invalidate = vi.spyOn(qc, "invalidateQueries")
+    live.start(qc)
+    FakeSource.last!.emit("ready")
+    expect(invalidate).toHaveBeenCalledWith({ type: "active" })
+    invalidate.mockClear()
+    FakeSource.last!.emit("ready") // a reconnect: Last-Event-ID replays the gap
+    expect(invalidate).not.toHaveBeenCalled()
   })
 })
