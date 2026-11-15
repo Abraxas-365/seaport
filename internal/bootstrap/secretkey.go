@@ -33,7 +33,7 @@ func SecretKey(ctx context.Context, cfg config.Server, db *sqlx.DB) (string, err
 		return key, err
 	}
 	var sealed bool
-	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets) OR EXISTS (SELECT 1 FROM ship_attachments) OR EXISTS (SELECT 1 FROM hosting_homes) OR EXISTS (SELECT 1 FROM github_apps) OR EXISTS (SELECT 1 FROM jira_sites) OR EXISTS (SELECT 1 FROM slack_apps) OR EXISTS (SELECT 1 FROM webhook_docks) OR EXISTS (SELECT 1 FROM email_accounts)`); err != nil {
+	if err := db.GetContext(ctx, &sealed, `SELECT EXISTS (SELECT 1 FROM wa_devices) OR EXISTS (SELECT 1 FROM agent_secrets) OR EXISTS (SELECT 1 FROM ship_attachments) OR EXISTS (SELECT 1 FROM hosting_homes) OR EXISTS (SELECT 1 FROM github_apps) OR EXISTS (SELECT 1 FROM jira_sites) OR EXISTS (SELECT 1 FROM slack_apps) OR EXISTS (SELECT 1 FROM webhook_docks) OR EXISTS (SELECT 1 FROM email_accounts) OR EXISTS (SELECT 1 FROM datadog_docks)`); err != nil {
 		return "", errx.Wrap(err, "check sealed values", errx.TypeInternal)
 	}
 	if sealed {

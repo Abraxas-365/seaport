@@ -99,7 +99,7 @@ func (a *admin) send(ctx context.Context, method, path, contentType string, body
 
 func dockAdd(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errx.Validation("usage: seaport dock add whatsapp|api|github|jira|slack|webhook|email [-name N]")
+		return errx.Validation("usage: seaport dock add whatsapp|api|github|jira|slack|webhook|email|datadog [-name N]")
 	}
 	channel := args[0]
 	fs := flag.NewFlagSet("dock add", flag.ContinueOnError)
@@ -132,6 +132,8 @@ func dockAdd(ctx context.Context, args []string) error {
 		fmt.Printf("Connect its Jira site in the web: %s/docks/%s\n", a.base, d.ID)
 	case dock.ChannelWebhook:
 		fmt.Printf("Make its secret and set its template with: seaport dock webhook %s -rotate\n", d.ID)
+	case dock.ChannelDatadog:
+		fmt.Printf("Make its secret and read the payload for Datadog with: seaport dock datadog %s -rotate\n", d.ID)
 	}
 	return nil
 }

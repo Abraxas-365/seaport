@@ -13,6 +13,8 @@ import type {
   SlackInfo,
   WebhookInfo,
   WebhookTemplate,
+  DatadogInfo,
+  DatadogMirror,
   CrewStatus,
   CrewToken,
   Destination,
@@ -190,6 +192,10 @@ export const api = {
   saveWebhook: (id: string, body: { template: WebhookTemplate; sample?: unknown }) =>
     request<WebhookInfo>("PUT", `${v1}/docks/${id}/webhook`, body),
   rotateWebhookSecret: (id: string) => request<WebhookInfo>("POST", `${v1}/docks/${id}/webhook/secret`),
+  datadog: (id: string) => request<DatadogInfo>("GET", `${v1}/docks/${id}/datadog`),
+  saveDatadog: (id: string, body: { mirror: DatadogMirror | null }) =>
+    request<DatadogInfo>("PUT", `${v1}/docks/${id}/datadog`, body),
+  rotateDatadogSecret: (id: string) => request<DatadogInfo>("POST", `${v1}/docks/${id}/datadog/secret`),
   slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
   slackCreate: (id: string, body: { config_token: string; name?: string }) =>
     request<{ install_url: string }>("POST", `${v1}/docks/${id}/slack/create`, body),

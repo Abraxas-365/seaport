@@ -81,7 +81,8 @@ internal/
                       dockgithub (GitHub App: stdlib REST, no SDK),
                       dockjira (Jira Cloud: stdlib REST + goldmark),
                       dockslack (Slack app: stdlib REST, no SDK),
-                      dockwebhook (generic JSON webhook: stdlib, text/template)}
+                      dockwebhook (generic JSON webhook: stdlib, text/template),
+                      dockdatadog (Datadog webhooks integration: stdlib),
                       dockemail (IMAP via go-imap + MIME via go-message, SMTP stdlib)}
   conversation/       chats + customs (customs.go: policy, rules, Decide/Admit):
                       …svc, …module, adapters/{…pg, …http}
@@ -181,8 +182,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `app.Get/Post/…/All("/path", h)`, as "METHOD /path"): every root route (outside `/api/v1/`) is
   wrapped in the admin or crew authenticator or listed with its reason in
   `publicRoutes` (`ALL /*` the web app, `/healthz`, GitHub's redirects, webhook and
-  Actions endpoint, Jira's webhook and the generic `POST /hooks/{dock}`,
-  which carry their own proof: a sealed state, the App's HMAC, a GitHub
+  Actions endpoint, Jira's webhook, the generic `POST /hooks/{dock}` and
+  `POST /datadog/webhook/{dock}`, which carry their own proof: a sealed state, the App's HMAC, a GitHub
   Actions OIDC token for this port or the dock's secret as
   HMAC/bearer/token).
 - Hold reasons (`web_architecture_test.go`): every non-empty `Hold… = "…"`
@@ -306,7 +307,7 @@ net/http mux; only `/healthz` answers 405.
   reply still needs the agent on that door's dock.
 - Replies per dock (migration 00029, `docks.replies`): `dock.CanReply()` =
   the channel's capability (`Channel.Replies()`, code: every channel but
-  `webhook`) and the owner's switch (`PATCH /docks/{id}` `{"replies":false}`,
+  `webhook` and `datadog`) and the owner's switch (`PATCH /docks/{id}` `{"replies":false}`,
   `seaport dock replies <id> off`). Off, the dock only triggers: arrivals,
   customs, routing and deliveries are unchanged, but `docksvc.NewMessageID`
   and `Send` refuse with `Business` (so `shipsvc.Send` stores nothing) and
@@ -361,7 +362,7 @@ net/http mux; only `/healthz` answers 405.
   `dock.Messenger.Open` (routed to the owner like `Send`; `Gateway.Open`:
   Slack posts the first message to the channel and `<channel>/<ts>` is the
   chat, remembered in `slack_threads`; WhatsApp and `api` name the chat by
-  the target and send the message there; GitHub, Jira, webhook and email refuse). The send
+  the target and send the message there; GitHub, Jira, webhook, Datadog and email refuse). The send
   goes *first* (a Slack thread's ts exists only once posted; limits are
   checked before, `OutboundCounts`), then `conversation.Commands.Open`
   upserts the conversation under the dock's customs lock with `Access =
@@ -961,6 +962,36 @@ net/http mux; only `/healthz` answers 405.
   nested or over `MaxRanges`), and each field runs with a capped output
   (`MaxOutput`) and a time budget (`fieldBudget`; the writer fails past the
   deadline).
+- Datadog docks (`dockdatadog`, migration 00035): a dock is one endpoint for
+  Datadog's Webhooks integration, linked at once like webhook docks
+  (`Link` creates the `datadog_docks` row and its secret; `Unlink` deletes
+  it; `Relink` makes a new secret). `datadog_docks` holds the secret sealed
+  (info `seaport datadog v1`, purpose `datadog\x00<dock>\x00secret`;
+  counted by `bootstrap.SecretKey`) and the mirror (`mirror_dock`,
+  `mirror_destination`: a destination of a dock that replies, checked by
+  `Handler.save` through `dock.Queries`, stored by `Store.SaveMirror`; FK to `dock_destinations` ON
+  DELETE SET NULL, so removing the destination removes the mirror). The
+  channel never replies; no outbound (`Send`/`Open` are `Business`). Not
+  exclusive, stateless, off without a secret key. Public `POST
+  /datadog/webhook/{dock}` (default 1 MiB tier, `MaxBody`) takes the
+  secret as `X-Seaport-Token` or bearer (constant time; wrong = unknown
+  dock = 404; `PerMinute` per dock, 429), one JSON object = the payload the
+  dock shows (`PayloadTemplate`: Datadog's `$ALERT_ID`, `$ALERT_TRANSITION`,
+  `$ALERT_SCOPE`, `$TAGS`…; unfilled `$VARS` read as absent; `alert_id`
+  required, else 400). `Render` makes the message: chat
+  `monitor/<id>/<scope|*>` (group, addressed), handles `monitor:<id>`,
+  `scope:<scope>`, `tag:<k>:<v>` (first `MaxTags`), sender
+  `system:datadog`, external id `event-<id>` (else monitor + scope +
+  transition + UTC minute), text = bold transition, title, status, scope,
+  priority, tags, message, link (https only). Mirror
+  (`Handler.mirror`, before `Receive`): `Conversations.Arrive` makes the
+  alert's conversation first; if it isn't held and its thread has one door
+  (`Thread`), `Opener.Open` (= `ship.Commands.Open`, `Agent` nil: Seaport
+  as itself) posts the alert text at the mirror with `ThreadOf` = that
+  conversation, so the crew wakes to both doors; failures are logged, the
+  alert still arrives (`mirrored` false). Recoveries and re-notifies land
+  on the alert's door (same chat id); Seaport posts nothing more to the
+  mirror. `dockmodule.BindMirror(ships.Service, convs.Service)` binds late.
 - Email docks (`dockemail`, migration 00032): a dock is one mailbox read
   over IMAP and answered over SMTP, linked by `PUT /api/v1/docks/{id}/email`
   (`seaport dock email`, the web's "Correo" card). The handler checks the

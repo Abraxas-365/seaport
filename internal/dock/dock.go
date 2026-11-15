@@ -33,11 +33,16 @@ const (
 	// ChannelEmail is a mailbox (IMAP in, SMTP out): new mail wakes the
 	// crew and replies go out as replies in the same email thread.
 	ChannelEmail Channel = "email"
+	// ChannelDatadog is a Datadog monitor webhook: alerts wake the crew,
+	// one conversation per monitor and scope, and recoveries land in it.
+	// It only triggers; the alert is mirrored to a destination of another
+	// dock (the dock's mirror) where people and the agent talk.
+	ChannelDatadog Channel = "datadog"
 )
 
 func (c Channel) Valid() bool {
 	switch c {
-	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelWebhook, ChannelEmail:
+	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelWebhook, ChannelEmail, ChannelDatadog:
 		return true
 	}
 	return false
@@ -47,7 +52,7 @@ func (c Channel) Valid() bool {
 // conversational channel). A channel that only triggers (alerts coming
 // in by webhook, nothing to post to) answers false: its docks are read
 // only whatever their switch says, and the crew answers on another door
-// of the thread. Every channel replies except webhook.
+// of the thread. Every channel replies except webhook and datadog.
 func (c Channel) Replies() bool {
 	switch c {
 	case ChannelWhatsApp, ChannelAPI, ChannelGitHub, ChannelJira, ChannelSlack, ChannelEmail:
@@ -111,7 +116,7 @@ type Create struct {
 
 func (c Create) Validate() error {
 	if !c.Channel.Valid() {
-		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira, slack, webhook or email")
+		return errx.InvalidField("channel", "channel must be whatsapp, api, github, jira, slack, webhook, email or datadog")
 	}
 	return text.Required("name", c.Name, text.MaxName)
 }

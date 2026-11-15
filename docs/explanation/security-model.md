@@ -49,7 +49,7 @@ An email dock trusts two things it can't check itself, so it narrows them. **Who
 
 ## Secrets
 
-Secrets are the WhatsApp session keys, the GitHub App's private key, webhook secret and client secret, the Jira API token and webhook secret, the webhook docks' secrets, mailbox passwords, the Slack app's client secret, signing secret and bot token, agent secrets (such as repo credentials or model keys), message attachments (images and files), harness homes, and, in `iam` mode, IAMKit tokens of browser sessions. They are sealed in the database with `SEAPORT_SECRET_KEY` (AES-GCM), and each value is sealed for its own place, so a value copied to another row doesn't open.
+Secrets are the WhatsApp session keys, the GitHub App's private key, webhook secret and client secret, the Jira API token and webhook secret, the webhook and Datadog docks' secrets, mailbox passwords, the Slack app's client secret, signing secret and bot token, agent secrets (such as repo credentials or model keys), message attachments (images and files), harness homes, and, in `iam` mode, IAMKit tokens of browser sessions. They are sealed in the database with `SEAPORT_SECRET_KEY` (AES-GCM), and each value is sealed for its own place, so a value copied to another row doesn't open.
 
 - **Never returned.** The admin API answers secret names and flags, never values. The code that opens an agent's secrets is limited by tests to one caller: the agent's own crew connection when it fetches its profile (`Equip`). No admin handler, event or agent tool can hand a secret back.
 - **Never in events.** Events are stored in clear for an hour, so services never publish secrets. The WhatsApp pairing QR code is dropped from dock events too; the web app fetches it separately.
@@ -89,6 +89,7 @@ The routes that channels call are public too, each with its own proof instead of
 | `POST /github/webhook/{dock}` | the HMAC signature of that dock's App secret |
 | `POST /github/actions/{dock}` | an OIDC token GitHub signed for this port's URL, from a repository the dock's App is installed on |
 | `POST /hooks/{dock}` | the dock's secret as a bearer, `X-Seaport-Token`, an HMAC of the body (`X-Seaport-Signature`) or `?token=`, compared in constant time; a wrong one and an unknown dock are the same `404` |
+| `POST /datadog/webhook/{dock}` | the dock's secret as `X-Seaport-Token` or a bearer, compared in constant time; a wrong one and an unknown dock are the same `404` |
 | `POST /jira/webhook/{dock}` | the HMAC signature (`X-Hub-Signature`) or the bearer secret of that dock, compared in constant time |
 | `POST /slack/events/{dock}` | the Slack v0 HMAC signature of that dock's signing secret, within a five-minute window (`url_verification` is answered before the secret is known) |
 | `GET /slack/oauth/callback` | the state Seaport signed for that dock an hour earlier at most, then the code, checked with Slack |

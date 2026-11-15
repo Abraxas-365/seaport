@@ -23,6 +23,7 @@ export const sidebar = [
       page('guides/slack'),
       page('guides/api-docks'),
       page('guides/webhooks'),
+      page('guides/datadog'),
       page('guides/customs'),
       page('guides/linked-conversations'),
       page('guides/schedules'),
