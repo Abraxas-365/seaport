@@ -18,13 +18,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/auth"
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
+	"github.com/Abraxas-365/seaport/internal/bootstrap/wirespec"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
@@ -330,5 +333,39 @@ func TestWireFixturesCoverEveryEvent(t *testing.T) {
 	}
 	if len(extra) > 0 {
 		t.Errorf("wire fixtures of unknown event types: %v", extra)
+	}
+}
+
+// TestWireSpecMatchesEvents keeps the generator's list (wirespec) in step with
+// the event list and with the fixtures: every event type of EventPermissions
+// has a payload type there, the fixture of each is a value of that very type,
+// and the API shapes the fixtures sample are listed types.
+func TestWireSpecMatchesEvents(t *testing.T) {
+	spec := wirespec.Spec()
+	fixtures := wireFixtures()["events"].(map[string]any)
+	for typ := range bootstrap.EventPermissions {
+		want, ok := spec.Events[typ]
+		if !ok {
+			t.Errorf("event %s has no payload type in wirespec.Spec().Events", typ)
+			continue
+		}
+		if got := reflect.TypeOf(fixtures[typ]); got != want {
+			t.Errorf("event %s: the fixture is a %v, wirespec says %v", typ, got, want)
+		}
+	}
+	for typ := range spec.Events {
+		if _, ok := bootstrap.EventPermissions[typ]; !ok {
+			t.Errorf("wirespec has an event %s that is not in EventPermissions", typ)
+		}
+	}
+	listed := map[reflect.Type]bool{}
+	for _, typ := range spec.Types {
+		listed[typ] = true
+	}
+	for name, v := range wireFixtures()["api"].(map[string]any) {
+		typ := reflect.TypeOf(v)
+		if typ.Kind() == reflect.Struct && typ.PkgPath() != "" && !strings.Contains(typ.Name(), "[") && !listed[typ] {
+			t.Errorf("api fixture %s is a %v, which wirespec.Spec().Types doesn't list", name, typ)
+		}
 	}
 }

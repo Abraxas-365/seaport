@@ -31,6 +31,7 @@ go test -count=1 ./cmd/seaport                  # admin CLI e2e (cli_e2e_test.go
 go test -count=1 -run TestConnector ./internal/bootstrap/   # connector e2e: the real connector.Run against the real
                                                 # port (needs the test database) and a test-only ACP echo agent
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
+go generate ./internal/wire                     # after changing a wire type (web/src/lib/types.gen.ts, from the Go structs)
 scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (docs/guides/operations/iam-mode.md)
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
 scripts/fuzz.sh 10s                             # every FuzzX target, TIME each (FUZZ_SHARD=i/n, FUZZ_PKGS); no database
@@ -68,7 +69,7 @@ They load `web/src/lib/__fixtures__/wire.json`, which
 `internal/bootstrap/wire_fixtures_test.go` builds from the real Go types (one
 sample of every event in `EventPermissions` plus the main API shapes, and
 `hosting.HomeRulesOf`); `src/lib/wire.test.ts` makes `tsc` check it against
-`types.ts`. After changing a payload or API shape regenerate it and commit the
+`types.ts` (a thin file re-exporting `types.gen.ts`, see "Web conventions"). After changing a payload or API shape regenerate it and commit the
 result: `SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run
 TestWireFixtures` (without the variable the test fails on drift). Fixture data
 is example data only (`+34600000000`…, `example.com`).
@@ -100,6 +101,20 @@ in by the Go side and handed to Playwright as storage state; the token-mode run 
   `src/lib/live.ts` patches the cache from `/api/v1/events`. Invalidate the
   `keys.docks` list with `exact: true` (detail keys share the prefix).
 - CSP is `script-src 'self'`: no inline scripts (`public/theme.js`).
+- Wire types: `src/lib/types.gen.ts` is generated from the Go structs
+  (`go generate ./internal/wire` runs `internal/bootstrap/wiregen`; the
+  renderer is `internal/wire`, foundation, by reflection over `json` tags +
+  the Go doc comments); `src/lib/types.ts` re-exports it and holds only what has
+  no Go type (`Paginated<T>`, `EventMap`, `PortConfig`…). Never edit the generated
+  file. The registry is `internal/bootstrap/wirespec`: `Types` (TS name → Go
+  type), `Enums` (a Go string type or a const block → a TS union; a plain
+  `string` field joins one through `FieldEnums`), `Raw` (a hand-typed field)
+  and `Events` (payload of each event type). The renderer refuses a
+  string-kind type or named struct it has no name for, so new types fail
+  `go generate` rather than become `string`. Drift tests:
+  `TestGeneratedTypesAreFresh` (`internal/bootstrap/wiregen`) and
+  `TestWireSpecMatchesEvents` (every `EventPermissions` type has a payload type
+  that is the fixture's own type).
 - Permissions: `useCan(Perm.X)` from `src/lib/permissions.gen.ts`
   (generated; never write `"seaport:…"` literals — `TestWebUsesGeneratedPermissions`).
   Hide what the caller can't do; pages they can't read show `NoAccess`.
@@ -111,6 +126,8 @@ cmd/seaport            serve | admin CLI | connect
 internal/
   errx identity query text pgerr config httpx seal   foundation (import no domain)
   pglisten pglock     Postgres LISTEN connections / session advisory locks (foundation)
+  wire                Go types → TypeScript by reflection (foundation; `go generate ./internal/wire`,
+                      the type list is bootstrap/wirespec)
   testdb              test support: a Postgres database per test package (foundation; _test.go only)
   blob (+adapters/    object storage port (immutable Put, tenant keys, image
    gocloudblob)       sniffing) + its gocloud adapter: file://, s3://, mem:// (foundation)

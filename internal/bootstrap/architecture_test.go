@@ -35,6 +35,10 @@ var foundation = map[string]bool{
 	"pglisten": true, "pglock": true,
 	// test support: the per-package test database (only _test.go files import it)
 	"testdb": true,
+	// TypeScript rendering of Go types by reflection (the generator of
+	// web/src/lib/types.gen.ts); it takes the types as reflect.Types, so it
+	// imports no domain code. The list of types is bootstrap/wirespec.
+	"wire": true,
 }
 
 // wiring packages (composition root) may import everything.
