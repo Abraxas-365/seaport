@@ -776,15 +776,19 @@ net/http mux; only `/healthz` answers 405.
   conversation, and `detectNote` is steered into every running turn. Plan
   `~/.rness/plans/puerto/browser-assist.md` (step 4 pending).
 - Message media (`ship/attachment.go`, migration 00020,
-  `shipsvc/media.go`): a message is text plus attachments (images only so
-  far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel
+  `shipsvc/media.go`): a message is text plus attachments (images and
+  documents); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel
   gives the bytes (`Media.Data`) or a `Media.Fetch` the service calls
   within the arrival (`dockwa`: WhatsApp's URLs expire; the download goes
-  to a `memFile` capped at `ship.MaxImage` plus the encryption overhead,
-  whatever size the sender declared). `Receive` fetches nothing for a
+  to a `memFile` capped at `ship.MaxFile` plus the encryption overhead,
+  whatever size the sender declared, for images and documents alike;
+  Slack's download is bounded the same way). `Receive` fetches nothing for a
   redelivery (`FindExternal` first) or a denied chat/sender
   (`shipsvc.refused`: anyone can message a dock; a note instead), then
-  sniffs the type from the bytes (`blob.ImageType`, `ship.ImageTypes`), seals them (`internal/seal`,
+  sniffs the kind from the bytes (`shipsvc.sniff`: an image in
+  `ship.ImageTypes` within `MaxImage`, else a document typed by
+  `blob.FileType`, whatever the channel called it; at most
+  `MaxInboundMedia` per message; names through `ship.CleanName`), seals them (`internal/seal`,
   info `seaport media v1`, purpose `attachment/<org>/<id>`) and puts them
   in the blob store (`SEAPORT_BLOB_URL`, opened once in `bootstrap`; off
   without a secret key) under `blob.TenantKey(org, "attachments", id)`
@@ -799,13 +803,20 @@ net/http mux; only `/healthz` answers 405.
   never listed). Reads: `ship.Queries.OpenAttachment` (an agent only for
   conversations on its docks, else NotFound), served by
   `GET /crew/attachments/{id}` (crew), `GET /api/v1/attachments/{id}`
-  (`ships:read`) and the MCP `attachment` tool, with `httpx.File`
+  (`ships:read`) and the MCP `attachment` tool (an image as image content,
+  a text document as text, any other as a note on where to get it: MCP
+  clients such as rness take no embedded resources), with `httpx.File`
   (sniffed type, `nosniff`, sandbox CSP, `no-store`). Ships carry attachment metadata
   (`Ship.Attachments`, filled by `shippg.attach` wherever ships are read);
-  the connector fetches the images of a delivery or steer and sends them as
+  the connector (`connector/media.go`, `gather`) fetches the images of a
+  delivery or steer and sends them as
   ACP image blocks only when the agent advertises
   `promptCapabilities.image` (rness refuses them otherwise), up to
-  `maxPromptImages`, naming the rest in the text.
+  `maxPromptImages`; every other file (documents, images past that) is
+  saved under the thread's working directory (`Agent.Dir`) at
+  `connector.AttachmentsDir/<id>/<name>` (a `.gitignore` of `*` there; a
+  redelivery reuses it), up to `maxPromptFiles`, and the prompt gives the
+  path; withheld ones (`attachments` off) are never fetched.
 - Outbound files (migration 00023, `shipsvc.keepFiles`): `ship.Outbound.Files`
   (MCP `reply` `files` base64, `POST /crew/reply` = `seaport reply -file`,
   body ≤ `crew.MaxReplyBody`; MCP handler's `MaxRequestBodyBytes` too) are
@@ -1201,8 +1212,8 @@ net/http mux; only `/healthz` answers 405.
   remembered only if customs didn't hold the ship; thread = conversation
   `<channel>/<thread_ts>` (DM: `<channel>`), ship ids `msg-<channel>-<ts>`;
   Slack's retries and the app_mention + message pair of one message are
-  one ship by external id. mrkdwn is converted to Markdown, image files
-  are fetched with the bot token within `ship.MaxImage`, only from Slack's
+  one ship by external id. mrkdwn is converted to Markdown, attached files
+  (images and documents) are fetched with the bot token within `ship.MaxFile`, only from Slack's
   own https hosts (`*.slack.com`) or the configured API host
   (`client.fileHost`: events are signed with a secret the tenant may know,
   so their URLs are not trusted); the client follows no redirects off those hosts. `Send` posts a

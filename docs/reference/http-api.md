@@ -207,13 +207,14 @@ A dock:
   "chat_handles": [],
   "sender_handles": [],
   "addressed": false,
-  "images": [{ "name": "photo.png", "data": "<base64>" }]
+  "images": [{ "name": "photo.png", "data": "<base64>" }],
+  "files": [{ "name": "report.pdf", "data": "<base64>" }]
 }
 ```
 
-- Required: `chat_id`, `message_id`, and `text` (or `images`). `chat_kind` is `direct` (default) or `group`. `sent_at` defaults to now. At most 16 handles each.
+- Required: `chat_id`, `message_id`, and `text` (or `images`/`files`). `chat_kind` is `direct` (default) or `group`. `sent_at` defaults to now. At most 16 handles each.
 - `chat_handles` and `sender_handles` are the identities customs matches; `chat_id` and `sender_id` are used when empty. `addressed` says a group message mentions the account.
-- `images` are base64 inside the JSON, so the whole body stays under 1 MiB.
+- `images` and `files` (any other file, kept as a document) are base64 inside the JSON, so the whole body stays under 1 MiB.
 - Answer: `201` with the ship and `"duplicate": false`. A repeated `message_id` answers `200` with `"duplicate": true` and stores nothing.
 
 See [API docks](../guides/api-docks.md).
@@ -446,7 +447,7 @@ A conversation:
 
 `direction` is `in` or `out`. Inbound `status` is `held`, `queued`, `claimed` or `handled`; outbound is `pending`, `sent` or `failed`. Empty fields are left out. `/inbox` items add `last_ship` (a ship, omitted without `ships:read`), `held`, `queued` and `in_flight`.
 
-Attachment routes answer the raw bytes with `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`. Only images are stored. See [Messages and images](../guides/messages-and-images.md).
+Attachment routes answer the raw bytes with `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`; documents as downloads. See [Messages and images](../guides/messages-and-images.md).
 
 ### Approvals
 

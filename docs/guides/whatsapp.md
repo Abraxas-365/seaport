@@ -33,7 +33,8 @@ Your "message yourself" chat with the linked number is always allowed by customs
 | :--- | :--- |
 | Text, captions, replies | the message's text |
 | Photos | an image attachment (see [Messages and images](messages-and-images.md)) |
-| Videos, documents, audio, stickers, locations, contacts | a note in the text for now: the caption as `[video] caption`, or `[audio received; media is not supported yet]` |
+| Documents (PDF, spreadsheets, any file) | a document attachment with its file name; the caption is the text |
+| Videos, audio, stickers, locations, contacts | a note in the text for now: the caption as `[video] caption`, or `[audio received; media is not supported yet]` |
 | Status updates, channels (newsletters) | ignored |
 | Your own messages to other chats | ignored (and the echo of what agents send is dropped) |
 | Group messages | kept; in `mentions` mode only those that @mention the number or reply to it wake an agent |

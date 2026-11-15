@@ -32,14 +32,15 @@ curl -sS -X POST "$SEAPORT_URL/api/v1/docks/$DOCK/ships" \
 | :--- | :--- | :--- |
 | `chat_id` | yes | your id of the conversation; the same id is the same conversation |
 | `message_id` | yes | your id of the message; posting it again answers `200` with `"duplicate": true` and stores nothing |
-| `text` | yes, unless `images` | the message (up to 64 KiB) |
+| `text` | yes, unless `images` or `files` | the message (up to 64 KiB) |
 | `sender_id`, `sender_name` | no | who wrote it |
 | `chat_kind` | no | `direct` (default), `group` or `self` |
 | `chat_title` | no | shown in the inbox |
 | `chat_handles`, `sender_handles` | no | identities customs rules match (default: `chat_id`, `sender_id`), such as `+34600000001` |
 | `addressed` | no | the message mentions you: in a group in `mentions` mode only these wake an agent |
 | `sent_at` | no | RFC 3339 time (default: now) |
-| `images` | no | `[{"data": "<base64>", "name": "photo.png"}]`, up to 10; the whole body stays within 1 MiB |
+| `images` | no | `[{"data": "<base64>", "name": "photo.png"}]`; the whole body stays within 1 MiB |
+| `files` | no | any other file, same shape (`[{"data": "<base64>", "name": "report.pdf"}]`), kept as a document; up to 10 attachments with `images` |
 
 The answer is `201` with the stored message: its `status` is `queued` (an agent will get it) or `held` with a `hold_reason` (customs or routing). See [Message lifecycle](../explanation/message-lifecycle.md).
 

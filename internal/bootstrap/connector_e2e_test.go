@@ -12,6 +12,7 @@ package bootstrap_test
 // files import it, so the rule stays as it was (see AGENTS.md, Testing).
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"os"
@@ -639,7 +640,8 @@ func TestConnectorBriefsAnAgentWithoutSystemPrompt(t *testing.T) {
 }
 
 // Images reach the agent as ACP image blocks only when it advertises
-// promptCapabilities.image; otherwise the prompt names them.
+// promptCapabilities.image; otherwise, like documents, they are saved in
+// the session's working directory and the prompt names the path.
 func TestConnectorImages(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -648,7 +650,7 @@ func TestConnectorImages(t *testing.T) {
 		text   string
 	}{
 		{"agent takes images", "image", 1, "[image foto.png attached below]"},
-		{"agent does not", "", 0, "[image foto.png attached; not shown to you]"},
+		{"agent does not", "", 0, "[image foto.png saved at "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := mediaPort(t)
@@ -667,6 +669,46 @@ func TestConnectorImages(t *testing.T) {
 				t.Fatalf("image blocks: %+v", got.ImageTypes)
 			}
 		})
+	}
+}
+
+// A document that comes with a message is saved for the agent under its
+// session's working directory (.seaport/attachments/<id>/<name>), and the
+// prompt names the path; a dock whose attachments switch is off keeps it
+// from the agent (never fetched, the prompt says why).
+func TestConnectorDocuments(t *testing.T) {
+	p, _ := mediaPort(t)
+	d := p.apiDock("docs")
+	p.letIn(d)
+	h := p.startConnector(connectorOpts{caps: "image"})
+	p.ready(anyConn)
+	pdf := []byte("%PDF-1.7 informe trimestral")
+	s := p.injectWith(d, map[string]any{"chat_id": "220", "message_id": "doc1", "sender_id": "220", "sender_name": "Ana",
+		"text": "el informe", "files": []map[string]any{{"name": "informe.pdf", "data": pdf}}})
+	p.shipsOf(s.Conversation, "the document answered", answered(1))
+	got := h.prompts(1)[0]
+	_, rest, found := strings.Cut(got.Text, "[document informe.pdf saved at ")
+	path, _, _ := strings.Cut(rest, "]")
+	if !found || got.Images != 0 || !strings.HasSuffix(path, filepath.Join(".seaport", "attachments", s.Attachments[0].ID.String(), "informe.pdf")) {
+		t.Fatalf("prompt record: %+v\n%s", got, got.Text)
+	}
+	if saved, err := os.ReadFile(path); err != nil || !bytes.Equal(saved, pdf) {
+		t.Fatalf("saved file: %q %v", saved, err)
+	}
+
+	if code := p.admin(http.MethodPatch, "/api/v1/docks/"+d.ID.String(), map[string]any{"tools": map[string]bool{"attachments": false}}, nil); code != http.StatusOK {
+		t.Fatalf("attachments off: %d", code)
+	}
+	s2 := p.injectWith(d, map[string]any{"chat_id": "220", "message_id": "doc2", "sender_id": "220", "sender_name": "Ana",
+		"text": "otro", "files": []map[string]any{{"name": "otro.pdf", "data": pdf}}})
+	p.shipsOf(s2.Conversation, "the second answered", answered(2))
+	got = h.prompts(2)[1]
+	if !strings.Contains(got.Text, "[document otro.pdf attached; its dock's owner keeps files from agents]") {
+		t.Fatalf("withheld prompt:\n%s", got.Text)
+	}
+	attachments := filepath.Dir(filepath.Dir(path))
+	if _, err := os.Stat(filepath.Join(attachments, s2.Attachments[0].ID.String())); !os.IsNotExist(err) {
+		t.Fatalf("withheld document saved: %v", err)
 	}
 }
 

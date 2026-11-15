@@ -79,6 +79,8 @@ type file struct {
 	Mimetype string `json:"mimetype"`
 	URL      string `json:"url_private"`
 	Mode     string `json:"mode"` // tombstone: deleted
+	// Size is what Slack declares (bytes); the download is bounded anyway.
+	Size int64 `json:"size"`
 }
 
 // directory names the people and channels of a workspace.
@@ -108,8 +110,9 @@ type lookups struct {
 	dir directory
 	// known: Seaport answers in this thread.
 	known func(channel, ts string) (bool, error)
-	// fetch downloads a private file (with the bot token).
-	fetch func(url string) func(context.Context) ([]byte, error)
+	// fetch downloads a private file (with the bot token), at most limit
+	// bytes (ship.ErrMediaTooLarge past it).
+	fetch func(url string, limit int) func(context.Context) ([]byte, error)
 }
 
 // routing is the cheap part of an event's reading: whether it is for the
@@ -204,8 +207,20 @@ func build(env envelope, d identity.DockID, rt routing, lk lookups) (arrival, bo
 			continue
 		}
 		name := firstOf(f.Name, f.Title, "file")
-		if strings.HasPrefix(f.Mimetype, "image/") && len(media) < ship.MaxAttachments {
-			media = append(media, ship.Media{Kind: ship.AttachmentImage, Name: name, Fetch: lk.fetch(f.URL)})
+		kind := ship.AttachmentDocument
+		if strings.HasPrefix(f.Mimetype, "image/") {
+			kind = ship.AttachmentImage
+		}
+		switch {
+		case len(media) == ship.MaxAttachments:
+		case f.Size > int64(ship.MaxFile):
+			if body != "" {
+				body += "\n"
+			}
+			body += ship.MediaNote(kind, ship.CleanName(name)+" too large to keep")
+			continue
+		default:
+			media = append(media, ship.Media{Kind: kind, Name: ship.CleanName(name), Fetch: lk.fetch(f.URL, ship.MaxFile)})
 			continue
 		}
 		if body != "" {

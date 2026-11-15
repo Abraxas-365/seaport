@@ -42,7 +42,8 @@ type Message struct {
 	// Text is the body: the plain part (or the HTML one as text) without
 	// the quoted earlier messages.
 	Text string
-	// Media are the images that came with it; Notes name what was left out.
+	// Media are the files that came with it (images and documents); Notes
+	// name what was left out.
 	Media []ship.Media
 	Notes []string
 	// Automatic marks mail no person wrote (auto-replies, bounces, bulk):
@@ -134,12 +135,14 @@ func ParseMessage(raw []byte) (Message, error) {
 			case strings.HasPrefix(kind, "text/"):
 				plains = append(plains, readText(p.Body))
 			default:
-				m.attach(kind, "", p.Body)
+				// Inline parts that aren't images (signatures, calendar
+				// data) are the mail's machinery, not files people sent.
+				m.attach(kind, "", p.Body, isImage(kind))
 			}
 		case *gomail.AttachmentHeader:
 			kind, _, _ := ph.ContentType()
 			name, _ := ph.Filename()
-			m.attach(strings.ToLower(kind), name, p.Body)
+			m.attach(strings.ToLower(kind), name, p.Body, true)
 		}
 	}
 	body := strings.TrimSpace(strings.Join(plains, "\n\n"))
@@ -150,28 +153,39 @@ func ParseMessage(raw []byte) (Message, error) {
 	return m, nil
 }
 
-// attach keeps an image whole when it fits; anything else is only named.
-func (m *Message) attach(kind, name string, r io.Reader) {
+// attach keeps a file whole when it fits within MaxFile (the service
+// tells images from documents by the bytes); else, or unless keep, it is
+// only named.
+func (m *Message) attach(kind, name string, r io.Reader, keep bool) {
 	name = clean(name, ship.MaxAttachmentName)
 	label := name
 	if label == "" {
 		label = "unnamed"
 	}
-	if isImage(kind) && len(m.Media) < ship.MaxAttachments {
-		data, err := io.ReadAll(io.LimitReader(r, ship.MaxImage+1))
-		switch {
-		case err == nil && len(data) > 0 && len(data) <= ship.MaxImage:
-			m.Media = append(m.Media, ship.Media{Kind: ship.AttachmentImage, Name: name, Data: data})
-			return
-		case err == nil && len(data) > ship.MaxImage:
-			m.Notes = append(m.Notes, fmt.Sprintf("image %s left out: too large", label))
-			return
+	what, media := "attachment", ship.AttachmentDocument
+	if isImage(kind) {
+		what, media = "image", ship.AttachmentImage
+	}
+	if !keep || len(m.Media) == ship.MaxAttachments {
+		why := "too many files"
+		if !keep {
+			why = "not a file"
 		}
-		m.Notes = append(m.Notes, fmt.Sprintf("image %s left out: unreadable", label))
+		n, _ := io.Copy(io.Discard, io.LimitReader(r, MaxRaw))
+		m.Notes = append(m.Notes, fmt.Sprintf("%s %s (%s, %d KiB) left out: %s", what, label, kind, (n+1023)/1024, why))
 		return
 	}
-	n, _ := io.Copy(io.Discard, io.LimitReader(r, MaxRaw))
-	m.Notes = append(m.Notes, fmt.Sprintf("attachment %s (%s, %d KiB) left out: only images are read", label, kind, (n+1023)/1024))
+	limit := ship.MaxFile
+	data, err := io.ReadAll(io.LimitReader(r, int64(limit)+1))
+	switch {
+	case err == nil && len(data) > 0 && len(data) <= limit:
+		m.Media = append(m.Media, ship.Media{Kind: media, Name: ship.CleanName(name), Data: data})
+	case err == nil && len(data) > limit:
+		_, _ = io.Copy(io.Discard, io.LimitReader(r, MaxRaw))
+		m.Notes = append(m.Notes, fmt.Sprintf("%s %s left out: too large", what, label))
+	default:
+		m.Notes = append(m.Notes, fmt.Sprintf("%s %s left out: unreadable", what, label))
+	}
 }
 
 func isImage(kind string) bool {

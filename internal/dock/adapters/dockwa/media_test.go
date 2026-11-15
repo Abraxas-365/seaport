@@ -59,9 +59,45 @@ func TestImageMediaFetchesWhenAsked(t *testing.T) {
 		t.Fatalf("lying size: %v", err)
 	}
 
-	m, text = imageMedia(&waE2E.ImageMessage{Caption: proto.String("big"), FileLength: proto.Uint64(ship.MaxImage + 1)}, downloader(never))
-	if m != nil || text != "big\n"+ship.MediaNote(ship.AttachmentImage, "too large to keep") {
+	// A photo over MaxImage is still fetched (the service keeps it as a
+	// document); one declared over MaxFile is only named.
+	m, _ = imageMedia(&waE2E.ImageMessage{Caption: proto.String("big"), FileLength: proto.Uint64(ship.MaxImage + 1)}, downloader(never))
+	if m == nil || m.Kind != ship.AttachmentImage {
+		t.Fatalf("big photo: %+v", m)
+	}
+	m, text = imageMedia(&waE2E.ImageMessage{Caption: proto.String("huge"), FileLength: proto.Uint64(ship.MaxFile + 1)}, downloader(never))
+	if m != nil || text != "huge\n"+ship.MediaNote(ship.AttachmentImage, "too large to keep") {
 		t.Fatalf("large image: %+v %q", m, text)
+	}
+}
+
+// A document keeps its name and the file limit (bigger than an image's);
+// one declared over it is only named.
+func TestDocumentMedia(t *testing.T) {
+	ctx := context.Background()
+	pdf := []byte("%PDF-1.7 report")
+	ok := func(_ context.Context, _ whatsmeow.DownloadableMessage, f whatsmeow.File) error {
+		_, err := f.Write(pdf)
+		return err
+	}
+	never := func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error {
+		t.Fatal("downloaded a document declared over the limit")
+		return nil
+	}
+	m, text := documentMedia(&waE2E.DocumentMessage{FileName: proto.String("../informe Q3.pdf"), Caption: proto.String("el informe"),
+		FileLength: proto.Uint64(ship.MaxImage + 1)}, ok)
+	if m == nil || m.Kind != ship.AttachmentDocument || m.Name != "informe Q3.pdf" || text != "el informe" {
+		t.Fatalf("document: %+v %q", m, text)
+	}
+	if got, err := m.Fetch(ctx); err != nil || string(got) != string(pdf) {
+		t.Fatalf("fetch: %q %v", got, err)
+	}
+	if m, _ = documentMedia(&waE2E.DocumentMessage{Title: proto.String("notas")}, ok); m.Name != "notas" {
+		t.Fatalf("title as name: %+v", m)
+	}
+	m, text = documentMedia(&waE2E.DocumentMessage{FileName: proto.String("video.zip"), FileLength: proto.Uint64(ship.MaxFile + 1)}, downloader(never))
+	if m != nil || text != ship.MediaNote(ship.AttachmentDocument, "video.zip too large to keep") {
+		t.Fatalf("large document: %+v %q", m, text)
 	}
 }
 

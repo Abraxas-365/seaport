@@ -7,10 +7,12 @@ package crewmcp
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
@@ -347,8 +349,14 @@ type AttachmentIn struct {
 	AttachmentID string `json:"attachment_id" jsonschema:"an attachment_id listed by history"`
 }
 
-// attachment answers the file as MCP image content (the agent's docks
-// only: OpenAttachment checks them).
+// maxAttachmentText bounds the text of a document the attachment tool
+// hands back (the rest is cut, saying so: the whole file is a download).
+const maxAttachmentText = 256 << 10
+
+// attachment answers the file (the agent's docks only: OpenAttachment
+// checks them): an image as MCP image content, a text document as text,
+// and any other document as a note on where to download it (MCP clients
+// such as rness take no embedded resources).
 func (t tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, in AttachmentIn) (*mcp.CallToolResult, any, error) {
 	org, agentID, err := caller(ctx)
 	if err != nil {
@@ -365,13 +373,32 @@ func (t tools) attachment(ctx context.Context, _ *mcp.CallToolRequest, in Attach
 	if f.Kind == ship.AttachmentImage {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.ImageContent{Data: f.Data, MIMEType: f.MIME}}}, nil, nil
 	}
-	res := &mcp.ResourceContents{URI: "attachment://" + f.ID.String(), MIMEType: f.MIME}
-	if strings.HasPrefix(f.MIME, "text/") {
-		res.Text = string(f.Data)
-	} else {
-		res.Blob = f.Data
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: documentText(f)}}}, nil, nil
+}
+
+// documentText is what the attachment tool says of a document: its text
+// when it is text (cut at maxAttachmentText), else where to get it.
+func documentText(f ship.AttachmentFile) string {
+	name := f.Name
+	if name == "" {
+		name = "(unnamed)"
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.EmbeddedResource{Resource: res}}}, nil, nil
+	head := fmt.Sprintf("document %s (%s, %d bytes)", name, f.MIME, len(f.Data))
+	if !strings.HasPrefix(f.MIME, "text/") || !utf8.Valid(f.Data) {
+		return head + ": not text, so not shown here. The connector saves the files of the messages it hands you under " +
+			"<working directory>/.seaport/attachments/" + f.ID.String() + "/; else GET /crew/attachments/" + f.ID.String() +
+			" with your crew token."
+	}
+	body := f.Data
+	cut := ""
+	if len(body) > maxAttachmentText {
+		body = body[:maxAttachmentText]
+		for len(body) > 0 && !utf8.Valid(body) {
+			body = body[:len(body)-1]
+		}
+		cut = fmt.Sprintf("\n[cut at %d bytes; the whole file is GET /crew/attachments/%s]", len(body), f.ID)
+	}
+	return head + ":\n" + string(body) + cut
 }
 
 type ConversationsIn struct{}

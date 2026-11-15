@@ -108,7 +108,7 @@ The first time, follow the tutorial: [Your first agent](../tutorials/first-agent
 
 ## Images
 
-When a message has images, the connector downloads them from the port with the agent's token and sends them to the harness as image blocks next to the text, in order, up to 8 per prompt. It does this only if the harness advertises image support in ACP (`promptCapabilities.image`). Otherwise, or if one download fails, the prompt only names the attachment, and the agent can look at it with the `attachment` tool. See [Messages and images](messages-and-images.md).
+When a message has images, the connector downloads them from the port with the agent's token and sends them to the harness as image blocks next to the text, in order, up to 8 per prompt. It does this only if the harness advertises image support in ACP (`promptCapabilities.image`). Documents, and images the harness doesn't take, are saved in the session's working directory under `.seaport/attachments/<attachment id>/<name>` (kept out of git by a `.gitignore` there), and the prompt gives each path. If a download fails, the prompt only names the attachment, and the agent can look at it with the `attachment` tool. See [Messages and images](messages-and-images.md#how-agents-see-images-and-documents).
 
 ## Running several
 

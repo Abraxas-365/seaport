@@ -1,31 +1,31 @@
 # Messages and images
 
-A message in Seaport is text plus attachments. Whatever the channel sends (a WhatsApp photo with a caption, a Slack message with an image, an `api` post with images, a GitHub comment) is turned into that, and from there on everything treats it the same. This page covers what is kept, what isn't, how agents see images, and the limits on what you send back.
+A message in Seaport is text plus attachments. Whatever the channel sends (a WhatsApp photo with a caption, a PDF on Slack, an email with attachments, an `api` post with images, a GitHub comment) is turned into that, and from there on everything treats it the same. This page covers what is kept, what isn't, how agents see images and documents, and the limits on what you send back.
 
 ![A conversation with an image](../assets/screenshots/inbox-image.png)
 
 ## Text
 
-A message's text is up to 64 KiB. For a photo, the caption is the text. On WhatsApp, a message with only an image has an empty text and one attachment.
+A message's text is up to 64 KiB. For a photo or a document, the caption is the text. On WhatsApp, a message with only an image has an empty text and one attachment.
 
-## Images
+## Images and documents
 
-Images arrive with their message on **WhatsApp**, **Slack** (image files attached to the message), **email** (image attachments) and **`api`** docks. GitHub and Jira messages arrive as text only: images in a comment are not fetched. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then checks it:
+Files arrive with their message on **WhatsApp** (images and documents), **Slack** (files attached to the message), **email** (attachments) and **`api`** docks. GitHub and Jira messages arrive as text only: files in a comment are not fetched. Seaport downloads each one when the message arrives (WhatsApp's links expire quickly), then decides what it is from its bytes, not its name or declared type:
 
-| Check | Rule |
+| Kind | Rule |
 | :--- | :--- |
-| Format | JPEG, PNG, WebP or GIF, decided from the file's bytes, not its name or declared type |
-| Size | at most 3.75 MiB (3,932,160 bytes), so its base64 stays within the 5 MB that common models accept |
-| Per message | up to 10 attachments |
+| Image | JPEG, PNG, WebP or GIF of at most 3.75 MiB (3,932,160 bytes), so its base64 stays within the 5 MB that common models accept |
+| Document | any other file (a PDF, a spreadsheet, a log, an image in another format, or a photo larger than 3.75 MiB) of at most 10 MiB, kept with the name the sender gave it |
+| Per message | up to 10 attachments, 25 MiB together |
 
-An image that passes is kept **sealed** (encrypted with the port's secret key) in blob storage and shown in the web app.
+A file that passes is kept **sealed** (encrypted with the port's secret key) in blob storage and shown in the web app: images inline, documents as downloads that never render (HTML, SVG and other types a browser could run are stored as `application/octet-stream` or plain text).
 
-An image that doesn't pass, or can't be kept, doesn't lose the message. A note is added to its text instead:
+A file that doesn't pass, or can't be kept, doesn't lose the message. A note is added to its text instead (with `document` for documents):
 
 | Note | Why |
 | :--- | :--- |
-| `[image received; too large to keep]` | over 3.75 MiB |
-| `[image received; unsupported format]` | not one of the four formats |
+| `[image received; too large to keep]` | over 10 MiB (WhatsApp and Slack name the file) |
+| `[document received; the message's files are too large together]` | the message's files passed 25 MiB |
 | `[image received; the download failed]` | the channel's download failed or was empty |
 | `[image received; media storage is off]` | no blob storage is configured |
 | `[image received; not kept from a denied sender]` | customs denied the chat or the sender: strangers can't fill your storage. Media from **pending** chats is kept, since allowing the chat delivers what it sent meanwhile |
@@ -33,19 +33,20 @@ An image that doesn't pass, or can't be kept, doesn't lose the message. A note i
 
 ### Other media
 
-Only images are supported. On Slack, only image files are fetched, and only from Slack's own hosts; other attached files are named in the text as `[file: name]` and not downloaded. On WhatsApp, a video, document, audio, sticker, location or contact arrives as text only: `[video] caption` when it has a caption, otherwise `[video received; media is not supported yet]` (with the matching word). The file itself is not downloaded or kept.
+On Slack, files are fetched only from Slack's own hosts; past 10 attachments, files are named in the text as `[file: name]` and not downloaded. On email, inline parts that aren't images (signatures, calendar data) are named in the text, not kept. On WhatsApp, a video, audio, sticker, location or contact arrives as text only: `[video] caption` when it has a caption, otherwise `[video received; media is not supported yet]` (with the matching word). The file itself is not downloaded or kept.
 
 ### On an `api` dock
 
-Post images in the `images` field, base64-encoded. The whole request body stays within 1 MiB, which also bounds the images you can post this way. See [API docks](api-docks.md).
+Post images in the `images` field and any other file in `files`, each `{"name": …, "data": <base64>}`. The whole request body stays within 1 MiB, which also bounds the files you can post this way. See [API docks](api-docks.md).
 
-## How agents see images
+## How agents see images and documents
 
-The prompt names each attachment under its message line. How the agent looks at them depends on the harness:
+The prompt names each attachment under its message line. How the agent gets it depends on the harness:
 
-- **The connector shows them.** If the harness advertises image support in ACP (`promptCapabilities.image`), the connector fetches each image from the port with the agent's token and sends it as an image block after the text, in order, up to **8 per prompt**. The prompt marks each one as attached below. Images that arrive while the agent is working (steering) are sent the same way.
-- **Otherwise, the agent asks.** If the harness doesn't take images, an image beyond the first 8, or one that couldn't be fetched, the prompt says the attachment is "not shown to you". The agent can call the MCP tools: `history` lists each message's attachments with their ids, and `attachment` returns one as an image. These tools only work on conversations of the docks the agent is on.
-- **The dock keeps them.** On a dock whose [`attachments` switch](agents-and-routing.md#what-agents-may-read) is off, the prompt names the file and says its dock's owner keeps files from agents; nothing is fetched or shown.
+- **Images as image blocks.** If the harness advertises image support in ACP (`promptCapabilities.image`), the connector fetches each image from the port with the agent's token and sends it as an image block after the text, in order, up to **8 per prompt**. The prompt marks each one as attached below. Images that arrive while the agent is working (steering) are sent the same way.
+- **Everything else as files.** Documents, and images the harness doesn't take (or beyond the first 8), are saved in the session's working directory under `.seaport/attachments/<attachment id>/<name>` (up to 16 per prompt), and the prompt gives the path: `[document informe.pdf saved at /…/.seaport/attachments/…/informe.pdf]`. The agent reads them with its own tools. The directory has a `.gitignore` that keeps received files out of the repository; a redelivered message reuses the saved file.
+- **Otherwise, the agent asks.** A file that couldn't be fetched or saved is "not shown to you". The agent can call the MCP tools: `history` lists each message's attachments with their ids, and `attachment` returns an image as an image, a text document as its text, and says where to get any other document. These tools only work on conversations of the docks the agent is on.
+- **The dock keeps them.** On a dock whose [`attachments` switch](agents-and-routing.md#what-agents-may-read) is off, the prompt names the file and says its dock's owner keeps files from agents; nothing is fetched, saved or shown.
 
 See [The connector](connector.md#images).
 
@@ -81,7 +82,7 @@ Images are stored in a blob store:
 | unset | a `blobs` directory next to the secret key file (`/data/blobs` in the Docker image) |
 | `file:///path` | a local directory (one node) |
 | `s3://bucket?region=…` | S3 or a compatible store; credentials come from the standard `AWS_*` variables |
-| `off` | no media is kept; each image becomes a note |
+| `off` | no media is kept; each file becomes a note |
 
 Every file is sealed with `SEAPORT_SECRET_KEY` before it is written, and each is bound to its organization and attachment, so a copied blob doesn't open elsewhere. Keep that key with your backups: without it the images can't be read. The bucket holds only opaque files; Seaport never lists it, and the database is the index.
 

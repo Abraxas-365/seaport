@@ -366,6 +366,19 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	return out
 }
 
+// Dir is the working directory of the thread's session: the hosted slot's
+// worktree, else Cwd.
+func (a *Agent) Dir(ctx context.Context, thread identity.ThreadID) (string, error) {
+	if a.cfg.Workdir == nil {
+		return a.cfg.Cwd, nil
+	}
+	dir, err := a.cfg.Workdir(ctx, thread)
+	if err != nil {
+		return "", errx.Wrap(err, "thread working directory", errx.TypeInternal)
+	}
+	return dir, nil
+}
+
 // sessionFor opens (resume/load) or creates the thread's session.
 func (a *Agent) sessionFor(ctx context.Context, thread identity.ThreadID) (acp.SessionId, error) {
 	key := thread.String()
@@ -388,13 +401,9 @@ func (a *Agent) sessionFor(ctx context.Context, thread identity.ThreadID) (acp.S
 	a.mu.Unlock()
 
 	servers := a.mcpServers()
-	cwd := a.cfg.Cwd
-	if a.cfg.Workdir != nil {
-		dir, err := a.cfg.Workdir(ctx, thread)
-		if err != nil {
-			return "", errx.Wrap(err, "thread working directory", errx.TypeInternal)
-		}
-		cwd = dir
+	cwd, err := a.Dir(ctx, thread)
+	if err != nil {
+		return "", err
 	}
 	if hasSaved {
 		var err error

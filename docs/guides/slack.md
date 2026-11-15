@@ -39,7 +39,7 @@ The app asks for these bot scopes:
 | `chat:write` | post replies |
 | `reactions:write` | react with 👀 when a message was taken |
 | `users:read`, `users:read.email` | show names and give customs the sender's email |
-| `files:read`, `files:write` | read images people send, upload files agents attach |
+| `files:read`, `files:write` | read files people send, upload files agents attach |
 
 It subscribes to the bot events `app_mention`, `message.channels`, `message.groups` and `message.im`.
 
@@ -78,7 +78,7 @@ So `seaport customs deny U0123ABCD` holds one person's messages everywhere, and 
 
 The conversation id is `<channel>/<thread timestamp>` for a channel thread and `<channel>` for a direct chat, titled `#channel` or the person's name. Message ids are `msg-<channel>-<timestamp>`. Slack's formatting is converted to Markdown: `*bold*` becomes `**bold**`, `~strike~` `~~strike~~`, `<url|label>` `[label](url)`, and user and channel mentions become `@name` and `#channel`.
 
-Images people attach (up to the [image limit](../reference/limits.md#messages-and-media)) reach the agent like any other [image](messages-and-images.md); other files appear in the text as `[file: name]`.
+Files people attach reach the agent like any other [image or document](messages-and-images.md) (up to the [file limits](../reference/limits.md#messages-and-media)); past 10 per message they appear in the text as `[file: name]`.
 
 ## What replies look like
 

@@ -471,7 +471,7 @@ func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 			return
 		case d := <-j.steers:
 			// Fetched before mu, so an ack never waits on downloads.
-			images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
+			images, ok := gather(ctx, cfg, agent.TakesImages(), filesDir(ctx, agent, j.d.Conversation.Thread, d.Ships), d.Ships)
 			j.mu.Lock()
 			if j.done {
 				j.mu.Unlock()
@@ -503,6 +503,21 @@ func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 	}
 }
 
+// filesDir is where the files of ships are saved for the agent: their
+// thread's working directory ("" when they have no file to save or the
+// directory can't be had: the files are then only named).
+func filesDir(ctx context.Context, agent *Agent, thread identity.ThreadID, ships []ship.Ship) string {
+	if !hasFiles(ships) {
+		return ""
+	}
+	dir, err := agent.Dir(ctx, thread)
+	if err != nil {
+		slog.Warn("no working directory for the delivery's files", "thread", thread, "err", err)
+		return ""
+	}
+	return dir
+}
+
 // finish ends the job and returns the ships the agent saw.
 func (j *job) finish() []identity.ShipID {
 	j.mu.Lock()
@@ -521,7 +536,7 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	id := d.ID
 	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "thread", d.Conversation.Thread, "title", d.Conversation.Title)
 	log.Info("delivery received", "ships", len(d.Ships))
-	images, ok := gather(ctx, cfg, agent.TakesImages(), d.Ships)
+	images, ok := gather(ctx, cfg, agent.TakesImages(), filesDir(ctx, agent, d.Conversation.Thread, d.Ships), d.Ships)
 	// What the agent does goes to the port's live view as it happens; the
 	// last of it is sent before the ack or release.
 	f := newFeed(id, send)
