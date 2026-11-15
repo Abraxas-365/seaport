@@ -25,6 +25,7 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:environments:write` | Create, change and delete environments, start builds, upload homes, host and unhost agents, and start, stop and sign in slots. Read slot logs. |
 | `seaport:schedules:read` | View schedules (prompts posted into conversations at set times) and preview cron expressions. Read `schedule.*` events. |
 | `seaport:schedules:write` | Create, change, run and delete schedules. |
+| `seaport:browser:use` | Open a hosted agent's browser viewer to sign in to sites for it, and clear its login requests. Read `slot.browser` events. |
 
 The permissions that guard each route are in [HTTP API](http-api.md). The permission that reads each event type is in [Events](events.md#event-types).
 

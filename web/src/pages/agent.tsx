@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router"
 import {
   ArrowLeft,
   Bot,
+  AppWindow,
   History,
   KeyRound,
   Pencil,
@@ -59,7 +60,7 @@ import {
   StatusBadge,
   type ChoiceOption,
 } from "@/components/seaport"
-import { HostingCard, UsageCard } from "@/pages/agent-hosting"
+import { BrowserCard, HostingCard, UsageCard } from "@/pages/agent-hosting"
 
 /** The agent profile rules (agent.SaveProfile.Validate). */
 const skillNamePattern = /^[a-z0-9][a-z0-9_-]{0,63}$/
@@ -73,7 +74,15 @@ const approveOptions: ChoiceOption<"connector" | "allow" | "reject">[] = [
   { value: "allow", label: "Permitir", tone: "success" },
 ]
 
-const empty: ProfileInput = { instructions: "", skills: [], mcp_servers: [], approve: "", model: "", effort: "" }
+const empty: ProfileInput = {
+  instructions: "",
+  skills: [],
+  mcp_servers: [],
+  approve: "",
+  model: "",
+  effort: "",
+  browser: false,
+}
 
 function inputOf(p: AgentProfile): ProfileInput {
   return {
@@ -83,6 +92,7 @@ function inputOf(p: AgentProfile): ProfileInput {
     approve: p.approve,
     model: p.model,
     effort: p.effort,
+    browser: p.browser,
   }
 }
 
@@ -145,6 +155,7 @@ function AgentDetail({ agent }: { agent: LibraryAgent }) {
       <div className="mx-auto max-w-4xl space-y-6 p-6">
         <ProfileEditor agent={agent} write={can(Perm.AgentsWrite)} />
         <HostingCard agent={agent} />
+        <BrowserCard agent={agent} />
         <UsageCard agent={agent} />
         <SecretsCard agent={agent} write={can(Perm.AgentsWrite)} />
       </div>
@@ -354,6 +365,25 @@ function ProfileFields({
           Cómo responde el conector cuando el agente pide permiso para una herramienta. El flag -approve del conector
           manda sobre esto.
         </FieldDescription>
+      </Field>
+
+      <Field orientation="horizontal">
+        <FieldContent>
+          <FieldLabel htmlFor="profile-browser">
+            <AppWindow className="size-4" /> Navegador
+          </FieldLabel>
+          <FieldDescription>
+            El agente usa el navegador gestionado de su entorno (herramientas MCP de Chrome DevTools y la herramienta{" "}
+            <Mono>login_needed</Mono>). Las sesiones viven en la instancia; las personas inician sesión en los sitios
+            desde la pestaña Navegador. Solo surte efecto en agentes alojados en un entorno con navegador.
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id="profile-browser"
+          checked={p.browser}
+          disabled={readOnly}
+          onCheckedChange={(browser) => set({ browser })}
+        />
       </Field>
 
       <SkillsField skills={p.skills} readOnly={readOnly} onChange={(skills) => set({ skills })} />

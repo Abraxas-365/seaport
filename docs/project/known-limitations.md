@@ -31,6 +31,7 @@ Where you may run into limits, what to expect and what you can do about it. It d
 - **rness has no headless subscription sign-in.** Claude subscription sign-in (experimental) works for `claude-code` environments only; give an rness environment a model key. See [Claude subscriptions](../guides/hosting/claude-subscriptions.md).
 - **The model gateway forwards Anthropic only.** `models:` accepts `anthropic`, and only `/v1/messages`, `/v1/models` and `/v1/files` are forwarded. Usage is metered for successful Messages calls.
 - **Environment edits apply to a running slot once it is idle.** A slot keeps working on its old version until it is idle (or past `idle_stop`), then restarts.
+- **The managed browser is for hosted agents only.** `seaport connect` on a machine of your own starts no browser; a profile with `browser: true` there just logs a warning. Chromium is the only engine, headless, one viewer per slot. See [browser](../guides/hosting/browser.md).
 - **Harness homes have size limits.** At most 2000 files, 5 MiB per file and 20 MiB in total; sessions, sign-in, memory and Claude's `plugins/` are never uploaded. See [harness homes](../guides/hosting/harness-homes.md).
 
 ## Operating several processes

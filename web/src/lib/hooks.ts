@@ -584,6 +584,19 @@ export function useDeleteSecret(id: string) {
   })
 }
 
+/** Clears a site the agent asked a sign-in for (once someone signed in). */
+export function useClearLoginRequest(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (host: string) => api.clearLoginRequest(id, host),
+    onSuccess: (a) => {
+      qc.setQueryData(keys.agent(id), a)
+      qc.invalidateQueries({ queryKey: keys.agents, exact: true })
+    },
+    onError: fail("No se pudo quitar la solicitud"),
+  })
+}
+
 /** Ticks every `ms` so relative times and durations stay current. */
 export function useNow(ms = 30_000) {
   const [now, setNow] = useState(() => Date.now())

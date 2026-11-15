@@ -203,6 +203,10 @@ type Workspace struct {
 	// SignIn: the harness signs in to a subscription (Spec.SignsIn), so
 	// the slot waits for a sign-in before it takes work.
 	SignIn bool `json:"sign_in"`
+	// Browser is the engine of the slot's managed browser ("": the
+	// environment has none). The slot starts it with the agent's profile
+	// (BrowserDir in the state volume) when the agent's kit asks for one.
+	Browser string `json:"browser,omitempty"`
 }
 
 // WorkspaceRepo is a repo to clone or fetch, its token resolved.

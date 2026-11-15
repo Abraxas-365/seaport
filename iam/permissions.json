@@ -17,7 +17,8 @@
     { "name": "seaport:environments:read", "label": "View environments and the agents the port hosts" },
     { "name": "seaport:environments:write", "label": "Create, change and delete environments, host agents and start or stop them" },
     { "name": "seaport:schedules:read", "label": "View schedules (prompts posted into conversations at set times)" },
-    { "name": "seaport:schedules:write", "label": "Create, change, run and delete schedules" }
+    { "name": "seaport:schedules:write", "label": "Create, change, run and delete schedules" },
+    { "name": "seaport:browser:use", "label": "Open a hosted agent's browser to sign in to sites for it" }
   ],
   "roles": [
     {
@@ -39,7 +40,8 @@
         "seaport:environments:read",
         "seaport:environments:write",
         "seaport:schedules:read",
-        "seaport:schedules:write"
+        "seaport:schedules:write",
+        "seaport:browser:use"
       ]
     },
     {
@@ -55,7 +57,8 @@
         "seaport:agents:read",
         "seaport:environments:read",
         "seaport:schedules:read",
-        "seaport:schedules:write"
+        "seaport:schedules:write",
+        "seaport:browser:use"
       ]
     },
     {

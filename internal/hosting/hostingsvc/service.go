@@ -24,6 +24,8 @@ type Service struct {
 	builds *builds
 	slots  *slots
 	homes  homes
+	// viewers are the browser viewers open in this process.
+	viewers viewers
 }
 
 func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder, run Slots, home Homes) (*Service, error) {
@@ -114,6 +116,9 @@ func (s *Service) SaveEnvironment(ctx context.Context, org identity.Organization
 			if err := s.checkSecrets(ctx, org, h.Agent, input.Spec); err != nil {
 				return hosting.Environment{}, err
 			}
+			if err := s.checkBrowser(ctx, org, h.Agent, input.Spec); err != nil {
+				return hosting.Environment{}, err
+			}
 		}
 	}
 	e, err := s.repo.SaveEnvironment(ctx, org, id, input)
@@ -167,6 +172,30 @@ func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID,
 	return nil
 }
 
+// checkBrowser refuses a spec without a browser for an agent whose
+// profile has its browser on (agentpg refuses the other direction: turning
+// it on while hosted on an environment without one).
+func (s *Service) checkBrowser(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
+	if spec.Browser.Enabled() {
+		return nil
+	}
+	p, err := s.agents.Profile(ctx, org, agentID, 0)
+	if err != nil {
+		if errx.IsType(err, errx.TypeNotFound) {
+			return nil // no profile yet
+		}
+		return err
+	}
+	if !p.Browser {
+		return nil
+	}
+	a, err := s.agents.Find(ctx, org, agentID)
+	if err != nil {
+		return err
+	}
+	return errx.Business("agent " + a.Name + " uses the browser, and the environment has none: turn the environment's browser on (browser.engine) or the agent's off")
+}
+
 func (s *Service) Host(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, input hosting.Host) (hosting.Hosted, error) {
 	if agentID.IsZero() {
 		return hosting.Hosted{}, errx.InvalidField("agent_id", "agent_id is required")
@@ -180,6 +209,9 @@ func (s *Service) Host(ctx context.Context, org identity.OrganizationID, agentID
 		return hosting.Hosted{}, err
 	}
 	if err := s.checkSecrets(ctx, org, agentID, env.Spec); err != nil {
+		return hosting.Hosted{}, err
+	}
+	if err := s.checkBrowser(ctx, org, agentID, env.Spec); err != nil {
 		return hosting.Hosted{}, err
 	}
 	h, err := s.repo.Host(ctx, org, agentID, input, s.limits.MaxSlots)

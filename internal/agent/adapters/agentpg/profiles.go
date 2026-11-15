@@ -27,15 +27,16 @@ type profileRow struct {
 	Approve      string    `db:"approve"`
 	Model        string    `db:"model"`
 	Effort       string    `db:"effort"`
+	Browser      bool      `db:"browser"`
 	CreatedBy    string    `db:"created_by"`
 	CreatedAt    time.Time `db:"created_at"`
 }
 
-const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, created_by, created_at`
+const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, created_by, created_at`
 
 func (row profileRow) profile(id identity.AgentID) (agent.Profile, error) {
 	p := agent.Profile{Agent: id, Version: row.Version, Instructions: row.Instructions, Approve: row.Approve,
-		Model: row.Model, Effort: row.Effort, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
+		Model: row.Model, Effort: row.Effort, Browser: row.Browser, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
 	if err := json.Unmarshal(row.Skills, &p.Skills); err != nil {
 		return p, errx.Wrap(err, "decode profile skills", errx.TypeInternal)
 	}
@@ -54,6 +55,30 @@ func (row profileRow) profile(id identity.AgentID) (agent.Profile, error) {
 		}
 	}
 	return p, nil
+}
+
+// browserHosted refuses a browser for an agent hosted on an environment
+// without one (hosting checks the other direction: hosting an agent whose
+// profile has it on, and dropping the browser from such an environment).
+func browserHosted(ctx context.Context, q sqlx.QueryerContext, org identity.OrganizationID, id identity.AgentID) error {
+	var env struct {
+		Name   string `db:"name"`
+		Engine string `db:"engine"`
+	}
+	err := sqlx.GetContext(ctx, q, &env, `SELECT e.name, COALESCE(v.spec->'browser'->>'engine', '') AS engine FROM agent_hosting h
+		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
+		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
+		WHERE h.organization_id = $1 AND h.agent_id = $2`, org, id)
+	if pgerr.IsNoRows(err) {
+		return nil // not hosted
+	}
+	if err != nil {
+		return pgerr.Map(err, "check the environment's browser")
+	}
+	if env.Engine == "" {
+		return errx.Business("the agent is hosted on environment " + env.Name + ", which has no browser; turn its browser on first")
+	}
+	return nil
 }
 
 // lockAgent locks the agent's row (profile and secret writes serialize on
@@ -109,13 +134,18 @@ func (r *Repository) SaveProfile(ctx context.Context, org identity.OrganizationI
 	if len(missing) > 0 {
 		return agent.Profile{}, errx.InvalidField("mcp_servers", "the MCP headers use secret "+missing[0]+", which this agent doesn't have; set it first")
 	}
+	if in.Browser {
+		if err := browserHosted(ctx, tx, org, id); err != nil {
+			return agent.Profile{}, err
+		}
+	}
 	skills, _ := json.Marshal(in.Skills)
 	servers, _ := json.Marshal(in.MCPServers)
 	var row profileRow
 	if err := tx.GetContext(ctx, &row, `INSERT INTO agent_profiles
-		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING `+profileColumns,
-		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.CreatedBy); err != nil {
+		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING `+profileColumns,
+		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.CreatedBy); err != nil {
 		return agent.Profile{}, pgerr.MapWith(err, "insert profile", messages)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET profile_version = $3, updated_at = now()

@@ -9,6 +9,7 @@ import {
   GitBranch,
   Globe,
   Hammer,
+  AppWindow,
   History,
   HardDrive,
   Pencil,
@@ -623,6 +624,32 @@ function SpecFields({
             </FieldDescription>
           </Field>
         </div>
+      </Section>
+
+      <Section
+        icon={AppWindow}
+        title="Navegador"
+        description="Un navegador gestionado por instancia, con perfil persistente que comparten el agente y las personas."
+      >
+        <Field>
+          <FieldLabel>Motor</FieldLabel>
+          <SegmentedChoice
+            aria-label="Navegador"
+            value={s.browser?.engine || "none"}
+            onChange={(v) => set({ browser: { engine: v === "none" ? "" : "chromium" } })}
+            options={[
+              { value: "none", label: "Sin navegador" },
+              { value: "chromium", label: "Chromium", description: "Headless, dentro de la instancia; CDP en loopback" },
+            ]}
+            disabled={readOnly}
+            size="sm"
+          />
+          <FieldDescription>
+            La imagen incluye Chromium y el MCP de DevTools. Cada agente lo activa en su perfil; sus sesiones (cookies)
+            viven en el volumen de estado de la instancia y una persona inicia sesión en los sitios desde la pestaña
+            Navegador del agente. Sale por el proxy de egreso: añade los hosts de los sitios arriba.
+          </FieldDescription>
+        </Field>
       </Section>
 
       <Section icon={HardDrive} title="Recursos y espacio de trabajo" description="Por instancia.">

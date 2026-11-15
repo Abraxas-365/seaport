@@ -117,6 +117,7 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 		Mode: h.mode, Cwd: cfg.Workspace, Command: h.command, SessionMeta: h.meta, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
 		Protect:      protected(),
+		Browser:      ws.Browser, State: cfg.State,
 	})
 	if errx.IsType(err, errx.TypeAuthorization) {
 		slog.Warn("the port refused this slot's token; stopping", "err", err)

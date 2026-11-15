@@ -141,7 +141,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   imports it (`TestLayerDependencies`, "client" role).
 - Vendor SDKs stay in their adapter: whatsmeow → `dockwa`, MCP SDK →
   `crewmcp`, ACP SDK → `connector`, `coder/websocket` → `connector`, Fiber's
-  websocket contrib → `crewws`, Fiber/fasthttp → `httpx`, `bootstrap` and the
+  websocket contrib → `crewws` and `hostinghttp` (the browser viewer's
+  WebSocket), Fiber/fasthttp → `httpx`, `bootstrap` and the
   adapters that serve routes (`vendorSDKs`), goose →
   `bootstrap`, the embedded web app (`seaport/web`) → `bootstrap`, IAMKit SDK
   and golang-jwt → `authiam`, `golang.org/x/time` → `httpx` (rate limit),
@@ -223,7 +224,7 @@ net/http mux; only `/healthz` answers 405.
   nor kept past its handler (`TestNoFiberCtxInGoroutines`); `c.Context()`
   carries the request id and deadline and is *not* cancelled when the client
   leaves (fasthttp reads nothing meanwhile): bound waits yourself. Streams
-  (SSE, gateway, crew WebSocket) are exempt from `Deadline` (`isStream`).
+  (SSE, gateway, crew WebSocket, browser viewer) are exempt from `Deadline` (`isStream`).
 - Fiber and fasthttp are imported only by `httpx`, `bootstrap` and the
   adapters that serve routes (`vendorSDKs`; a new one is added there).
   Modules name its types through `httpx.Router/Handler/Ctx`.
@@ -540,6 +541,40 @@ net/http mux; only `/healthz` answers 405.
   opener (single use, bound to the PKCE of that login). `Account` asks
   the harness (`agent-account`). rness refuses (no headless sign-in);
   the fallback is an env secret `CLAUDE_CODE_OAUTH_TOKEN`.
+- Managed browser (`hosting/browser.go`, migration 00036, plan
+  `~/.rness/plans/puerto/browser-login.md`): two switches. The environment's
+  `browser: {engine: chromium}` (`Spec.Browser`, the only engine) makes the
+  build install Chromium, Node and chrome-devtools-mcp (pinned versions and
+  sha256 in `build.go`, `writeBrowserSteps`; the image's `# browser` line
+  changes the tag); the agent profile's `browser: true` (`Kit.Browser`,
+  `Workspace.Browser`; `seaport agents profile set -browser on`) makes the
+  slot use it. `connector.browserFor` starts the engine (`StartBrowser`:
+  headless, CDP on loopback `hosting.BrowserPort`, profile in the state
+  volume under `hosting.BrowserDir`, egress through a loopback bridge that
+  adds the slot's proxy credentials, since Chromium takes none in
+  `--proxy-server`) only when the kit asks and `Config.Browser` is set (a
+  hosted slot of such an environment; `seaport connect` warns and goes on),
+  and every harness session gets the MCP server `browser` (stdio,
+  `/opt/seaport/browser/bin/chrome-devtools-mcp --browserUrl …`). The web's
+  viewer (`web/src/components/seaport/browser-viewer.tsx`, `lib/cdp.ts`:
+  screencast + input over CDP) connects to `GET
+  /api/v1/agents/{id}/hosting/slots/{slot}/browser` (`permission.BrowserUse`,
+  Admin + Operator; same-origin, Fiber websocket contrib in `hostinghttp`,
+  exempt from `Deadline`): `hostingsvc.OpenBrowser` checks environment,
+  profile and slot state, claims the slot's one viewer (`viewers`, per
+  process; `Conflict` otherwise), runs `seaport browser-relay`
+  (`hosting.BrowserRelayCommand`; `connector.BrowserRelay`: newline-delimited
+  CDP on stdio after `hosting.BrowserHello`) in the slot through
+  `Runtime.Exec` and pipes messages (≤ `MaxBrowserMessage`, idle
+  `BrowserIdle`, at most `BrowserMax`), keeping nothing; open and close
+  publish `slot.browser` (`hosting.BrowserEvent`, an audit trail). A site
+  asking for credentials is a person's job: the MCP tool `login_needed`
+  (`crewmcp.addLoginNeeded`, only with the profile's browser on) records
+  `agent.LoginRequest`s (`agents.login_requests`, at most
+  `agent.MaxLoginRequests` = 8, one per host, newest first;
+  `Commands.RequestLogin`/`ClearLoginRequest`, `DELETE
+  /api/v1/agents/{id}/login-requests/{host}`, `BrowserUse`), published with
+  `agent.updated`; the web's **Navegador** card shows them with the viewer.
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel

@@ -79,6 +79,13 @@ type Commands interface {
 	// SubmitLoginCode hands the code the sign-in page showed to the
 	// waiting sign-in (any process; Conflict when none waits).
 	SubmitLoginCode(ctx context.Context, organization identity.OrganizationID, input LoginCode) (Login, error)
+	// OpenBrowser opens a viewer on a running slot's managed browser
+	// (Business when its environment has none or the slot isn't running;
+	// Conflict while this process has one open on the slot). The relay
+	// runs in the slot (BrowserRelayCommand) until the connection is
+	// closed, idle for BrowserIdle or open for BrowserMax. Publishes
+	// EventSlotBrowser on open and close.
+	OpenBrowser(ctx context.Context, organization identity.OrganizationID, input SlotAction) (BrowserConn, error)
 }
 
 type Queries interface {

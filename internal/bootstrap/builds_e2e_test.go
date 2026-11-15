@@ -31,6 +31,14 @@ type fakeRuntime struct {
 	startErr error
 	// signedIn: slots whose (fake) harness signed in.
 	signedIn map[string]bool
+	// noBrowser: the browser relay fails (the engine isn't running).
+	noBrowser bool
+}
+
+func (f *fakeRuntime) browserDown() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.noBrowser
 }
 
 // fakeLoginURL is what the fake harness's login prints to sign in at.
@@ -73,6 +81,24 @@ func (f *fakeRuntime) Exec(ctx context.Context, ref hosting.SlotRef, run string,
 		f.signedIn[ref.Key()] = true
 		f.mu.Unlock()
 		fmt.Fprintln(out, "Login successful.")
+		return 0, nil
+	case slices.Equal(cmd, hosting.BrowserRelayCommand):
+		// The browser relay: a hello, then every CDP request echoed as its
+		// result ({"id":N,"result":{"echo":<request>}}), until stdin ends.
+		if f.browserDown() {
+			fmt.Fprintln(out, "the browser is not running: connection refused")
+			return 1, nil
+		}
+		fmt.Fprintln(out, `{"seaport":"ready"}`)
+		sc := bufio.NewScanner(stdin)
+		sc.Buffer(make([]byte, 64<<10), hosting.MaxBrowserMessage)
+		for sc.Scan() {
+			var req struct {
+				ID int `json:"id"`
+			}
+			_ = json.Unmarshal(sc.Bytes(), &req)
+			fmt.Fprintf(out, `{"id":%d,"result":{"echo":%s}}`+"\n", req.ID, sc.Bytes())
+		}
 		return 0, nil
 	case slices.Equal(cmd, hosting.AccountCommand):
 		f.mu.Lock()

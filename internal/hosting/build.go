@@ -112,6 +112,9 @@ const HomeContext = "home"
 func Dockerfile(spec Spec, base string) string {
 	var b strings.Builder
 	b.WriteString("FROM " + base + "\n")
+	if spec.Browser.Enabled() {
+		writeBrowserSteps(&b)
+	}
 	if len(spec.Packages) > 0 || spec.Setup != "" {
 		writeRootSteps(&b, spec)
 	}
@@ -121,6 +124,39 @@ func Dockerfile(spec Spec, base string) string {
 		b.WriteString("RUN /opt/seaport/bin/seaport home-setup\n")
 	}
 	return b.String()
+}
+
+// Browser stage: Debian's chromium (the base is bookworm-slim), fonts, a
+// pinned Node (the browser MCP is a Node program; the tarball's SHA-256 is
+// checked, per architecture) and chrome-devtools-mcp installed under
+// /opt/seaport/browser (connector.BrowserMCP wraps it). The versions are
+// part of the Dockerfile, so a bump changes the image tag.
+const (
+	BrowserNode    = "22.23.5"
+	BrowserNodeX64 = "c54118104acc524633b5abe106bbf44a53126ec8b4e5fa105cb92b5d7de8a1a1"
+	BrowserNodeA64 = "8bd3dc69eee8f3f226315a80d7d1d4faccf217a4c8fae500168ac2e38f3bdba3"
+	BrowserMCPPkg  = "chrome-devtools-mcp@1.13.0"
+)
+
+func writeBrowserSteps(b *strings.Builder) {
+	b.WriteString("# browser chromium\n")
+	b.WriteString("USER root\n")
+	b.WriteString("RUN apt-get update \\\n && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends" +
+		" chromium fonts-liberation fonts-noto-color-emoji ca-certificates xz-utils \\\n && rm -rf /var/lib/apt/lists/*\n")
+	b.WriteString("RUN set -eu; arch=\"$(dpkg --print-architecture)\"; case \"$arch\" in" +
+		" amd64) node=linux-x64; sum=" + BrowserNodeX64 + ";;" +
+		" arm64) node=linux-arm64; sum=" + BrowserNodeA64 + ";;" +
+		" *) echo \"unsupported architecture $arch\" >&2; exit 1;; esac;" +
+		" curl -fsSL -o /tmp/node.tar.gz \"https://nodejs.org/dist/v" + BrowserNode + "/node-v" + BrowserNode + "-$node.tar.gz\";" +
+		" echo \"$sum  /tmp/node.tar.gz\" | sha256sum -c -;" +
+		" mkdir -p /opt/seaport/browser/node; tar -xzf /tmp/node.tar.gz -C /opt/seaport/browser/node --strip-components=1; rm /tmp/node.tar.gz;" +
+		" PATH=/opt/seaport/browser/node/bin:$PATH npm install -g --prefix /opt/seaport/browser/mcp " + BrowserMCPPkg + ";" +
+		" mkdir -p /opt/seaport/browser/bin;" +
+		" printf '#!/bin/sh\\nexport PATH=/opt/seaport/browser/node/bin:$PATH\\nexec /opt/seaport/browser/mcp/bin/chrome-devtools-mcp \"$@\"\\n'" +
+		" > /opt/seaport/browser/bin/chrome-devtools-mcp; chmod 755 /opt/seaport/browser/bin/chrome-devtools-mcp;" +
+		" /opt/seaport/browser/bin/chrome-devtools-mcp --version;" +
+		" rm -rf /root/.npm\n")
+	b.WriteString("USER 1000:1000\n")
 }
 
 func writeRootSteps(b *strings.Builder, spec Spec) {

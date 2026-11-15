@@ -31,6 +31,10 @@ type Deps struct {
 	Conversations conversation.Queries
 	// Agents scopes a token's tools to its agent's docks.
 	Agents agent.Queries
+	// Logins records the sites the agent needs a person to sign its
+	// browser in to (login_needed; registered when the profile's browser
+	// is on).
+	Logins agent.Commands
 	// Docks lists the destinations the agent may open conversations at
 	// (nil: no open tool).
 	Docks   dock.Queries
@@ -120,6 +124,7 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	}, t.conversations)
 	t.addSkill(ctx, srv)
 	t.addOpen(ctx, srv)
+	t.addLoginNeeded(ctx, srv)
 	return srv
 }
 

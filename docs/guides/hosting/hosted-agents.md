@@ -81,6 +81,7 @@ Fields, with their limits:
 | `home` | A harness home, see [Harness homes](harness-homes.md). |
 | `models.anthropic` | The secret holding the model key, see [Network](network.md). |
 | `network.egress` | Up to 100 allowed hosts, see [Network](network.md). |
+| `browser.engine` | `chromium` gives the slots a managed browser, see [Browser](browser.md). |
 | `resources` | `size: S`, `M` or `L`, or `cpus` and `memory_mb`. |
 | `workspace` | `persistent` (default) or `ephemeral`. |
 | `idle_stop` | Idle time before a slot stops. |
@@ -146,7 +147,7 @@ seaport agents slots pm
 
 `-slots` defaults to 1. An agent can't be hosted on an environment whose secrets it lacks, and a secret an environment uses can't be deleted.
 
-On the web, the agent's page has an **Alojamiento** section with one row per slot: state, **Arrancar** and **Detener** buttons, **Registro** for the container's output, and **Conectar cuenta** for [Claude subscriptions](claude-subscriptions.md).
+On the web, the agent's page has an **Alojamiento** section with one row per slot: state, **Arrancar** and **Detener** buttons, **Registro** for the container's output, and **Conectar cuenta** for [Claude subscriptions](claude-subscriptions.md). With a [browser](browser.md) on, a **Navegador** card opens the slot's browser.
 
 ### Slot states
 
@@ -207,4 +208,5 @@ For something else, give `cpus` (0.25 to 64) and `memory_mb` (256 to 262144) ins
 - [Network](network.md): the model gateway and the egress proxy.
 - [Harness homes](harness-homes.md): bring your own `~/.claude` or `~/.rness`.
 - [Claude subscriptions](claude-subscriptions.md): sign slots in without an API key.
+- [Browser](browser.md): a managed Chromium the agent drives and you sign in to.
 - [Security model](../../explanation/security-model.md): how slots are hardened.

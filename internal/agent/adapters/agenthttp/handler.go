@@ -37,6 +37,8 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/agents/:id/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
 	r.Put("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
 	r.Delete("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))
+	// A login request is cleared by whoever signed the browser in.
+	r.Delete("/api/v1/agents/:id/login-requests/:host", httpx.RequireFunc(permission.BrowserUse, h.clearLoginRequest))
 }
 
 func (h *Handler) list(c fiber.Ctx) error {

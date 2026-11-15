@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -70,7 +71,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents delete <agent> -yes    revoke its tokens, disconnect it, hold what waits for it
   seaport agents profile [show] <agent> [-version N] [-json]   what its harness is told and given
   seaport agents profile set <agent> [-f profile.json] [-instructions-file F] [-skills-dir D]
-         [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E]
+         [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E] [-browser on|off]
   seaport agents profile versions <agent>
   seaport agents secrets [list] <agent>
   seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers use it as ${NAME}
@@ -183,6 +184,12 @@ func run(ctx context.Context, args []string) error {
 		// a hosted slot's subscription sign-in (the port runs it in the
 		// container and relays it).
 		return connector.Login(ctx, os.Stdin, os.Stdout)
+	case "browser-relay":
+		// a hosted slot's browser for the port's viewer: CDP as lines on
+		// stdin/stdout (the port runs it in the container). Nothing else
+		// may reach stdout or stderr: both come back multiplexed.
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+		return connector.BrowserRelay(ctx, os.Stdin, os.Stdout)
 	case "agent-account":
 		// how a hosted slot's harness is signed in (JSON; the port asks).
 		return connector.AccountStatus(ctx, os.Stdout)

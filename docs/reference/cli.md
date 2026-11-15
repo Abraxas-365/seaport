@@ -111,6 +111,7 @@ Flags of `profile set`:
 | `-approve allow\|reject\|connector` | Answer to the harness's permission requests; `connector` leaves it to the connector's `-approve`. |
 | `-model M` | Model, among the harness's options; `none` clears it. |
 | `-effort E` | Reasoning effort, among the harness's options; `none` clears it. |
+| `-browser on\|off` | Whether the agent uses its environment's [managed browser](../guides/hosting/browser.md). |
 
 A `SKILL.md` has front matter with `name` (default: its directory's name) and a required one-line `description` (when to use the skill), then the instructions. MCP servers are edited with `-f` only.
 

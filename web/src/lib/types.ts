@@ -347,6 +347,15 @@ export interface LibraryAgent {
   docks: Assignment[]
   /** Its current profile version (0: none saved yet). */
   profile_version: number
+  /** Sites the agent asked a person to sign its browser in to (newest first). */
+  login_requests: LoginRequest[]
+}
+
+/** One site the agent needs a person to sign in to from the browser viewer. */
+export interface LoginRequest {
+  host: string
+  reason: string
+  at: string
 }
 
 /** A SKILL.md the agent can load (through the port's MCP `skill` tool). */
@@ -383,11 +392,16 @@ export interface AgentProfile {
   approve: Approve
   model: string
   effort: string
+  /** Uses the managed browser its environment gives its slots. */
+  browser: boolean
   created_by: string
   created_at: string
 }
 
-export type ProfileInput = Pick<AgentProfile, "instructions" | "skills" | "mcp_servers" | "approve" | "model" | "effort">
+export type ProfileInput = Pick<
+  AgentProfile,
+  "instructions" | "skills" | "mcp_servers" | "approve" | "model" | "effort" | "browser"
+>
 
 export interface ProfileVersion {
   version: number
@@ -644,7 +658,11 @@ export interface EnvSpec {
   workspace: "persistent" | "ephemeral"
   /** Go duration ("30m", "2h"); "0" never stops. */
   idle_stop: string
+  /** The managed browser its slots run (engine "" none, "chromium"). */
+  browser: { engine: BrowserEngine }
 }
+
+export type BrowserEngine = "" | "chromium"
 
 export interface Environment {
   id: ID

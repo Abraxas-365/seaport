@@ -53,8 +53,9 @@ var vendorSDKs = map[string][]string{
 	"github.com/coder/acp-go-sdk":            {"connector"},
 	// the client side of /crew/ws (the hub serves it with Fiber's websocket)
 	"github.com/coder/websocket": {"connector"},
-	// the server side of /crew/ws
-	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws"},
+	// the server side of /crew/ws, and of the browser viewer's WebSocket
+	// (hostinghttp: CDP between the web and a slot's managed browser)
+	"github.com/gofiber/contrib/v3/websocket": {"crew/adapters/crewws", "hosting/adapters/hostinghttp"},
 	"github.com/pressly/goose":                {"bootstrap"},
 	// IAMKit (iam mode) and the JWT library that verifies its id_tokens
 	"github.com/Abraxas-365/iamkit": {"auth/adapters/authiam"},

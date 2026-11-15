@@ -3,6 +3,8 @@ package agentsvc
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -54,6 +56,40 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 	a, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {
 		return agent.Agent{}, errx.Wrap(err, "update agent", errx.TypeInternal)
+	}
+	s.events.Publish(org, agent.EventUpdated, a)
+	return a, nil
+}
+
+func (s *Service) RequestLogin(ctx context.Context, org identity.OrganizationID, id identity.AgentID, input agent.RequestLogin) (agent.Agent, error) {
+	if err := input.Validate(); err != nil {
+		return agent.Agent{}, err
+	}
+	now := time.Now().UTC()
+	a, err := s.repo.SetLoginRequests(ctx, org, id, func(l agent.LoginRequests) agent.LoginRequests { return input.Add(l, now) })
+	if err != nil {
+		return agent.Agent{}, errx.Wrap(err, "request login", errx.TypeInternal)
+	}
+	s.events.Publish(org, agent.EventUpdated, a)
+	return a, nil
+}
+
+func (s *Service) ClearLoginRequest(ctx context.Context, org identity.OrganizationID, id identity.AgentID, host string) (agent.Agent, error) {
+	if err := (agent.RequestLogin{Host: host}).Validate(); err != nil {
+		return agent.Agent{}, err
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	a, err := s.repo.SetLoginRequests(ctx, org, id, func(l agent.LoginRequests) agent.LoginRequests {
+		out := agent.LoginRequests{}
+		for _, r := range l {
+			if r.Host != host {
+				out = append(out, r)
+			}
+		}
+		return out
+	})
+	if err != nil {
+		return agent.Agent{}, errx.Wrap(err, "clear login request", errx.TypeInternal)
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
 	return a, nil

@@ -92,11 +92,12 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `ship.approval` | `seaport:ships:read` | Approval | An approval was asked, answered, cancelled or expired. |
 | `crew.changed` | `seaport:crew:read` | Crew status (`{"agents":[…]}`) | An agent connected or disconnected, or its deliveries changed. Carries the whole crew. |
 | `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
-| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one. |
+| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one, or its `login_requests` changed. |
 | `agent.deleted` | `seaport:agents:read` | `{"id"}` | An agent left the library. |
 | `environment.updated` | `seaport:environments:read` | Environment | An environment was created or got a new version. |
 | `environment.deleted` | `seaport:environments:read` | `{"id"}` | An environment was deleted. |
 | `slot.updated` | `seaport:environments:read` | Hosted agent (`agent`, `slots`) | An agent was hosted, moved or unhosted, or one of its slots changed state. When the agent is no longer hosted the payload has no environment and no slots. |
+| `slot.browser` | `seaport:browser:use` | `{"agent_id","slot","state","by"}` | Someone opened (`state: opened`) or closed (`closed`) a slot's [browser viewer](../guides/hosting/browser.md); `by` is who. An audit trail: nothing of the stream is kept. |
 | `schedule.created` | `seaport:schedules:read` | [Schedule](http-api.md#schedules) | A schedule was created. |
 | `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, or the agent it names is gone). |
 | `schedule.deleted` | `seaport:schedules:read` | Schedule | A schedule was deleted. |

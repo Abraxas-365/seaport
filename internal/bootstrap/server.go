@@ -15,6 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
+	"github.com/Abraxas-365/seaport/internal/hosting/adapters/hostinghttp"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/gofiber/fiber/v3"
 	"github.com/valyala/fasthttp"
@@ -152,10 +153,11 @@ func newServer(requireCredentials bool, mount func(app *fiber.App)) *fiber.App {
 }
 
 // isStream: requests that live as long as their stream does (SSE, the crew
-// WebSocket, the model gateway's streamed answers), which no deadline may cut.
+// WebSocket, the browser viewer's, the model gateway's streamed answers),
+// which no deadline may cut.
 func isStream(c fiber.Ctx) bool {
 	p := c.Path()
-	return p == "/api/v1/events" || p == "/crew/ws" || strings.HasPrefix(p, hosting.GatewayPath+"/")
+	return p == "/api/v1/events" || p == "/crew/ws" || strings.HasPrefix(p, hosting.GatewayPath+"/") || hostinghttp.BrowserRoute(p)
 }
 
 // Serve runs the HTTP server on the configured address until ctx ends.

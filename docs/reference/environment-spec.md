@@ -19,6 +19,7 @@ An environment is versioned. Each change to its spec makes a new version, and th
 | `home` | string | empty | `sha256:` and 64 hex characters | The harness configuration baked into the image. See [Home](#home). |
 | `models` | object | empty | | Model keys for the port's gateway. See [Models](#models). |
 | `network` | object | empty | | What a slot may reach. See [Network](#network). |
+| `browser` | object | none | | A managed browser for the slots. See [Browser](#browser). |
 | `resources` | object | size `S` | | CPUs and memory of a slot. See [Resources](#resources). |
 | `workspace` | string | `persistent` | `persistent` or `ephemeral` | Whether `/workspace` is kept across restarts. |
 | `idle_stop` | string | `30m` | `1m` to `168h`, whole minutes, or `0` | How long a slot may stay idle before it stops. |
@@ -92,6 +93,14 @@ With a key set, the slots reach the provider through the port's model gateway (`
 - The hosts of the `repos` are added on their own. A `claude-code` environment that signs in to a subscription also gets `api.anthropic.com` and `platform.claude.com`.
 - The proxy filters only when the port runs it (`SEAPORT_EGRESS_ADDR`) and the runtime network is internal. See [Network and models](../guides/hosting/network.md) and [Configuration](configuration.md).
 
+## Browser
+
+| Field | Type | Default | Limit | Meaning |
+| :--- | :--- | :--- | :--- | :--- |
+| `engine` | string | empty | `chromium` or empty | The browser the slots run. Empty: none. |
+
+With `chromium`, the build installs Chromium, Node and the browser MCP server in the image, and each slot of an agent whose profile has `browser: true` runs it beside the harness: headless, CDP on loopback, profile in the slot's state volume. The sites it visits go through the egress proxy, so list them in `network.egress`. See [Browser](../guides/hosting/browser.md).
+
 ## Resources
 
 Set a preset size, or CPUs and memory, not both.
@@ -158,6 +167,8 @@ network:
   egress:
     - registry.npmjs.org
     - "*.example.com"
+browser:
+  engine: chromium
 resources:
   size: M
 workspace: persistent
