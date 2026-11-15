@@ -102,7 +102,15 @@ const (
 	FrameProfile  FrameType = "profile"
 	FrameDrain    FrameType = "drain"
 	FrameActivity FrameType = "activity"
+	FrameBrowser  FrameType = "browser"
 	FrameError    FrameType = "error"
+)
+
+// Viewer states of a browser frame (Frame.Viewer): a person opened the
+// viewer of the slot's browser, or closed it.
+const (
+	ViewerOn  = "on"
+	ViewerOff = "off"
 )
 
 const (
@@ -149,6 +157,10 @@ type Frame struct {
 	// reply (connectors without MCP send the agent's answer this way)
 	ConversationID *identity.ConversationID `json:"conversation_id,omitempty"`
 	Text           string                   `json:"text,omitempty"`
+
+	// browser: a person opened (ViewerOn) or closed (ViewerOff) the viewer
+	// of the slot's browser; sent to the slot's connection only.
+	Viewer string `json:"viewer,omitempty"`
 
 	// error
 	Message string `json:"message,omitempty"`

@@ -298,7 +298,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
-		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod,
+		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod, Viewers: crew.Hub,
 		GatewayURLs: cfg.GatewayURLs, SecretKey: secretKey}
 	if blobs != nil {
 		hostCfg.Blobs = blobs

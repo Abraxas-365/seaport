@@ -26,6 +26,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -102,8 +103,11 @@ type conn struct {
 	credential string
 	// agentID/agentName: the library agent it works as. It claims only
 	// ships routed to it; deleting the agent closes the connection.
-	agentID     identity.AgentID
-	agentName   string
+	agentID   identity.AgentID
+	agentName string
+	// slot is the hosted slot its token was minted for (0: a person's
+	// token); browser frames go to the slot's connection.
+	slot        int
 	cancel      context.CancelFunc
 	ws          *wsConn
 	session     string
@@ -328,6 +332,8 @@ func (h *Hub) signal(s crew.Signal) {
 		h.disconnectAgentLocal(s.Organization, s.Agent)
 	case crew.SignalProfile:
 		h.profileLocal(s.Organization, s.Agent)
+	case crew.SignalViewer:
+		h.viewerLocal(s.Organization, s.Agent, s.Slot, s.Viewer)
 	}
 }
 
@@ -435,6 +441,30 @@ func (h *Hub) profileLocal(org identity.OrganizationID, id identity.AgentID) {
 			case c.send <- crew.Frame{Type: crew.FrameProfile}:
 			default: // a full queue: the connector also re-checks its kit on reconnect
 				slog.Warn("crew connection busy: profile frame dropped", "session", c.session)
+			}
+		}
+	}
+}
+
+var _ hosting.Viewers = (*Hub)(nil)
+
+// ViewerChanged tells the connection of the agent's hosted slot, in every
+// process, that a person opened or closed the viewer of its browser (a
+// browser frame).
+func (h *Hub) ViewerChanged(org identity.OrganizationID, id identity.AgentID, slot int, viewer string) {
+	h.viewerLocal(org, id, slot, viewer)
+	h.send(crew.Signal{Kind: crew.SignalViewer, Organization: org, Agent: id, Slot: slot, Viewer: viewer})
+}
+
+func (h *Hub) viewerLocal(org identity.OrganizationID, id identity.AgentID, slot int, viewer string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns {
+		if c.organization == org && c.agentID == id && c.slot == slot && slot > 0 {
+			select {
+			case c.send <- crew.Frame{Type: crew.FrameBrowser, Viewer: viewer}:
+			default: // a full queue: a hint, not a command
+				slog.Warn("crew connection busy: browser frame dropped", "session", c.session)
 			}
 		}
 	}
@@ -744,7 +774,7 @@ func (h *Hub) run(a *admitted, raw *websocket.Conn) {
 		}
 	}
 	c := &conn{organization: org, credential: p.Credential, cancel: cancel, ws: ws, session: a.session, remote: a.remote, connectedAt: a.connectedAt,
-		agentID: agentID, agentName: agentName, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer, profile: hello.ProfileVersion,
+		agentID: agentID, agentName: agentName, slot: p.Slot, agent: hello.Agent, concurrency: hello.EffectiveConcurrency(), steer: hello.Steer, profile: hello.ProfileVersion,
 		wake: make(chan struct{}, 1), send: make(chan crew.Frame, 8), inFlight: map[identity.DeliveryID]*tracked{}}
 
 	// From opening to conns under one lock: a revoke sees it in one of them.

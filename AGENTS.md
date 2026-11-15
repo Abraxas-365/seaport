@@ -729,8 +729,16 @@ net/http mux; only `/healthz` answers 405.
   swept by `agentsvc.SweepTakeovers` (claim sweeper; `Repository.
   StaleTakeovers` reads the jsonb's `at`, `SetTakeovers` drops them under
   the row lock so a concurrent Listo wins) and the agent is `Wake`d once
-  with `TakeoverExpired` (the external id carries the end). Plan
-  `~/.rness/plans/puerto/browser-assist.md` (steps 3b–4 pending).
+  with `TakeoverExpired` (the external id carries the end). While a person
+  is in the viewer the agent is told, not locked: `OpenBrowser`/the relay's
+  end call `hosting.Viewers.ViewerChanged` (= `crewws.Hub`, passed in
+  `hostingmodule.Config`; `crew.SignalViewer` across processes), which
+  sends a `browser` frame (`crew.FrameBrowser`, `viewer: on|off`) to the
+  connection whose token is that slot's (`conn.slot` = `Principal.Slot`;
+  people's tokens never get it); the connector steers `viewerOnNote`/
+  `viewerOffNote` into every running turn (`job.note`, a hint: never in the
+  ack) and prefixes the prompt of a turn that starts while it is on. Plan
+  `~/.rness/plans/puerto/browser-assist.md` (steps 3b and 4 pending).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel

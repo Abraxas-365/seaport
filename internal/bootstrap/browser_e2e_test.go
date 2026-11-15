@@ -103,6 +103,11 @@ func TestBrowserViewer(t *testing.T) {
 	rt.noBrowser = false
 	rt.mu.Unlock()
 
+	// The slot's connector and a person's connector, both as the agent: the
+	// viewer's state goes to the slot's connection only.
+	slotConn := p.dialCrewAs(st.Env[hosting.EnvToken], crew.Frame{Type: crew.FrameHello, Agent: "slot"})
+	personConn := p.dialCrewAs(p.issueAs(adminToken, ag.ID, "laptop").Value, crew.Frame{Type: crew.FrameHello, Agent: "laptop"})
+
 	// Open: CDP goes through, same origin accepted.
 	conn, code, err := dial(p.srv.URL)
 	if err != nil {
@@ -112,6 +117,9 @@ func TestBrowserViewer(t *testing.T) {
 		var e hosting.BrowserEvent
 		return json.Unmarshal(raw, &e) == nil && e.State == hosting.BrowserOpened && e.Slot == 1 && e.Agent == ag.ID && e.By != ""
 	})
+	if f := slotConn.read(); f.Type != crew.FrameBrowser || f.Viewer != crew.ViewerOn {
+		t.Fatalf("slot connection on viewer open: %+v", f)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"id":7,"method":"Target.getTargets"}`)); err != nil {
@@ -141,6 +149,10 @@ func TestBrowserViewer(t *testing.T) {
 		var e hosting.BrowserEvent
 		return json.Unmarshal(raw, &e) == nil && e.State == hosting.BrowserClosed
 	})
+	if f := slotConn.read(); f.Type != crew.FrameBrowser || f.Viewer != crew.ViewerOff {
+		t.Fatalf("slot connection on viewer close: %+v", f)
+	}
+	personConn.quiet(300 * time.Millisecond)
 	// Closed: another may open.
 	conn2, code, err := dial("")
 	if err != nil {

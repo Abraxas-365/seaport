@@ -176,6 +176,14 @@ type Credentials interface {
 	Revoke(ctx context.Context, organization identity.OrganizationID, token identity.CrewTokenID) error
 }
 
+// Viewers tells a hosted slot's live connection, in every process (the
+// crew hub), that a person opened or closed the viewer of its browser
+// (crew.FrameBrowser; viewer is crew.ViewerOn or crew.ViewerOff), so the
+// connector can tell the agent to wait, or go on.
+type Viewers interface {
+	ViewerChanged(organization identity.OrganizationID, agent identity.AgentID, slot int, viewer string)
+}
+
 type Repository interface {
 	// CreateEnvironment stores it unless the organization already has
 	// limit; count and insert are atomic (errx.QuotaExceeded when full).

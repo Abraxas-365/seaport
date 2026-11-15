@@ -500,6 +500,56 @@ func TestRunSteersAndIgnoresStrays(t *testing.T) {
 	}
 }
 
+// A browser frame while a turn runs steers a note into it (the viewer
+// opened, then closed); a delivery that arrives while the viewer is open
+// gets the note before its prompt; a repeated state is told once.
+func TestRunTellsTheAgentAboutTheViewer(t *testing.T) {
+	first := deliveryOf("hold: first")
+	second := deliveryOf("second")
+	cfg, log := echoConfig(t, "steer")
+	p := newFakePort(t, func(write func(crew.Frame), read func() (crew.Frame, bool)) {
+		write(crew.Frame{Type: crew.FrameDelivery, Delivery: &first})
+		for len(acptest.Of(acptest.ReadLog(log), "prompt")) == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+		write(crew.Frame{Type: crew.FrameBrowser, Viewer: crew.ViewerOn})
+		write(crew.Frame{Type: crew.FrameBrowser, Viewer: crew.ViewerOn}) // the same state again: nothing
+		write(crew.Frame{Type: crew.FrameBrowser, Viewer: crew.ViewerOff})
+		for len(acptest.Of(acptest.ReadLog(log), "steer")) < 2 {
+			time.Sleep(10 * time.Millisecond)
+		}
+		write(crew.Frame{Type: crew.FrameBrowser, Viewer: crew.ViewerOn})
+		write(crew.Frame{Type: crew.FrameDelivery, Delivery: &second}) // read in order: the viewer is on when it starts
+		for len(acptest.Of(acptest.ReadLog(log), "prompt")) < 2 {
+			time.Sleep(10 * time.Millisecond)
+		}
+		_ = os.WriteFile(acptest.GatePath(log), nil, 0o600)
+		for {
+			if f, ok := read(); !ok || (f.Type == crew.FrameAck && *f.DeliveryID == first.ID) {
+				return
+			}
+		}
+	})
+	cfg.Server = p.srv.URL
+	runUntil(t, cfg, "both acks", func() bool { return len(p.seen(crew.FrameAck)) == 2 })
+	// on, off, on again (the second "on" in a row said nothing); the first
+	// turn was running through all three.
+	steers := acptest.Of(acptest.ReadLog(log), "steer")
+	if len(steers) != 3 || steers[0].Text != viewerOnNote || steers[1].Text != viewerOffNote || steers[2].Text != viewerOnNote {
+		t.Fatalf("steers: %+v", steers)
+	}
+	prompts := acptest.Of(acptest.ReadLog(log), "prompt")
+	if len(prompts) != 2 || strings.Contains(prompts[0].Text, "[seaport] A person") || !strings.HasPrefix(prompts[1].Text, viewerOnNote) || !strings.Contains(prompts[1].Text, "Ana: second") {
+		t.Fatalf("prompts: %+v", prompts)
+	}
+	// The notes are hints: the acks name only the ships.
+	for _, a := range p.seen(crew.FrameAck) {
+		if len(a.ShipIDs) != 1 {
+			t.Fatalf("ack: %+v", a)
+		}
+	}
+}
+
 // A kit with a new revision makes an idle connector drain and restart its
 // harness: two hellos, two harness starts, and the second with the new kit.
 func TestRunRestartsTheHarnessOnANewKit(t *testing.T) {

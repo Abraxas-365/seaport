@@ -262,6 +262,9 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 	defer wg.Wait()
 	jobs := map[identity.DeliveryID]*job{}
 	var jobsMu sync.Mutex
+	// viewerOn: a person is in the slot's browser (browser frames; under
+	// jobsMu, so a frame and a new job never cross).
+	viewerOn := false
 	draining, checking := false, false
 	// check fetches the kit and, when it isn't the one the agent runs,
 	// drains: no new deliveries, restart once the last one is acked.
@@ -345,8 +348,8 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 				continue
 			}
 			d := *f.Delivery
-			j := newJob(d)
 			jobsMu.Lock()
+			j := newJob(d, viewerPrelude(viewerOn))
 			jobs[d.ID] = j
 			jobsMu.Unlock()
 			wg.Add(2)
@@ -376,6 +379,25 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 				continue // already acked: the port requeues these ships
 			}
 			j.offer(*f.Delivery)
+		case crew.FrameBrowser:
+			// A person took the slot's browser, or gave it back: every
+			// running turn hears it, and new turns start knowing it.
+			on := f.Viewer == crew.ViewerOn
+			jobsMu.Lock()
+			changed := viewerOn != on
+			viewerOn = on
+			running := make([]*job, 0, len(jobs))
+			for _, j := range jobs {
+				running = append(running, j)
+			}
+			jobsMu.Unlock()
+			if !changed {
+				continue
+			}
+			slog.Info("browser viewer", "state", f.Viewer)
+			for _, j := range running {
+				j.note(viewerNote(on))
+			}
 		case crew.FrameError:
 			slog.Warn("port error", "message", f.Message)
 		}
@@ -393,19 +415,39 @@ const (
 type job struct {
 	d      ship.Delivery
 	steers chan ship.Delivery
-	stop   chan struct{} // closed when the turn is over
+	// notes are one-line system notes for the running turn (a person took
+	// the browser, gave it back); steered like messages, never acked.
+	notes chan string
+	stop  chan struct{} // closed when the turn is over
+	// prelude goes before the delivery's prompt (the browser's state when
+	// the turn starts).
+	prelude string
 
 	mu      sync.Mutex
 	handled []identity.ShipID
 	done    bool
 }
 
-func newJob(d ship.Delivery) *job {
-	j := &job{d: d, steers: make(chan ship.Delivery, 64), stop: make(chan struct{})}
+func newJob(d ship.Delivery, prelude string) *job {
+	j := &job{d: d, steers: make(chan ship.Delivery, 64), notes: make(chan string, 8), stop: make(chan struct{}), prelude: prelude}
 	for _, s := range d.Ships {
 		j.handled = append(j.handled, s.ID)
 	}
 	return j
+}
+
+// note queues a system note for the running turn; one that can't be
+// queued (turn over, queue full) is dropped: it is a hint.
+func (j *job) note(text string) {
+	select {
+	case <-j.stop:
+		return
+	default:
+	}
+	select {
+	case j.notes <- text:
+	default:
+	}
 }
 
 // offer queues a steer without blocking the frame reader; a steer that
@@ -454,6 +496,16 @@ func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 				slog.Info("steered into the running turn", "delivery", d.ID, "ships", len(d.Ships))
 			}
 			j.mu.Unlock()
+		case text := <-j.notes:
+			j.mu.Lock()
+			if j.done {
+				j.mu.Unlock()
+				return
+			}
+			if _, err := agent.Steer(ctx, j.d.Conversation.Thread, text, nil); err != nil {
+				slog.Warn("browser note not steered", "delivery", j.d.ID, "err", err)
+			}
+			j.mu.Unlock()
 		}
 	}
 }
@@ -480,7 +532,7 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	// What the agent does goes to the port's live view as it happens; the
 	// last of it is sent before the ack or release.
 	f := newFeed(id, send)
-	answer, err := agent.Prompt(ctx, d.Conversation.Thread, Prompt(d, cfg.AutoReply, ok), images, f)
+	answer, err := agent.Prompt(ctx, d.Conversation.Thread, j.prelude+Prompt(d, cfg.AutoReply, ok), images, f)
 	handled := j.finish()
 	f.close()
 	if err != nil {
@@ -505,6 +557,32 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	}
 	send(crew.Frame{Type: crew.FrameAck, DeliveryID: &id, ShipIDs: handled})
 	log.Info("delivery handled", "ships", len(handled))
+}
+
+// Browser notes: what the agent is told when a person opens the viewer
+// of its browser (they drive it now: a sign-in, a captcha) and when they
+// close it.
+const (
+	viewerOnNote  = "[seaport] A person is using your browser now (the viewer is open), likely to sign in or solve a challenge you asked a takeover for. Do not drive the browser meanwhile: wait for them, or work on what doesn't need it. You will be told when they are done."
+	viewerOffNote = "[seaport] The person closed the browser viewer: the browser is yours again. Check the page before going on (a sign-in or challenge may be done)."
+)
+
+// viewerNote is the one-line note steered into a running turn when the
+// viewer opens (on) or closes.
+func viewerNote(on bool) string {
+	if on {
+		return viewerOnNote
+	}
+	return viewerOffNote
+}
+
+// viewerPrelude goes before a new turn's prompt while a person is in the
+// browser ("" otherwise).
+func viewerPrelude(on bool) string {
+	if !on {
+		return ""
+	}
+	return viewerOnNote + "\n\n"
 }
 
 // SteerPrompt renders ships that arrived while the agent was working
