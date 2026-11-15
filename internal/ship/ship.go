@@ -115,8 +115,8 @@ type Inbound struct {
 	// Addressed: the message mentions the account or replies to it
 	// (groups in mentions mode only wake the crew then).
 	Addressed bool
-	// Media: files that came with the message (images), downloaded at
-	// arrival; Text is then the caption (may be empty).
+	// Media: files that came with the message (images, documents),
+	// downloaded at arrival; Text is then the caption (may be empty).
 	Media []Media
 	// Own: the dock's own account sent it, not through Seaport (an agent
 	// commenting with gh as the GitHub App): it is recorded as an

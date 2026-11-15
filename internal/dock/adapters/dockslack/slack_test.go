@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 func sign(secret, body, ts string) string {
@@ -141,7 +142,7 @@ func lookup(known ...string) lookups {
 			}
 			return false, nil
 		},
-		fetch: func(string) func(context.Context) ([]byte, error) { return nil },
+		fetch: func(string, int) func(context.Context) ([]byte, error) { return nil },
 	}
 }
 
@@ -228,24 +229,37 @@ func TestRouting(t *testing.T) {
 	}
 }
 
-func TestImageFiles(t *testing.T) {
+func TestFiles(t *testing.T) {
 	d := identity.NewDockID()
 	app := App{Dock: d, BotUserID: "U0BOT"}
 	env := envelope{Type: "event_callback", Event: event{Type: "app_mention", Subtype: "file_share", User: "U0ANA", Channel: "C0GEN",
 		ChannelType: "channel", TS: "1700000000.000100", Text: "<@U0BOT> look",
 		Files: []file{{Name: "a.png", Mimetype: "image/png", URL: "https://files.example.com/a.png"},
-			{Name: "r.pdf", Mimetype: "application/pdf", URL: "https://files.example.com/r.pdf"}}}}
-	fetched := ""
+			{Name: "r.pdf", Mimetype: "application/pdf", URL: "https://files.example.com/r.pdf"},
+			{Name: "huge.zip", Mimetype: "application/zip", URL: "https://files.example.com/huge.zip", Size: ship.MaxFile + 1}}}}
+	fetched := map[string]int{}
 	lk := lookup()
-	lk.fetch = func(u string) func(context.Context) ([]byte, error) {
-		return func(context.Context) ([]byte, error) { fetched = u; return []byte("x"), nil }
+	lk.fetch = func(u string, limit int) func(context.Context) ([]byte, error) {
+		return func(context.Context) ([]byte, error) { fetched[u] = limit; return []byte("x"), nil }
 	}
 	at, ok, err := parse(env, d, app, nil, lk)
-	if err != nil || !ok || len(at.in.Media) != 1 || at.in.Media[0].Name != "a.png" || !strings.Contains(at.in.Text, "[file: r.pdf]") {
+	if err != nil || !ok || len(at.in.Media) != 2 {
 		t.Fatalf("files: %v %v %+v", ok, err, at.in)
 	}
-	if _, err := at.in.Media[0].Fetch(context.Background()); err != nil || fetched != "https://files.example.com/a.png" {
-		t.Fatalf("fetch: %v %q", err, fetched)
+	if m := at.in.Media; m[0].Name != "a.png" || m[0].Kind != ship.AttachmentImage || m[1].Name != "r.pdf" || m[1].Kind != ship.AttachmentDocument {
+		t.Fatalf("media: %+v", m)
+	}
+	// Declared over the limit: named, never downloaded.
+	if !strings.Contains(at.in.Text, ship.MediaNote(ship.AttachmentDocument, "huge.zip too large to keep")) {
+		t.Fatalf("text: %q", at.in.Text)
+	}
+	for _, m := range at.in.Media {
+		if _, err := m.Fetch(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fetched["https://files.example.com/a.png"] != ship.MaxFile || fetched["https://files.example.com/r.pdf"] != ship.MaxFile || len(fetched) != 2 {
+		t.Fatalf("fetched: %v", fetched)
 	}
 }
 
@@ -361,18 +375,18 @@ func TestDownloadNeverSendsTheTokenElsewhere(t *testing.T) {
 	defer api.Close()
 	c := newClient(api.URL + "/api")
 
-	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/a.png"); err != nil || string(data) != "png" || auth != "Bearer xoxb-test" {
+	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/a.png", ship.MaxImage); err != nil || string(data) != "png" || auth != "Bearer xoxb-test" {
 		t.Fatalf("configured host: %q %v (auth %q)", data, err, auth)
 	}
-	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/inside"); err != nil || string(data) != "png" {
+	if data, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/inside", ship.MaxImage); err != nil || string(data) != "png" {
 		t.Fatalf("redirect inside the host: %q %v", data, err)
 	}
 	// A URL naming another host is refused before any request.
-	if _, err := c.download(context.Background(), "xoxb-test", elsewhere.URL+"/a.png"); err == nil || elsewhereHits != 0 {
+	if _, err := c.download(context.Background(), "xoxb-test", elsewhere.URL+"/a.png", ship.MaxImage); err == nil || elsewhereHits != 0 {
 		t.Fatalf("foreign host: err=%v hits=%d", err, elsewhereHits)
 	}
 	// So is a redirect to one: no request reaches it, no token with it.
-	if _, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/redirect"); err == nil || elsewhereHits != 0 || elsewhereAuth != "" {
+	if _, err := c.download(context.Background(), "xoxb-test", api.URL+"/files/redirect", ship.MaxImage); err == nil || elsewhereHits != 0 || elsewhereAuth != "" {
 		t.Fatalf("redirect off host: err=%v hits=%d auth=%q", err, elsewhereHits, elsewhereAuth)
 	}
 	// API calls follow no redirect at all.

@@ -75,7 +75,7 @@ Message attachments (images and files) and harness homes go to a blob store, sea
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
-| `SEAPORT_BLOB_URL` | `blobs/` next to the key file (`/data/blobs` in the image) | `file:///dir` (one server), `s3://bucket?region=…` (AWS credentials from the usual `AWS_*` variables), an S3-compatible store with `s3://bucket?region=…&endpoint=http://host:9000&use_path_style=true`, or `off`. `mem://` also parses but keeps data in memory only (tests). With `off`, or with no key file path and no URL, no attachments are kept: inbound images arrive as a note in the message text. |
+| `SEAPORT_BLOB_URL` | `blobs/` next to the key file (`/data/blobs` in the image) | `file:///dir` (one server), `s3://bucket?region=…` (AWS credentials from the usual `AWS_*` variables), an S3-compatible store with `s3://bucket?region=…&endpoint=http://host:9000&use_path_style=true`, or `off`. `mem://` also parses but keeps data in memory only (tests). With `off`, or with no key file path and no URL, no attachments are kept: inbound files arrive as a note in the message text. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, … | none | Credentials for `s3://` URLs, read by the S3 client from the standard AWS environment. |
 
 Several Seaport processes need one shared store (S3 or compatible); with local directories each process sees only the attachments it received. Hosted-agent environments with a harness home (`home:`) need the blob store too.

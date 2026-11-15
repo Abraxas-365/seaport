@@ -38,7 +38,7 @@ OAuth sign-in is not supported, only passwords.
 
 - The first message of a thread starts with `Subject: <subject>`, then the text. Later messages are just the text, with the quoted history (`>` lines, "On … wrote:", "-----Original Message-----", forwarded header blocks) removed so the agent doesn't read the whole thread again.
 - A thread is found by `In-Reply-To` and `References`; a reply from a client that dropped those headers joins the thread with the same subject (ignoring `Re:` and `Fwd:`) within 14 days. Either way the **sender must already be in the thread**: a message that names someone else's `Message-ID` starts a thread of its own, so customs decides about it and it can't add its sender to a conversation that isn't theirs. Anything else starts a new conversation, titled with the subject, keyed by the message's `Message-ID`. The title stays the first message's subject: later `Re:` and `RE:` don't rename it.
-- HTML-only mail is converted to plain text. Images arrive as images (when media storage is on, see [messages and images](messages-and-images.md)); other attachments are named in the text as a note and not kept.
+- HTML-only mail is converted to plain text. Attachments arrive as images or documents (when media storage is on, see [messages and images](messages-and-images.md)); inline parts that aren't images (signatures, calendar data) are named in the text and not kept.
 - The sender is the `From` address (lowercase). The conversation's handles are the sender, the sender's domain (`@example.com`) and the people the thread already writes to (at most 16), so [customs](customs.md#rules) rules match addresses and patterns such as `ana@example.com`, `*@example.com` or `@example.com`. The `To` and `Cc` of a message are never handles: copying someone a rule allows doesn't let a stranger in. A new dock asks first (`default ask`): the first mail from someone waits at customs until you allow it.
 - A thread is a **group** when it has more than one other person; a message is **addressed** only when the mailbox is in `To` (not just `Cc` or `Bcc`), so a group in `mentions` mode holds mail that only copies the mailbox.
 - Mail Seaport doesn't forward: messages from the mailbox's own address, automatic mail (`Auto-Submitted` other than `no`, `Precedence: bulk|junk|list`, `X-Autoreply`), and delivery reports from `mailer-daemon`/`postmaster`. This stops loops with other autoresponders and with its own replies.
@@ -81,7 +81,7 @@ A dock names servers, so a tenant could point it at your internal network. Seapo
 
 - Password authentication only (no OAuth); plaintext IMAP/SMTP is never accepted.
 - One folder per dock; replies go to the participants of the thread, never to a list you pick.
-- Attachments other than images are named in the text, not kept.
+- Attachments over 10 MiB, beyond 10 per message, or inline parts that aren't images are named in the text, not kept.
 - Only the mailbox's own server vouches for senders (see [Who wrote it](#who-wrote-it)); there is no Seaport-side SPF/DKIM check.
 
 ## Troubleshooting

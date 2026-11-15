@@ -154,7 +154,7 @@ Arguments:
 | :--- | :--- | :--- | :--- |
 | `attachment_id` | string | yes | An `attachment_id` listed by `history`. |
 
-Result: for an image (`image/jpeg`, `image/png`, `image/webp`, `image/gif`, up to 3.75 MiB), MCP image content. For a document (a file an agent sent), an embedded resource: its text for text files, else its bytes. An attachment of a dock the agent doesn't work on answers not found; one of a dock whose `attachments` switch is off is refused. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
+Result: for an image (`image/jpeg`, `image/png`, `image/webp`, `image/gif`, up to 3.75 MiB), MCP image content. For a document, text content: a text file's text (cut at 256 KiB), else its name, type and size with where to get it (the file the connector saved under `.seaport/attachments/<id>/`, or `GET /crew/attachments/{id}`). An attachment of a dock the agent doesn't work on answers not found; one of a dock whose `attachments` switch is off is refused. The port keeps attachments only when a secret key is set; see [Secret key](configuration.md#secret-key).
 
 ### conversations
 

@@ -35,8 +35,9 @@ const (
 	MaxAttachments = 10
 	// MaxAttachmentName bounds an attachment's display name.
 	MaxAttachmentName = 200
-	// MaxFile bounds one file an agent sends (10 MiB) and MaxFiles all
-	// the files of one reply (25 MiB).
+	// MaxFile bounds one file: one an agent sends, or one that arrives
+	// with a message (10 MiB). MaxFiles bounds all the files of one reply
+	// (25 MiB).
 	MaxFile  = 10 << 20
 	MaxFiles = 25 << 20
 	// TrashGrace: a blob staged for an attachment whose row never came
@@ -70,28 +71,34 @@ type Attachment struct {
 }
 
 // Media is a file arriving with an inbound message: its bytes (at most
-// MaxImage) in Data, or Fetch to download them, which the service calls
+// MaxFile) in Data, or Fetch to download them, which the service calls
 // only for a message it keeps (not a duplicate, not from a denied chat or
-// sender). The service checks the type from the bytes (blob.ImageType
-// with ImageTypes); another type becomes a note.
+// sender). Kind is what the channel says it is; the service decides the
+// stored kind from the bytes: an image format (blob.ImageType with
+// ImageTypes) within MaxImage is an image, anything else (a larger photo
+// too) a document (blob.FileType).
 type Media struct {
 	Kind AttachmentKind
-	// Name is the file name the channel gave, display only.
+	// Name is the file name the channel gave (CleanName), display only.
 	Name string
 	Data []byte
 	// Fetch downloads the bytes now (a channel whose URLs expire calls it
-	// within the arrival); it returns ErrMediaTooLarge past MaxImage
+	// within the arrival); it returns ErrMediaTooLarge past MaxFile
 	// without reading further.
 	Fetch func(context.Context) ([]byte, error)
 }
 
+// MaxInboundMedia bounds the media of one inbound message together
+// (25 MiB, like a reply's files); what doesn't fit becomes a note.
+const MaxInboundMedia = MaxFiles
+
 // ErrMediaTooLarge is what Media.Fetch returns (wrapped or not) for a
-// file over MaxImage.
+// file over MaxFile.
 var ErrMediaTooLarge = errors.New("media over the size limit")
 
 func (m Media) Validate() error {
-	if m.Kind != AttachmentImage {
-		return errx.InvalidField("media.kind", "only images are supported")
+	if m.Kind != AttachmentImage && m.Kind != AttachmentDocument {
+		return errx.InvalidField("media.kind", "media is an image or a document")
 	}
 	if (m.Data == nil) == (m.Fetch == nil) {
 		return errx.InvalidField("media.data", "media needs its bytes or a way to fetch them")
@@ -104,15 +111,34 @@ func (m Media) Validate() error {
 	return text.Optional("media.name", m.Name, MaxAttachmentName)
 }
 
-// CheckMediaSize refuses empty media and media over MaxImage.
+// CheckMediaSize refuses empty media and media over MaxFile.
 func CheckMediaSize(data []byte) error {
 	if len(data) == 0 {
 		return errx.InvalidField("media.data", "media is empty")
 	}
-	if len(data) > MaxImage {
-		return errx.InvalidField("media.data", "image is too large (max 3.75 MiB)")
+	if len(data) > MaxFile {
+		return errx.InvalidField("media.data", "file is too large (max 10 MiB)")
 	}
 	return nil
+}
+
+// CleanName makes a channel's file name a display name that is also a
+// harmless file name: no control characters or path (the last segment
+// of one), spaces collapsed, at most MaxAttachmentName characters; ""
+// when nothing is left.
+func CleanName(name string) string {
+	name = text.StripControl(name)
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	name = strings.Join(strings.Fields(name), " ")
+	if r := []rune(name); len(r) > MaxAttachmentName {
+		name = strings.TrimSpace(string(r[:MaxAttachmentName]))
+	}
+	if strings.Trim(name, ".") == "" {
+		return ""
+	}
+	return name
 }
 
 // MediaNote stands in the text for media that couldn't be kept, so the

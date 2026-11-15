@@ -136,6 +136,8 @@ Comments and workflow messages are cut to `text.MaxMessage`. Files an agent send
 | Handles per arrival (chat or sender) | 16 | `conversation.MaxHandles` | No |
 | Dock address | 256 characters | `dock.MaxAddress` | No |
 | Image size | 3.75 MiB | `ship.MaxImage` | No |
+| A file that arrives with a message (a photo over the image size is kept as a document) | 10 MiB | `ship.MaxFile` | No |
+| All files of one arriving message | 25 MiB | `ship.MaxInboundMedia` | No |
 | Attachments per message | 10 | `ship.MaxAttachments` | No |
 | Attachment name | 200 characters | `ship.MaxAttachmentName` | No |
 | Files in one reply | 10 | `ship.MaxAttachments` | No |
@@ -143,6 +145,8 @@ Comments and workflow messages are cut to `text.MaxMessage`. Files an agent send
 | All files of a reply | 25 MiB | `ship.MaxFiles` | No |
 | Body of `POST /crew/reply` and of `/mcp` (files as base64) | 25 MiB as base64 plus 1 MiB | `crew.MaxReplyBody` | No |
 | Images in one prompt (connector) | 8 | `connector.maxPromptImages` | No |
+| Files saved for one prompt (connector) | 16 | `connector.maxPromptFiles` | No |
+| Document text the `attachment` tool hands back | 256 KiB | `crewmcp.maxAttachmentText` | No |
 | Messages per history page | 100 | `ship.MaxHistory` | No |
 | Held messages released when a chat is allowed | newest 50 | `ship.MaxRelease` | No |
 | Age of held messages that get released | 24 h | `ship.ReleaseWindow` | No |

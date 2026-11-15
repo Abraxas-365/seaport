@@ -76,9 +76,13 @@ func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		return
 	}
-	if r.URL.Path == "/files/pic.png" {
+	if r.URL.Path == "/files/pic.png" || r.URL.Path == "/files/notes.pdf" {
 		if r.Header.Get("Authorization") != "Bearer "+slBotToken {
 			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/files/notes.pdf" {
+			_, _ = w.Write([]byte("%PDF-1.7 notes"))
 			return
 		}
 		_, _ = w.Write([]byte("\x89PNG\r\n\x1a\n0000"))
@@ -582,7 +586,7 @@ func TestSlackDock(t *testing.T) {
 	}
 	ack(c, f)
 
-	// Image files are fetched with the bot token; others are named.
+	// Files are fetched with the bot token: images and documents alike.
 	files := map[string]any{"subtype": "file_share", "files": []map[string]string{
 		{"name": "pic.png", "mimetype": "image/png", "url_private": sl.srv.URL + "/files/pic.png"},
 		{"name": "notes.pdf", "mimetype": "application/pdf", "url_private": sl.srv.URL + "/files/notes.pdf"}}}
@@ -590,9 +594,11 @@ func TestSlackDock(t *testing.T) {
 		t.Fatalf("files: %d %v", code, out)
 	}
 	f = c.read()
-	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || len(f.Delivery.Ships[0].Attachments) != 1 ||
-		!strings.Contains(f.Delivery.Ships[0].Text, "[file: notes.pdf]") {
-		t.Fatalf("files delivery = %+v", f)
+	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 1 || len(f.Delivery.Ships[0].Attachments) != 2 ||
+		f.Delivery.Ships[0].Attachments[0].Kind != ship.AttachmentImage ||
+		f.Delivery.Ships[0].Attachments[1].Kind != ship.AttachmentDocument || f.Delivery.Ships[0].Attachments[1].Name != "notes.pdf" ||
+		strings.Contains(f.Delivery.Ships[0].Text, "[file:") {
+		t.Fatalf("files delivery = %+v", f.Delivery.Ships)
 	}
 	ack(c, f)
 

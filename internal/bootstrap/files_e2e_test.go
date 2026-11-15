@@ -74,7 +74,7 @@ func TestRepliesCarryFiles(t *testing.T) {
 	if err != nil || res.IsError || len(res.Content) != 1 {
 		t.Fatalf("attachment tool: %v %+v", err, res)
 	}
-	if r, ok := res.Content[0].(*mcp.EmbeddedResource); !ok || r.Resource.Text != string(report) {
+	if r, ok := res.Content[0].(*mcp.TextContent); !ok || !strings.HasSuffix(r.Text, ":\n"+string(report)) {
 		t.Fatalf("attachment content = %#v", res.Content[0])
 	}
 

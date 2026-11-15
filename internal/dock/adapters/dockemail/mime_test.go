@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/ship"
 )
 
 func TestParsePlain(t *testing.T) {
@@ -52,10 +53,11 @@ func TestParseMultipartWithImageAndAttachment(t *testing.T) {
 	if m.Text != "plain body" {
 		t.Fatalf("plain part wins: %q", m.Text)
 	}
-	if len(m.Media) != 1 || m.Media[0].Name != "a.png" || len(m.Media[0].Data) == 0 {
+	if len(m.Media) != 2 || m.Media[0].Name != "a.png" || len(m.Media[0].Data) == 0 || m.Media[0].Kind != ship.AttachmentImage ||
+		m.Media[1].Name != "doc.pdf" || m.Media[1].Kind != ship.AttachmentDocument || string(m.Media[1].Data) != "%PDF-1.4 data" {
 		t.Fatalf("media: %+v", m.Media)
 	}
-	if len(m.Notes) != 1 || !strings.Contains(m.Notes[0], "doc.pdf") {
+	if len(m.Notes) != 0 {
 		t.Fatalf("notes: %v", m.Notes)
 	}
 }
@@ -141,7 +143,9 @@ func TestBuildReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, err = ParseMessage(withFile)
-	if err != nil || m.Text != "see file" || len(m.Media) != 1 || len(m.Notes) != 1 {
+	if err != nil || m.Text != "see file" || len(m.Media) != 2 || len(m.Notes) != 0 ||
+		m.Media[0].Kind != ship.AttachmentImage || m.Media[1].Kind != ship.AttachmentDocument || m.Media[1].Name != "n.txt" ||
+		string(m.Media[1].Data) != "hello" {
 		t.Fatalf("attachments round trip: %+v %v", m, err)
 	}
 }

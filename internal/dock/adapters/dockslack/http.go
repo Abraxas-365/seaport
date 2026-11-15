@@ -503,8 +503,8 @@ func (h *Handler) forward(a App, env envelope, rt routing, receiver Receiver) {
 	defer cancel()
 	at, ok, err := build(env, a.Dock, rt, lookups{
 		dir: directoryOf{g: h.g, dock: a.Dock, token: a.botToken, ctx: ctx},
-		fetch: func(u string) func(ctx context.Context) ([]byte, error) {
-			return func(ctx context.Context) ([]byte, error) { return h.g.client.download(ctx, a.botToken, u) }
+		fetch: func(u string, limit int) func(ctx context.Context) ([]byte, error) {
+			return func(ctx context.Context) ([]byte, error) { return h.g.client.download(ctx, a.botToken, u, limit) }
 		},
 	})
 	if err != nil || !ok {

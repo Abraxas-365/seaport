@@ -587,13 +587,15 @@ func (s *session) inbound(ctx context.Context, e *events.Message) (ship.Inbound,
 	}
 	body := messageText(e.Message)
 	var media []ship.Media
+	// WhatsApp's media URLs expire: the file is downloaded now.
+	var m *ship.Media
 	if img := e.Message.GetImageMessage(); img != nil {
-		// WhatsApp's media URLs expire: the image is downloaded now.
-		var m *ship.Media
 		m, body = imageMedia(img, s.client.DownloadToFile)
-		if m != nil {
-			media = append(media, *m)
-		}
+	} else if doc := e.Message.GetDocumentMessage(); doc != nil {
+		m, body = documentMedia(doc, s.client.DownloadToFile)
+	}
+	if m != nil {
+		media = append(media, *m)
 	}
 	if body == "" && len(media) == 0 {
 		return ship.Inbound{}, false
@@ -706,16 +708,38 @@ func (s *session) groupTitle(ctx context.Context, chat types.JID) string {
 	return title
 }
 
-// imageMedia turns an image message into its caption and the image,
-// fetched only when the port keeps it (WhatsApp's URLs expire, so within
-// the arrival; never for a denied sender or a redelivery), or no image
-// and the caption with a note when it is declared too large. The download
-// is bounded by ship.MaxImage whatever size the sender declared.
+// imageMedia turns an image message into its caption and the image (see
+// fileMedia).
 func imageMedia(img *waE2E.ImageMessage,
 	download func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error) (*ship.Media, string) {
-	caption := img.GetCaption()
-	if img.GetFileLength() > ship.MaxImage {
-		note := ship.MediaNote(ship.AttachmentImage, "too large to keep")
+	return fileMedia(ship.AttachmentImage, img, img.GetFileLength(), "", img.GetCaption(), download)
+}
+
+// documentMedia turns a document message (a PDF, a spreadsheet...) into
+// its caption and the file, named as the sender named it (see fileMedia).
+func documentMedia(doc *waE2E.DocumentMessage,
+	download func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error) (*ship.Media, string) {
+	name := doc.GetFileName()
+	if name == "" {
+		name = doc.GetTitle()
+	}
+	return fileMedia(ship.AttachmentDocument, doc, doc.GetFileLength(), name, doc.GetCaption(), download)
+}
+
+// fileMedia gives a media message's caption and its file, fetched only
+// when the port keeps it (WhatsApp's URLs expire, so within the arrival;
+// never for a denied sender or a redelivery), or no file and the caption
+// with a note when it is declared too large. The download is bounded by
+// ship.MaxFile whatever size the sender declared (a photo over MaxImage is
+// kept as a document).
+func fileMedia(kind ship.AttachmentKind, msg whatsmeow.DownloadableMessage, declared uint64, name, caption string,
+	download func(context.Context, whatsmeow.DownloadableMessage, whatsmeow.File) error) (*ship.Media, string) {
+	limit := ship.MaxFile
+	if declared > uint64(limit) {
+		note := ship.MediaNote(kind, "too large to keep")
+		if name != "" {
+			note = ship.MediaNote(kind, ship.CleanName(name)+" too large to keep")
+		}
 		if caption == "" {
 			return nil, note
 		}
@@ -724,19 +748,19 @@ func imageMedia(img *waE2E.ImageMessage,
 	fetch := func(ctx context.Context) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
 		defer cancel()
-		// The encrypted file is the image plus its padding and MAC.
-		f := newMemFile(ship.MaxImage + encryptionOverhead)
-		if err := download(ctx, img, f); errors.Is(err, errFileFull) {
+		// The encrypted file is the file plus its padding and MAC.
+		f := newMemFile(int64(limit) + encryptionOverhead)
+		if err := download(ctx, msg, f); errors.Is(err, errFileFull) {
 			return nil, ship.ErrMediaTooLarge
 		} else if err != nil {
 			return nil, err
 		}
-		if len(f.Bytes()) > ship.MaxImage {
+		if len(f.Bytes()) > limit {
 			return nil, ship.ErrMediaTooLarge
 		}
 		return f.Bytes(), nil
 	}
-	return &ship.Media{Kind: ship.AttachmentImage, Fetch: fetch}, caption
+	return &ship.Media{Kind: kind, Name: ship.CleanName(name), Fetch: fetch}, caption
 }
 
 // messageText extracts the text of a message (captions included); media

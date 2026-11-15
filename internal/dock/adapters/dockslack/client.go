@@ -299,9 +299,9 @@ type fileUpload struct {
 	Data []byte
 }
 
-// download reads a private file with the bot token, at most ship.MaxImage
-// bytes (ship.ErrMediaTooLarge past it, without reading on).
-func (c *client) download(ctx context.Context, token, fileURL string) ([]byte, error) {
+// download reads a private file with the bot token, at most limit bytes
+// (ship.ErrMediaTooLarge past it, without reading on).
+func (c *client) download(ctx context.Context, token, fileURL string, limit int) ([]byte, error) {
 	target, err := url.Parse(fileURL)
 	if err != nil || !c.fileHost(target) {
 		return nil, errx.Business("not a Slack file URL")
@@ -327,11 +327,11 @@ func (c *client) download(ctx context.Context, token, fileURL string) ([]byte, e
 	if res.StatusCode != http.StatusOK {
 		return nil, errx.External("slack answered " + strconv.Itoa(res.StatusCode) + " for a file")
 	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, ship.MaxImage+1))
+	data, err := io.ReadAll(io.LimitReader(res.Body, int64(limit)+1))
 	if err != nil {
 		return nil, errx.Wrap(err, "read slack file", errx.TypeExternal)
 	}
-	if len(data) > ship.MaxImage {
+	if len(data) > limit {
 		return nil, ship.ErrMediaTooLarge
 	}
 	return data, nil

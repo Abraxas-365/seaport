@@ -218,8 +218,10 @@ type receiveRequest struct {
 	SenderHandles []string `json:"sender_handles"`
 	// Addressed: the message mentions the account (groups in mentions mode).
 	Addressed bool `json:"addressed"`
-	// Images come base64-encoded (the whole body stays within 1 MiB).
+	// Images and Files (any other file: a PDF, a log) come base64-encoded
+	// (the whole body stays within 1 MiB).
 	Images []receiveImage `json:"images"`
+	Files  []receiveImage `json:"files"`
 }
 
 type receiveImage struct {
@@ -267,6 +269,9 @@ func (h *Handler) receive(c fiber.Ctx) error {
 	}
 	for _, img := range req.Images {
 		in.Media = append(in.Media, ship.Media{Kind: ship.AttachmentImage, Name: img.Name, Data: img.Data})
+	}
+	for _, f := range req.Files {
+		in.Media = append(in.Media, ship.Media{Kind: ship.AttachmentDocument, Name: f.Name, Data: f.Data})
 	}
 	s, created, err := h.commands.Receive(c.Context(), org, in)
 	if err != nil {

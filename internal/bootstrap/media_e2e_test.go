@@ -133,11 +133,63 @@ func TestImagesTravelWithShips(t *testing.T) {
 		t.Fatalf("a redelivery stored its image again: %v", files)
 	}
 
-	// Not an image: a note in the text, no attachment.
+	// Not an image agents take: kept as a document, never served as such.
 	svg := p.injectWith(d, map[string]any{"chat_id": "200", "message_id": "img2", "sender_id": "200",
-		"images": []map[string]any{{"data": []byte("<svg xmlns='http://www.w3.org/2000/svg'/>")}}})
-	if len(svg.Attachments) != 0 || svg.Text != ship.MediaNote(ship.AttachmentImage, "unsupported format") {
+		"images": []map[string]any{{"name": "dibujo.svg", "data": []byte("<svg xmlns='http://www.w3.org/2000/svg'/>")}}})
+	if len(svg.Attachments) != 1 || svg.Attachments[0].Kind != ship.AttachmentDocument ||
+		strings.Contains(svg.Attachments[0].MIME, "svg") || strings.Contains(svg.Attachments[0].MIME, "html") || svg.Attachments[0].Name != "dibujo.svg" {
 		t.Fatalf("svg: %+v", svg)
+	}
+}
+
+// A document that comes with a message (a PDF, a text file) is kept like
+// an image, named as the sender named it: the crew downloads it, and the
+// MCP attachment tool hands back a text document's text and only says
+// where to get any other.
+func TestDocumentsTravelWithShips(t *testing.T) {
+	p, _ := mediaPort(t)
+	d := p.apiDock("docs")
+	p.letIn(d)
+	c := p.dialCrew(1)
+
+	pdf := []byte("%PDF-1.7\n" + strings.Repeat("x", 512))
+	notes := []byte("lista de compras\n- pan\n")
+	s := p.injectWith(d, map[string]any{"chat_id": "210", "message_id": "doc1", "sender_id": "210", "text": "el informe",
+		"files": []map[string]any{{"name": "../informe Q3.pdf", "data": pdf}, {"name": "notas.txt", "data": notes}}})
+	if len(s.Attachments) != 2 || s.Text != "el informe" {
+		t.Fatalf("ship: %+v", s)
+	}
+	doc, txt := s.Attachments[0], s.Attachments[1]
+	if doc.Kind != ship.AttachmentDocument || doc.MIME != "application/pdf" || doc.Name != "informe Q3.pdf" || doc.Size != int64(len(pdf)) ||
+		txt.Kind != ship.AttachmentDocument || !strings.HasPrefix(txt.MIME, "text/plain") {
+		t.Fatalf("attachments: %+v", s.Attachments)
+	}
+	f := c.read()
+	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships[0].Attachments) != 2 {
+		t.Fatalf("delivery: %+v", f)
+	}
+	ack(c, f)
+	if code, ct, body := p.fetch("/crew/attachments/"+doc.ID.String(), p.crewToken()); code != http.StatusOK ||
+		ct != "application/pdf" || !bytes.Equal(body, pdf) {
+		t.Fatalf("crew download: %d %s %d bytes", code, ct, len(body))
+	}
+
+	sess := mcpSession(t, p, p.crewToken())
+	for _, tc := range []struct {
+		id   string
+		want string
+	}{
+		{txt.ID.String(), "lista de compras\n- pan\n"},
+		{doc.ID.String(), "not text, so not shown here"},
+	} {
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "attachment",
+			Arguments: map[string]any{"attachment_id": tc.id}})
+		if err != nil || res.IsError || len(res.Content) != 1 {
+			t.Fatalf("attachment tool: %v %+v", err, res)
+		}
+		if tx, ok := res.Content[0].(*mcp.TextContent); !ok || !strings.Contains(tx.Text, tc.want) {
+			t.Fatalf("attachment content: %#v", res.Content[0])
+		}
 	}
 }
 

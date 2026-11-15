@@ -71,6 +71,7 @@ func (s *Service) keep(ctx context.Context, org identity.OrganizationID, in ship
 	}
 	var out []ship.Attachment
 	var data [][]byte // bytes of out[i]
+	total := 0
 	for _, m := range in.Media {
 		switch {
 		case !s.media.on():
@@ -85,15 +86,16 @@ func (s *Service) keep(ctx context.Context, org identity.OrganizationID, in ship
 			note(m.Kind, why)
 			continue
 		}
-		mime := blob.ImageType(b, ship.ImageTypes)
-		if mime == "" {
-			note(m.Kind, "unsupported format")
+		if total+len(b) > ship.MaxInboundMedia {
+			note(m.Kind, "the message's files are too large together")
 			continue
 		}
+		total += len(b)
+		kind, mime := sniff(b)
 		sum := sha256.Sum256(b)
 		id := identity.NewAttachmentID()
-		out = append(out, ship.Attachment{ID: id, Kind: m.Kind, MIME: mime, Size: int64(len(b)),
-			Name: text.Clean(m.Name), SHA256: hex.EncodeToString(sum[:]),
+		out = append(out, ship.Attachment{ID: id, Kind: kind, MIME: mime, Size: int64(len(b)),
+			Name: ship.CleanName(m.Name), SHA256: hex.EncodeToString(sum[:]),
 			Key: blob.TenantKey(org, "attachments", id.String())})
 		data = append(data, b)
 	}
@@ -134,10 +136,7 @@ func (s *Service) keepFiles(ctx context.Context, org identity.OrganizationID, fi
 	out := make([]ship.Attachment, len(files))
 	send := make([]dock.File, len(files))
 	for i, f := range files {
-		kind, mime := ship.AttachmentDocument, blob.FileType(f.Data)
-		if img := blob.ImageType(f.Data, ship.ImageTypes); img != "" && len(f.Data) <= ship.MaxImage {
-			kind, mime = ship.AttachmentImage, img
-		}
+		kind, mime := sniff(f.Data)
 		sum := sha256.Sum256(f.Data)
 		id := identity.NewAttachmentID()
 		out[i] = ship.Attachment{ID: id, Kind: kind, MIME: mime, Size: int64(len(f.Data)), Name: text.Clean(f.Name),
@@ -154,6 +153,17 @@ func (s *Service) keepFiles(ctx context.Context, org identity.OrganizationID, fi
 		}
 	}
 	return out, send, nil
+}
+
+// sniff says what a file is from its bytes: an image in a format agents
+// take (ImageTypes) and within MaxImage, else a document, whose type
+// blob.FileType names (anything a browser could render is
+// application/octet-stream).
+func sniff(data []byte) (ship.AttachmentKind, string) {
+	if img := blob.ImageType(data, ship.ImageTypes); img != "" && len(data) <= ship.MaxImage {
+		return ship.AttachmentImage, img
+	}
+	return ship.AttachmentDocument, blob.FileType(data)
 }
 
 func keysOf(as []ship.Attachment) []string {
@@ -177,7 +187,7 @@ func fetch(ctx context.Context, m ship.Media) ([]byte, string) {
 			return nil, "the download failed"
 		}
 	}
-	if len(b) > ship.MaxImage {
+	if len(b) > ship.MaxFile {
 		return nil, "too large to keep"
 	}
 	if len(b) == 0 {
