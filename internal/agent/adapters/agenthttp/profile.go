@@ -145,7 +145,7 @@ func (h *Handler) deleteSecret(c fiber.Ctx) error {
 	return c.SendStatus(http.StatusNoContent)
 }
 
-func (h *Handler) clearLoginRequest(c fiber.Ctx) error {
+func (h *Handler) endTakeover(c fiber.Ctx) error {
 	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
@@ -154,7 +154,7 @@ func (h *Handler) clearLoginRequest(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	a, err := h.commands.ClearLoginRequest(c.Context(), org, id, httpx.Param(c, "host"))
+	a, err := h.commands.EndTakeover(c.Context(), org, id, httpx.Param(c, "host"))
 	if err != nil {
 		return err
 	}

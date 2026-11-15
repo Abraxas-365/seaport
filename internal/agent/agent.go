@@ -6,6 +6,7 @@ package agent
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -49,61 +50,109 @@ type Agent struct {
 	ProfileVersion int `db:"profile_version" json:"profile_version"`
 	// Docks are where it works; none: it is inactive (nothing reaches it).
 	Docks []Assignment `db:"-" json:"docks"`
-	// LoginRequests are the sites the agent asked a person to sign its
-	// browser in to (MCP tool login_needed), newest first.
-	LoginRequests LoginRequests `db:"-" json:"login_requests"`
+	// Takeovers are the sites where the agent asked a person to take over
+	// its browser (MCP tool ask_takeover), newest first.
+	Takeovers Takeovers `db:"-" json:"takeovers"`
 }
 
-// LoginRequests is the list, newest first.
-type LoginRequests []LoginRequest
+// Takeovers is the list, newest first.
+type Takeovers []Takeover
 
-// LoginRequest is one site the agent needs a person to sign in to from
-// the web's browser viewer: the agent's own browser session is missing or
-// expired there.
-type LoginRequest struct {
+// Takeover is one site where a person must take over the agent's browser
+// from the web's viewer: a sign-in, a captcha, a 2FA code, anything the
+// agent must not or cannot do itself.
+type Takeover struct {
 	// Host is the site (a DNS name, lowercase).
 	Host string `json:"host"`
-	// Reason is what the agent was trying to do (optional, one line).
-	Reason string    `json:"reason"`
-	At     time.Time `json:"at"`
+	// Kind says what the person must do (TakeoverKinds).
+	Kind TakeoverKind `json:"kind"`
+	// Note is what the agent was trying to do (optional, one line; required
+	// for KindOther).
+	Note string `json:"note"`
+	// Conversation is the one the agent was working, when it said so.
+	Conversation *identity.ConversationID `json:"conversation_id,omitempty"`
+	At           time.Time                `json:"at"`
+	// NotifiedAt is when a person was told (nil: not yet).
+	NotifiedAt *time.Time `json:"notified_at,omitempty"`
+	// DoneAt is when a person said it was done (nil: still open).
+	DoneAt *time.Time `json:"done_at,omitempty"`
 }
 
-// MaxLoginRequests bounds an agent's open login requests (the oldest go).
-const MaxLoginRequests = 8
+// TakeoverKind is what the person must do in the browser.
+type TakeoverKind string
 
-// RequestLogin is what login_needed asks for.
-type RequestLogin struct {
-	Host   string
-	Reason string
+const (
+	KindLogin   TakeoverKind = "login"
+	KindCaptcha TakeoverKind = "captcha"
+	Kind2FA     TakeoverKind = "2fa"
+	KindOther   TakeoverKind = "other"
+)
+
+// TakeoverKinds are the valid kinds.
+var TakeoverKinds = []TakeoverKind{KindLogin, KindCaptcha, Kind2FA, KindOther}
+
+// MaxTakeovers bounds an agent's open takeovers (the oldest go).
+const MaxTakeovers = 8
+
+// AskTakeover is what ask_takeover asks for.
+type AskTakeover struct {
+	Host string
+	// Kind defaults to KindLogin.
+	Kind TakeoverKind
+	Note string
+	// Conversation is optional: the one the agent is working.
+	Conversation *identity.ConversationID
 }
 
-func (r RequestLogin) Validate() error {
-	h := strings.ToLower(strings.TrimSpace(r.Host))
+func (r AskTakeover) Validate() error {
+	if err := ValidHost(r.Host); err != nil {
+		return err
+	}
+	kind := r.kind()
+	if !slices.Contains(TakeoverKinds, kind) {
+		return errx.InvalidField("kind", "kind must be one of login, captcha, 2fa, other")
+	}
+	if kind == KindOther && strings.TrimSpace(r.Note) == "" {
+		return errx.InvalidField("note", "say what the person must do when kind is other")
+	}
+	return text.Optional("note", r.Note, maxTakeoverNote)
+}
+
+func (r AskTakeover) kind() TakeoverKind {
+	if r.Kind == "" {
+		return KindLogin
+	}
+	return r.Kind
+}
+
+// ValidHost checks a takeover's host: a site's DNS name.
+func ValidHost(host string) error {
+	h := strings.ToLower(strings.TrimSpace(host))
 	if h == "" || len(h) > 253 || !hostRule.MatchString(h) {
 		return errx.InvalidField("host", "host must be a site's DNS name (app.example.com)")
 	}
-	return text.Optional("reason", r.Reason, maxLoginReason)
+	return nil
 }
 
-// Add puts the request in list (replacing the host's older one; at most
-// MaxLoginRequests, newest first).
-func (r RequestLogin) Add(list LoginRequests, now time.Time) LoginRequests {
+// Add puts the takeover in list (replacing the host's older one; at most
+// MaxTakeovers, newest first).
+func (r AskTakeover) Add(list Takeovers, now time.Time) Takeovers {
 	host := strings.ToLower(strings.TrimSpace(r.Host))
-	out := make(LoginRequests, 0, len(list)+1)
-	out = append(out, LoginRequest{Host: host, Reason: text.Clean(r.Reason), At: now})
+	out := make(Takeovers, 0, len(list)+1)
+	out = append(out, Takeover{Host: host, Kind: r.kind(), Note: text.Clean(r.Note), Conversation: r.Conversation, At: now})
 	for _, l := range list {
-		if l.Host != host && len(out) < MaxLoginRequests {
+		if l.Host != host && len(out) < MaxTakeovers {
 			out = append(out, l)
 		}
 	}
 	return out
 }
 
-// hostRule is a login request's host: labels of letters, digits and -,
+// hostRule is a takeover's host: labels of letters, digits and -,
 // at least two of them.
 var hostRule = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
-const maxLoginReason = 200
+const maxTakeoverNote = 200
 
 // Assignment is an agent on a dock.
 type Assignment struct {

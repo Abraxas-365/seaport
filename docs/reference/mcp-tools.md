@@ -47,7 +47,7 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `memory_read` | only with vaults | Reads one entry in full, with its version and who wrote it. |
 | `memory_save` | only with vaults | Creates an entry or saves a new version of one, in a vault the agent can write. |
 | `memory_delete` | only with vaults | Deletes an entry of a vault the agent can write. |
-| `login_needed` | only with the browser on | Tells the agent's people that a site in the managed browser asks for a sign-in they must do. |
+| `ask_takeover` | only with the browser on | Asks the agent's people to take over the managed browser at a site: a sign-in, a captcha, a 2FA code, anything only a person may do. |
 
 ### reply
 
@@ -231,24 +231,26 @@ Result:
 
 Errors: `no destination named <name> on your docks`, `several docks have a destination named <name>: give dock_id too`, the dock's replies are off, the dock isn't linked, the limits of `reply`, and a `thread_of` the agent can't see (not found).
 
-### login_needed
+### ask_takeover
 
-Only added when the calling agent's current [profile](agent-profile.md) has `browser` on. Its description tells the model never to guess or ask for passwords: when a site in the [managed browser](../guides/hosting/browser.md) asks for a sign-in (a login page, an expired session, a 2FA prompt), call this, tell the person in the conversation that they need to sign in from the web app's browser tab, and go on with what doesn't need it.
+Only added when the calling agent's current [profile](agent-profile.md) has `browser` on. Its description tells the model never to guess or ask for passwords or codes: when a site in the [managed browser](../guides/hosting/browser.md) needs a person (a login page, an expired session, a captcha, a 2FA prompt, a "verify you are human" wall, a payment), call this, tell the person in the conversation that they are needed in the web app's browser tab, and go on with what doesn't need it.
 
 Arguments:
 
 | Name | Type | Required | Meaning |
 | :--- | :--- | :--- | :--- |
 | `host` | string | yes | The site's host name, as in the address bar (`app.example.com`), at most 253 characters. |
-| `reason` | string | no | What the agent was doing there, one line, at most 200 characters. |
+| `kind` | string | no | What the person must do: `login` (default), `captcha`, `2fa` or `other`. |
+| `note` | string | no | What the agent was doing there, one line, at most 200 characters. Required when `kind` is `other`. |
+| `conversation_id` | string | no | The conversation the agent is working (the one in the seaport prompt); it must be of a dock the agent is on. |
 
 Result:
 
 ```json
-{ "host": "app.example.com", "recorded": true, "pending_logins": 1 }
+{ "host": "app.example.com", "kind": "login", "recorded": true, "pending_takeovers": 1 }
 ```
 
-The request appears on the agent's page (`login_requests` of the agent, `agent.updated`); a person opens the browser viewer, signs in, and clears it. An agent keeps at most 8 open requests, one per host. Errors: `host must be a site's DNS name`, and `no agent: a login request belongs to an agent` when the call has no agent.
+The takeover appears on the agent's page (`takeovers` of the agent, `agent.updated`); a person opens the browser viewer, does what the site asks, and marks it done. An agent keeps at most 8 open takeovers, one per host (a new one for the same host replaces the older). Errors: `host must be a site's DNS name`, `kind must be one of login, captcha, 2fa, other`, `say what the person must do when kind is other`, a conversation the agent can't see (not found), and `no agent: a takeover belongs to an agent` when the call has no agent.
 
 ### Vaults
 

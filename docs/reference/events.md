@@ -92,7 +92,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `ship.approval` | `seaport:ships:read` | Approval | An approval was asked, answered, cancelled or expired. |
 | `crew.changed` | `seaport:crew:read` | Crew status (`{"agents":[…]}`) | An agent connected or disconnected, or its deliveries changed. Carries the whole crew. |
 | `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
-| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one, or its `login_requests` changed. |
+| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one, or its `takeovers` changed. |
 | `agent.deleted` | `seaport:agents:read` | `{"id"}` | An agent left the library. |
 | `environment.updated` | `seaport:environments:read` | Environment | An environment was created or got a new version. |
 | `environment.deleted` | `seaport:environments:read` | `{"id"}` | An environment was deleted. |

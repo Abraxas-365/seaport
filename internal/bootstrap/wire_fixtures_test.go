@@ -134,8 +134,8 @@ func wireFixtures() map[string]any {
 
 	libAgent := agent.Agent{ID: agentID, Name: "support-bot", Description: "Answers support questions", CreatedBy: "admin",
 		CreatedAt: at(0), UpdatedAt: at(1), ProfileVersion: 3,
-		Docks:         []agent.Assignment{{Dock: dockID, Default: true}},
-		LoginRequests: agent.LoginRequests{{Host: "app.example.com", Reason: "read the dashboard", At: at(2)}}}
+		Docks:     []agent.Assignment{{Dock: dockID, Default: true}},
+		Takeovers: agent.Takeovers{{Host: "app.example.com", Kind: agent.KindLogin, Note: "read the dashboard", Conversation: &convID, At: at(2)}}}
 
 	sched := schedule.Schedule{ID: schedID, Conversation: convID, Agent: &agentID, Name: "Daily summary", Cron: "0 9 * * 1-5",
 		Timezone: "UTC", Text: "Summarize yesterday.", Enabled: true, NextAt: at(10), LastAt: ptr(at(1)), LastShip: &shipID,

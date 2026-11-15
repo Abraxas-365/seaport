@@ -25,11 +25,11 @@ import (
 
 const columns = `id, organization_id, name, description, created_by, created_at, updated_at, profile_version`
 
-// loginRequests is agents.login_requests (jsonb) in Go.
-type loginRequests agent.LoginRequests
+// takeovers is agents.takeovers (jsonb) in Go.
+type takeovers agent.Takeovers
 
-func (l *loginRequests) Scan(src any) error {
-	*l = loginRequests{}
+func (l *takeovers) Scan(src any) error {
+	*l = takeovers{}
 	var raw []byte
 	switch v := src.(type) {
 	case nil:
@@ -39,14 +39,14 @@ func (l *loginRequests) Scan(src any) error {
 	case string:
 		raw = []byte(v)
 	default:
-		return errx.Internal("login requests: unexpected column type")
+		return errx.Internal("takeovers: unexpected column type")
 	}
 	if len(raw) == 0 {
 		return nil
 	}
-	var out []agent.LoginRequest
+	var out []agent.Takeover
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return errx.Wrap(err, "decode login requests", errx.TypeInternal)
+		return errx.Wrap(err, "decode takeovers", errx.TypeInternal)
 	}
 	if out != nil {
 		*l = out
@@ -54,13 +54,13 @@ func (l *loginRequests) Scan(src any) error {
 	return nil
 }
 
-func (l loginRequests) Value() (driver.Value, error) {
+func (l takeovers) Value() (driver.Value, error) {
 	if l == nil {
-		l = loginRequests{}
+		l = takeovers{}
 	}
-	b, err := json.Marshal([]agent.LoginRequest(l))
+	b, err := json.Marshal([]agent.Takeover(l))
 	if err != nil {
-		return nil, errx.Wrap(err, "encode login requests", errx.TypeInternal)
+		return nil, errx.Wrap(err, "encode takeovers", errx.TypeInternal)
 	}
 	return string(b), nil
 }
@@ -174,17 +174,17 @@ func (r *Repository) withDocks(ctx context.Context, org identity.OrganizationID,
 			a.Docks = append(a.Docks, row.Assignment)
 		}
 	}
-	var logins []struct {
-		Agent    identity.AgentID `db:"id"`
-		Requests loginRequests    `db:"login_requests"`
+	var open []struct {
+		Agent     identity.AgentID `db:"id"`
+		Takeovers takeovers        `db:"takeovers"`
 	}
-	if err := r.db.SelectContext(ctx, &logins, `SELECT id, login_requests FROM agents
+	if err := r.db.SelectContext(ctx, &open, `SELECT id, takeovers FROM agents
 		WHERE organization_id = $1 AND id = ANY($2::uuid[])`, org, ids); err != nil {
-		return pgerr.Map(err, "list login requests")
+		return pgerr.Map(err, "list takeovers")
 	}
-	for _, row := range logins {
+	for _, row := range open {
 		if a := byID[row.Agent]; a != nil {
-			a.LoginRequests = agent.LoginRequests(row.Requests)
+			a.Takeovers = agent.Takeovers(row.Takeovers)
 		}
 	}
 	return nil
@@ -201,24 +201,24 @@ func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id
 	return a, r.withDocks(ctx, org, []*agent.Agent{&a})
 }
 
-func (r *Repository) SetLoginRequests(ctx context.Context, org identity.OrganizationID, id identity.AgentID, change func(agent.LoginRequests) agent.LoginRequests) (agent.Agent, error) {
+func (r *Repository) SetTakeovers(ctx context.Context, org identity.OrganizationID, id identity.AgentID, change func(agent.Takeovers) agent.Takeovers) (agent.Agent, error) {
 	var a agent.Agent
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return a, pgerr.Map(err, "begin login requests")
+		return a, pgerr.Map(err, "begin takeovers")
 	}
 	defer func() { _ = tx.Rollback() }()
-	var current loginRequests
-	if err := tx.GetContext(ctx, &current, `SELECT login_requests FROM agents
+	var current takeovers
+	if err := tx.GetContext(ctx, &current, `SELECT takeovers FROM agents
 		WHERE organization_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE`, org, id); err != nil {
 		return a, pgerr.MapWith(err, "lock agent", messages)
 	}
-	if err := tx.GetContext(ctx, &a, `UPDATE agents SET login_requests = $3, updated_at = now()
-		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, loginRequests(change(agent.LoginRequests(current)))); err != nil {
-		return a, pgerr.MapWith(err, "set login requests", messages)
+	if err := tx.GetContext(ctx, &a, `UPDATE agents SET takeovers = $3, updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, takeovers(change(agent.Takeovers(current)))); err != nil {
+		return a, pgerr.MapWith(err, "set takeovers", messages)
 	}
 	if err := tx.Commit(); err != nil {
-		return a, pgerr.Map(err, "commit login requests")
+		return a, pgerr.Map(err, "commit takeovers")
 	}
 	return a, r.withDocks(ctx, org, []*agent.Agent{&a})
 }

@@ -347,15 +347,24 @@ export interface LibraryAgent {
   docks: Assignment[]
   /** Its current profile version (0: none saved yet). */
   profile_version: number
-  /** Sites the agent asked a person to sign its browser in to (newest first). */
-  login_requests: LoginRequest[]
+  /** Sites where the agent asked a person to take over its browser (newest first). */
+  takeovers: Takeover[]
 }
 
-/** One site the agent needs a person to sign in to from the browser viewer. */
-export interface LoginRequest {
+/** What a person must do in the browser. */
+export type TakeoverKind = "login" | "captcha" | "2fa" | "other"
+
+/** One site where a person must take over the agent's browser from the viewer. */
+export interface Takeover {
   host: string
-  reason: string
+  kind: TakeoverKind
+  /** What the agent was doing there (one line). */
+  note: string
+  /** The conversation the agent was working, when it said so. */
+  conversation_id?: string
   at: string
+  notified_at?: string
+  done_at?: string
 }
 
 /** A SKILL.md the agent can load (through the port's MCP `skill` tool). */

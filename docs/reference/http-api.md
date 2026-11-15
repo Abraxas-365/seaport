@@ -499,7 +499,7 @@ A rule is `{"id","dock_id","effect","pattern","created_at"}`. A pattern has at m
 | `GET` | `/agents/{id}/secrets` | `agents:read` | `{"secrets":[{"name","env","updated_at"}]}`. Never values. |
 | `PUT` | `/agents/{id}/secrets/{name}` | `agents:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
 | `DELETE` | `/agents/{id}/secrets/{name}` | `agents:write` | `204`. |
-| `DELETE` | `/agents/{id}/login-requests/{host}` | `browser:use` | Clears the agent's request to sign in to `host` (`login_requests` of the agent, made by the `login_needed` tool). The agent. |
+| `DELETE` | `/agents/{id}/takeovers/{host}` | `browser:use` | Ends the agent's browser takeover at `host` (`takeovers` of the agent, made by the `ask_takeover` tool): a person did what the site asked. The agent. |
 | `GET` | `/agents/{id}/usage` | `agents:read` | Query `days` (default 30, at most 366). `{"days":[{"day","provider","model","requests","input_tokens","output_tokens","cache_write_tokens","cache_read_tokens"}]}`. |
 
 An agent:

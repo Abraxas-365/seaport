@@ -47,7 +47,7 @@ import {
   BrowserViewer,
   ConfirmAction,
   ErrorState,
-  LoginRequests,
+  Takeovers,
   LogView,
   Mono,
   SlotRow,
@@ -487,7 +487,7 @@ export function UsageCard({ agent }: { agent: LibraryAgent }) {
 /**
  * The agent's managed browser: when its environment runs one and its
  * profile uses it, a person opens a running slot's browser here to sign in
- * to the sites the agent asked for (login_needed) or any other.
+ * take over at the sites the agent asked for (ask_takeover) or any other.
  */
 export function BrowserCard({ agent }: { agent: LibraryAgent }) {
   const can = useCan()
@@ -499,8 +499,8 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
   if (!can(Perm.EnvironmentsRead) || !hosted.data) return null
   const env = envs.data?.items.find((e) => e.id === hosted.data?.environment_id)
   const hasBrowser = !!env?.spec.browser?.engine
-  const requests = agent.login_requests ?? []
-  if (!hasBrowser && requests.length === 0) return null
+  const takeovers = agent.takeovers ?? []
+  if (!hasBrowser && takeovers.length === 0) return null
   const running = hosted.data.slots.filter((s) => s.state === "running")
   const profileOn = profile.data?.browser ?? false
   const slot = open ? hosted.data.slots.find((s) => s.index === open.slot) : undefined
@@ -515,7 +515,7 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
             </CardTitle>
             <CardDescription>
               {!hasBrowser
-                ? "El entorno no tiene navegador: el agente pidió iniciar sesión, pero no hay dónde."
+                ? "El entorno no tiene navegador: el agente pidió que alguien tome el control, pero no hay dónde."
                 : !profileOn
                   ? "El entorno da un navegador a cada instancia; actívalo en el perfil del agente para que lo use."
                   : "Cada instancia corre un Chromium con perfil persistente que el agente y tú compartís: lo que inicies sesión aquí, el agente lo usa."}
@@ -534,7 +534,7 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <LoginRequests agent={agent} canClear={use} onOpen={use && hasBrowser && running.length > 0 ? (host) => openOn(`https://${host}`) : undefined} />
+        <Takeovers agent={agent} canClear={use} onOpen={use && hasBrowser && running.length > 0 ? (host) => openOn(`https://${host}`) : undefined} />
         {open && slot && slot.state === "running" ? (
           <BrowserViewer key={`${slot.index}-${open.url ?? ""}`} agent={agent} slot={slot} startUrl={open.url} onClose={() => setOpen(null)} />
         ) : open ? (

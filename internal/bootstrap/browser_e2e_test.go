@@ -13,7 +13,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/coder/websocket"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestBrowserViewer: the viewer WebSocket relays CDP to the slot's browser
@@ -146,28 +145,21 @@ func TestBrowserViewer(t *testing.T) {
 	conn2.Close(websocket.StatusNormalClosure, "")
 }
 
-// TestLoginNeeded: the MCP tool exists only when the profile's browser is
-// on; it records the site on the agent (newest first, one per host), the
-// agent.updated event carries the list, and DELETE clears a host.
-func TestLoginNeeded(t *testing.T) {
+// TestAskTakeover: the MCP tool exists only when the profile's browser is
+// on; it records the site on the agent (newest first, one per host, with
+// kind, note and the conversation it was working), the agent.updated event
+// carries the list, and DELETE ends a host's takeover.
+func TestAskTakeover(t *testing.T) {
 	p := startPort(t)
-	ctx := context.Background()
-	ag := p.agent("surf")
+	ag, other := p.agent("surf"), p.agent("other")
+	d, foreign := p.openDock("surf-d"), p.openDock("foreign-d")
+	p.assignAs(adminToken, d.ID, ag.ID, true)
+	p.assignAs(adminToken, foreign.ID, other.ID, true)
+	conv := p.inject(d, "1", "m1", "hi").Conversation
+	foreignConv := p.inject(foreign, "2", "m2", "hi").Conversation
 	tok := p.issueAs(adminToken, ag.ID, "laptop")
-	hasTool := func(s *mcp.ClientSession) bool {
-		tools, err := s.ListTools(ctx, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, tool := range tools.Tools {
-			if tool.Name == "login_needed" {
-				return true
-			}
-		}
-		return false
-	}
-	if hasTool(mcpSession(t, p, tok.Value)) {
-		t.Fatal("login_needed with the browser off")
+	if toolNames(t, mcpSession(t, p, tok.Value))["ask_takeover"] {
+		t.Fatal("ask_takeover with the browser off")
 	}
 	if _, code := p.saveProfile(ag.ID, map[string]any{"base": 0, "browser": true}); code != http.StatusOK {
 		t.Fatalf("profile browser on: %d", code)
@@ -177,43 +169,51 @@ func TestLoginNeeded(t *testing.T) {
 		t.Fatalf("profile: %d %+v", code, prof)
 	}
 	s := mcpSession(t, p, tok.Value)
-	if !hasTool(s) {
-		t.Fatal("no login_needed with the browser on")
+	if !toolNames(t, s)["ask_takeover"] {
+		t.Fatal("no ask_takeover with the browser on")
 	}
 	events := p.openEvents("")
-	call := func(host, reason string) *mcp.CallToolResult {
-		res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: "login_needed", Arguments: map[string]any{"host": host, "reason": reason}})
-		if err != nil {
-			t.Fatal(err)
+	call := func(args map[string]any) (bool, string, map[string]any) { return tool(t, s, "ask_takeover", args) }
+	for name, args := range map[string]map[string]any{
+		"bad host":             {"host": "not a host"},
+		"bad kind":             {"host": "app.example.com", "kind": "payment"},
+		"other without note":   {"host": "app.example.com", "kind": "other"},
+		"bad conversation":     {"host": "app.example.com", "conversation_id": "nope"},
+		"foreign conversation": {"host": "app.example.com", "conversation_id": foreignConv.String()},
+	} {
+		if failed, _, _ := call(args); !failed {
+			t.Fatalf("%s was accepted", name)
 		}
-		return res
 	}
-	if res := call("not a host", ""); !res.IsError {
-		t.Fatal("a bad host was accepted")
-	}
-	if res := call("App.Example.com", "reading the board"); res.IsError {
-		t.Fatalf("login_needed: %+v", res.Content)
+	if failed, msg, out := call(map[string]any{"host": "App.Example.com", "note": "reading the board", "conversation_id": conv.String()}); failed ||
+		out["host"] != "app.example.com" || out["kind"] != "login" || out["pending_takeovers"] != float64(1) {
+		t.Fatalf("ask_takeover: %v %s %v", failed, msg, out)
 	}
 	next(t, events, agent.EventUpdated, func(raw json.RawMessage) bool {
 		var a agent.Agent
-		return json.Unmarshal(raw, &a) == nil && len(a.LoginRequests) == 1 && a.LoginRequests[0].Host == "app.example.com" && a.LoginRequests[0].Reason == "reading the board"
+		return json.Unmarshal(raw, &a) == nil && len(a.Takeovers) == 1 && a.Takeovers[0].Host == "app.example.com" &&
+			a.Takeovers[0].Kind == agent.KindLogin && a.Takeovers[0].Note == "reading the board" &&
+			a.Takeovers[0].Conversation != nil && *a.Takeovers[0].Conversation == conv
 	})
-	call("mail.example.com", "")
-	call("app.example.com", "again") // replaces, newest first
+	if failed, msg, out := call(map[string]any{"host": "mail.example.com", "kind": "Captcha"}); failed || out["kind"] != "captcha" {
+		t.Fatalf("captcha: %v %s %v", failed, msg, out)
+	}
+	call(map[string]any{"host": "app.example.com", "kind": "2fa", "note": "again"}) // replaces, newest first
 	var a agent.Agent
 	if code := p.admin(http.MethodGet, "/api/v1/agents/"+ag.ID.String(), nil, &a); code != http.StatusOK ||
-		len(a.LoginRequests) != 2 || a.LoginRequests[0].Host != "app.example.com" || a.LoginRequests[0].Reason != "again" || a.LoginRequests[1].Host != "mail.example.com" {
-		t.Fatalf("login requests: %d %+v", code, a.LoginRequests)
+		len(a.Takeovers) != 2 || a.Takeovers[0].Host != "app.example.com" || a.Takeovers[0].Kind != agent.Kind2FA || a.Takeovers[0].Note != "again" ||
+		a.Takeovers[0].Conversation != nil || a.Takeovers[1].Host != "mail.example.com" {
+		t.Fatalf("takeovers: %d %+v", code, a.Takeovers)
 	}
-	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/login-requests/app.example.com", nil, &a); code != http.StatusOK ||
-		len(a.LoginRequests) != 1 || a.LoginRequests[0].Host != "mail.example.com" {
-		t.Fatalf("clear: %d %+v", code, a.LoginRequests)
+	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/takeovers/app.example.com", nil, &a); code != http.StatusOK ||
+		len(a.Takeovers) != 1 || a.Takeovers[0].Host != "mail.example.com" {
+		t.Fatalf("end: %d %+v", code, a.Takeovers)
 	}
-	// Clearing an absent host is fine; a bad one isn't.
-	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/login-requests/nothing.example.com", nil, nil); code != http.StatusOK {
-		t.Fatalf("clear absent: %d", code)
+	// Ending an absent host is fine; a bad one isn't.
+	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/takeovers/nothing.example.com", nil, nil); code != http.StatusOK {
+		t.Fatalf("end absent: %d", code)
 	}
-	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/login-requests/bad%20host", nil, nil); code != http.StatusBadRequest {
-		t.Fatalf("clear bad host: %d", code)
+	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/takeovers/bad%20host", nil, nil); code != http.StatusBadRequest {
+		t.Fatalf("end bad host: %d", code)
 	}
 }

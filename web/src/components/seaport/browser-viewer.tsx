@@ -16,8 +16,8 @@ import {
 import { CDPClient, groupCookies, keyParams, modifiers, mouseButtons, type Cookie, type CookieSite, type PageTarget } from "@/lib/cdp"
 import { api } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
-import { useClearLoginRequest, useCrew, useNow } from "@/lib/hooks"
-import type { LibraryAgent, Slot } from "@/lib/types"
+import { useCrew, useEndTakeover, useNow } from "@/lib/hooks"
+import type { LibraryAgent, Slot, TakeoverKind } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -393,11 +393,19 @@ function SessionsPanel({
   )
 }
 
-/** The sites the agent asked a person to sign in to (login_needed). */
-export function LoginRequests({ agent, canClear, onOpen }: { agent: LibraryAgent; canClear: boolean; onOpen?: (host: string) => void }) {
-  const clear = useClearLoginRequest(agent.id)
+/** What a person must do in the browser, per takeover kind. */
+export const takeoverLabel: Record<TakeoverKind, string> = {
+  login: "inicies sesión en",
+  captcha: "resuelvas un captcha en",
+  "2fa": "introduzcas el código 2FA en",
+  other: "hagas algo en",
+}
+
+/** The sites where the agent asked a person to take over its browser (ask_takeover). */
+export function Takeovers({ agent, canClear, onOpen }: { agent: LibraryAgent; canClear: boolean; onOpen?: (host: string) => void }) {
+  const end = useEndTakeover(agent.id)
   const now = useNow()
-  const list = agent.login_requests ?? []
+  const list = agent.takeovers ?? []
   if (list.length === 0) return null
   return (
     <ul className="divide-y rounded-lg border border-warning/40 bg-warning/5 text-sm">
@@ -405,8 +413,8 @@ export function LoginRequests({ agent, canClear, onOpen }: { agent: LibraryAgent
         <li key={r.host} className="flex flex-wrap items-center gap-2 px-3 py-2">
           <Lock className="size-3.5 text-warning" />
           <span className="min-w-0 flex-1">
-            El agente necesita que inicies sesión en <Mono>{r.host}</Mono>
-            {r.reason && <span className="text-muted-foreground"> · {r.reason}</span>}
+            El agente necesita que {takeoverLabel[r.kind] ?? takeoverLabel.other} <Mono>{r.host}</Mono>
+            {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
             <span className="text-xs text-muted-foreground"> · {formatRelative(r.at, now)}</span>
           </span>
           {onOpen && (
@@ -415,7 +423,7 @@ export function LoginRequests({ agent, canClear, onOpen }: { agent: LibraryAgent
             </Button>
           )}
           {canClear && (
-            <Button size="sm" variant="ghost" disabled={clear.isPending} onClick={() => clear.mutate(r.host)}>
+            <Button size="sm" variant="ghost" disabled={end.isPending} onClick={() => end.mutate(r.host)}>
               Listo
             </Button>
           )}

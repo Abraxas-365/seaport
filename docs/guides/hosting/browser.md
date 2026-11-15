@@ -27,15 +27,15 @@ Two switches, one per side:
    seaport profile set nav -browser on
    ```
 
-With both on, every slot of the agent starts Chromium at start (headless, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `login_needed`.
+With both on, every slot of the agent starts Chromium at start (headless, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `ask_takeover`.
 
 An agent with the switch on but hosted on an environment without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.
 
-## When the agent needs a sign-in
+## When a person must take over
 
-When a site asks the agent for credentials, it calls `login_needed` with the site's host and what it was doing, tells the person in the conversation, and goes on with what doesn't need it. The request shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com*. **Abrir** opens the viewer on that host; **Listo** clears the request. The agent keeps at most 8 open requests, one per host; the newest replaces an older one for the same host.
+When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
 
-A request is also visible in the API: `GET /api/v1/agents/{id}` answers `login_requests` (`host`, `reason`, `at`), and `DELETE /api/v1/agents/{id}/login-requests/{host}` clears one. Both change `agent.updated`.
+A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `conversation_id`, `at`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
 
 ## The viewer
 
@@ -65,4 +65,4 @@ The egress proxy sees the browser's hosts like any other traffic: a site the env
 - [Hosted agents](hosted-agents.md): environments, slots and the state volume.
 - [Network](network.md): the egress proxy the browser goes through.
 - [Environment spec](../../reference/environment-spec.md#browser) and [Agent profile](../../reference/agent-profile.md): the two switches.
-- [MCP tools](../../reference/mcp-tools.md#login_needed): `login_needed`.
+- [MCP tools](../../reference/mcp-tools.md#ask_takeover): `ask_takeover`.
