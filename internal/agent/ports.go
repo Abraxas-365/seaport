@@ -30,10 +30,28 @@ type Commands interface {
 	// DeleteSecret removes one (Conflict while the current profile uses it).
 	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
 	// RequestTakeover records that the agent needs a person to take over
-	// its browser at a site (MCP ask_takeover); EndTakeover drops the
-	// host's takeover once done. Both publish agent.updated.
+	// its browser at a site (MCP ask_takeover), tells a person where the
+	// profile's browser_assist says (once per host) and, with Wait, blocks
+	// until the takeover ends or the wait is up (Takeover.Done says which).
+	// EndTakeover drops the host's takeover once done and wakes the agent
+	// where it was told. Both publish agent.updated.
 	RequestTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input AskTakeover) (Agent, error)
 	EndTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, host string) (Agent, error)
+}
+
+// Assistant tells a person about a takeover and wakes the agent when it
+// ends, through messages (the ship service; bound late, it is built after
+// this domain). Both are best effort for the caller: a notice that can't
+// go out leaves the takeover open in the web; a wake that fails is logged.
+type Assistant interface {
+	// Notify tells a person: on the takeover's conversation
+	// (AssistConversation) or by opening one at the named destination of
+	// one of the agent's docks. It answers the conversation the notice
+	// went to.
+	Notify(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, where string) (identity.ConversationID, error)
+	// Wake posts a system message in the conversation, addressed to the
+	// agent, saying the person is done at the host.
+	Wake(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, in identity.ConversationID) error
 }
 
 type Queries interface {

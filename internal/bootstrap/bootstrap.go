@@ -271,7 +271,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	shipDeps := shipmodule.Deps{DB: db, LockDB: lockDB.DB, Conversations: convs.Service, Docks: docks.Service,
 		Messenger: docks.Service, Notifier: notify, Events: bus, Agents: agents.Service,
 		Limits: ship.Limits{PerMinute: cfg.SendPerMinute, PerHour: cfg.SendPerHour, ConversationPerMinute: cfg.SendPerChatMinute,
-			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey, ApprovalTTL: cfg.ApprovalTTL}
+			OrganizationPerHour: cfg.SendOrgPerHour}, SecretKey: secretKey, ApprovalTTL: cfg.ApprovalTTL, PublicURL: cfg.PublicURL}
 	if blobs != nil {
 		shipDeps.Blobs = blobs
 	} else {
@@ -289,6 +289,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks.BindMirror(ships.Service, convs.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
+	agents.Service.Bind(ships.Service.Takeovers())
 	vaults := vaultmodule.New(db, agents.Service, docks.Service, convs.Service, bus, cfg.MaxVaults)
 	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service, vaults.Service)
 	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)

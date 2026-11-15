@@ -3,6 +3,7 @@ package agentsvc
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -18,14 +19,30 @@ type Service struct {
 	repo    agent.Repository
 	revoker agent.Revoker
 	events  event.Publisher
+	// assistant tells people about takeovers and wakes the agent (bound
+	// late: the ship service is built after this one; nil: nobody is told).
+	assistant agent.Assistant
+	now       func() time.Time
+	// poll is how often a blocked ask_takeover looks for its end.
+	poll time.Duration
 }
 
 func New(repo agent.Repository, revoker agent.Revoker, events event.Publisher) *Service {
 	if events == nil {
 		events = event.Nop{}
 	}
-	return &Service{repo: repo, revoker: revoker, events: events}
+	return &Service{repo: repo, revoker: revoker, events: events, now: func() time.Time { return time.Now().UTC() }, poll: takeoverPoll}
 }
+
+// Bind sets the assistant (the ship service).
+func (s *Service) Bind(a agent.Assistant) { s.assistant = a }
+
+const (
+	takeoverPoll = time.Second
+	// deadlineMargin is what a blocked ask leaves of its request's
+	// deadline, so the answer gets out before the server cuts it.
+	deadlineMargin = 5 * time.Second
+)
 
 var (
 	_ agent.Commands = (*Service)(nil)
@@ -65,13 +82,81 @@ func (s *Service) RequestTakeover(ctx context.Context, org identity.Organization
 	if err := input.Validate(); err != nil {
 		return agent.Agent{}, err
 	}
-	now := time.Now().UTC()
-	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers { return input.Add(l, now) })
+	host := strings.ToLower(strings.TrimSpace(input.Host))
+	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers { return input.Add(l, s.now()) })
 	if err != nil {
 		return agent.Agent{}, errx.Wrap(err, "request takeover", errx.TypeInternal)
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
+	if t, ok := a.Takeovers.Find(host); ok && t.NotifiedAt == nil {
+		a = s.notify(ctx, org, a, t)
+	}
+	if input.Wait > 0 {
+		return s.await(ctx, org, a, host, input.Wait)
+	}
 	return a, nil
+}
+
+// notify tells a person where the profile's browser_assist says, once per
+// host; a notice that can't go out is logged (the takeover stays in the
+// web, where the viewer is).
+func (s *Service) notify(ctx context.Context, org identity.OrganizationID, a agent.Agent, t agent.Takeover) agent.Agent {
+	if s.assistant == nil {
+		return a
+	}
+	p, err := s.repo.Profile(ctx, org, a.ID, 0)
+	if err != nil || p.BrowserAssist == "" {
+		return a
+	}
+	if p.BrowserAssist == agent.AssistConversation && t.Conversation == nil {
+		slog.Info("takeover not announced: the call named no conversation", "agent", a.Name, "host", t.Host)
+		return a
+	}
+	in, err := s.assistant.Notify(ctx, org, a, t, p.BrowserAssist)
+	if err != nil {
+		slog.Warn("announce takeover", "agent", a.Name, "host", t.Host, "where", p.BrowserAssist, "err", err)
+		return a
+	}
+	now := s.now()
+	marked, err := s.repo.SetTakeovers(ctx, org, a.ID, func(l agent.Takeovers) agent.Takeovers { return l.Notified(t.Host, in, now) })
+	if err != nil {
+		slog.Warn("record takeover notice", "agent", a.Name, "host", t.Host, "err", err)
+		return a
+	}
+	s.events.Publish(org, agent.EventUpdated, marked)
+	return marked
+}
+
+// await polls until the host's takeover ends, or wait (bounded by
+// agent.MaxTakeoverWait and the request's deadline) is up.
+func (s *Service) await(ctx context.Context, org identity.OrganizationID, a agent.Agent, host string, wait time.Duration) (agent.Agent, error) {
+	if wait > agent.MaxTakeoverWait {
+		wait = agent.MaxTakeoverWait
+	}
+	if d, ok := ctx.Deadline(); ok {
+		if left := time.Until(d) - deadlineMargin; left < wait {
+			wait = left
+		}
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		if _, open := a.Takeovers.Find(host); !open {
+			return a, nil
+		}
+		select {
+		case <-ctx.Done():
+			return a, errx.Wrap(ctx.Err(), "wait for the takeover", errx.TypeExternal)
+		case <-timer.C:
+			return a, nil
+		case <-time.After(s.poll):
+		}
+		fresh, err := s.repo.Find(ctx, org, a.ID)
+		if err != nil {
+			return a, errx.Wrap(err, "find agent", errx.TypeInternal)
+		}
+		a = fresh
+	}
 }
 
 func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, id identity.AgentID, host string) (agent.Agent, error) {
@@ -79,20 +164,37 @@ func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, 
 		return agent.Agent{}, err
 	}
 	host = strings.ToLower(strings.TrimSpace(host))
+	var ended *agent.Takeover
 	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers {
-		out := agent.Takeovers{}
-		for _, r := range l {
-			if r.Host != host {
-				out = append(out, r)
-			}
+		if t, ok := l.Find(host); ok {
+			ended = &t
 		}
-		return out
+		return l.Without(host)
 	})
 	if err != nil {
 		return agent.Agent{}, errx.Wrap(err, "end takeover", errx.TypeInternal)
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
+	if ended != nil {
+		s.wake(ctx, org, a, *ended)
+	}
 	return a, nil
+}
+
+// wake tells the agent the person is done, where the notice went (else
+// in the conversation the call named); nowhere, nothing: the agent finds
+// out when it retries.
+func (s *Service) wake(ctx context.Context, org identity.OrganizationID, a agent.Agent, t agent.Takeover) {
+	in := t.NotifiedIn
+	if in == nil {
+		in = t.Conversation
+	}
+	if s.assistant == nil || in == nil {
+		return
+	}
+	if err := s.assistant.Wake(context.WithoutCancel(ctx), org, a, t, *in); err != nil {
+		slog.Warn("wake agent after takeover", "agent", a.Name, "host", t.Host, "err", err)
+	}
 }
 
 func (s *Service) Delete(ctx context.Context, org identity.OrganizationID, id identity.AgentID) error {

@@ -28,15 +28,16 @@ type profileRow struct {
 	Model        string    `db:"model"`
 	Effort       string    `db:"effort"`
 	Browser      bool      `db:"browser"`
+	Assist       string    `db:"browser_assist"`
 	CreatedBy    string    `db:"created_by"`
 	CreatedAt    time.Time `db:"created_at"`
 }
 
-const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, created_by, created_at`
+const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, created_by, created_at`
 
 func (row profileRow) profile(id identity.AgentID) (agent.Profile, error) {
 	p := agent.Profile{Agent: id, Version: row.Version, Instructions: row.Instructions, Approve: row.Approve,
-		Model: row.Model, Effort: row.Effort, Browser: row.Browser, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
+		Model: row.Model, Effort: row.Effort, Browser: row.Browser, BrowserAssist: row.Assist, CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
 	if err := json.Unmarshal(row.Skills, &p.Skills); err != nil {
 		return p, errx.Wrap(err, "decode profile skills", errx.TypeInternal)
 	}
@@ -143,9 +144,9 @@ func (r *Repository) SaveProfile(ctx context.Context, org identity.OrganizationI
 	servers, _ := json.Marshal(in.MCPServers)
 	var row profileRow
 	if err := tx.GetContext(ctx, &row, `INSERT INTO agent_profiles
-		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING `+profileColumns,
-		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.CreatedBy); err != nil {
+		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING `+profileColumns,
+		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.BrowserAssist, in.CreatedBy); err != nil {
 		return agent.Profile{}, pgerr.MapWith(err, "insert profile", messages)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET profile_version = $3, updated_at = now()

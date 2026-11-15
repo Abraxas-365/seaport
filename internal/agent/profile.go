@@ -65,10 +65,20 @@ type Profile struct {
 	// Browser: the agent uses the managed browser (a hosted agent's slot
 	// runs the engine of its environment with the agent's profile and
 	// hands the harness the browser tooling; the web shows the viewer).
-	Browser   bool      `json:"browser"`
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
+	Browser bool `json:"browser"`
+	// BrowserAssist says whom to tell when the agent asks for a takeover
+	// (ask_takeover): nobody (empty), the conversation the agent is
+	// working (AssistConversation), or a destination of one of its docks,
+	// by name. The takeover's notice goes there as a message; when a
+	// person ends it from the web, the agent is woken in the same place.
+	BrowserAssist string    `json:"browser_assist"`
+	CreatedBy     string    `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
 }
+
+// AssistConversation is BrowserAssist's "the conversation the agent is
+// working" (the call's conversation_id).
+const AssistConversation = "conversation"
 
 // Skill is a SKILL.md: a name, when to use it, and its instructions.
 type Skill struct {
@@ -123,6 +133,8 @@ type SaveProfile struct {
 	Model        string
 	Effort       string
 	Browser      bool
+	// BrowserAssist: "", AssistConversation or a destination name.
+	BrowserAssist string
 	// CreatedBy is filled from the caller (not client input).
 	CreatedBy string
 }
@@ -175,8 +187,18 @@ func (p SaveProfile) Validate() error {
 	if err := optionValue("effort", p.Effort); err != nil {
 		return err
 	}
+	if p.BrowserAssist != "" && !p.Browser {
+		return errx.InvalidField("browser_assist", "browser_assist needs the browser on")
+	}
+	if p.BrowserAssist != "" && p.BrowserAssist != AssistConversation && !assistDestination.MatchString(p.BrowserAssist) {
+		return errx.InvalidField("browser_assist", "browser_assist must be empty, \"conversation\" or a destination name (1-64 lowercase letters, digits, - or _)")
+	}
 	return text.Optional("created_by", p.CreatedBy, text.MaxName)
 }
+
+// assistDestination is a destination name (dock.ValidDestinationName's
+// rule; the dock domain isn't imported here).
+var assistDestination = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 func (s MCPServer) validate() error {
 	if !serverName.MatchString(s.Name) || s.Name == "seaport" {

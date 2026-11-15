@@ -32,6 +32,9 @@ type profileFile struct {
 	Effort       string            `json:"effort"`
 	// Browser: the agent uses its environment's managed browser.
 	Browser bool `json:"browser"`
+	// BrowserAssist: whom to tell about a takeover ("", conversation or a
+	// destination name).
+	BrowserAssist string `json:"browser_assist"`
 }
 
 // profileCmd is `seaport agents profile [show|set|versions] <agent> ...`.
@@ -110,13 +113,14 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	model := fs.String("model", "", "model, among the harness's options (\"none\" clears)")
 	effort := fs.String("effort", "", "reasoning effort, among the harness's options (\"none\" clears)")
 	browser := fs.String("browser", "", "on|off: use the environment's managed browser (hosted agents)")
+	assist := fs.String("browser-assist", "", "whom to tell about a takeover: none|conversation|<destination name>")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if len(set) == 0 {
-		return errx.Validation("nothing to change: -f, -instructions-file, -skills-dir, -skill, -rm-skill, -approve, -model, -effort or -browser")
+		return errx.Validation("nothing to change: -f, -instructions-file, -skills-dir, -skill, -rm-skill, -approve, -model, -effort, -browser or -browser-assist")
 	}
 	// Start from the current profile (with skill bodies): flags edit it.
 	var cur agent.Profile
@@ -198,8 +202,12 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 			return errx.InvalidField("browser", "-browser must be on or off")
 		}
 	}
+	if set["browser-assist"] {
+		p.BrowserAssist = cleared(*assist)
+	}
 	body := map[string]any{"base": cur.Version, "instructions": p.Instructions, "skills": p.Skills,
-		"mcp_servers": p.MCPServers, "approve": p.Approve, "model": p.Model, "effort": p.Effort, "browser": p.Browser}
+		"mcp_servers": p.MCPServers, "approve": p.Approve, "model": p.Model, "effort": p.Effort, "browser": p.Browser,
+		"browser_assist": p.BrowserAssist}
 	var out agent.Profile
 	if err := a.do(ctx, http.MethodPut, base, body, &out); err != nil {
 		return err
@@ -293,7 +301,7 @@ func readSecret(name string) (string, error) {
 
 func fileOf(p agent.Profile) profileFile {
 	return profileFile{Instructions: p.Instructions, Skills: p.Skills, MCPServers: p.MCPServers,
-		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser}
+		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser, BrowserAssist: p.BrowserAssist}
 }
 
 func printProfile(name string, p agent.Profile) {
@@ -302,7 +310,7 @@ func printProfile(name string, p agent.Profile) {
 		return
 	}
 	fmt.Fprintf(stdout, "agent %s, profile v%d (%s, %s)\n", name, p.Version, p.CreatedBy, p.CreatedAt.Local().Format("2006-01-02 15:04"))
-	fmt.Fprintf(stdout, "approve: %s  model: %s  effort: %s  browser: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser))
+	fmt.Fprintf(stdout, "approve: %s  model: %s  effort: %s  browser: %s  browser-assist: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser), orDash(p.BrowserAssist, "nobody"))
 	fmt.Fprintf(stdout, "\ninstructions (%d chars):\n", len(p.Instructions))
 	if p.Instructions == "" {
 		fmt.Fprintln(stdout, "  -")

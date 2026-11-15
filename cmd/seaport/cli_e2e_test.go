@@ -492,7 +492,13 @@ func TestCLIAgents(t *testing.T) {
 	}
 	// the switch is only a flag of the profile: the port doesn't check hosting here
 	mustContain(t, "browser on", p.ok("agents", "profile", "set", "triage", "-browser", "on"), "profile v5 saved")
-	mustContain(t, "browser shown", p.ok("agents", "profile", "triage"), "browser: on")
+	mustContain(t, "browser shown", p.ok("agents", "profile", "triage"), "browser: on", "browser-assist: nobody")
+	mustContain(t, "browser assist", p.ok("agents", "profile", "set", "triage", "-browser-assist", "conversation"), "profile v6 saved")
+	mustContain(t, "assist shown", p.ok("agents", "profile", "triage"), "browser-assist: conversation")
+	if msg := p.fails("agents", "profile", "set", "triage", "-browser", "off"); !strings.Contains(msg, "browser_assist needs the browser on") {
+		t.Errorf("assist without browser: %q", msg)
+	}
+	mustContain(t, "assist off", p.ok("agents", "profile", "set", "triage", "-browser-assist", "none"), "profile v7 saved")
 
 	// secrets: values come from stdin and are never shown
 	mustContain(t, "no secrets", p.ok("agents", "secrets", "triage"), "has no secrets")
@@ -516,7 +522,7 @@ func TestCLIAgents(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "mcp profile", p.ok("agents", "profile", "set", "triage", "-f", cfg), "profile v6 saved")
+	mustContain(t, "mcp profile", p.ok("agents", "profile", "set", "triage", "-f", cfg), "profile v8 saved")
 	mustContain(t, "mcp shown", p.ok("agents", "profile", "triage"), "MCP servers (1)", "tools", "https://mcp.example.com/mcp", "Authorization: Bearer ${API_TOKEN}")
 	if msg := p.fails("agents", "secrets", "rm", "triage", "API_TOKEN"); msg == "" {
 		t.Error("a secret an MCP header uses was deleted")

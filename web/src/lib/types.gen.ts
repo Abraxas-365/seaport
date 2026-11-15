@@ -238,6 +238,14 @@ export interface AgentProfile {
    * hands the harness the browser tooling; the web shows the viewer).
    */
   browser: boolean
+  /**
+   * BrowserAssist says whom to tell when the agent asks for a takeover
+   * (ask_takeover): nobody (empty), the conversation the agent is
+   * working (AssistConversation), or a destination of one of its docks,
+   * by name. The takeover's notice goes there as a message; when a
+   * person ends it from the web, the agent is woken in the same place.
+   */
+  browser_assist: string
   created_by: string
   created_at: string
 }
@@ -1266,10 +1274,17 @@ export interface Takeover {
   /** Conversation is the one the agent was working, when it said so. */
   conversation_id?: ID
   at: string
-  /** NotifiedAt is when a person was told (nil: not yet). */
+  /**
+   * NotifiedAt is when a person was told (nil: nobody was, or the
+   * profile's browser_assist is off).
+   */
   notified_at?: string
-  /** DoneAt is when a person said it was done (nil: still open). */
-  done_at?: string
+  /**
+   * NotifiedIn is the conversation the notice went to: the call's, or the
+   * one opened at the profile's destination. The agent is woken there
+   * when the person is done.
+   */
+  notified_in?: ID
 }
 
 /** TeamMember is one agent of a dock's team. */

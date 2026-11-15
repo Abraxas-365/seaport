@@ -19,7 +19,9 @@
           "conversation_id": "00000000-0000-4000-8000-000000000002",
           "host": "app.example.com",
           "kind": "login",
-          "note": "read the dashboard"
+          "note": "read the dashboard",
+          "notified_at": "2030-01-02T03:03:00Z",
+          "notified_in": "00000000-0000-4000-8000-000000000002"
         }
       ],
       "updated_at": "2030-01-02T03:01:00Z"
@@ -45,7 +47,9 @@
               "conversation_id": "00000000-0000-4000-8000-000000000002",
               "host": "app.example.com",
               "kind": "login",
-              "note": "read the dashboard"
+              "note": "read the dashboard",
+              "notified_at": "2030-01-02T03:03:00Z",
+              "notified_in": "00000000-0000-4000-8000-000000000002"
             }
           ],
           "updated_at": "2030-01-02T03:01:00Z"
@@ -995,7 +999,9 @@
           "conversation_id": "00000000-0000-4000-8000-000000000002",
           "host": "app.example.com",
           "kind": "login",
-          "note": "read the dashboard"
+          "note": "read the dashboard",
+          "notified_at": "2030-01-02T03:03:00Z",
+          "notified_in": "00000000-0000-4000-8000-000000000002"
         }
       ],
       "updated_at": "2030-01-02T03:01:00Z"
