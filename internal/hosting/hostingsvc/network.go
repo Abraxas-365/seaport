@@ -36,16 +36,13 @@ func (s *Service) ModelKey(ctx context.Context, org identity.OrganizationID, inp
 	if name == "" {
 		return hosting.ModelKey{}, errx.NotFound("environment " + env.Name + " names no " + input.Provider + " key (models." + input.Provider + ")")
 	}
-	if s.slots.cfg.Kits == nil {
-		return hosting.ModelKey{}, errx.Internal("no secrets to open model keys")
-	}
-	secrets, err := s.slots.cfg.Kits.Reveal(ctx, org, input.Caller.Agent, []string{name})
+	secrets, err := s.reveal(ctx, org, env.ID, input.Caller.Agent, []string{name})
 	if err != nil {
 		return hosting.ModelKey{}, err
 	}
 	key, ok := secrets[name]
 	if !ok || key == "" {
-		return hosting.ModelKey{}, errx.Business("the agent has no secret " + name + " (environment " + env.Name + " names it as its " + input.Provider + " key)")
+		return hosting.ModelKey{}, errx.Business("neither environment " + env.Name + " nor the agent has secret " + name + " (models." + input.Provider + ")")
 	}
 	return hosting.ModelKey{Provider: input.Provider, Key: key}, nil
 }

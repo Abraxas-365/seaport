@@ -8,7 +8,8 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
-// Model providers the gateway serves (Spec.Models).
+// ProviderAnthropic is the provider Claude Code uses (Providers has them
+// all).
 const ProviderAnthropic = "anthropic"
 
 // GatewayPath is where the port serves its model gateway: a slot's
@@ -20,11 +21,14 @@ const GatewayPath = "/gateway"
 // for GatewayPath takes it from here.
 const MaxGatewayBody = 64 << 20
 
-// Environment of a slot's container for the network (besides Env*):
-// EnvGateway is the gateway's base URL (set when the environment names a
-// model key; the base image's harness config points the provider there).
+// Environment of a slot's container for the network (besides Env*), set
+// when the environment names a model key: EnvGateway is the gateway's base
+// URL and EnvGatewayProviders the providers it serves this slot, comma
+// separated (the base image's harness config points them there; each one
+// also gets its Provider.BaseEnv and KeyEnv).
 const (
-	EnvGateway = "SEAPORT_GATEWAY"
+	EnvGateway          = "SEAPORT_GATEWAY"
+	EnvGatewayProviders = "SEAPORT_GATEWAY_PROVIDERS"
 )
 
 // Egress proxy settings.
@@ -69,7 +73,7 @@ func (k KeyRequest) Validate() error {
 	if err := k.Caller.Validate(); err != nil {
 		return err
 	}
-	if k.Provider != ProviderAnthropic {
+	if _, ok := Providers[k.Provider]; !ok {
 		return errx.NotFound("the gateway serves no provider " + k.Provider)
 	}
 	return nil

@@ -329,15 +329,17 @@ describe("vault events", () => {
 })
 
 describe("hosting events", () => {
-  it("environment.updated stores the environment and refetches the list and versions", () => {
+  it("environment.updated stores the environment and refetches the list, versions and secrets", () => {
     const env = eventData("environment.updated")
     seed(keys.environments, page<Environment>([]))
     seed(keys.environment(env.id), { ...env, version: 1 })
     seed(keys.environmentVersions(env.id))
+    seed(keys.environmentSecrets(env.id))
     apply("environment.updated")
     expect(qc.getQueryData<Environment>(keys.environment(env.id))?.version).toBe(env.version)
     expect(invalidated(qc, keys.environments)).toBe(true)
     expect(invalidated(qc, keys.environmentVersions(env.id))).toBe(true)
+    expect(invalidated(qc, keys.environmentSecrets(env.id))).toBe(true)
   })
 
   it("environment.deleted drops its queries and builds, and refetches the list", () => {

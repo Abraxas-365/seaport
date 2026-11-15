@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +20,8 @@ import (
 type Slots struct {
 	// Credentials mint and revoke slot tokens (crew).
 	Credentials hosting.Credentials
-	// Kits reveal a slot's repo credentials (agent secrets).
+	// Kits reveal a slot's repo credentials and model keys the environment
+	// lacks (agent secrets).
 	Kits agent.Kits
 	// URL is how a slot's container reaches the port (SEAPORT_AGENT_URL).
 	URL string
@@ -204,10 +206,15 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		fail("stopped while starting", err, issued.ID) // stopped meanwhile: the token isn't recorded
 		return
 	}
+	vars, err := s.slotEnv(ctx, org, env, name, issued.Value)
+	if err != nil {
+		fail("could not open the environment's secrets", err, issued.ID)
+		return
+	}
 	stopAlive()
 	err = s.runtime().Start(ctx, hosting.StartSlot{Slot: ref, Run: start.Run, Port: port, Name: name, Image: image,
 		Harness: env.Spec.Harness, Resources: env.Spec.Resources, Persistent: env.Spec.Workspace == hosting.WorkspacePersistent,
-		Env: s.slotEnv(env.Spec, name, issued.Value)})
+		Env: vars})
 	if err != nil {
 		fail(failure(err, "the container could not start"), err, issued.ID)
 		return
@@ -223,22 +230,39 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 	s.events.Publish(org, hosting.EventSlotsUpdated, h)
 }
 
-// slotEnv is a slot container's environment: the port, its token and
-// name, the model gateway (when the environment names a model key: the
-// harness's provider goes there with the slot token as its key) and the
-// egress proxy (the slot signs in to it with its token).
-func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]string {
-	env := map[string]string{
-		hosting.EnvURL:     s.slots.cfg.URL,
-		hosting.EnvToken:   token,
-		hosting.EnvSlot:    name,
-		hosting.EnvHarness: spec.Harness,
+// slotEnv is a slot container's environment, lowest precedence first:
+// the spec's plain variables, the environment's env secrets, then what the
+// port sets (the agent's env secrets come through the kit in the slot):
+// the port, its token and name, the model gateway (for every provider the
+// environment names a key for: the harness's provider goes there with the
+// slot token as its key) and the egress proxy (the slot signs in to it
+// with its token).
+func (s *Service) slotEnv(ctx context.Context, org identity.OrganizationID, e hosting.Environment, name, token string) (map[string]string, error) {
+	env := map[string]string{}
+	for k, v := range e.Spec.Env {
+		env[k] = v
 	}
-	if spec.Models.KeyName(hosting.ProviderAnthropic) != "" {
-		gw := s.slots.cfg.URL + hosting.GatewayPath
-		env[hosting.EnvGateway] = gw
-		env["ANTHROPIC_BASE_URL"] = gw + "/" + hosting.ProviderAnthropic
-		env["ANTHROPIC_API_KEY"] = token
+	values, err := s.repo.OpenEnvironmentSecrets(ctx, org, e.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range values {
+		if v.Env {
+			env[v.Name] = v.Value
+		}
+	}
+	env[hosting.EnvURL] = s.slots.cfg.URL
+	env[hosting.EnvToken] = token
+	env[hosting.EnvSlot] = name
+	env[hosting.EnvHarness] = e.Spec.Harness
+	if providers := e.Spec.Models.Providers(); len(providers) > 0 {
+		env[hosting.EnvGateway] = s.slots.cfg.URL + hosting.GatewayPath
+		env[hosting.EnvGatewayProviders] = strings.Join(providers, ",")
+		for _, name := range providers {
+			p := hosting.Providers[name]
+			env[p.BaseEnv] = hosting.GatewayURL(s.slots.cfg.URL, name)
+			env[p.KeyEnv] = token
+		}
 	}
 	if p := s.slots.egressProxy(); p != "" {
 		if u, err := url.Parse(p); err == nil {
@@ -254,7 +278,7 @@ func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]stri
 			env["NO_PROXY"], env["no_proxy"] = noProxy, noProxy
 		}
 	}
-	return env
+	return env, nil
 }
 
 // imageFor is the ready image of the environment's version, building it
@@ -355,14 +379,9 @@ func (s *Service) OpenWorkspace(ctx context.Context, org identity.OrganizationID
 	if err != nil {
 		return hosting.Workspace{}, err
 	}
-	secrets := map[string]string{}
-	if names := env.Spec.Secrets(); len(names) > 0 {
-		if s.slots.cfg.Kits == nil {
-			return hosting.Workspace{}, errx.Internal("no secrets to open repo credentials")
-		}
-		if secrets, err = s.slots.cfg.Kits.Reveal(ctx, org, agentID, names); err != nil {
-			return hosting.Workspace{}, err
-		}
+	secrets, err := s.reveal(ctx, org, env.ID, agentID, env.Spec.Secrets())
+	if err != nil {
+		return hosting.Workspace{}, err
 	}
 	w := hosting.Workspace{Slot: hosting.SlotName(a.Name, slot), Harness: env.Spec.Harness, RepoConfig: env.Spec.RepoConfig,
 		Persistent: env.Spec.Workspace == hosting.WorkspacePersistent, SignIn: env.Spec.SignsIn(), Browser: env.Spec.Browser.Engine,
@@ -372,7 +391,7 @@ func (s *Service) OpenWorkspace(ctx context.Context, org identity.OrganizationID
 		if n := r.CredentialName(); n != "" {
 			v, ok := secrets[n]
 			if !ok {
-				return hosting.Workspace{}, errx.Business("agent " + a.Name + " has no secret " + n + " (repo " + r.URL + ")")
+				return hosting.Workspace{}, errx.Business("neither environment " + env.Name + " nor agent " + a.Name + " has secret " + n + " (repo " + r.URL + ")")
 			}
 			repo.Token = v
 		}

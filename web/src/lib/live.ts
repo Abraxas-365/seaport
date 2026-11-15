@@ -193,6 +193,7 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
     qc.setQueryData(keys.environment(env.id), env)
     qc.invalidateQueries({ queryKey: keys.environments, exact: true })
     qc.invalidateQueries({ queryKey: keys.environmentVersions(env.id) })
+    qc.invalidateQueries({ queryKey: keys.environmentSecrets(env.id) }) // a saved or deleted secret
   },
   "environment.deleted": (qc, { id }) => {
     qc.invalidateQueries({ queryKey: keys.environments, exact: true })

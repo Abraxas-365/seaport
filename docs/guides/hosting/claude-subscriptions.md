@@ -58,10 +58,10 @@ Once signed in, the slot's harness restarts with the account when it is idle.
 
 ## A token instead
 
-If you prefer not to sign in slot by slot, create a long-lived token on your computer with `claude setup-token`, and store it as an environment secret of the agent:
+If you prefer not to sign in slot by slot, create a long-lived token on your computer with `claude setup-token`, and store it as an `-env` secret of the environment (every slot gets it) or of one agent:
 
 ```sh
-seaport agents secrets set pm CLAUDE_CODE_OAUTH_TOKEN -env
+seaport env secrets set dev CLAUDE_CODE_OAUTH_TOKEN -env
 ```
 
 The value is read from standard input. Every slot of the agent then uses it, and `seaport agents account` reports the method as `oauth_token`.

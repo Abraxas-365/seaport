@@ -247,15 +247,17 @@ func (r *Repository) DeleteSecret(ctx context.Context, org identity.Organization
 			}
 		}
 	}
-	// Nor one its environment names (hosted agent): a repo credential or a
-	// model key.
+	// Nor one its environment names (hosted agent) and doesn't have itself:
+	// a repo credential or a model key of any provider.
 	var envName string
 	err = tx.GetContext(ctx, &envName, `SELECT e.name FROM agent_hosting h
 		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
 		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
 		WHERE h.organization_id = $1 AND h.agent_id = $2
 		  AND (v.spec->'repos' @> jsonb_build_array(jsonb_build_object('credential', '${' || $3 || '}'))
-		    OR v.spec->'models'->>'anthropic' = '${' || $3 || '}')`, org, id, name)
+		    OR EXISTS (SELECT 1 FROM jsonb_each_text(COALESCE(v.spec->'models', '{}'::jsonb)) m WHERE m.value = '${' || $3 || '}'))
+		  AND NOT EXISTS (SELECT 1 FROM environment_secrets s
+		    WHERE s.organization_id = e.organization_id AND s.environment_id = e.id AND s.name = $3)`, org, id, name)
 	if err == nil {
 		return errx.Conflict("the agent's environment " + envName + " uses " + name + " (a repo credential or model key); change it first")
 	}

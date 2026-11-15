@@ -133,9 +133,10 @@ type Server struct {
 	// (default true) maps host.docker.internal to the host on Linux.
 	AgentURL, RuntimeNetwork string
 	RuntimeHostGateway       bool
-	// Model gateway: SEAPORT_GATEWAY_ANTHROPIC_URL is where it forwards
-	// Anthropic calls (default https://api.anthropic.com).
-	GatewayAnthropicURL string
+	// Model gateway: GatewayURLs is where it forwards each provider's
+	// calls, by provider ("" = the provider's own API), read from
+	// GatewayVars.
+	GatewayURLs map[string]string
 	// GitHub docks: SEAPORT_GITHUB_URL (default https://github.com) and
 	// SEAPORT_GITHUB_API_URL (default https://api.github.com); GitHub
 	// Enterprise Server: https://host and https://host/api/v3.
@@ -224,24 +225,24 @@ func LoadServer() (Server, error) {
 		LogLevel: env("SEAPORT_LOG_LEVEL", "info"),
 		Runtime:  Runtime(env("SEAPORT_RUNTIME", string(RuntimeOff))),
 		// empty: bootstrap fills BaseImage(harness, Version)
-		ImageRness:          strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
-		ImageClaudeCode:     strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
-		AgentURL:            strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
-		RuntimeNetwork:      env("SEAPORT_RUNTIME_NETWORK", "bridge"),
-		RuntimeHostGateway:  os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
-		GatewayAnthropicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_GATEWAY_ANTHROPIC_URL")), "/"),
-		GitHubURL:           strings.TrimRight(env("SEAPORT_GITHUB_URL", "https://github.com"), "/"),
-		GitHubAPIURL:        strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
-		GitHubOIDCURL:       strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
-		JiraHosts:           splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
-		EmailPrivate:        os.Getenv("SEAPORT_EMAIL_PRIVATE") == "true" || os.Getenv("SEAPORT_EMAIL_PRIVATE") == "1",
-		EmailHosts:          splitList(env("SEAPORT_EMAIL_HOSTS", "*")),
-		EmailRequireAuth:    !isOff(os.Getenv("SEAPORT_EMAIL_REQUIRE_AUTH")),
-		SlackURL:            strings.TrimRight(env("SEAPORT_SLACK_URL", "https://slack.com"), "/"),
-		SlackAPIURL:         strings.TrimRight(env("SEAPORT_SLACK_API_URL", "https://slack.com/api"), "/"),
-		EgressAddr:          strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
-		EgressURL:           strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
-		EgressPrivate:       os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
+		ImageRness:         strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
+		ImageClaudeCode:    strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
+		AgentURL:           strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
+		RuntimeNetwork:     env("SEAPORT_RUNTIME_NETWORK", "bridge"),
+		RuntimeHostGateway: os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",
+		GatewayURLs:        gatewayURLs(),
+		GitHubURL:          strings.TrimRight(env("SEAPORT_GITHUB_URL", "https://github.com"), "/"),
+		GitHubAPIURL:       strings.TrimRight(env("SEAPORT_GITHUB_API_URL", "https://api.github.com"), "/"),
+		GitHubOIDCURL:      strings.TrimRight(env("SEAPORT_GITHUB_OIDC_URL", "https://token.actions.githubusercontent.com"), "/"),
+		JiraHosts:          splitList(env("SEAPORT_JIRA_HOSTS", "*.atlassian.net")),
+		EmailPrivate:       os.Getenv("SEAPORT_EMAIL_PRIVATE") == "true" || os.Getenv("SEAPORT_EMAIL_PRIVATE") == "1",
+		EmailHosts:         splitList(env("SEAPORT_EMAIL_HOSTS", "*")),
+		EmailRequireAuth:   !isOff(os.Getenv("SEAPORT_EMAIL_REQUIRE_AUTH")),
+		SlackURL:           strings.TrimRight(env("SEAPORT_SLACK_URL", "https://slack.com"), "/"),
+		SlackAPIURL:        strings.TrimRight(env("SEAPORT_SLACK_API_URL", "https://slack.com/api"), "/"),
+		EgressAddr:         strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_ADDR")),
+		EgressURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("SEAPORT_EGRESS_URL")), "/"),
+		EgressPrivate:      os.Getenv("SEAPORT_EGRESS_PRIVATE") == "true",
 	}
 	if c.IAMKit.PublicURL == "" {
 		c.IAMKit.PublicURL = c.IAMKit.URL
@@ -332,9 +333,9 @@ func (c Server) Validate() error {
 			return errx.Validation("SEAPORT_EGRESS_URL must be an http:// URL without credentials")
 		}
 	}
-	if c.GatewayAnthropicURL != "" {
-		if u, err := url.Parse(c.GatewayAnthropicURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return errx.Validation("SEAPORT_GATEWAY_ANTHROPIC_URL must be an http(s) URL")
+	for provider, raw := range c.GatewayURLs {
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			return errx.Validation(GatewayVars[provider] + " must be an http(s) URL")
 		}
 	}
 	for _, u := range []struct{ key, value string }{{"SEAPORT_GITHUB_URL", c.GitHubURL}, {"SEAPORT_GITHUB_API_URL", c.GitHubAPIURL}, {"SEAPORT_GITHUB_OIDC_URL", c.GitHubOIDCURL},
@@ -510,4 +511,26 @@ func isOff(v string) bool {
 		return true
 	}
 	return false
+}
+
+// GatewayVars are the variables that change where the model gateway
+// forwards each provider's calls (hosting.Providers has the defaults;
+// TestGatewayVarsMatchProviders keeps the two lists equal).
+var GatewayVars = map[string]string{
+	"anthropic":  "SEAPORT_GATEWAY_ANTHROPIC_URL",
+	"openai":     "SEAPORT_GATEWAY_OPENAI_URL",
+	"openrouter": "SEAPORT_GATEWAY_OPENROUTER_URL",
+	"groq":       "SEAPORT_GATEWAY_GROQ_URL",
+	"deepseek":   "SEAPORT_GATEWAY_DEEPSEEK_URL",
+}
+
+// gatewayURLs reads GatewayVars: only the providers set.
+func gatewayURLs() map[string]string {
+	out := map[string]string{}
+	for provider, name := range GatewayVars {
+		if v := strings.TrimRight(strings.TrimSpace(os.Getenv(name)), "/"); v != "" {
+			out[provider] = v
+		}
+	}
+	return out
 }

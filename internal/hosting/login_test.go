@@ -50,7 +50,7 @@ func TestSubscriptionEgress(t *testing.T) {
 		t.Fatalf("subscription egress: %v", sub.EgressHosts())
 	}
 	keyed := sub
-	keyed.Models = Models{Anthropic: "${ANTHROPIC_KEY}"}
+	keyed.Models = Models{"anthropic": "${ANTHROPIC_KEY}"}
 	if keyed.SignsIn() || !slices.Equal(keyed.EgressHosts(), []string{"pypi.org"}) {
 		t.Fatalf("keyed egress: %v", keyed.EgressHosts())
 	}

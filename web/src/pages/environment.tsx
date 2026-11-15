@@ -12,6 +12,7 @@ import {
   AppWindow,
   History,
   HardDrive,
+  KeyRound,
   Pencil,
   Plus,
   RotateCcw,
@@ -67,8 +68,8 @@ import {
 } from "@/components/seaport"
 import { RuntimeOff, harnessLabel } from "@/pages/environments"
 import { HomeSection } from "@/pages/environment-home"
+import { EnvAndModelsFields, EnvironmentSecrets, envProblem, secretRefPattern } from "@/pages/environment-secrets"
 
-const credentialPattern = /^\$\{[A-Z_][A-Z0-9_]{0,63}\}$/
 const idleStopPattern = /^(0|never|(\d+h)?(\d+m)?)$/
 
 /** One environment: its spec (editable, versioned), image build and agents. */
@@ -145,6 +146,7 @@ function EnvironmentDetail({ env }: { env: Environment }) {
         {hosting.data && !hosting.data.runtime && <RuntimeOff />}
         <BuildCard env={env} write={write && !!hosting.data?.runtime} />
         <AgentsOn env={env} />
+        <SecretsCard env={env} write={write} />
         <SpecEditor env={env} write={write} />
       </div>
     </div>
@@ -245,6 +247,28 @@ function AgentsOn({ env }: { env: Environment }) {
   )
 }
 
+/** The environment's secrets, apart from the versioned spec. */
+function SecretsCard({ env, write }: { env: Environment; write: boolean }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <KeyRound className="size-4" /> Secretos
+        </CardTitle>
+        <CardDescription>
+          Las credenciales de la infraestructura que comparten sus instancias: la clave del modelo, el token de los repos.
+          Se guardan cifrados y nadie los vuelve a leer aquí; la especificación los nombra como{" "}
+          <Mono>{"${NOMBRE}"}</Mono>. Lo propio de un agente (su token de Linear, su cuenta) va en los secretos del
+          agente.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <EnvironmentSecrets envId={env.id} spec={env.spec} write={write} />
+      </CardContent>
+    </Card>
+  )
+}
+
 /** The YAML `seaport env apply -f` takes, to copy. */
 function YamlDialog({ env }: { env: Environment }) {
   const yaml = environmentYaml(env.name, env.spec)
@@ -286,6 +310,8 @@ function clean(s: EnvSpec): EnvSpec {
   const list = (xs: string[]) => [...new Set(xs.map((x) => x.trim()).filter(Boolean))]
   return {
     ...s,
+    env: Object.fromEntries(Object.entries(s.env ?? {}).filter(([k]) => k)),
+    models: Object.fromEntries(Object.entries(s.models ?? {}).filter(([, v]) => v)),
     packages: list(s.packages),
     network: { egress: list(s.network.egress.map((h) => h.toLowerCase())) },
     resources: s.resources.size
@@ -306,6 +332,7 @@ function SpecEditor({ env, write }: { env: Environment; write: boolean }) {
   const [base, setBase] = React.useState(env.version)
   const [baseline, setBaseline] = React.useState<EnvSpec>(env.spec)
   const dirty = !same(draft, baseline)
+  const invalid = !!envProblem(draft.env ?? {}) || Object.values(draft.models ?? {}).some((v) => v && !secretRefPattern.test(v))
   const load = (e: Environment) => {
     setDraft(e.spec)
     setBaseline(e.spec)
@@ -409,7 +436,7 @@ function SpecEditor({ env, write }: { env: Environment; write: boolean }) {
               </Button>
             )}
             <Button
-              disabled={!dirty || stale || save.isPending}
+              disabled={!dirty || invalid || stale || save.isPending}
               onClick={() => save.mutate({ base, spec: clean(draft) }, { onSuccess: load })}
             >
               {save.isPending ? <Spinner /> : <Save />} Guardar v{base + 1}
@@ -463,7 +490,6 @@ function SpecFields({
   set: (patch: Partial<EnvSpec>) => void
   homeCompare: { home?: string; label?: string }
 }) {
-  const keyOk = !s.models.anthropic || credentialPattern.test(s.models.anthropic)
   const idleOk = idleStopPattern.test(s.idle_stop.trim())
   return (
     <FieldGroup>
@@ -545,8 +571,8 @@ function SpecFields({
         description={
           <>
             Tu <Mono>~/{s.harness === "rness" ? ".rness" : ".claude"}</Mono> (instrucciones, ajustes, agentes, skills,
-            hooks) horneado en la imagen. Los secretos no van aquí: dalos como secretos env del agente y léelos del
-            entorno.
+            hooks) horneado en la imagen. Los secretos no van aquí: van en Secretos (arriba) y el harness los lee de
+            su entorno.
           </>
         }
       >
@@ -565,8 +591,8 @@ function SpecFields({
         title="Repos"
         description={
           <>
-            Se clonan en <Mono>/workspace</Mono>; cada conversación trabaja en su propio worktree. La credencial es un
-            secreto del agente alojado, como <Mono>{"${GITHUB_TOKEN}"}</Mono>.
+            Se clonan en <Mono>/workspace</Mono>; cada conversación trabaja en su propio worktree. La credencial nombra
+            un secreto del entorno, como <Mono>{"${GITHUB_TOKEN}"}</Mono>.
           </>
         }
       >
@@ -589,41 +615,29 @@ function SpecFields({
 
       <Section
         icon={Globe}
-        title="Red y modelos"
-        description="Con el proxy de salida activo, las instancias solo llegan a estos hosts (y a los de sus repos)."
+        title="Red"
+        description="Con el proxy de salida activo, las instancias solo llegan a estos hosts (y a los de sus repos y modelos)."
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor="env-egress">Hosts permitidos</FieldLabel>
-            <Textarea
-              id="env-egress"
-              value={s.network.egress.join("\n")}
-              readOnly={readOnly}
-              onChange={(e) => set({ network: { egress: e.target.value.split("\n") } })}
-              placeholder={"registry.npmjs.org\n*.example.com"}
-              className="min-h-28 font-mono text-sm"
-            />
-            <FieldDescription>Uno por línea; *.dominio para sus subdominios.</FieldDescription>
-          </Field>
-          <Field data-invalid={!keyOk}>
-            <FieldLabel htmlFor="env-anthropic">Clave de Anthropic</FieldLabel>
-            <Input
-              id="env-anthropic"
-              value={s.models.anthropic}
-              readOnly={readOnly}
-              onChange={(e) => set({ models: { anthropic: e.target.value.trim() } })}
-              placeholder="${ANTHROPIC_API_KEY}"
-              className="font-mono"
-            />
-            <FieldDescription>
-              {!keyOk
-                ? "Debe nombrar un secreto del agente, como ${NOMBRE}."
-                : !s.models.anthropic && s.harness === "claude-code"
-                  ? "Sin clave, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente; el proxy le abre api.anthropic.com y platform.claude.com."
-                  : "Un secreto del agente. Pasa por el gateway del puerto: la clave nunca entra al contenedor y el uso queda medido."}
-            </FieldDescription>
-          </Field>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="env-egress">Hosts permitidos</FieldLabel>
+          <Textarea
+            id="env-egress"
+            value={s.network.egress.join("\n")}
+            readOnly={readOnly}
+            onChange={(e) => set({ network: { egress: e.target.value.split("\n") } })}
+            placeholder={"registry.npmjs.org\n*.example.com"}
+            className="min-h-28 font-mono text-sm"
+          />
+          <FieldDescription>Uno por línea; *.dominio para sus subdominios.</FieldDescription>
+        </Field>
+      </Section>
+
+      <Section
+        icon={KeyRound}
+        title="Variables y modelos"
+        description="Lo que cada instancia recibe en su entorno, además de los secretos marcados como variable."
+      >
+        <EnvAndModelsFields spec={s} readOnly={readOnly} set={set} />
       </Section>
 
       <Section
@@ -794,7 +808,7 @@ function RepoDialog({ repo, readOnly, onSave }: { repo?: EnvRepo; readOnly?: boo
   const [open, setOpen] = React.useState(false)
   const [r, setR] = React.useState<EnvRepo>(repo ?? blank)
   const urlOk = /^https:\/\/[^\s/@?#]+\/[^\s?#]+$/.test(r.url.trim())
-  const credOk = !r.credential || credentialPattern.test(r.credential)
+  const credOk = !r.credential || secretRefPattern.test(r.credential)
   return (
     <Dialog
       open={open}
@@ -875,7 +889,7 @@ function RepoDialog({ repo, readOnly, onSave }: { repo?: EnvRepo; readOnly?: boo
               />
               <FieldDescription>
                 {credOk
-                  ? "Un secreto de cada agente alojado aquí (vacío: repo público)."
+                  ? "Un secreto del entorno (vacío: repo público)."
                   : "Debe nombrar un secreto, como ${NOMBRE}."}
               </FieldDescription>
             </Field>

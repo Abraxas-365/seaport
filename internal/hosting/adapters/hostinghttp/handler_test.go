@@ -32,6 +32,29 @@ type fake struct {
 	homePath string
 	days     int
 	byName   string
+	saved    hosting.SaveEnvironment
+	secrets  []hosting.EnvironmentSecret
+	set      hosting.SetEnvironmentSecret
+	deleted  string
+}
+
+func (f *fake) SaveEnvironment(_ context.Context, _ identity.OrganizationID, id identity.EnvironmentID, in hosting.SaveEnvironment) (hosting.Environment, error) {
+	f.saved = in
+	return hosting.Environment{ID: id, Version: in.Base + 1, Spec: in.Spec}, nil
+}
+
+func (f *fake) Secrets(context.Context, identity.OrganizationID, identity.EnvironmentID) ([]hosting.EnvironmentSecret, error) {
+	return f.secrets, nil
+}
+
+func (f *fake) SetSecret(_ context.Context, _ identity.OrganizationID, _ identity.EnvironmentID, in hosting.SetEnvironmentSecret) (hosting.EnvironmentSecret, error) {
+	f.set = in
+	return hosting.EnvironmentSecret{Name: in.Name, Env: in.Env}, nil
+}
+
+func (f *fake) DeleteSecret(_ context.Context, _ identity.OrganizationID, _ identity.EnvironmentID, name string) error {
+	f.deleted = name
+	return nil
 }
 
 func (f *fake) CreateEnvironment(_ context.Context, _ identity.OrganizationID, in hosting.CreateEnvironment) (hosting.Environment, error) {
@@ -204,17 +227,50 @@ func TestSlotsAndUsage(t *testing.T) {
 	}
 }
 
+// A spec naming a secret the environment lacks directs the hosted agents'
+// secrets: that needs agents:write. One the environment has is the
+// environment's own business (environments:write).
 func TestSpecSecretsNeedAgentsWrite(t *testing.T) {
-	body := `{"name":"e","spec":{"harness":"claude-code","models":{"anthropic":"${KEY}"}}}`
+	id := identity.NewEnvironmentID().String()
+	body := `{"base":1,"spec":{"harness":"claude-code","models":{"anthropic":"${KEY}"}}}`
 	f := &fake{}
 	app := newApp(f, admin(permission.EnvironmentsWrite))
-	resp, rb := call(t, app, "POST", "/api/v1/environments", body)
-	if resp.StatusCode != 403 || !strings.Contains(rb, permission.AgentsWrite) {
+	resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body)
+	if resp.StatusCode != 403 || !strings.Contains(rb, permission.AgentsWrite) || !strings.Contains(rb, "KEY") {
 		t.Fatalf("without agents:write: %d %s", resp.StatusCode, rb)
 	}
+	f.secrets = []hosting.EnvironmentSecret{{Name: "KEY"}}
+	if resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body); resp.StatusCode != 200 || f.saved.Base != 1 {
+		t.Fatalf("the environment's own secret: %d %s", resp.StatusCode, rb)
+	}
+	f.secrets = nil
 	app = newApp(f, admin(permission.EnvironmentsWrite, permission.AgentsWrite))
-	if resp, rb := call(t, app, "POST", "/api/v1/environments", body); resp.StatusCode != 201 || f.created.CreatedBy != "t" {
+	if resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body); resp.StatusCode != 200 {
 		t.Fatalf("with agents:write: %d %s", resp.StatusCode, rb)
+	}
+	// creating names no secret yet (none can exist): no agents:write needed
+	app = newApp(f, admin(permission.EnvironmentsWrite))
+	if resp, rb := call(t, app, "POST", "/api/v1/environments", `{"name":"e","spec":{"harness":"claude-code","models":{"anthropic":"${KEY}"}}}`); resp.StatusCode != 201 || f.created.CreatedBy != "t" {
+		t.Fatalf("create: %d %s", resp.StatusCode, rb)
+	}
+}
+
+func TestEnvironmentSecrets(t *testing.T) {
+	f := &fake{secrets: []hosting.EnvironmentSecret{{Name: "OPENAI"}, {Name: "DATABASE_URL", Env: true}}}
+	app := newApp(f, admin(permission.All...))
+	if resp, body := call(t, app, "GET", "/api/v1/environments/prod/secrets", ""); resp.StatusCode != 200 || !strings.Contains(body, `"DATABASE_URL"`) || strings.Contains(body, "value") {
+		t.Fatalf("list: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := call(t, app, "PUT", "/api/v1/environments/prod/secrets/OPENAI", `{"value":"v","env":true}`); resp.StatusCode != 200 ||
+		f.set.Name != "OPENAI" || f.set.Value != "v" || !f.set.Env || strings.Contains(body, `"v"`) {
+		t.Fatalf("set: %d %s %+v", resp.StatusCode, body, f.set)
+	}
+	if resp, _ := call(t, app, "DELETE", "/api/v1/environments/prod/secrets/OPENAI", ""); resp.StatusCode != 204 || f.deleted != "OPENAI" {
+		t.Fatalf("delete: %d %q", resp.StatusCode, f.deleted)
+	}
+	app = newApp(f, admin(permission.EnvironmentsRead))
+	if resp, _ := call(t, app, "PUT", "/api/v1/environments/prod/secrets/OPENAI", `{"value":"v"}`); resp.StatusCode != 403 {
+		t.Fatalf("read-only set: %d", resp.StatusCode)
 	}
 }
 

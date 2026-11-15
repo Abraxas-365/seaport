@@ -85,7 +85,10 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit, browser *Browse
 	if os.Getenv(hosting.EnvToken) == "" && cfg.Token != "" {
 		cmd.Env = append(cmd.Env, hosting.EnvToken+"="+cfg.Token)
 	}
-	if kit != nil {
+	if kit != nil && !cfg.KitEnv && len(kit.Env) > 0 {
+		slog.Info("the kit's env secrets stay on the port; pass -env to give them to the harness here", "count", len(kit.Env))
+	}
+	if kit != nil && cfg.KitEnv {
 		for k, v := range kit.Env {
 			if slices.Contains(cfg.Protect, k) {
 				slog.Warn("the kit's env can't replace a variable the slot sets", "name", k)

@@ -27,11 +27,17 @@ import (
 func TestHostedNetwork(t *testing.T) {
 	var mu sync.Mutex
 	var seenKey string
+	var seenBearer string
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		seenKey = r.Header.Get("X-Api-Key")
-		mu.Unlock()
+		defer mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/oa/") { // the OpenAI-protocol upstream
+			seenBearer = r.Header.Get("Authorization")
+			_, _ = io.WriteString(w, `{"model":"groq-test","usage":{"prompt_tokens":30,"completion_tokens":6}}`)
+			return
+		}
+		seenKey = r.Header.Get("X-Api-Key")
 		_, _ = io.WriteString(w, `{"model":"claude-test","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":5}}`)
 	}))
 	defer provider.Close()
@@ -46,7 +52,7 @@ func TestHostedNetwork(t *testing.T) {
 		c.SecretKey = "e2e-network-secrets-key-0123456789abcdefXYZ"
 		c.ImageRness = "registry.test/seaport-rness:1"
 		c.AgentURL = "http://port.test:8740"
-		c.GatewayAnthropicURL = provider.URL
+		c.GatewayURLs = map[string]string{hosting.ProviderAnthropic: provider.URL, "groq": provider.URL + "/oa/v1"}
 		c.EgressAddr = "127.0.0.1:0"
 		c.EgressPrivate = true // the test's hosts all resolve to loopback
 	}, bootstrap.Options{Runtime: rt, SupervisePeriod: time.Hour,
@@ -57,23 +63,63 @@ func TestHostedNetwork(t *testing.T) {
 	pm := p.agent("pm")
 	agentPath := "/api/v1/agents/" + pm.ID.String()
 
-	spec := map[string]any{"harness": "rness", "models": map[string]string{"anthropic": "${ANTHROPIC_KEY}"},
+	spec := map[string]any{"harness": "rness", "models": map[string]string{"anthropic": "${ANTHROPIC_KEY}", "groq": "${GROQ_KEY}"},
+		"env":     map[string]string{"TZ": "America/Lima", "FEATURE_FLAGS": "beta"},
 		"network": map[string]any{"egress": []string{"registry.example.com"}}}
-	// The key must be a secret of the agent before it's hosted on the spec.
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "net", "spec": spec}, nil); code != http.StatusCreated {
+	// The keys must be secrets of the environment, or of the agent, before
+	// it's hosted on the spec.
+	var env hosting.Environment
+	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "net", "spec": spec}, &env); code != http.StatusCreated {
 		t.Fatalf("create environment: %d", code)
 	}
+	envPath := "/api/v1/environments/" + env.ID.String()
 	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusUnprocessableEntity && code != http.StatusBadRequest {
-		t.Fatalf("host without the key secret: %d", code)
+		t.Fatalf("host without the key secrets: %d", code)
 	}
-	if code := p.admin(http.MethodPut, agentPath+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-e2e-real"}, nil); code != http.StatusOK {
-		t.Fatalf("set secret: %d", code)
+	// The Anthropic key is the environment's (where it belongs); the Groq
+	// key the agent's (transitional). An env secret reaches every slot.
+	if code := p.admin(http.MethodPut, envPath+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-e2e-real"}, nil); code != http.StatusOK {
+		t.Fatalf("set environment secret: %d", code)
+	}
+	if code := p.admin(http.MethodPut, envPath+"/secrets/DATABASE_URL", map[string]any{"value": "postgres://app:pw@db.example.com/app", "env": true}, nil); code != http.StatusOK {
+		t.Fatalf("set environment env secret: %d", code)
+	}
+	for name, body := range map[string]map[string]any{
+		"lower": {"value": "x"}, "empty": {"value": ""}, "SEAPORT_URL": {"value": "x", "env": true},
+	} {
+		if code := p.admin(http.MethodPut, envPath+"/secrets/"+name, body, nil); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
+			t.Fatalf("bad secret %s: %d", name, code)
+		}
+	}
+	var secrets struct{ Secrets []hosting.EnvironmentSecret }
+	if code := p.admin(http.MethodGet, envPath+"/secrets", nil, &secrets); code != http.StatusOK || len(secrets.Secrets) != 2 ||
+		secrets.Secrets[0].Name != "ANTHROPIC_KEY" || secrets.Secrets[0].Env || secrets.Secrets[1].Name != "DATABASE_URL" || !secrets.Secrets[1].Env {
+		t.Fatalf("secrets: %d %+v", code, secrets.Secrets)
+	}
+	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusUnprocessableEntity && code != http.StatusBadRequest {
+		t.Fatalf("host without the groq key: %d", code)
+	}
+	if code := p.admin(http.MethodPut, agentPath+"/secrets/GROQ_KEY", map[string]any{"value": "gsk-e2e-real"}, nil); code != http.StatusOK {
+		t.Fatalf("set agent secret: %d", code)
 	}
 	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
-	if code := p.admin(http.MethodDelete, agentPath+"/secrets/ANTHROPIC_KEY", nil, nil); code != http.StatusConflict {
-		t.Fatalf("delete the model key in use: %d", code)
+	if code := p.admin(http.MethodDelete, envPath+"/secrets/ANTHROPIC_KEY", nil, nil); code != http.StatusConflict {
+		t.Fatalf("delete the environment's model key in use: %d", code)
+	}
+	if code := p.admin(http.MethodDelete, agentPath+"/secrets/GROQ_KEY", nil, nil); code != http.StatusConflict {
+		t.Fatalf("delete the agent's model key in use: %d", code)
+	}
+	// A spec can't name a plain variable the slot sets, nor a value that
+	// looks like a credential.
+	for name, env := range map[string]map[string]string{
+		"slot": {"ANTHROPIC_API_KEY": "x"}, "secret": {"TOKEN": "ghp_" + strings.Repeat("a", 36)},
+	} {
+		bad := map[string]any{"harness": "rness", "env": env}
+		if code := p.admin(http.MethodPut, envPath, map[string]any{"base": 1, "spec": bad}, nil); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
+			t.Fatalf("bad env %s: %d", name, code)
+		}
 	}
 
 	rt.results <- "sha256:net1"
@@ -83,17 +129,21 @@ func TestHostedNetwork(t *testing.T) {
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 	st := rt.lastStart()
 	token := st.Env[hosting.EnvToken]
-	if st.Env[hosting.EnvGateway] != "http://port.test:8740/gateway" ||
-		st.Env["ANTHROPIC_BASE_URL"] != "http://port.test:8740/gateway/anthropic" || st.Env["ANTHROPIC_API_KEY"] != token {
+	if st.Env[hosting.EnvGateway] != "http://port.test:8740/gateway" || st.Env[hosting.EnvGatewayProviders] != "anthropic,groq" ||
+		st.Env["ANTHROPIC_BASE_URL"] != "http://port.test:8740/gateway/anthropic" || st.Env["ANTHROPIC_API_KEY"] != token ||
+		st.Env["GROQ_BASE_URL"] != "http://port.test:8740/gateway/groq" || st.Env["GROQ_API_KEY"] != token {
 		t.Fatalf("gateway env: %v", st.Env)
+	}
+	if st.Env["TZ"] != "America/Lima" || st.Env["FEATURE_FLAGS"] != "beta" || st.Env["DATABASE_URL"] != "postgres://app:pw@db.example.com/app" {
+		t.Fatalf("spec env and env secrets: %v", st.Env)
 	}
 	proxyURL, err := url.Parse(st.Env["HTTPS_PROXY"])
 	if err != nil || proxyURL.Hostname() != "port.test" || proxyURL.User.Username() != "pm-1" ||
 		!strings.Contains(st.Env["NO_PROXY"], "port.test") {
 		t.Fatalf("proxy env: %v", st.Env)
 	}
-	if strings.Contains(fmt.Sprint(st.Env), "sk-ant-e2e-real") {
-		t.Fatal("the model key reached the container")
+	if strings.Contains(fmt.Sprint(st.Env), "sk-ant-e2e-real") || strings.Contains(fmt.Sprint(st.Env), "gsk-e2e-real") {
+		t.Fatal("a model key reached the container")
 	}
 
 	// The gateway: slot token as x-api-key, real key upstream, usage metered.
@@ -119,6 +169,23 @@ func TestHostedNetwork(t *testing.T) {
 		t.Fatalf("provider saw key %q", seenKey)
 	}
 	mu.Unlock()
+	// The OpenAI-protocol provider, with the agent's key as a bearer.
+	req, _ := http.NewRequest(http.MethodPost, p.srv.URL+"/gateway/groq/chat/completions", strings.NewReader(`{"model":"groq-test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "groq-test") {
+		t.Fatalf("groq gateway: %d %s", resp.StatusCode, body)
+	}
+	mu.Lock()
+	if seenBearer != "Bearer gsk-e2e-real" {
+		t.Fatalf("groq saw %q", seenBearer)
+	}
+	mu.Unlock()
 	people := p.issueAs(adminToken, pm.ID, "laptop")
 	if code, _ := gw(people.Value); code != http.StatusForbidden {
 		t.Fatalf("a person's token on the gateway: %d", code)
@@ -131,10 +198,17 @@ func TestHostedNetwork(t *testing.T) {
 		if code := p.admin(http.MethodGet, agentPath+"/usage?days=7", nil, &usage); code != http.StatusOK {
 			t.Fatalf("usage: %d", code)
 		}
-		return len(usage.Days) == 1 && usage.Days[0].Requests == 2
+		return len(usage.Days) == 2 && usage.Days[0].Requests+usage.Days[1].Requests == 3
 	})
-	if u := usage.Days[0]; u.Model != "claude-test" || u.Provider != "anthropic" || u.Input != 200 || u.Output != 40 || u.CacheRead != 10 {
-		t.Fatalf("usage: %+v", u)
+	byProvider := map[string]hosting.UsageDay{}
+	for _, u := range usage.Days {
+		byProvider[u.Provider] = u
+	}
+	if u := byProvider["anthropic"]; u.Model != "claude-test" || u.Requests != 2 || u.Input != 200 || u.Output != 40 || u.CacheRead != 10 {
+		t.Fatalf("anthropic usage: %+v", u)
+	}
+	if u := byProvider["groq"]; u.Model != "groq-test" || u.Requests != 1 || u.Input != 30 || u.Output != 6 {
+		t.Fatalf("groq usage: %+v", u)
 	}
 	// The day is today's UTC date, rendered as such: the CLI formats it as a
 	// date and the web takes the first 10 characters of the JSON, so it must

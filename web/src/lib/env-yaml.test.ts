@@ -21,6 +21,7 @@ const env = () => {
     repo_config: s.repo_config,
     home: s.home,
     models: s.models,
+    env: s.env,
     network: s.network,
     resources: s.resources,
     workspace: s.workspace,
@@ -49,6 +50,8 @@ repos:
 repo_config: ignore
 models:
   anthropic: \${ANTHROPIC_KEY}
+env:
+  TZ: UTC
 network:
   egress:
     - example.com

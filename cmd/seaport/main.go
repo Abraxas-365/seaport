@@ -101,6 +101,9 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
                                         sign-in or memory) and save a version naming it
   seaport env home show <env>           the files of its home
   seaport env home pull <env> <dir>     download its home
+  seaport env secrets [list] <env>      its secrets: model keys, repo credentials (the spec names them as ${NAME})
+  seaport env secrets set <env> NAME [-env]   value from stdin; -env: a variable of every slot's harness
+  seaport env secrets rm <env> NAME
   seaport env delete <env> -yes         only when no agent runs on it
   seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
   seaport agents unhost <agent>
@@ -132,6 +135,7 @@ Agent (env: SEAPORT_URL, SEAPORT_CREW_TOKEN, SEAPORT_AGENT):
   seaport connect [flags] -- <agent command>   e.g. seaport connect -- rness --acp
                                         works as the token's agent (-agent <name> without a token),
                                         with its profile: instructions, skills, MCP servers, secrets
+                                        (-env: its env secrets as the harness's environment too)
   seaport github-token [owner/repo]     a GitHub App token for a repo of the agent's GitHub docks
                                         (default: the origin remote here); hosted slots' gh and git use it
   seaport reply <conversation-id> [-file PATH]... [text]
@@ -375,6 +379,7 @@ func connect(ctx context.Context, args []string) error {
 	approve := fs.String("approve", "", "answer to agent permission requests: reject|allow (default: the agent profile's, else reject)")
 	deliver := fs.String("deliver", "steer", "messages arriving mid-turn: steer (into the running turn, if the agent supports it) | queue (next turn)")
 	cwd := fs.String("cwd", "", "agent working directory (default: current)")
+	kitEnv := fs.Bool("env", false, "give the harness the agent's env secrets as environment variables (hosted slots always do)")
 	verbose := fs.Bool("v", false, "debug logs")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: seaport connect [flags] -- <agent command>")
@@ -413,7 +418,7 @@ func connect(ctx context.Context, args []string) error {
 	cfgDir, _ := os.UserConfigDir()
 	return connector.Run(ctx, connector.Config{
 		Server: strings.TrimRight(*server, "/"), Token: *token, As: *as, AgentName: *name, Concurrency: *concurrency,
-		AutoReply: *autoReply, Approve: *approve, Deliver: *deliver, Cwd: dir, Command: command,
+		AutoReply: *autoReply, Approve: *approve, Deliver: *deliver, Cwd: dir, Command: command, KitEnv: *kitEnv,
 		SessionsFile: filepath.Join(cfgDir, "seaport", "sessions.json"),
 	})
 }

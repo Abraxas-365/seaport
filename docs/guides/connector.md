@@ -23,7 +23,7 @@ Everything after `--` is the harness command. Run the connector from the directo
 
 On start, the connector:
 
-1. fetches the agent's [profile](profiles.md) and secrets, then starts the harness with its secrets as environment variables, plus `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` when they aren't set already (so the agent's shell can run `seaport reply -file` and `seaport github-token`);
+1. fetches the agent's [profile](profiles.md) and secrets, then starts the harness with `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` when they aren't set already (so the agent's shell can run `seaport reply -file` and `seaport github-token`). The agent's `env` secrets reach the harness only with `-env`: on your machine the environment is yours to set (your own model key, for one); a hosted slot always gets them;
 2. opens a WebSocket to the port's `/crew/ws` and says hello (agent name, concurrency, whether it can steer, profile version);
 3. waits. Each delivery of messages becomes a prompt to the harness.
 

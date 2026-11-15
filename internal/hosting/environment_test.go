@@ -2,11 +2,14 @@ package hosting_test
 
 import (
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/hosting"
+	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
 func TestSpecValidate(t *testing.T) {
@@ -43,8 +46,22 @@ func TestSpecValidate(t *testing.T) {
 		"repo config":     func(s *hosting.Spec) { s.RepoConfig = "maybe" },
 		"idle":            func(s *hosting.Spec) { s.IdleStop = "30s" },
 		"setup nul":       func(s *hosting.Spec) { s.Setup = "a\x00b" },
-		"model key":       func(s *hosting.Spec) { s.Models.Anthropic = "sk-ant-literal" },
-		"browser engine":  func(s *hosting.Spec) { s.Browser.Engine = "firefox" },
+		"model key":       func(s *hosting.Spec) { s.Models = hosting.Models{"anthropic": "sk-ant-literal"} },
+		"model provider":  func(s *hosting.Spec) { s.Models = hosting.Models{"mistral": "${KEY}"} },
+		"env name":        func(s *hosting.Spec) { s.Env = map[string]string{"lower": "x"} },
+		"env seaport":     func(s *hosting.Spec) { s.Env = map[string]string{"SEAPORT_URL": "x"} },
+		"env slot":        func(s *hosting.Spec) { s.Env = map[string]string{"OPENAI_API_KEY": "x"} },
+		"env proxy":       func(s *hosting.Spec) { s.Env = map[string]string{"HTTPS_PROXY": "x"} },
+		"env line":        func(s *hosting.Spec) { s.Env = map[string]string{"A": "x\ny"} },
+		"env long":        func(s *hosting.Spec) { s.Env = map[string]string{"A": strings.Repeat("x", hosting.MaxEnvValue+1)} },
+		"env secret":      func(s *hosting.Spec) { s.Env = map[string]string{"TOKEN": "ghp_" + strings.Repeat("a", 36)} },
+		"env many": func(s *hosting.Spec) {
+			s.Env = map[string]string{}
+			for i := 0; i <= hosting.MaxEnv; i++ {
+				s.Env["V_"+strconv.Itoa(i)] = "x"
+			}
+		},
+		"browser engine": func(s *hosting.Spec) { s.Browser.Engine = "firefox" },
 	}
 	for name, mutate := range bad {
 		s := ok
@@ -63,7 +80,7 @@ func TestNormalize(t *testing.T) {
 		Network:  hosting.Network{Egress: []string{"Example.com", "example.com"}}}
 	got := hosting.Normalize(in)
 	want := hosting.Spec{Harness: "rness", Description: "PM", Setup: "echo hi\n", Packages: []string{"jq"},
-		Repos:      []hosting.Repo{{URL: "https://github.com/acme/app.git", Path: "app"}},
+		Repos: []hosting.Repo{{URL: "https://github.com/acme/app.git", Path: "app"}}, Models: hosting.Models{}, Env: map[string]string{},
 		RepoConfig: hosting.RepoConfigTrust, Workspace: hosting.WorkspacePersistent,
 		Network:   hosting.Network{Egress: []string{"example.com"}},
 		Resources: hosting.Resources{Size: "S", CPUs: 1, MemoryMB: 2048}, IdleStop: "30m"}
@@ -78,6 +95,62 @@ func TestNormalize(t *testing.T) {
 	}
 	if n := hosting.Normalize(hosting.Spec{Harness: "rness", IdleStop: "never"}); n.IdleStop != "0" {
 		t.Fatalf("never: %q", n.IdleStop)
+	}
+	n := hosting.Normalize(hosting.Spec{Models: hosting.Models{"OpenAI": " ${K} ", "groq": ""}, Env: map[string]string{" TZ ": "UTC"}})
+	if !reflect.DeepEqual(n.Models, hosting.Models{"openai": "${K}"}) || !reflect.DeepEqual(n.Env, map[string]string{"TZ": "UTC"}) {
+		t.Fatalf("models/env: %v %v", n.Models, n.Env)
+	}
+}
+
+func TestProvidersAndEnvironmentSecrets(t *testing.T) {
+	s := hosting.Spec{Harness: hosting.HarnessRness, Env: map[string]string{"TZ": "America/Lima", "NODE_ENV": "production", "EMPTY": ""},
+		Models: hosting.Models{"openai": "${OPENAI}", "anthropic": "${ANTHROPIC}", "groq": "${OPENAI}"}}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Models.Providers(); !reflect.DeepEqual(got, []string{"anthropic", "groq", "openai"}) {
+		t.Fatalf("providers: %v", got)
+	}
+	if got := s.Secrets(); !reflect.DeepEqual(got, []string{"ANTHROPIC", "OPENAI"}) {
+		t.Fatalf("secrets: %v", got)
+	}
+	if s.SignsIn() {
+		t.Fatal("rness never signs in")
+	}
+	for _, name := range hosting.ProviderNames() {
+		p := hosting.Providers[name]
+		if p.Name != name || p.KeyEnv == "" || p.BaseEnv == "" || !strings.HasPrefix(p.Upstream, "https://") ||
+			(p.Protocol != hosting.ProtocolAnthropic && p.Protocol != hosting.ProtocolOpenAI) {
+			t.Errorf("provider %s: %+v", name, p)
+		}
+		if err := (hosting.KeyRequest{Provider: name, Caller: hosting.SlotCaller{Agent: identity.NewAgentID(), Slot: 1}}).Validate(); err != nil {
+			t.Errorf("key request %s: %v", name, err)
+		}
+	}
+	if err := (hosting.KeyRequest{Provider: "mistral", Caller: hosting.SlotCaller{Agent: identity.NewAgentID(), Slot: 1}}).Validate(); err == nil {
+		t.Fatal("unknown provider accepted")
+	}
+	if got := hosting.GatewayURL("https://port.example.com/", "openai"); got != "https://port.example.com/gateway/openai" {
+		t.Fatalf("gateway url: %q", got)
+	}
+	slot := hosting.SlotSet()
+	for _, v := range []string{"SEAPORT_GATEWAY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "HTTPS_PROXY", "no_proxy"} {
+		if !slices.Contains(slot, v) {
+			t.Errorf("slot set lacks %s", v)
+		}
+	}
+	for name, in := range map[string]hosting.SetEnvironmentSecret{
+		"ok":      {Name: "OPENAI", Value: "sk-" + strings.Repeat("x", 40)},
+		"env":     {Name: "DATABASE_URL", Value: "postgres://x", Env: true},
+		"lower":   {Name: "openai", Value: "x"},
+		"seaport": {Name: "SEAPORT_TOKEN", Value: "x"},
+		"empty":   {Name: "OPENAI", Value: ""},
+		"nul":     {Name: "OPENAI", Value: "a\x00b"},
+	} {
+		err := in.Validate()
+		if want := name == "ok" || name == "env"; (err == nil) != want {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 
@@ -106,7 +179,7 @@ func TestIdleStopAndLimits(t *testing.T) {
 
 func TestNetworkOfASpec(t *testing.T) {
 	s := hosting.Spec{Harness: hosting.HarnessRness, Repos: []hosting.Repo{{URL: "https://github.com/a/b", Credential: "${GH}"}},
-		Models:  hosting.Models{Anthropic: "${ANTHROPIC_KEY}"},
+		Models:  hosting.Models{"anthropic": "${ANTHROPIC_KEY}"},
 		Network: hosting.Network{Egress: []string{"registry.npmjs.org", "github.com"}}}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)

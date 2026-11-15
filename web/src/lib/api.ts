@@ -37,6 +37,7 @@ import type {
   AgentSecret,
   Build,
   Denial,
+  EnvSecret,
   EnvSpec,
   EnvVersion,
   Environment,
@@ -331,6 +332,11 @@ export const api = {
     request<Environment>("PUT", `${v1}/environments/${id}`, { base, spec }),
   deleteEnvironment: (id: string) => request<void>("DELETE", `${v1}/environments/${id}`),
   environmentVersions: (id: string) => request<{ versions: EnvVersion[] }>("GET", `${v1}/environments/${id}/versions`),
+  environmentSecrets: (id: string) => request<{ secrets: EnvSecret[] }>("GET", `${v1}/environments/${id}/secrets`),
+  setEnvironmentSecret: (id: string, name: string, value: string, env: boolean) =>
+    request<EnvSecret>("PUT", `${v1}/environments/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
+  deleteEnvironmentSecret: (id: string, name: string) =>
+    request<void>("DELETE", `${v1}/environments/${id}/secrets/${encodeURIComponent(name)}`),
   build: (id: string, version?: number) =>
     request<Build>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}/build`),
   startBuild: (id: string, force = false) => request<Build>("POST", `${v1}/environments/${id}/build`, { force }),

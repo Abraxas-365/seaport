@@ -299,7 +299,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
 		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod,
-		GatewayAnthropic: cfg.GatewayAnthropicURL, SecretKey: secretKey}
+		GatewayURLs: cfg.GatewayURLs, SecretKey: secretKey}
 	if blobs != nil {
 		hostCfg.Blobs = blobs
 	}

@@ -825,8 +825,9 @@ function SecretsCard({ agent, write }: { agent: LibraryAgent; write: boolean }) 
               <KeyRound className="size-4" /> Secretos
             </CardTitle>
             <CardDescription>
-              Se guardan cifrados y solo salen hacia las conexiones de este agente: nadie los puede volver a leer aquí.
-              Úsalos en headers MCP como <Mono>{"${NOMBRE}"}</Mono> o pásalos al harness como variables de entorno.
+              Lo propio de este agente: los tokens de sus headers MCP (<Mono>{"${NOMBRE}"}</Mono>) y lo que su harness
+              necesite en el entorno. Se guardan cifrados y solo salen hacia sus conexiones. Las claves de modelo y las
+              credenciales que comparten las instancias van en los secretos del entorno.
             </CardDescription>
           </div>
           {write && <SecretDialog agent={agent} />}
@@ -956,7 +957,10 @@ function SecretDialog({ agent, name: fixed, env: wasEnv }: { agent: LibraryAgent
             <Field orientation="horizontal">
               <FieldContent>
                 <FieldLabel htmlFor="secret-env">Variable de entorno</FieldLabel>
-                <FieldDescription>El harness también lo recibe en su entorno al arrancar.</FieldDescription>
+                <FieldDescription>
+                  Lo recibe el harness de sus instancias alojadas; en <Mono>seaport connect</Mono> solo con{" "}
+                  <Mono>-env</Mono>.
+                </FieldDescription>
               </FieldContent>
               <Switch id="secret-env" checked={env} onCheckedChange={setEnv} />
             </Field>

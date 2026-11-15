@@ -56,7 +56,11 @@ func serve(t *testing.T, c *commands, upstream http.HandlerFunc, slot int) *http
 	t.Helper()
 	up := httptest.NewServer(upstream)
 	t.Cleanup(up.Close)
-	gw, err := hostinggateway.New(c, hostinggateway.Config{Anthropic: up.URL + "/base"})
+	// every provider at the same fake upstream (Anthropic at /base, the
+	// OpenAI family at /oa, their base URLs end in /v1)
+	gw, err := hostinggateway.New(c, hostinggateway.Config{Upstreams: map[string]string{
+		hosting.ProviderAnthropic: up.URL + "/base", "openai": up.URL + "/oa/v1", "groq": up.URL + "/oa/v1",
+		"openrouter": up.URL + "/oa/v1", "deepseek": up.URL + "/oa/v1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,8 +162,15 @@ func TestGatewayRefuses(t *testing.T) {
 	if resp, body := call(t, s, "/gateway/anthropic/v1/organizations/x", `{}`); resp.StatusCode != 404 || !strings.Contains(body, `"not_found_error"`) {
 		t.Fatalf("other path: %d %s", resp.StatusCode, body)
 	}
-	if resp, _ := call(t, s, "/gateway/openai/v1/chat/completions", `{}`); resp.StatusCode != 404 {
-		t.Fatalf("other provider: %d", resp.StatusCode)
+	if resp, body := call(t, s, "/gateway/mistral/v1/chat/completions", `{}`); resp.StatusCode != 404 || !strings.Contains(body, `"not_found_error"`) {
+		t.Fatalf("other provider: %d %s", resp.StatusCode, body)
+	}
+	// an OpenAI-protocol provider: Anthropic's paths and the fine-tuning
+	// API are not served, and errors come in OpenAI's shape
+	for _, p := range []string{"/gateway/openai/v1/messages", "/gateway/openai/v1/chat/completions", "/gateway/openai/fine_tuning/jobs"} {
+		if resp, body := call(t, s, p, `{}`); resp.StatusCode != 404 || !strings.Contains(body, `"error":{`) || strings.Contains(body, `"type":"error"`) {
+			t.Fatalf("%s: %d %s", p, resp.StatusCode, body)
+		}
 	}
 	// a person's token (no slot)
 	s0 := serve(t, c, up, 0)
@@ -258,5 +269,66 @@ func TestGatewayClientLeavingCancelsUpstream(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(3 * time.Second):
 		t.Fatal("the upstream call outlived its client")
+	}
+}
+
+// An OpenAI-protocol provider gets a bearer, and its usage is read from
+// the JSON body (Chat Completions, cached prompt tokens as cache reads).
+func TestGatewayForwardsOpenAIProtocol(t *testing.T) {
+	c := &commands{key: "sk-" + "real"}
+	var got http.Header
+	var path string
+	s := serve(t, c, func(w http.ResponseWriter, r *http.Request) {
+		got, path = r.Header.Clone(), r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c","model":"gpt-x","usage":{"prompt_tokens":30,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":10}}}`)
+	}, 1)
+	resp, body := call(t, s, "/gateway/groq/chat/completions", `{"model":"gpt-x"}`)
+	if resp.StatusCode != 200 || !strings.Contains(body, `"gpt-x"`) {
+		t.Fatalf("answer: %d %s", resp.StatusCode, body)
+	}
+	if path != "/oa/v1/chat/completions" || got.Get("Authorization") != "Bearer sk-real" || got.Get("X-Api-Key") != "" {
+		t.Fatalf("upstream saw path %q auth %q key %q", path, got.Get("Authorization"), got.Get("X-Api-Key"))
+	}
+	u := c.recorded()
+	if len(u) != 1 || u[0].Model != "gpt-x" || u[0].Input != 20 || u[0].CacheRead != 10 || u[0].Output != 8 || u[0].Provider != "groq" {
+		t.Fatalf("usage: %+v", u)
+	}
+}
+
+// A Responses stream is metered from its response.completed event; a Chat
+// Completions stream from the chunk carrying usage.
+func TestGatewayMetersOpenAIStreams(t *testing.T) {
+	c := &commands{key: "k"}
+	s := serve(t, c, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		f := w.(http.Flusher)
+		events := []string{
+			`event: response.created` + "\n" + `data: {"type":"response.created","response":{"id":"r","model":"gpt-y","usage":null}}`,
+			`event: response.output_text.delta` + "\n" + `data: {"type":"response.output_text.delta","delta":"hi"}`,
+			`event: response.completed` + "\n" + `data: {"type":"response.completed","response":{"id":"r","model":"gpt-y","usage":{"input_tokens":50,"output_tokens":12,"input_tokens_details":{"cached_tokens":0}}}}`,
+		}
+		if r.URL.Path == "/oa/v1/chat/completions" {
+			events = []string{
+				`data: {"id":"c","model":"gpt-z","choices":[{"delta":{"content":"hi"}}],"usage":null}`,
+				`data: {"id":"c","model":"gpt-z","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":2}}`,
+				`data: [DONE]`,
+			}
+		}
+		for _, ev := range events {
+			_, _ = io.WriteString(w, ev+"\n\n")
+			f.Flush()
+		}
+	}, 2)
+	if resp, body := call(t, s, "/gateway/openai/responses", `{"stream":true}`); resp.StatusCode != 200 || !strings.Contains(body, "response.completed") {
+		t.Fatalf("responses stream: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := call(t, s, "/gateway/openai/chat/completions", `{"stream":true}`); resp.StatusCode != 200 || !strings.Contains(body, "[DONE]") {
+		t.Fatalf("chat stream: %d %s", resp.StatusCode, body)
+	}
+	u := c.recorded()
+	if len(u) != 2 || u[0].Model != "gpt-y" || u[0].Input != 50 || u[0].Output != 12 ||
+		u[1].Model != "gpt-z" || u[1].Input != 5 || u[1].Output != 2 || u[1].Provider != "openai" {
+		t.Fatalf("usage: %+v", u)
 	}
 }

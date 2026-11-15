@@ -117,8 +117,9 @@ type Version struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-// Spec is one version of an environment. No secrets: repo credentials
-// name a secret of the hosted agent (${NAME}).
+// Spec is one version of an environment. No secret values: repo
+// credentials and model keys name a secret as ${NAME} (the environment's,
+// else the hosted agent's: Secrets), and Env holds plain variables only.
 type Spec struct {
 	Description string `json:"description"`
 	// Harness is the agent program: rness or claude-code (Seaport's base
@@ -142,9 +143,14 @@ type Spec struct {
 	// ~/.rness: instructions, settings, agents, skills, plugins): a home
 	// uploaded to this environment, as sha256:<digest> ("": none).
 	Home string `json:"home"`
-	// Models are the model keys the port's gateway uses for the slots.
-	Models  Models  `json:"models"`
-	Network Network `json:"network"`
+	// Models are the model keys the port's gateway uses for the slots:
+	// provider (Providers) → ${NAME} of a secret.
+	Models Models `json:"models"`
+	// Env are plain variables every slot's harness gets (TZ, NODE_ENV, a
+	// flag): name → value, never a credential (ValidEnv refuses what looks
+	// like one: those are secrets). The agent's env secrets win over them.
+	Env     map[string]string `json:"env"`
+	Network Network           `json:"network"`
 	// Browser gives the slots a managed browser (Browser.Enabled): the
 	// image gets the engine and the agent's tooling; an agent whose profile
 	// turns its browser on needs an environment with one.
@@ -165,19 +171,21 @@ type Repo struct {
 	Ref string `json:"ref"`
 	// Path is where it goes, relative to /workspace ("": its name).
 	Path string `json:"path"`
-	// Credential names the hosted agent's secret holding a token for the
-	// URL's host: ${NAME} ("": public).
+	// Credential names the secret holding a token for the URL's host:
+	// ${NAME} ("": public). The environment's secret, else the hosted
+	// agent's.
 	Credential string `json:"credential"`
 	// OnStart runs in the repo after each clone or fetch (shell).
 	OnStart string `json:"on_start"`
 }
 
-// Models name the hosted agent's secrets holding model API keys, as
-// ${NAME}. With one set, the slots reach that provider through the port's
-// model gateway with their own token: the key never enters the container.
-type Models struct {
-	Anthropic string `json:"anthropic"`
-}
+// Models name the secrets holding model API keys, by provider
+// (Providers): provider → ${NAME}. With one set, the slots reach that
+// provider through the port's model gateway with their own token: the key
+// never enters the container. The secret is the environment's (the key is
+// infrastructure its slots share), else the hosted agent's (transitional:
+// specs from before environment secrets).
+type Models map[string]string
 
 // Network is what a slot may reach besides the port.
 type Network struct {
@@ -279,8 +287,11 @@ func (s Spec) Validate() error {
 	if s.Home != "" && !homeDigest.MatchString(s.Home) {
 		return errx.InvalidField("home", "home must name an uploaded home as sha256:<digest> (seaport env home push)")
 	}
-	if s.Models.Anthropic != "" && !credentialRef.MatchString(s.Models.Anthropic) {
-		return errx.InvalidField("models.anthropic", "models.anthropic must name a secret of the agent, as ${NAME}")
+	if err := s.Models.validate(); err != nil {
+		return err
+	}
+	if err := ValidEnv(s.Env); err != nil {
+		return err
 	}
 	if len(s.Network.Egress) > MaxEgress {
 		return errx.InvalidField("network.egress", "at most "+strconv.Itoa(MaxEgress)+" hosts")
@@ -328,7 +339,7 @@ func (r Repo) validate() error {
 		}
 	}
 	if r.Credential != "" && !credentialRef.MatchString(r.Credential) {
-		return errx.InvalidField("repos", "repo "+r.URL+": credential must name a secret of the agent, as ${NAME}")
+		return errx.InvalidField("repos", "repo "+r.URL+": credential must name a secret, as ${NAME}")
 	}
 	if len(r.OnStart) > MaxOnStart || strings.ContainsRune(r.OnStart, 0) {
 		return errx.InvalidField("repos", "repo "+r.URL+": on_start must be at most "+strconv.Itoa(MaxOnStart)+" bytes of text")
@@ -441,9 +452,18 @@ func formatIdleStop(d time.Duration) string {
 // normalize equal.
 func Normalize(s Spec) Spec {
 	out := Spec{Description: text.Clean(s.Description), Harness: strings.TrimSpace(s.Harness),
-		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home, Models: s.Models,
+		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home,
+		Models: Models{}, Env: map[string]string{},
 		Browser:   Browser{Engine: strings.TrimSpace(s.Browser.Engine)},
 		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
+	for p, ref := range s.Models {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			out.Models[strings.ToLower(strings.TrimSpace(p))] = ref
+		}
+	}
+	for k, v := range s.Env {
+		out.Env[strings.TrimSpace(k)] = v
+	}
 	if out.Setup != "" {
 		out.Setup += "\n"
 	}
@@ -487,8 +507,8 @@ func Normalize(s Spec) Spec {
 	return out
 }
 
-// Secrets are the agent secrets the spec names: repo credentials and
-// model keys.
+// Secrets are the secret names the spec names: repo credentials and model
+// keys, in a stable order (repos first, then providers by name).
 func (s Spec) Secrets() []string {
 	var out []string
 	seen := map[string]bool{}
@@ -501,20 +521,42 @@ func (s Spec) Secrets() []string {
 	for _, r := range s.Repos {
 		add(r.CredentialName())
 	}
-	add(s.Models.KeyName(ProviderAnthropic))
+	for _, p := range s.Models.Providers() {
+		add(s.Models.KeyName(p))
+	}
+	return out
+}
+
+// Providers are the providers with a key named, sorted.
+func (m Models) Providers() []string {
+	out := make([]string, 0, len(m))
+	for p, ref := range m {
+		if ref != "" {
+			out = append(out, p)
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
 // KeyName is the secret holding provider's key ("" if none).
 func (m Models) KeyName(provider string) string {
-	ref := ""
-	if provider == ProviderAnthropic {
-		ref = m.Anthropic
-	}
-	if v := credentialRef.FindStringSubmatch(ref); v != nil {
+	if v := credentialRef.FindStringSubmatch(m[provider]); v != nil {
 		return v[1]
 	}
 	return ""
+}
+
+func (m Models) validate() error {
+	for p, ref := range m {
+		if _, ok := Providers[p]; !ok {
+			return errx.InvalidField("models", "models."+p+": the gateway serves no provider "+strconv.Quote(p)+" (one of "+strings.Join(ProviderNames(), ", ")+")")
+		}
+		if !credentialRef.MatchString(ref) {
+			return errx.InvalidField("models."+p, "models."+p+" must name a secret, as ${NAME}")
+		}
+	}
+	return nil
 }
 
 // EgressHosts are the hosts a slot may reach through the egress proxy:

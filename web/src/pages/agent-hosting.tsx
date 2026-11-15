@@ -16,6 +16,7 @@ import {
 import {
   useCan,
   useEgress,
+  useEnvironmentSecrets,
   useEnvironments,
   useHost,
   useHosted,
@@ -23,6 +24,7 @@ import {
   useLoginCode,
   useNow,
   useProfile,
+  useSecrets,
   useSlotAccount,
   useSlotAction,
   useSlotLog,
@@ -32,6 +34,7 @@ import {
   useUsage,
 } from "@/lib/hooks"
 import { formatRelative } from "@/lib/format"
+import { specSecrets } from "@/pages/environment-secrets"
 import { Perm } from "@/lib/permissions.gen"
 import type { Environment, Hosted, LibraryAgent, Slot } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -109,6 +112,7 @@ export function HostingCard({ agent }: { agent: LibraryAgent }) {
           </p>
         )}
         {write && <HostForm agent={agent} hosted={hosted.data} envs={items} />}
+        {hosted.data && env && <LentSecrets agent={agent} env={env} />}
         {hosted.data && (
           <Slots agent={agent} hosted={hosted.data} env={env} write={write} runtime={runtime} />
         )}
@@ -118,6 +122,28 @@ export function HostingCard({ agent }: { agent: LibraryAgent }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/** A notice when the environment's spec names secrets the environment lacks
+ * and this agent lends (specs from before environment secrets). */
+function LentSecrets({ agent, env }: { agent: LibraryAgent; env: Environment }) {
+  const theirs = useEnvironmentSecrets(env.id)
+  const mine = useSecrets(agent.id)
+  if (!theirs.data || !mine.data) return null
+  const have = new Set(theirs.data.secrets.map((s) => s.name))
+  const own = new Set(mine.data.secrets.map((s) => s.name))
+  const lent = [...specSecrets(env.spec).keys()].filter((n) => !have.has(n) && own.has(n))
+  if (lent.length === 0) return null
+  return (
+    <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+      {lent.map((n, i) => [i > 0 && ", ", <Mono key={n}>{n}</Mono>])} {lent.length === 1 ? "sale" : "salen"} de los
+      secretos de este agente: la especificación de <Mono>{env.name}</Mono> lo nombra y el entorno no lo tiene.{" "}
+      <Link to={`/environments/${env.id}`} className="text-foreground underline-offset-4 hover:underline">
+        Créalo en el entorno
+      </Link>{" "}
+      para que lo compartan todos sus agentes.
+    </p>
   )
 }
 
@@ -241,7 +267,7 @@ function Slots({
   const action = useSlotAction(agent.id)
   const busy = (s: Slot) => action.isPending && action.variables?.slot === s.index
   // Claude Code with no model key: each slot signs in to a subscription.
-  const signsIn = env?.spec.harness === "claude-code" && !env.spec.models.anthropic
+  const signsIn = env?.spec.harness === "claude-code" && !env.spec.models?.anthropic
   return (
     <ul className="divide-y rounded-lg border">
       {hosted.slots.map((s) => {

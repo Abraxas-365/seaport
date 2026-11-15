@@ -42,7 +42,7 @@ The full list, with the network variables, is in [Configuration](../../reference
 
 ## Environments
 
-An environment is a YAML spec. This one runs rness with two apt packages, one repo and a model key:
+An environment is a YAML spec. This one runs rness with two apt packages, one repo, a plain variable and a model key:
 
 ```yaml
 name: backend
@@ -53,12 +53,14 @@ setup: |                    # bash as root at build time, never secrets
 repos:
   - url: https://github.com/acme/api.git
     ref: main
-    credential: ${GITHUB_TOKEN}   # a secret of the hosted agent
+    credential: ${GITHUB_TOKEN}   # a secret of the environment
     on_start: pnpm i
 repo_config: trust          # ignore: the harness skips the repos' own configuration
 home: ./rness-home          # your harness config, see "Harness homes"
+env:
+  TZ: America/Lima          # plain variables of every slot; secrets go apart
 models:
-  anthropic: ${ANTHROPIC_API_KEY}
+  anthropic: ${ANTHROPIC_KEY}   # a secret of the environment, through the port's gateway
 network:
   egress: [registry.npmjs.org]
 resources: {size: M}
@@ -79,14 +81,15 @@ Fields, with their limits:
 | `repos` | Up to 10 repos: `url` (https), `ref`, `path` (under `/workspace`), `credential`, `on_start`. |
 | `repo_config` | `trust` (default): the harness reads the repos' `AGENTS.md`, `CLAUDE.md`, `.claude/` and `.rness/`. `ignore`: it doesn't. |
 | `home` | A harness home, see [Harness homes](harness-homes.md). |
-| `models.anthropic` | The secret holding the model key, see [Network](network.md). |
+| `env` | Up to 50 plain variables every slot's harness gets. Not for credentials, see [Variables and secrets](secrets.md). |
+| `models` | One secret per provider (`anthropic`, `openai`, `openrouter`, `groq`, `deepseek`) holding the model key, see [Network](network.md). |
 | `network.egress` | Up to 100 allowed hosts, see [Network](network.md). |
 | `browser.engine` | `chromium` gives the slots a managed browser, see [Browser](browser.md). |
 | `resources` | `size: S`, `M` or `L`, or `cpus` and `memory_mb`. |
 | `workspace` | `persistent` (default) or `ephemeral`. |
 | `idle_stop` | Idle time before a slot stops. |
 
-A spec can't hold secrets. `credential` and `models.anthropic` name a secret of the hosted agent as `${NAME}`, and Seaport checks the secret exists when you host the agent and each time you save the spec. Naming credentials needs `agents:write` as well as `environments:write` (see [Permissions](../../reference/permissions.md)). Unknown keys are rejected by `seaport env apply`. The full schema is in [Environment spec](../../reference/environment-spec.md).
+A spec can't hold secrets. `credential` and `models.<provider>` name a secret as `${NAME}`: one of the environment's own (`seaport env secrets set`), or else one every hosted agent has. Seaport checks the secret exists when you host an agent and each time you save the spec. Naming a secret the environment doesn't have needs `agents:write` as well as `environments:write` (see [Permissions](../../reference/permissions.md)); see [Variables and secrets](secrets.md). Unknown keys are rejected by `seaport env apply`. The full schema is in [Environment spec](../../reference/environment-spec.md).
 
 Environments are versioned like agent profiles: each change makes a new version, and a file identical to the current one makes none. A port keeps up to 50 environments.
 
@@ -102,7 +105,7 @@ seaport env delete backend -yes      # only when no agent runs on it
 
 ### From the web app
 
-Open **Entornos** and pick an environment. The page follows the spec: **Base**, **Herramientas** (packages and setup), **Configuración del harness**, **Repos**, **Red y modelos**, and **Recursos y espacio de trabajo**. A selector at the top switches between saved versions; the current one is editable.
+Open **Entornos** and pick an environment. The page follows the spec: **Base**, **Herramientas** (packages and setup), **Configuración del harness**, **Repos**, **Red**, **Variables y modelos**, **Navegador** and **Recursos y espacio de trabajo**; the **Secretos** card above it holds the environment's secrets, apart from the versions. A selector at the top switches between saved versions; the current one is editable.
 
 ![An environment in the web app](../../assets/screenshots/environment.png)
 
@@ -136,16 +139,16 @@ A build that stops reporting for a minute is treated as dead, and the next calle
 
 ## Host an agent
 
-Create the secrets the environment names, then host the agent:
+Give the environment the secrets its spec names, then host the agent:
 
 ```sh
-printf %s "$GITHUB_TOKEN" | seaport agents secrets set pm GITHUB_TOKEN
-printf %s "$ANTHROPIC_API_KEY" | seaport agents secrets set pm ANTHROPIC_API_KEY
+printf %s "$GITHUB_TOKEN" | seaport env secrets set backend GITHUB_TOKEN
+printf %s "$ANTHROPIC_API_KEY" | seaport env secrets set backend ANTHROPIC_KEY
 seaport agents host pm backend -slots 2
 seaport agents slots pm
 ```
 
-`-slots` defaults to 1. An agent can't be hosted on an environment whose secrets it lacks, and a secret an environment uses can't be deleted.
+`-slots` defaults to 1. An agent can't be hosted on an environment whose secrets neither it nor the environment has, and a secret a spec uses can't be deleted. An agent's own secrets (`seaport agents secrets set pm NAME -env`) reach its slots too, over the environment's.
 
 On the web, the agent's page has an **Alojamiento** section with one row per slot: state, **Arrancar** and **Detener** buttons, **Registro** for the container's output, and **Conectar cuenta** for [Claude subscriptions](claude-subscriptions.md). With a [browser](browser.md) on, a **Navegador** card opens the slot's browser.
 

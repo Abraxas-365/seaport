@@ -754,6 +754,35 @@ export function useEnvironmentVersions(id: string) {
   })
 }
 
+/** The environment's secrets: names and flags, never values. */
+export function useEnvironmentSecrets(id: string) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.environmentSecrets(id),
+    queryFn: () => api.environmentSecrets(id),
+    enabled: !!id && can(Perm.EnvironmentsRead),
+  })
+}
+
+export function useSetEnvironmentSecret(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, value, env }: { name: string; value: string; env: boolean }) =>
+      api.setEnvironmentSecret(id, name, value, env),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.environmentSecrets(id) }),
+    onError: fail("No se pudo guardar el secreto"),
+  })
+}
+
+export function useDeleteEnvironmentSecret(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.deleteEnvironmentSecret(id, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.environmentSecrets(id) }),
+    onError: fail("No se pudo eliminar el secreto"),
+  })
+}
+
 /** A version's build; null when it was never built. While one runs it
  * refetches (for its log; events carry none). */
 export function useBuild(id: string, version: number) {
