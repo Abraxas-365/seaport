@@ -242,7 +242,8 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
 - Docs drift (`docs_architecture_test.go`, no database): `docs/reference/*.md`
   is compared both ways with the code. `http-api.md` ↔ every Fiber route
   (`TestDocsHTTPAPI`); `configuration.md` ↔ every `SEAPORT_*`/`IAMKIT_*`/
-  `DATABASE_URL` variable read (`TestDocsConfiguration`); `mcp-tools.md` ↔
+  `DATABASE_URL` variable read, except the suite's own `SEAPORT_TEST_*`
+  (`TestDocsConfiguration`); `mcp-tools.md` ↔
   the tools `crewmcp` registers; `cli.md` ↔ the cases of `cmd/seaport`'s
   dispatch switches (a new dispatch switch goes in `cliSwitches`);
   `events.md` ↔ `EventPermissions` (with the permission); `permissions.md` ↔

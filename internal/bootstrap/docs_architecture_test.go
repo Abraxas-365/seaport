@@ -369,6 +369,12 @@ func TestDocsHTTPAPI(t *testing.T) {
 
 var envName = regexp.MustCompile(`^(SEAPORT_[A-Z0-9_]+|IAMKIT_[A-Z0-9_]+|DATABASE_URL)$`)
 
+// testOnlyEnv: the test suite's own switches (SEAPORT_TEST_DATABASE_URL,
+// SEAPORT_TEST_IAMKIT, the acptest echo agent's variables). They are read by
+// test support packages, not by a shipped binary, and live in AGENTS.md and
+// docs/contributing, not in configuration.md.
+var testOnlyEnv = regexp.MustCompile(`^SEAPORT_TEST_`)
+
 var envReaders = map[string]bool{"Getenv": true, "LookupEnv": true, "env": true, "envInt": true, "envDuration": true, "envOr": true}
 
 // codeEnvKeys: the variables the code reads outside tests: an argument of
@@ -393,12 +399,12 @@ func codeEnvKeys(files []goFile) map[string]string {
 				if !envReaders[name] || len(n.Args) == 0 {
 					return true
 				}
-				if s, ok := constString(n.Args[0], pkg, consts); ok && envName.MatchString(s) {
+				if s, ok := constString(n.Args[0], pkg, consts); ok && envName.MatchString(s) && !testOnlyEnv.MatchString(s) {
 					out[s] = f.fset.Position(n.Pos()).String()
 				}
 			case *ast.BasicLit:
 				if pkg == "config" && n.Kind == token.STRING {
-					if s, err := strconv.Unquote(n.Value); err == nil && envName.MatchString(s) {
+					if s, err := strconv.Unquote(n.Value); err == nil && envName.MatchString(s) && !testOnlyEnv.MatchString(s) {
 						out[s] = f.fset.Position(n.Pos()).String()
 					}
 				}
@@ -989,6 +995,8 @@ func f() {
 const EnvURL = "SEAPORT_URL"`,
 			"connector/c.go": `package connector
 func g() { _ = os.Getenv("SEAPORT_GH"); _ = Getenv("OTHER") }`,
+			"connector/acptest/a.go": `package acptest
+func h() { _ = os.Getenv("SEAPORT_TEST_ACP_AGENT") }`, // the suite's own switch: not a product variable
 		})
 		doc := "| Variable | Default | Meaning |\n| :--- | :--- | :--- |\n" +
 			"| `SEAPORT_KNOWN` | x | y |\n| `SEAPORT_URL` | x | y |\n| `SEAPORT_STALE` | x | y |\n"
