@@ -2,7 +2,6 @@ package pglock_test
 
 import (
 	"context"
-	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,17 +9,12 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/pglock"
+	"github.com/Abraxas-365/seaport/internal/testdb"
 )
 
 func openDB(t *testing.T) *pglock.Locker {
 	t.Helper()
-	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
-	if url == "" {
-		if os.Getenv("CI") != "" {
-			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
-		}
-		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
-	}
+	url := testdb.URL(t)
 	db, err := bootstrap.OpenDB(context.Background(), url)
 	if err != nil {
 		t.Fatal(err)

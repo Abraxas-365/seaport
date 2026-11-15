@@ -48,9 +48,11 @@ jobs:
             GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./... || exit 1
           done
       # Architecture tests always run; the integration tests use the service
-      # database (they wipe it, hence -p 1) and IAMKit containers. Shuffled so
-      # a test that depends on another's leftovers fails here, not by luck.
-      - run: go test -race -count=1 -p 1 -shuffle=on ./...
+      # Postgres (each package wipes a database of its own, `seaport_test_<pkg>`,
+      # made on demand by internal/testdb, so packages run in parallel) and
+      # IAMKit containers. Shuffled so a test that depends on another's
+      # leftovers fails here, not by luck.
+      - run: go test -race -count=1 -shuffle=on ./...
 
   # Native Go fuzz targets (FuzzX), 10s each, no database. scripts/fuzz.sh
   # finds them with `go test -list`; the shards run in parallel so the job

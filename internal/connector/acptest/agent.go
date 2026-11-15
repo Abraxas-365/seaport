@@ -176,9 +176,8 @@ var (
 // Serve runs the agent over in/out until the peer closes in (or ctx ends).
 func Serve(ctx context.Context, in io.Reader, out io.Writer, getenv func(string) string) error {
 	a := &agent{caps: parseCaps(getenv(EnvCaps)), getenv: getenv, log: getenv(EnvLog), turns: map[acp.SessionId]*turn{}}
-	tapped, feed := io.Pipe()
-	go a.tap(in, feed)
-	a.conn = acp.NewAgentSideConnection(a, &capsWriter{w: out, systemPrompt: a.caps["systemprompt"]}, tapped)
+	// The start record is written before the connection can answer anything:
+	// a test reads it as soon as StartAgent returns (right after initialize).
 	start := Record{Kind: "start", Env: map[string]string{}}
 	for _, name := range strings.Split(getenv(EnvEnvNames), ",") {
 		if name = strings.TrimSpace(name); name != "" {
@@ -186,6 +185,9 @@ func Serve(ctx context.Context, in io.Reader, out io.Writer, getenv func(string)
 		}
 	}
 	a.write(start)
+	tapped, feed := io.Pipe()
+	go a.tap(in, feed)
+	a.conn = acp.NewAgentSideConnection(a, &capsWriter{w: out, systemPrompt: a.caps["systemprompt"]}, tapped)
 	select {
 	case <-a.conn.Done():
 	case <-ctx.Done():

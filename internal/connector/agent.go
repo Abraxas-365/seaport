@@ -123,8 +123,10 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit, browser *Browse
 		_ = cmd.Wait()
 		close(a.done)
 	}()
-	a.conn = acp.NewClientSideConnection(&client{a: a}, injector{w: stdin, wire: a.wire}, &sniffer{r: stdout, wire: a.wire})
+	ready := make(chan struct{})
+	a.conn = acp.NewClientSideConnection(&client{a: a}, injector{w: stdin, wire: a.wire}, &sniffer{r: &gated{r: stdout, open: ready}, wire: a.wire})
 	a.conn.SetLogger(slog.Default().With("component", "acp"))
+	close(ready) // the SDK's receive loop starts in the constructor; it may log before SetLogger (a harness that exits at once), so it gets no byte until the logger is set
 	a.loadSessions()
 
 	init, err := a.conn.Initialize(ctx, acp.InitializeRequest{

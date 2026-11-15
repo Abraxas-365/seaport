@@ -19,6 +19,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/testdb"
 )
 
 const cliAdminToken = "cli-admin-token-0123456789"
@@ -30,18 +31,11 @@ type cliPort struct {
 	url string
 }
 
-// testDatabaseURL is the throwaway database of the integration tests.
-// Tests skip without it, except in CI, where a missing database must fail.
+// testDatabaseURL is this package's own throwaway database (internal/testdb).
+// Tests skip without a server, except in CI, where a missing database must fail.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
-	if url == "" {
-		if os.Getenv("CI") != "" {
-			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
-		}
-		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
-	}
-	return url
+	return testdb.URL(t)
 }
 
 // startCLIPort wipes the test database and starts a port on it, with the

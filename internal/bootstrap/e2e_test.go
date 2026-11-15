@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +21,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/testdb"
 	"github.com/coder/websocket"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,19 +32,13 @@ const (
 	testAgent = "test"
 )
 
-// testDatabaseURL is the throwaway database of the integration tests
-// (docker compose up -d; createdb seaport_test). Tests skip without it,
-// except in CI, where a missing database must fail rather than pass quietly.
+// testDatabaseURL is this package's own throwaway database (internal/testdb:
+// `<base>_bootstrap` on SEAPORT_TEST_DATABASE_URL's server, or a Docker
+// Postgres). Tests skip without a server, except in CI, where a missing
+// database must fail rather than pass quietly.
 func testDatabaseURL(t *testing.T) string {
 	t.Helper()
-	url := os.Getenv("SEAPORT_TEST_DATABASE_URL")
-	if url == "" {
-		if os.Getenv("CI") != "" {
-			t.Fatal("SEAPORT_TEST_DATABASE_URL not set in CI")
-		}
-		t.Skip("SEAPORT_TEST_DATABASE_URL not set")
-	}
-	return url
+	return testdb.URL(t)
 }
 
 // testServer is where a port listens.
