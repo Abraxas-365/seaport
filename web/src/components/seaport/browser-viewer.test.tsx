@@ -39,6 +39,22 @@ describe("Takeovers", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
   })
 
+  it("says Seaport detected the page, with its path, for the detector's", () => {
+    stubNetwork()
+    renderAt(
+      <Takeovers
+        agent={agentWith([
+          takeover({ host: "sso.example.com", kind: "login", by: "detector", path: "/signin", note: "the connector's page detector saw a page" }),
+        ])}
+        canClear={false}
+      />,
+      seededClient(),
+    )
+    const line = screen.getByText(/Seaport detectó que el navegador necesita que inicies sesión en/)
+    expect(line).toHaveTextContent("sso.example.com/signin")
+    expect(line).not.toHaveTextContent("page detector")
+  })
+
   it("opens the viewer on the host and offers Listo to who may use the browser", async () => {
     stubNetwork()
     const onOpen = vi.fn()

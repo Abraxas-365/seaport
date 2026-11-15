@@ -695,6 +695,7 @@ function Domain() {
                 { host: "app.example.com", kind: "login", note: "revisar el tablero del sprint", at: new Date(now - 300_000).toISOString() },
                 { host: "mail.example.com", kind: "captcha", note: "", at: new Date(now - 3_600_000).toISOString() },
                 { host: "bank.example.com", kind: "2fa", note: "", at: new Date(now - 7_200_000).toISOString() },
+                { host: "sso.example.com", kind: "login", note: "", by: "detector", path: "/signin", at: new Date(now - 60_000).toISOString() },
               ],
             }}
             canClear={false}

@@ -24,6 +24,8 @@ const (
 	MaxSecretValue   = 16384
 	MaxOptionValue   = 100
 	maxSkillDescribe = 1024
+	// MaxIgnoreHosts bounds a profile's browser_ignore_hosts.
+	MaxIgnoreHosts = 32
 )
 
 // Approve policies: how the connector answers the harness's permission
@@ -71,9 +73,16 @@ type Profile struct {
 	// working (AssistConversation), or a destination of one of its docks,
 	// by name. The takeover's notice goes there as a message; when a
 	// person ends it from the web, the agent is woken in the same place.
-	BrowserAssist string    `json:"browser_assist"`
-	CreatedBy     string    `json:"created_by"`
-	CreatedAt     time.Time `json:"created_at"`
+	BrowserAssist string `json:"browser_assist"`
+	// BrowserDetect: the connector watches the browser's pages and asks
+	// for a takeover itself when one needs a sign-in, a captcha or a code
+	// (the model doesn't have to notice). Needs Browser.
+	BrowserDetect bool `json:"browser_detect"`
+	// BrowserIgnoreHosts are sites (and their subdomains) the detector
+	// never asks a takeover for: a password field the agent never needs.
+	BrowserIgnoreHosts []string  `json:"browser_ignore_hosts"`
+	CreatedBy          string    `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 // AssistConversation is BrowserAssist's "the conversation the agent is
@@ -135,6 +144,10 @@ type SaveProfile struct {
 	Browser      bool
 	// BrowserAssist: "", AssistConversation or a destination name.
 	BrowserAssist string
+	// BrowserDetect and BrowserIgnoreHosts need Browser; hosts are
+	// lowercased and must be unique.
+	BrowserDetect      bool
+	BrowserIgnoreHosts []string
 	// CreatedBy is filled from the caller (not client input).
 	CreatedBy string
 }
@@ -193,7 +206,48 @@ func (p SaveProfile) Validate() error {
 	if p.BrowserAssist != "" && p.BrowserAssist != AssistConversation && !assistDestination.MatchString(p.BrowserAssist) {
 		return errx.InvalidField("browser_assist", "browser_assist must be empty, \"conversation\" or a destination name (1-64 lowercase letters, digits, - or _)")
 	}
+	if p.BrowserDetect && !p.Browser {
+		return errx.InvalidField("browser_detect", "browser_detect needs the browser on")
+	}
+	if len(p.BrowserIgnoreHosts) > 0 && !p.Browser {
+		return errx.InvalidField("browser_ignore_hosts", "browser_ignore_hosts needs the browser on")
+	}
+	if len(p.BrowserIgnoreHosts) > MaxIgnoreHosts {
+		return errx.InvalidField("browser_ignore_hosts", "at most "+strconv.Itoa(MaxIgnoreHosts)+" hosts can be ignored")
+	}
+	clear(seen)
+	for _, h := range p.BrowserIgnoreHosts {
+		if err := ValidHost(h); err != nil {
+			return errx.InvalidField("browser_ignore_hosts", strconv.Quote(h)+" is not a site's DNS name (app.example.com)")
+		}
+		h = strings.ToLower(strings.TrimSpace(h))
+		if seen[h] {
+			return errx.InvalidField("browser_ignore_hosts", h+" is listed twice")
+		}
+		seen[h] = true
+	}
 	return text.Optional("created_by", p.CreatedBy, text.MaxName)
+}
+
+// IgnoreHosts normalizes the profile's ignore list (lowercase, trimmed;
+// never nil, so it stores and renders as an array).
+func (p SaveProfile) IgnoreHosts() []string {
+	out := make([]string, 0, len(p.BrowserIgnoreHosts))
+	for _, h := range p.BrowserIgnoreHosts {
+		out = append(out, strings.ToLower(strings.TrimSpace(h)))
+	}
+	return out
+}
+
+// HostIgnored says whether host is one of hosts or a subdomain of one.
+func HostIgnored(host string, hosts []string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	for _, h := range hosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return true
+		}
+	}
+	return false
 }
 
 // assistDestination is a destination name (dock.ValidDestinationName's
@@ -295,6 +349,11 @@ type Kit struct {
 	// Browser asks the connector for the managed browser (a hosted slot
 	// starts its environment's engine and adds the browser MCP).
 	Browser bool `json:"browser"`
+	// BrowserDetect asks the connector to watch the browser's pages and
+	// ask for takeovers itself; BrowserIgnoreHosts are the sites (and
+	// subdomains) it leaves alone.
+	BrowserDetect      bool     `json:"browser_detect"`
+	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
 	// Env is given to the harness process (secrets marked env).
 	Env map[string]string `json:"env"`
 	// Revision changes whenever anything above does (profile or secrets):

@@ -115,6 +115,9 @@ export type SlotState =
   | "stopping"
   | "failed"
 
+/** TakeoverBy is who asked for the takeover. */
+export type TakeoverBy = "agent" | "detector"
+
 /** TakeoverKind is what the person must do in the browser. */
 export type TakeoverKind = "login" | "captcha" | "2fa" | "other"
 
@@ -246,6 +249,17 @@ export interface AgentProfile {
    * person ends it from the web, the agent is woken in the same place.
    */
   browser_assist: string
+  /**
+   * BrowserDetect: the connector watches the browser's pages and asks
+   * for a takeover itself when one needs a sign-in, a captcha or a code
+   * (the model doesn't have to notice). Needs Browser.
+   */
+  browser_detect: boolean
+  /**
+   * BrowserIgnoreHosts are sites (and their subdomains) the detector
+   * never asks a takeover for: a password field the agent never needs.
+   */
+  browser_ignore_hosts: string[]
   created_by: string
   created_at: string
 }
@@ -1295,6 +1309,16 @@ export interface Takeover {
    * for KindOther).
    */
   note: string
+  /**
+   * By says who asked: the agent (ask_takeover) or the connector's
+   * detector (TakeoverBys; "" in old rows reads as the agent).
+   */
+  by?: TakeoverBy
+  /**
+   * Path is the page's URL path when the detector asked ("" otherwise;
+   * never the query or the page's content).
+   */
+  path?: string
   /** Conversation is the one the agent was working, when it said so. */
   conversation_id?: ID
   at: string

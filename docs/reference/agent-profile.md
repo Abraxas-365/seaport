@@ -27,6 +27,8 @@ For how to write a good profile, read [Profiles](../guides/profiles.md).
 | `effort` | string | empty | one word, at most 100 characters | The reasoning effort, picked among the harness's session options. Empty leaves the harness default. |
 | `browser` | boolean | `false` | | The agent uses the managed browser of its environment and gets the `ask_takeover` tool. Only a hosted agent on an environment with `browser.engine` gets one. See [Browser](../guides/hosting/browser.md). |
 | `browser_assist` | string | empty | empty, `conversation` or a destination name (1–64 lowercase letters, digits, `-` or `_`) | Whom Seaport tells when the agent asks for a takeover. Empty: nobody (the takeover shows only in the web). `conversation`: a message in the conversation the agent named in the call. A [destination](../guides/destinations.md) name: a new conversation opened at that destination of one of the agent's docks. Needs `browser` on. See [When a person must take over](../guides/hosting/browser.md#when-a-person-must-take-over). |
+| `browser_detect` | boolean | `false` | | The connector watches the pages the browser loads and, when one needs a person (a sign-in form or a known sign-in host, a captcha widget or wall, a one-time code), records the takeover itself and tells the running turn, whether or not the model noticed. Needs `browser` on. See [Seaport detects it](../guides/hosting/browser.md#seaport-detects-it). |
+| `browser_ignore_hosts` | list of string | empty | 32 hosts, each a site's DNS name, unique | Sites (and their subdomains) the detector never asks a takeover for: a page with a password field the agent never needs to pass. Lowercased. Needs `browser` on. |
 
 Secrets are not a field of the profile: they belong to the agent and are set apart. See [Secrets](#secrets).
 
@@ -144,7 +146,7 @@ The same document, without `base`, is what `seaport agents profile show -json` p
 }
 ```
 
-The kit a connector gets from `GET /crew/profile` has `agent_id`, `version`, `instructions`, `skills`, `mcp_servers` (with their header secrets resolved), `approve`, `model`, `effort` and `browser`, plus:
+The kit a connector gets from `GET /crew/profile` has `agent_id`, `version`, `instructions`, `skills`, `mcp_servers` (with their header secrets resolved), `approve`, `model`, `effort`, `browser`, `browser_detect` and `browser_ignore_hosts`, plus:
 
 | Field | Meaning |
 | :--- | :--- |

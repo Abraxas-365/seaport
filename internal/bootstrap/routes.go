@@ -33,6 +33,8 @@ type nativeRoutes struct {
 	kit, attachment, reply, workspace fiber.Handler
 	// POST /crew/approvals and GET /crew/approvals/:id (`seaport ask`).
 	askApproval, approval fiber.Handler
+	// POST /crew/takeovers (the connector's page detector).
+	askTakeover fiber.Handler
 	// ui is the admin web app: every GET the routes above leave unanswered.
 	ui fiber.Handler
 }
@@ -77,6 +79,7 @@ func mountNative(app *fiber.App, r nativeRoutes) {
 	app.Post("/crew/reply", auth.Crew(), limit, r.reply)
 	app.Post("/crew/approvals", auth.Crew(), limit, r.askApproval)
 	app.Get("/crew/approvals/:id", auth.Crew(), limit, r.approval)
+	app.Post("/crew/takeovers", auth.Crew(), limit, r.askTakeover)
 	app.Get("/crew/workspace", auth.Crew(), limit, r.workspace)
 	// App tokens for the agent's repos (gh and git inside its slot).
 	app.Post("/crew/github/token", auth.Crew(), limit, r.githubToken)

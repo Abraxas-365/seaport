@@ -499,6 +499,16 @@ func TestCLIAgents(t *testing.T) {
 		t.Errorf("assist without browser: %q", msg)
 	}
 	mustContain(t, "assist off", p.ok("agents", "profile", "set", "triage", "-browser-assist", "none"), "profile v7 saved")
+	if msg := p.fails("agents", "profile", "set", "triage", "-browser-detect", "maybe"); !strings.Contains(msg, "-browser-detect must be on or off") {
+		t.Errorf("bad detect: %q", msg)
+	}
+	mustContain(t, "detect on", p.ok("agents", "profile", "set", "triage", "-browser-detect", "on", "-browser-ignore", "Intranet.example.com, wiki.example.com"), "profile v8 saved")
+	mustContain(t, "detect shown", p.ok("agents", "profile", "triage"), "browser-detect: on", "browser-ignore: intranet.example.com,wiki.example.com")
+	if msg := p.fails("agents", "profile", "set", "triage", "-browser-ignore", "not a host"); !strings.Contains(msg, "is not a site's DNS name") {
+		t.Errorf("bad ignore: %q", msg)
+	}
+	mustContain(t, "ignore none", p.ok("agents", "profile", "set", "triage", "-browser-ignore", "none", "-browser-detect", "off"), "profile v9 saved")
+	mustContain(t, "detect off shown", p.ok("agents", "profile", "triage"), "browser-detect: off", "browser-ignore: none")
 
 	// secrets: values come from stdin and are never shown
 	mustContain(t, "no secrets", p.ok("agents", "secrets", "triage"), "has no secrets")
@@ -522,7 +532,7 @@ func TestCLIAgents(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "mcp profile", p.ok("agents", "profile", "set", "triage", "-f", cfg), "profile v8 saved")
+	mustContain(t, "mcp profile", p.ok("agents", "profile", "set", "triage", "-f", cfg), "profile v10 saved")
 	mustContain(t, "mcp shown", p.ok("agents", "profile", "triage"), "MCP servers (1)", "tools", "https://mcp.example.com/mcp", "Authorization: Bearer ${API_TOKEN}")
 	if msg := p.fails("agents", "secrets", "rm", "triage", "API_TOKEN"); msg == "" {
 		t.Error("a secret an MCP header uses was deleted")

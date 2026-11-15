@@ -108,6 +108,11 @@ func Run(ctx context.Context, cfg Config) error {
 			browser.Stop()
 			return err
 		}
+		if browser != nil && kit.BrowserDetect {
+			// The detector lives with the browser (Browser.Done ends it).
+			det := newDetector(cfg, kit, agent.table())
+			go watchPages(ctx, browser, func(h pageHit) { det.hit(ctx, h) })
+		}
 		err = keepConnected(ctx, agent.Done(), time.Second, func(ctx context.Context) error {
 			return session(ctx, cfg, agent)
 		})
@@ -260,41 +265,40 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 
 	var wg sync.WaitGroup
 	defer wg.Wait()
-	jobs := map[identity.DeliveryID]*job{}
-	var jobsMu sync.Mutex
-	// viewerOn: a person is in the slot's browser (browser frames; under
-	// jobsMu, so a frame and a new job never cross).
-	viewerOn := false
+	// jobs outlive the connection: the harness's, so a reconnect keeps the
+	// browser's state and the detector's asks.
+	jobs := agent.table()
+	var stateMu sync.Mutex
 	draining, checking := false, false
 	// check fetches the kit and, when it isn't the one the agent runs,
 	// drains: no new deliveries, restart once the last one is acked.
 	// drain stops new deliveries and restarts once the last one is acked
-	// (jobsMu held; it unlocks).
+	// (stateMu held; it unlocks).
 	drain := func() {
 		draining = true
-		idle := len(jobs) == 0
-		jobsMu.Unlock()
+		idle := jobs.count() == 0
+		stateMu.Unlock()
 		send(crew.Frame{Type: crew.FrameDrain})
 		if idle {
 			send(crew.Frame{Type: restartFrame})
 		}
 	}
 	check := func() {
-		jobsMu.Lock()
+		stateMu.Lock()
 		if draining || checking || !agent.Profiled() {
-			jobsMu.Unlock()
+			stateMu.Unlock()
 			return
 		}
 		checking = true
-		jobsMu.Unlock()
+		stateMu.Unlock()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			kit, err := fetchKit(ctx, cfg)
-			jobsMu.Lock()
+			stateMu.Lock()
 			checking = false
 			if err != nil || revision(kit) == agent.Revision() {
-				jobsMu.Unlock()
+				stateMu.Unlock()
 				if err != nil && ctx.Err() == nil {
 					slog.Warn("could not fetch the changed agent profile; keeping the current one", "err", err)
 				}
@@ -310,9 +314,9 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			select {
 			case <-ctx.Done():
 			case <-cfg.Reload:
-				jobsMu.Lock()
+				stateMu.Lock()
 				if draining {
-					jobsMu.Unlock()
+					stateMu.Unlock()
 					return
 				}
 				slog.Info("the agent signed in; finishing the work in flight before restarting it")
@@ -348,10 +352,8 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 				continue
 			}
 			d := *f.Delivery
-			jobsMu.Lock()
-			j := newJob(d, viewerPrelude(viewerOn))
-			jobs[d.ID] = j
-			jobsMu.Unlock()
+			j := newJob(d)
+			jobs.add(j, time.Now())
 			wg.Add(2)
 			go func() {
 				defer wg.Done()
@@ -360,10 +362,10 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			go func() {
 				defer wg.Done()
 				work(ctx, cfg, agent, j, send)
-				jobsMu.Lock()
-				delete(jobs, d.ID)
-				idle := draining && len(jobs) == 0
-				jobsMu.Unlock()
+				jobs.remove(d.ID)
+				stateMu.Lock()
+				idle := draining && jobs.count() == 0
+				stateMu.Unlock()
 				if idle {
 					send(crew.Frame{Type: restartFrame})
 				}
@@ -372,9 +374,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			if f.Delivery == nil {
 				continue
 			}
-			jobsMu.Lock()
-			j := jobs[f.Delivery.ID]
-			jobsMu.Unlock()
+			j := jobs.get(f.Delivery.ID)
 			if j == nil {
 				continue // already acked: the port requeues these ships
 			}
@@ -383,14 +383,7 @@ func session(ctx context.Context, cfg Config, agent *Agent) error {
 			// A person took the slot's browser, or gave it back: every
 			// running turn hears it, and new turns start knowing it.
 			on := f.Viewer == crew.ViewerOn
-			jobsMu.Lock()
-			changed := viewerOn != on
-			viewerOn = on
-			running := make([]*job, 0, len(jobs))
-			for _, j := range jobs {
-				running = append(running, j)
-			}
-			jobsMu.Unlock()
+			changed, running := jobs.viewer(on)
 			if !changed {
 				continue
 			}
@@ -420,7 +413,7 @@ type job struct {
 	notes chan string
 	stop  chan struct{} // closed when the turn is over
 	// prelude goes before the delivery's prompt (the browser's state when
-	// the turn starts).
+	// the turn starts; set by jobTable.add).
 	prelude string
 
 	mu      sync.Mutex
@@ -428,8 +421,8 @@ type job struct {
 	done    bool
 }
 
-func newJob(d ship.Delivery, prelude string) *job {
-	j := &job{d: d, steers: make(chan ship.Delivery, 64), notes: make(chan string, 8), stop: make(chan struct{}), prelude: prelude}
+func newJob(d ship.Delivery) *job {
+	j := &job{d: d, steers: make(chan ship.Delivery, 64), notes: make(chan string, 8), stop: make(chan struct{})}
 	for _, s := range d.Ships {
 		j.handled = append(j.handled, s.ID)
 	}

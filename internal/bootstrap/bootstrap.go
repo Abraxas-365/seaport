@@ -351,7 +351,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 			admin:  admin,
 			public: []func(httpx.Router){docks.RegisterPublic}, githubToken: docks.GitHubToken(), events: eventsse.Handler(bus, done, EventPermissions), ws: crew.WS(), mcp: crew.MCP(), gateway: hosted.Gateway(),
 			kit: crew.Kit(), attachment: crew.Attachment(), reply: crew.Reply(), workspace: hosted.Workspace(),
-			askApproval: crew.AskApproval(), approval: crew.Approval(),
+			askApproval: crew.AskApproval(), approval: crew.Approval(), askTakeover: crew.AskTakeover(),
 			// Everything else is the admin UI (client routes fall back to index.html).
 			ui: httpx.SPA(web.Dist(), cfg.GitHubURL)})
 	})

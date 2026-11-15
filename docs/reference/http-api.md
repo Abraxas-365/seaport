@@ -85,7 +85,7 @@ Quota names: `docks`, `crew_connections`, `crew_tokens`, `agents`, `agent_secret
 
 **Rate limits.** Two rates exist:
 
-- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments`, `/crew/reply`, `/crew/approvals`, `/crew/workspace` and `/crew/github/token`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
+- The API rate (`SEAPORT_API_RATE`, `SEAPORT_API_BURST`) is a token bucket per caller (organization, role, subject and credential). It covers `/api/`, `/crew/ws`, `/mcp`, `/crew/profile`, `/crew/attachments`, `/crew/reply`, `/crew/approvals`, `/crew/takeovers`, `/crew/workspace` and `/crew/github/token`, after authentication. The gateway and the public routes aren't limited. The bucket is per process.
 - The outbound limits (`SEAPORT_SEND_*`) refuse a reply when a dock, conversation or organization sent too much lately.
 
 Both answer `429` with `Retry-After` in seconds. Wait that long.
@@ -499,7 +499,7 @@ A rule is `{"id","dock_id","effect","pattern","created_at"}`. A pattern has at m
 | `GET` | `/agents/{id}/secrets` | `agents:read` | `{"secrets":[{"name","env","updated_at"}]}`. Never values. |
 | `PUT` | `/agents/{id}/secrets/{name}` | `agents:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
 | `DELETE` | `/agents/{id}/secrets/{name}` | `agents:write` | `204`. |
-| `DELETE` | `/agents/{id}/takeovers/{host}` | `browser:use` | Ends the agent's browser takeover at `host` (`takeovers` of the agent, made by the `ask_takeover` tool): a person did what the site asked. The agent. |
+| `DELETE` | `/agents/{id}/takeovers/{host}` | `browser:use` | Ends the agent's browser takeover at `host` (`takeovers` of the agent, made by the `ask_takeover` tool or the connector's page detector): a person did what the site asked. The agent. |
 | `GET` | `/agents/{id}/usage` | `agents:read` | Query `days` (default 30, at most 366). `{"days":[{"day","provider","model","requests","input_tokens","output_tokens","cache_write_tokens","cache_read_tokens"}]}`. |
 
 An agent:
@@ -669,6 +669,7 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `GET` | `/crew/attachments/{id}` | An attachment's bytes (an image, or a document as a download). Only for conversations on the agent's docks, else `404`. |
 | `POST` | `/crew/approvals` | Ask an approval as the agent. Body `{"conversation_id","text","options":[…],"wait_seconds"}`. `201` with the approval (`id`, `status`, `options`, `answer`, …). With `wait_seconds` (at most 290, cut to the request deadline) it blocks until answered. Agent tokens only. Same rules as the MCP `ask_approval` tool. |
 | `GET` | `/crew/approvals/{id}` | The agent's approval; `?wait_seconds=N` blocks while pending. Another agent's is `404`. |
+| `POST` | `/crew/takeovers` | Ask a browser takeover as the agent: the `ask_takeover` tool over HTTP, for the connector's page detector (the profile's `browser_detect`). Body `{"host","kind","note","detected","path","conversation_id","wait_seconds"}`; `detected: true` records it as the detector's (`by: detector`) with the page's `path` (no query). `201` with `{"host","kind","notified","done","pending_takeovers"}`. Agent tokens only; a `conversation_id` of a dock the agent isn't on is `404`. Same rules as `ask_takeover`. |
 | `POST` | `/crew/reply` | A reply as the agent, with files. Body `{"conversation_id","text","files":[{"name","data"}]}` (`data` base64; body up to about 35 MiB). `201` `{"ship_id","status"}`. Agent tokens only (`403` without an agent). Same rules as the MCP `reply` tool. |
 | `GET` | `/crew/workspace` | A hosted slot's plan for `/workspace`: `slot`, `harness`, `repo_config`, `persistent`, `repos`, `sign_in`, with repo credentials resolved. Only a slot's own token gets it; any other is `403`. |
 | `POST` | `/crew/github/token` | A GitHub App token for one repository. Body `{"repository":"owner/repo","host":"github.com"}` (`host` optional: another host than the port's GitHub is `404`). `200` `{"token","expires_at","repository","host","api_url","app"}`, `Cache-Control: no-store`. Only an agent's crew token, and only for a repository where the App of one of its GitHub docks is installed and active; else `404` (`403` without an agent: `none` mode). See [GitHub](../guides/github.md#act-on-github-as-the-app). |

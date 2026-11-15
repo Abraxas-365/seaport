@@ -74,7 +74,11 @@ func (t Takeovers) Notify(ctx context.Context, org identity.OrganizationID, a ag
 // reader is a person on the channel.
 func (t Takeovers) notice(a agent.Agent, tk agent.Takeover) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "El agente *%s* necesita que una persona %s en %s.", a.Name, takeoverAction(tk), tk.Host)
+	if tk.Asker() == agent.TakeoverByDetector {
+		fmt.Fprintf(&b, "Seaport detectó que el navegador del agente *%s* necesita que una persona %s en %s%s.", a.Name, takeoverAction(tk), tk.Host, tk.Path)
+	} else {
+		fmt.Fprintf(&b, "El agente *%s* necesita que una persona %s en %s.", a.Name, takeoverAction(tk), tk.Host)
+	}
 	if tk.Note != "" {
 		fmt.Fprintf(&b, " Qué hacía: %s.", strings.TrimRight(tk.Note, "."))
 	}

@@ -35,6 +35,10 @@ type profileFile struct {
 	// BrowserAssist: whom to tell about a takeover ("", conversation or a
 	// destination name).
 	BrowserAssist string `json:"browser_assist"`
+	// BrowserDetect: the connector asks takeovers itself; BrowserIgnoreHosts
+	// are the sites it leaves alone.
+	BrowserDetect      bool     `json:"browser_detect"`
+	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
 }
 
 // profileCmd is `seaport agents profile [show|set|versions] <agent> ...`.
@@ -114,13 +118,15 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	effort := fs.String("effort", "", "reasoning effort, among the harness's options (\"none\" clears)")
 	browser := fs.String("browser", "", "on|off: use the environment's managed browser (hosted agents)")
 	assist := fs.String("browser-assist", "", "whom to tell about a takeover: none|conversation|<destination name>")
+	detect := fs.String("browser-detect", "", "on|off: the connector detects sign-in, captcha and 2FA pages and asks the takeover itself")
+	ignore := fs.String("browser-ignore", "", "comma-separated sites the detector leaves alone (\"none\" clears)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if len(set) == 0 {
-		return errx.Validation("nothing to change: -f, -instructions-file, -skills-dir, -skill, -rm-skill, -approve, -model, -effort, -browser or -browser-assist")
+		return errx.Validation("nothing to change: -f, -instructions-file, -skills-dir, -skill, -rm-skill, -approve, -model, -effort, -browser, -browser-assist, -browser-detect or -browser-ignore")
 	}
 	// Start from the current profile (with skill bodies): flags edit it.
 	var cur agent.Profile
@@ -205,9 +211,30 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	if set["browser-assist"] {
 		p.BrowserAssist = cleared(*assist)
 	}
+	if set["browser-detect"] {
+		switch *detect {
+		case "on":
+			p.BrowserDetect = true
+		case "off":
+			p.BrowserDetect = false
+		default:
+			return errx.InvalidField("browser-detect", "-browser-detect must be on or off")
+		}
+	}
+	if set["browser-ignore"] {
+		p.BrowserIgnoreHosts = []string{}
+		for _, h := range strings.Split(cleared(*ignore), ",") {
+			if h = strings.TrimSpace(h); h != "" {
+				p.BrowserIgnoreHosts = append(p.BrowserIgnoreHosts, h)
+			}
+		}
+	}
+	if p.BrowserIgnoreHosts == nil {
+		p.BrowserIgnoreHosts = []string{}
+	}
 	body := map[string]any{"base": cur.Version, "instructions": p.Instructions, "skills": p.Skills,
 		"mcp_servers": p.MCPServers, "approve": p.Approve, "model": p.Model, "effort": p.Effort, "browser": p.Browser,
-		"browser_assist": p.BrowserAssist}
+		"browser_assist": p.BrowserAssist, "browser_detect": p.BrowserDetect, "browser_ignore_hosts": p.BrowserIgnoreHosts}
 	var out agent.Profile
 	if err := a.do(ctx, http.MethodPut, base, body, &out); err != nil {
 		return err
@@ -301,7 +328,8 @@ func readSecret(name string) (string, error) {
 
 func fileOf(p agent.Profile) profileFile {
 	return profileFile{Instructions: p.Instructions, Skills: p.Skills, MCPServers: p.MCPServers,
-		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser, BrowserAssist: p.BrowserAssist}
+		Approve: p.Approve, Model: p.Model, Effort: p.Effort, Browser: p.Browser, BrowserAssist: p.BrowserAssist,
+		BrowserDetect: p.BrowserDetect, BrowserIgnoreHosts: p.BrowserIgnoreHosts}
 }
 
 func printProfile(name string, p agent.Profile) {
@@ -310,7 +338,7 @@ func printProfile(name string, p agent.Profile) {
 		return
 	}
 	fmt.Fprintf(stdout, "agent %s, profile v%d (%s, %s)\n", name, p.Version, p.CreatedBy, p.CreatedAt.Local().Format("2006-01-02 15:04"))
-	fmt.Fprintf(stdout, "approve: %s  model: %s  effort: %s  browser: %s  browser-assist: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser), orDash(p.BrowserAssist, "nobody"))
+	fmt.Fprintf(stdout, "approve: %s  model: %s  effort: %s  browser: %s  browser-assist: %s  browser-detect: %s  browser-ignore: %s\n", orDash(p.Approve, "connector"), orDash(p.Model, "harness default"), orDash(p.Effort, "harness default"), onOff(p.Browser), orDash(p.BrowserAssist, "nobody"), onOff(p.BrowserDetect), orDash(strings.Join(p.BrowserIgnoreHosts, ","), "none"))
 	fmt.Fprintf(stdout, "\ninstructions (%d chars):\n", len(p.Instructions))
 	if p.Instructions == "" {
 		fmt.Fprintln(stdout, "  -")

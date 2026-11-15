@@ -33,7 +33,7 @@ An agent with the switch on but hosted on an environment without a browser (or r
 
 ## When a person must take over
 
-When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
+When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` (or Seaport [detects the page](#seaport-detects-it) and asks for it) with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
 
 ### Telling a person, and resuming the agent
 
@@ -53,7 +53,23 @@ seaport agents profile set surf -browser-assist oncall     # a destination of on
 seaport agents profile set surf -browser-assist none
 ```
 
-A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `conversation_id`, `at`, `notified_at`, `notified_in`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
+A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `by`, `path`, `conversation_id`, `at`, `notified_at`, `notified_in`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
+
+### Seaport detects it
+
+A model doesn't always notice it is on a sign-in page, and one that does may try to get past it. The profile's `browser_detect` (on by default when the web turns the browser on; `seaport agents profile set surf -browser-detect on`) makes the slot's connector watch the browser itself: it keeps a passive DevTools session on the browser and, every time a page finishes loading (and once more a few seconds later, for widgets that render late), reads the page with a small script (`internal/connector/detect.js`) that says whether it needs a person:
+
+- **login**: a visible password field, or a known sign-in host (Google, Microsoft, Apple, Okta, Auth0, Atlassian, Salesforce, AWS, GitHub's `/login`…).
+- **captcha**: a reCAPTCHA, hCaptcha, Turnstile, Arkose, DataDome, PerimeterX, GeeTest or AWS WAF widget or wall.
+- **2fa**: a one-time-code input, or a row of single-digit boxes. Ranked first; then login, then captcha.
+
+The script reads the DOM and writes nothing; the page's content never leaves the slot. A hit records the takeover (`POST /crew/takeovers`, `by: detector`, with the page's path and never its query) on the conversation of the newest turn running, tells a person as `browser_assist` says, and steers a note into every running turn: the page needs a person, whether one was told, never guess credentials or codes, go on with what doesn't need it or wait. The **Navegador** card shows *Seaport detectó que el navegador necesita que inicies sesión en sso.example.com/signin*. A host is asked at most once every 10 minutes while the page keeps needing someone; nothing is asked while a person is in the viewer (they are on it), nor for `browser_ignore_hosts` (sites and their subdomains the agent never needs to pass: `-browser-ignore intranet.example.com,wiki.example.com`). Detection is independent of `browser_assist`: with nobody to tell, the takeover still shows in the web and the agent's note says so.
+
+```sh
+seaport agents profile set surf -browser on -browser-detect on -browser-assist oncall
+seaport agents profile set surf -browser-ignore intranet.example.com
+seaport agents profile set surf -browser-detect off
+```
 
 ## The viewer
 

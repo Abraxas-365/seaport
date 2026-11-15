@@ -59,6 +59,8 @@ export type ProfileInput = Pick<
   | "effort"
   | "browser"
   | "browser_assist"
+  | "browser_detect"
+  | "browser_ignore_hosts"
 >
 
 /** The body of POST /api/v1/schedules (the handler's createRequest). */

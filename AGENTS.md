@@ -737,8 +737,21 @@ net/http mux; only `/healthz` answers 405.
   connection whose token is that slot's (`conn.slot` = `Principal.Slot`;
   people's tokens never get it); the connector steers `viewerOnNote`/
   `viewerOffNote` into every running turn (`job.note`, a hint: never in the
-  ack) and prefixes the prompt of a turn that starts while it is on. Plan
-  `~/.rness/plans/puerto/browser-assist.md` (steps 3b and 4 pending).
+  ack) and prefixes the prompt of a turn that starts while it is on. The
+  profile's `browser_detect` + `browser_ignore_hosts` (migration 00041;
+  `Kit.BrowserDetect/BrowserIgnoreHosts`) make the connector watch the
+  browser itself (`connector/detect.go`: a passive CDP session,
+  `Target.setAutoAttach`, runs the embedded `detect.js` on each page load
+  and `detectRecheck` later; no Chromium in Go CI, so `detect.js` is tested
+  by `web/src/lib/browser-detect.test.ts` in jsdom and the CDP side by a
+  fake in `detect_test.go`). A hit (`login` | `captcha` | `2fa`) goes through
+  `jobTable.detected` (quiet while the viewer is on, `agent.HostIgnored`,
+  once per host per `agent.DetectEvery`) to `POST /crew/takeovers`
+  (`crewhttp.Takeovers`, agent tokens only; `crew.TakeoverRequest`, the
+  tool's input over HTTP, `Detected: true` → `Takeover.By = detector` with
+  the page's `Path`, never the query), naming the newest running job's
+  conversation, and `detectNote` is steered into every running turn. Plan
+  `~/.rness/plans/puerto/browser-assist.md` (step 4 pending).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel

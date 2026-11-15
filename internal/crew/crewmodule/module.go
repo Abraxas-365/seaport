@@ -36,6 +36,7 @@ type Module struct {
 	media    crewhttp.Attachment
 	reply    crewhttp.Reply
 	approve  crewhttp.Approvals
+	takeover crewhttp.Takeovers
 	version  string
 }
 
@@ -74,6 +75,7 @@ func (m *Module) Bind(ships interface {
 	m.media = crewhttp.Attachment{Ships: ships}
 	m.reply = crewhttp.Reply{Ships: ships}
 	m.approve = crewhttp.Approvals{Ships: ships}
+	m.takeover = crewhttp.Takeovers{Agents: agents, Conversations: convs}
 	m.Hub.Bind(ships, agents)
 }
 
@@ -88,3 +90,6 @@ func (m *Module) Reply() httpx.Handler      { return m.reply.Handle }
 // AskApproval POST /crew/approvals, Approval GET /crew/approvals/{id}.
 func (m *Module) AskApproval() httpx.Handler { return m.approve.Ask }
 func (m *Module) Approval() httpx.Handler    { return m.approve.Get }
+
+// AskTakeover POST /crew/takeovers (the connector's page detector).
+func (m *Module) AskTakeover() httpx.Handler { return m.takeover.Ask }
