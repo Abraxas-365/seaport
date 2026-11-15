@@ -25,6 +25,7 @@ For how to write a good profile, read [Profiles](../guides/profiles.md).
 | `approve` | string | empty | `allow`, `reject` or empty | How the connector answers the harness's permission requests. Empty leaves it to the connector's own `-approve` flag, which rejects by default. |
 | `model` | string | empty | one word, at most 100 characters | The model, picked among the harness's session options. Empty leaves the harness default. |
 | `effort` | string | empty | one word, at most 100 characters | The reasoning effort, picked among the harness's session options. Empty leaves the harness default. |
+| `browser` | boolean | `false` | | The agent uses the managed browser of its environment and gets the `login_needed` tool. Only a hosted agent on an environment with `browser.engine` gets one. See [Browser](../guides/hosting/browser.md). |
 
 Secrets are not a field of the profile: they belong to the agent and are set apart. See [Secrets](#secrets).
 
@@ -140,7 +141,7 @@ The same document, without `base`, is what `seaport agents profile show -json` p
 }
 ```
 
-The kit a connector gets from `GET /crew/profile` has `agent_id`, `version`, `instructions`, `skills`, `mcp_servers` (with their header secrets resolved), `approve`, `model` and `effort`, plus:
+The kit a connector gets from `GET /crew/profile` has `agent_id`, `version`, `instructions`, `skills`, `mcp_servers` (with their header secrets resolved), `approve`, `model`, `effort` and `browser`, plus:
 
 | Field | Meaning |
 | :--- | :--- |

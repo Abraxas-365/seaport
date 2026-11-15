@@ -40,6 +40,7 @@ import {
   ScheduleRow,
   ShipBubble,
   SlotRow,
+  LoginRequests,
   StatusBadge,
   StatusDot,
   ThreadChips,
@@ -629,6 +630,26 @@ function Domain() {
               </li>
             ))}
           </ul>
+        </Specimen>
+        <Specimen label="LoginRequests (sitios donde el agente pidió iniciar sesión; login_needed)" className="lg:col-span-2">
+          <LoginRequests
+            agent={{
+              id: "00000000-0000-0000-0000-000000000001",
+              name: "pm",
+              description: "",
+              created_by: "",
+              created_at: new Date(now - 86_400_000).toISOString(),
+              updated_at: new Date(now).toISOString(),
+              docks: [],
+              profile_version: 3,
+              login_requests: [
+                { host: "app.example.com", reason: "revisar el tablero del sprint", at: new Date(now - 300_000).toISOString() },
+                { host: "mail.example.com", reason: "", at: new Date(now - 3_600_000).toISOString() },
+              ],
+            }}
+            canClear={false}
+            onOpen={() => {}}
+          />
         </Specimen>
         <Specimen label="AccountBadge (cuenta de una instancia con suscripción; experimental)" className="flex flex-wrap items-center gap-2">
           <AccountBadge account={undefined} />

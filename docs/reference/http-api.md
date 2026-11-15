@@ -499,6 +499,7 @@ A rule is `{"id","dock_id","effect","pattern","created_at"}`. A pattern has at m
 | `GET` | `/agents/{id}/secrets` | `agents:read` | `{"secrets":[{"name","env","updated_at"}]}`. Never values. |
 | `PUT` | `/agents/{id}/secrets/{name}` | `agents:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
 | `DELETE` | `/agents/{id}/secrets/{name}` | `agents:write` | `204`. |
+| `DELETE` | `/agents/{id}/login-requests/{host}` | `browser:use` | Clears the agent's request to sign in to `host` (`login_requests` of the agent, made by the `login_needed` tool). The agent. |
 | `GET` | `/agents/{id}/usage` | `agents:read` | Query `days` (default 30, at most 366). `{"days":[{"day","provider","model","requests","input_tokens","output_tokens","cache_write_tokens","cache_read_tokens"}]}`. |
 
 An agent:
@@ -581,6 +582,7 @@ Environments, builds, homes and hosted agents. Permissions are `environments:rea
 | `POST` | `/agents/{id}/hosting/slots/{slot}/login` | `environments:write` | Starts a subscription sign-in. `202`. Experimental. |
 | `GET` | `/agents/{id}/hosting/slots/{slot}/login` | `environments:write` | The sign-in's state: `id`, `slot`, `state`, `url`, `detail`. |
 | `POST` | `/agents/{id}/hosting/slots/{slot}/login/code` | `environments:write` | Body `{"code":"…"}`. `202`. |
+| `GET` | `/agents/{id}/hosting/slots/{slot}/browser` | `browser:use` | WebSocket: the slot's browser over CDP (the web app's [viewer](../guides/hosting/browser.md)). Same-origin only. One viewer per slot (`409 CONFLICT` for a second); `422 BUSINESS` when the environment has no browser, the agent's profile has it off, or the slot isn't running. Ends after 10 minutes without a message or 2 hours in all. |
 
 An environment: `id`, `name`, `version`, `spec`, `created_by`, `created_at`, `updated_at` and `agents` (how many are hosted on it). The spec's fields are in [Environment spec](environment-spec.md). A slot: `index`, `state` (`stopped`, `starting`, `running`, `stopping`, `failed`), `detail`, `image`, `environment_version`, `started_at`, `active_at`, `updated_at`. A build: `environment_id`, `version`, `state` (`building`, `ready`, `failed`), `base`, `image`, `detail`, `log` (the tail, on the build route only), `started_at`, `finished_at`, `updated_at`.
 

@@ -58,6 +58,18 @@ const (
 	SizeL = "L"
 )
 
+// Browser engines (Browser.Engine). Chromium is the only one so far: the
+// light engines tried (2026-11) crashed on the login pages the browser is
+// for (plan browser-login.md), and the field keeps the door open.
+const BrowserChromium = "chromium"
+
+// BrowserPort is the loopback port of a slot's browser (CDP), and
+// BrowserDir the directory of its profile under the state volume.
+const (
+	BrowserPort = 9222
+	BrowserDir  = "browser"
+)
+
 // DefaultIdleStop stops a slot after this long without work.
 const DefaultIdleStop = 30 * time.Minute
 
@@ -131,8 +143,12 @@ type Spec struct {
 	// uploaded to this environment, as sha256:<digest> ("": none).
 	Home string `json:"home"`
 	// Models are the model keys the port's gateway uses for the slots.
-	Models    Models    `json:"models"`
-	Network   Network   `json:"network"`
+	Models  Models  `json:"models"`
+	Network Network `json:"network"`
+	// Browser gives the slots a managed browser (Browser.Enabled): the
+	// image gets the engine and the agent's tooling; an agent whose profile
+	// turns its browser on needs an environment with one.
+	Browser   Browser   `json:"browser"`
 	Resources Resources `json:"resources"`
 	// Workspace: persistent (kept across restarts) or ephemeral.
 	Workspace string `json:"workspace"`
@@ -169,6 +185,18 @@ type Network struct {
 	// ("example.com", "*.example.com"); the repos' hosts are added.
 	Egress []string `json:"egress"`
 }
+
+// Browser is the managed browser of an environment's slots: a CDP engine
+// (BrowserChromium) run by the slot with the agent's profile
+// (cookies, storage) in its state volume. The sites it visits go through
+// the egress proxy like everything else (Network.Egress).
+type Browser struct {
+	// Engine is the browser program: "" for none, else BrowserChromium.
+	Engine string `json:"engine"`
+}
+
+// Enabled says whether the slots get a browser.
+func (b Browser) Enabled() bool { return b.Engine != "" }
 
 // Resources bound a slot: a preset size, or CPUs and memory.
 type Resources struct {
@@ -261,6 +289,11 @@ func (s Spec) Validate() error {
 		if !ValidEgressHost(strings.ToLower(strings.TrimSpace(h))) {
 			return errx.InvalidField("network.egress", strconv.Quote(h)+" must be a host name (example.com or *.example.com)")
 		}
+	}
+	switch strings.TrimSpace(s.Browser.Engine) {
+	case "", BrowserChromium:
+	default:
+		return errx.InvalidField("browser.engine", "browser.engine must be "+BrowserChromium+" (or empty for no browser)")
 	}
 	if err := s.Resources.validate(); err != nil {
 		return err
@@ -409,6 +442,7 @@ func formatIdleStop(d time.Duration) string {
 func Normalize(s Spec) Spec {
 	out := Spec{Description: text.Clean(s.Description), Harness: strings.TrimSpace(s.Harness),
 		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home, Models: s.Models,
+		Browser:   Browser{Engine: strings.TrimSpace(s.Browser.Engine)},
 		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
 	if out.Setup != "" {
 		out.Setup += "\n"

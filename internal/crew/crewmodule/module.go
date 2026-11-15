@@ -60,10 +60,11 @@ func (m *Module) Bind(ships interface {
 	ship.Commands
 	ship.Queries
 }, convs conversation.Queries, agents interface {
+	agent.Commands
 	agent.Queries
 	agent.Kits
 }, docks dock.Queries) {
-	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Docks: docks, Version: m.version})
+	m.mcp = crewmcp.Handler(crewmcp.Deps{Ships: ships, History: ships, Conversations: convs, Agents: agents, Logins: agents, Docks: docks, Version: m.version})
 	m.kit = crewhttp.Kit{Kits: agents, Agents: agents}
 	m.media = crewhttp.Attachment{Ships: ships}
 	m.reply = crewhttp.Reply{Ships: ships}

@@ -25,13 +25,16 @@ import (
 // Agent is an ACP agent process with one session per thread,
 // running one kit of its agent (nil: no profile, or an older port).
 type Agent struct {
-	cfg  Config
-	kit  *agent.Kit
-	cmd  *exec.Cmd
-	conn *acp.ClientSideConnection
-	caps acp.AgentCapabilities
-	wire *wire
-	done chan struct{}
+	cfg Config
+	kit *agent.Kit
+	cmd *exec.Cmd
+	// browser is the managed browser the agent's sessions get as a stdio
+	// MCP server (nil: none).
+	browser *Browser
+	conn    *acp.ClientSideConnection
+	caps    acp.AgentCapabilities
+	wire    *wire
+	done    chan struct{}
 	// approve answers permission requests: -approve, else the profile's,
 	// else reject.
 	approve string
@@ -69,7 +72,7 @@ func (a *Agent) succeeded() {
 
 // StartAgent spawns the agent command with the kit (its secrets in the
 // environment) and runs the ACP handshake.
-func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error) {
+func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit, browser *Browser) (*Agent, error) {
 	cmd := exec.Command(cfg.Command[0], cfg.Command[1:]...)
 	cmd.Dir = cfg.Cwd
 	cmd.Stderr = os.Stderr
@@ -102,7 +105,7 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit) (*Agent, error)
 	if err := cmd.Start(); err != nil {
 		return nil, errx.Wrap(err, "start agent "+cfg.Command[0], errx.TypeValidation)
 	}
-	a := &Agent{cfg: cfg, kit: kit, cmd: cmd, done: make(chan struct{}), wire: &wire{},
+	a := &Agent{cfg: cfg, kit: kit, cmd: cmd, browser: browser, done: make(chan struct{}), wire: &wire{},
 		sessions: map[string]savedSession{}, open: map[string]acp.SessionId{},
 		opening: map[string]*sync.Mutex{}, answers: map[acp.SessionId]*strings.Builder{},
 		feeds: map[acp.SessionId]*feed{}, briefs: map[acp.SessionId]brief{}}
@@ -311,8 +314,14 @@ func instructionsHash(instructions string) string {
 func (a *Agent) mcpServers() []acp.McpServer {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	out := []acp.McpServer{}
+	// Every agent takes stdio servers (ACP requires it); the browser MCP
+	// goes first so a page is reachable even to an agent without HTTP MCP.
+	if name, command, args, ok := a.browser.MCPServer(); ok {
+		out = append(out, acp.McpServer{Stdio: &acp.McpServerStdio{Name: name, Command: command, Args: args, Env: []acp.EnvVariable{}}})
+	}
 	if a.mcpURL == "" || !a.caps.McpCapabilities.Http {
-		return []acp.McpServer{}
+		return out
 	}
 	headers := []acp.HttpHeader{}
 	if a.cfg.Token != "" {
@@ -321,9 +330,9 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	if a.cfg.As != "" {
 		headers = append(headers, acp.HttpHeader{Name: crew.AgentHeader, Value: a.cfg.As})
 	}
-	out := []acp.McpServer{{Http: &acp.McpServerHttpInline{
+	out = append(out, acp.McpServer{Http: &acp.McpServerHttpInline{
 		Name: "seaport", Type: "http", Url: a.mcpURL, Headers: headers,
-	}}}
+	}})
 	if a.kit != nil {
 		for _, s := range a.kit.MCPServers {
 			hs := make([]acp.HttpHeader, 0, len(s.Headers))

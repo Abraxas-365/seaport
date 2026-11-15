@@ -60,8 +60,12 @@ type Profile struct {
 	Approve    string      `json:"approve"`
 	// Model and Effort are picked among the harness's session config
 	// options (ACP categories model / thought_level), when it has them.
-	Model     string    `json:"model"`
-	Effort    string    `json:"effort"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+	// Browser: the agent uses the managed browser (a hosted agent's slot
+	// runs the engine of its environment with the agent's profile and
+	// hands the harness the browser tooling; the web shows the viewer).
+	Browser   bool      `json:"browser"`
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -118,6 +122,7 @@ type SaveProfile struct {
 	Approve      string
 	Model        string
 	Effort       string
+	Browser      bool
 	// CreatedBy is filled from the caller (not client input).
 	CreatedBy string
 }
@@ -265,6 +270,9 @@ type Kit struct {
 	Approve    string      `json:"approve"`
 	Model      string      `json:"model"`
 	Effort     string      `json:"effort"`
+	// Browser asks the connector for the managed browser (a hosted slot
+	// starts its environment's engine and adds the browser MCP).
+	Browser bool `json:"browser"`
 	// Env is given to the harness process (secrets marked env).
 	Env map[string]string `json:"env"`
 	// Revision changes whenever anything above does (profile or secrets):

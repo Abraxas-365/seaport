@@ -570,6 +570,8 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "GET /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login/code", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", map[string]string{"code": "x"}, permission.EnvironmentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/account", "GET /api/v1/agents/{id}/hosting/slots/{slot}/account", nil, permission.EnvironmentsRead},
+		{"DELETE", "/api/v1/agents/" + ag + "/login-requests/app.example.com", "DELETE /api/v1/agents/{id}/login-requests/{host}", nil, permission.BrowserUse},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/browser", "GET /api/v1/agents/{id}/hosting/slots/{slot}/browser", nil, permission.BrowserUse},
 		{"GET", "/api/v1/schedules", "GET /api/v1/schedules", nil, permission.SchedulesRead},
 		{"POST", "/api/v1/schedules", "POST /api/v1/schedules", map[string]any{"name": "x", "conversation_id": cv, "cron": "0 9 * * *", "text": "x"}, permission.SchedulesWrite},
 		{"POST", "/api/v1/schedules/preview", "POST /api/v1/schedules/preview", map[string]string{"cron": "0 9 * * *"}, permission.SchedulesRead},

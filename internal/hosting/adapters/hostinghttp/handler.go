@@ -60,6 +60,9 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/agents/:id/hosting/slots/:slot/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.login))
 	r.Post("/api/v1/agents/:id/hosting/slots/:slot/login/code", httpx.RequireFunc(permission.EnvironmentsWrite, h.loginCode))
 	r.Get("/api/v1/agents/:id/hosting/slots/:slot/account", httpx.RequireFunc(permission.EnvironmentsRead, h.account))
+	// The browser viewer (a WebSocket): whoever drives a slot's browser
+	// signs in to sites as the agent, so it has a permission of its own.
+	r.Get("/api/v1/agents/:id/hosting/slots/:slot/browser", httpx.RequireFunc(permission.BrowserUse, h.browser))
 }
 
 // Workspace is GET /crew/workspace (behind crew auth): a hosted slot's

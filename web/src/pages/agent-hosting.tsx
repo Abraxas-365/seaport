@@ -1,6 +1,17 @@
 import * as React from "react"
 import { Link } from "react-router"
-import { Activity, ExternalLink, KeyRound, Play, Server, ShieldAlert, Square, TerminalSquare, Unplug } from "lucide-react"
+import {
+  Activity,
+  AppWindow,
+  ExternalLink,
+  KeyRound,
+  Play,
+  Server,
+  ShieldAlert,
+  Square,
+  TerminalSquare,
+  Unplug,
+} from "lucide-react"
 
 import {
   useCan,
@@ -11,6 +22,7 @@ import {
   useHosting,
   useLoginCode,
   useNow,
+  useProfile,
   useSlotAccount,
   useSlotAction,
   useSlotLog,
@@ -30,7 +42,18 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { AccountBadge, ConfirmAction, ErrorState, LogView, Mono, SlotRow, StatusBadge, UsageChart } from "@/components/seaport"
+import {
+  AccountBadge,
+  BrowserViewer,
+  ConfirmAction,
+  ErrorState,
+  LoginRequests,
+  LogView,
+  Mono,
+  SlotRow,
+  StatusBadge,
+  UsageChart,
+} from "@/components/seaport"
 
 /** The agent's hosting: where the port runs it, its slots and their logs. */
 export function HostingCard({ agent }: { agent: LibraryAgent }) {
@@ -456,6 +479,67 @@ export function UsageCard({ agent }: { agent: LibraryAgent }) {
       </CardHeader>
       <CardContent>
         <UsageChart days={days} />
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * The agent's managed browser: when its environment runs one and its
+ * profile uses it, a person opens a running slot's browser here to sign in
+ * to the sites the agent asked for (login_needed) or any other.
+ */
+export function BrowserCard({ agent }: { agent: LibraryAgent }) {
+  const can = useCan()
+  const hosted = useHosted(agent.id)
+  const envs = useEnvironments()
+  const profile = useProfile(agent.id)
+  const [open, setOpen] = React.useState<{ slot: number; url?: string } | null>(null)
+  const use = can(Perm.BrowserUse)
+  if (!can(Perm.EnvironmentsRead) || !hosted.data) return null
+  const env = envs.data?.items.find((e) => e.id === hosted.data?.environment_id)
+  const hasBrowser = !!env?.spec.browser?.engine
+  const requests = agent.login_requests ?? []
+  if (!hasBrowser && requests.length === 0) return null
+  const running = hosted.data.slots.filter((s) => s.state === "running")
+  const profileOn = profile.data?.browser ?? false
+  const slot = open ? hosted.data.slots.find((s) => s.index === open.slot) : undefined
+  const openOn = (url?: string) => running[0] && setOpen({ slot: running[0].index, url })
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              <AppWindow className="size-4" /> Navegador
+            </CardTitle>
+            <CardDescription>
+              {!hasBrowser
+                ? "El entorno no tiene navegador: el agente pidió iniciar sesión, pero no hay dónde."
+                : !profileOn
+                  ? "El entorno da un navegador a cada instancia; actívalo en el perfil del agente para que lo use."
+                  : "Cada instancia corre un Chromium con perfil persistente que el agente y tú compartís: lo que inicies sesión aquí, el agente lo usa."}
+            </CardDescription>
+          </div>
+          {use && hasBrowser && !open && (
+            <Button
+              size="sm"
+              disabled={running.length === 0}
+              title={running.length === 0 ? "Arranca una instancia primero" : undefined}
+              onClick={() => openOn()}
+            >
+              <AppWindow /> Abrir navegador
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <LoginRequests agent={agent} canClear={use} onOpen={use && hasBrowser && running.length > 0 ? (host) => openOn(`https://${host}`) : undefined} />
+        {open && slot && slot.state === "running" ? (
+          <BrowserViewer key={`${slot.index}-${open.url ?? ""}`} agent={agent} slot={slot} startUrl={open.url} onClose={() => setOpen(null)} />
+        ) : open ? (
+          <p className="text-sm text-muted-foreground">La instancia se detuvo.</p>
+        ) : null}
       </CardContent>
     </Card>
   )

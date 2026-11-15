@@ -44,6 +44,7 @@ func TestSpecValidate(t *testing.T) {
 		"idle":            func(s *hosting.Spec) { s.IdleStop = "30s" },
 		"setup nul":       func(s *hosting.Spec) { s.Setup = "a\x00b" },
 		"model key":       func(s *hosting.Spec) { s.Models.Anthropic = "sk-ant-literal" },
+		"browser engine":  func(s *hosting.Spec) { s.Browser.Engine = "firefox" },
 	}
 	for name, mutate := range bad {
 		s := ok
@@ -125,5 +126,34 @@ func TestNetworkOfASpec(t *testing.T) {
 		if got := hosting.AllowedHost(host, allow); got != want {
 			t.Errorf("AllowedHost(%q) = %v", host, got)
 		}
+	}
+}
+
+func TestBrowserInTheSpecAndTheImage(t *testing.T) {
+	s := hosting.Spec{Harness: hosting.HarnessRness, Browser: hosting.Browser{Engine: " chromium "}}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("chromium: %v", err)
+	}
+	n := hosting.Normalize(s)
+	if n.Browser.Engine != hosting.BrowserChromium || !n.Browser.Enabled() {
+		t.Fatalf("normalized browser %+v", n.Browser)
+	}
+	if (hosting.Browser{}).Enabled() {
+		t.Fatal("no engine is enabled")
+	}
+	with, without := hosting.Dockerfile(n, "base:1"), hosting.Dockerfile(hosting.Spec{Harness: hosting.HarnessRness}, "base:1")
+	if !strings.Contains(with, "chromium") || !strings.Contains(with, hosting.BrowserNode) || !strings.Contains(with, hosting.BrowserMCPPkg) {
+		t.Fatalf("browser stage missing:\n%s", with)
+	}
+	if strings.Contains(without, "chromium") {
+		t.Fatalf("browser stage without a browser:\n%s", without)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(with), "USER 1000:1000") {
+		t.Fatalf("the image must end as the agent user:\n%s", with)
+	}
+	a := hosting.BuildRequest{Spec: n, Base: "base:1"}
+	b := hosting.BuildRequest{Spec: hosting.Spec{Harness: hosting.HarnessRness}, Base: "base:1"}
+	if a.Tag() == b.Tag() {
+		t.Fatal("a browser must change the image tag")
 	}
 }

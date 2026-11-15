@@ -41,6 +41,7 @@ export const sidebar = [
       page('guides/hosting/network'),
       page('guides/hosting/harness-homes'),
       page('guides/hosting/claude-subscriptions'),
+      page('guides/hosting/browser'),
     ]),
     group('Operations', [
       page('guides/operations/deploy'),

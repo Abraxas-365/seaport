@@ -17,6 +17,9 @@ const (
 	// EventEnvironmentBuild: an environment version's build started,
 	// finished or failed. Data: Build (without its log).
 	EventEnvironmentBuild = "environment.build"
+	// EventSlotBrowser: someone opened or closed a slot's browser viewer.
+	// Data: BrowserEvent.
+	EventSlotBrowser = "slot.browser"
 )
 
 // EnvironmentDeleted is the payload of EventEnvironmentDeleted.

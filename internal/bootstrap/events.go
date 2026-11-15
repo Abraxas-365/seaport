@@ -35,6 +35,7 @@ var EventPermissions = map[string]string{
 	hosting.EventEnvironmentDeleted: permission.EnvironmentsRead,
 	hosting.EventSlotsUpdated:       permission.EnvironmentsRead,
 	hosting.EventEnvironmentBuild:   permission.EnvironmentsRead,
+	hosting.EventSlotBrowser:        permission.BrowserUse,
 	schedule.EventCreated:           permission.SchedulesRead,
 	schedule.EventUpdated:           permission.SchedulesRead,
 	schedule.EventDeleted:           permission.SchedulesRead,

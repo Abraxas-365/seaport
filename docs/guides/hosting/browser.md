@@ -1,0 +1,68 @@
+# Give hosted agents a browser
+
+Run a managed Chromium beside each hosted agent, sign in to sites for it from the web app, and let it keep those sessions.
+
+Many of an agent's jobs end in a browser: a dashboard behind a login, an internal tool with no API, a form to fill. An agent can drive a browser on its own, but it can't sign in for you: passwords and 2FA prompts are a person's job, and they should never be in a prompt. Seaport splits the work: the slot runs a browser whose profile (cookies, storage) persists in its state volume; you open that same browser from the web app, sign in, and close it; the agent then uses the session with its browser tools.
+
+## Turn it on
+
+Two switches, one per side:
+
+1. **The environment has a browser** (capacity). Add it to the spec:
+
+   ```yaml
+   browser:
+     engine: chromium
+   network:
+     egress:
+       - app.example.com
+       - "*.example.com"
+   ```
+
+   The next build of the environment installs Chromium, Node and the browser MCP server ([chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)) in the image. The sites the browser visits go through the egress proxy like everything else, so list them in `network.egress`.
+
+2. **The agent uses it** (usage). On the agent's page, under **Perfil**, turn on **Navegador**, or:
+
+   ```sh
+   seaport profile set nav -browser on
+   ```
+
+With both on, every slot of the agent starts Chromium at start (headless, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `login_needed`.
+
+An agent with the switch on but hosted on an environment without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.
+
+## When the agent needs a sign-in
+
+When a site asks the agent for credentials, it calls `login_needed` with the site's host and what it was doing, tells the person in the conversation, and goes on with what doesn't need it. The request shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com*. **Abrir** opens the viewer on that host; **Listo** clears the request. The agent keeps at most 8 open requests, one per host; the newest replaces an older one for the same host.
+
+A request is also visible in the API: `GET /api/v1/agents/{id}` answers `login_requests` (`host`, `reason`, `at`), and `DELETE /api/v1/agents/{id}/login-requests/{host}` clears one. Both change `agent.updated`.
+
+## The viewer
+
+**Abrir navegador** in the agent's **Navegador** card opens the slot's browser in the page: a live screencast with an address bar, back, forward, reload, tabs, and your mouse and keyboard. Type the site's address, sign in as you would, and close the viewer. Nothing you typed leaves the browser: the password goes from your keyboard to the slot's Chromium over the port's WebSocket; the port relays bytes and keeps none.
+
+- **Sesiones** lists the sites the browser holds cookies of, with their expiry, and forgets one on demand. That's how you sign the agent out of a site.
+- While the agent is in a turn, the viewer is read-only (*El agente trabaja*): you see what it does without moving its mouse. **Tomar el control** overrides that.
+- One viewer per slot at a time; a second opener gets `409`. A viewer ends after 10 minutes without a message or 2 hours in all.
+- The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Alojamiento** section.
+
+Opening and closing a viewer publish `slot.browser` (`opened`/`closed`, with who did it); the stream itself is never stored. The permission is `seaport:browser:use` (Admin and Operator in iam mode); see [Permissions](../../reference/permissions.md).
+
+## What persists and where
+
+The browser's profile is in the slot's state volume, with the harness's sessions. It survives restarts and new versions of the environment, and goes away with the slot. Each slot has its own profile: an agent with two slots has two browsers, and a session you sign in on `nav-1` isn't on `nav-2`. Most agents need one slot; with more, sign in on each.
+
+The egress proxy sees the browser's hosts like any other traffic: a site the environment doesn't allow shows up in **Salidas bloqueadas** on the agent's page. Chromium's own background hosts (`accounts.google.com`, `update.googleapis.com`, …) are refused and harmless.
+
+## Limits
+
+- Chromium only, headless, 1280×800. No extensions, no downloads to your machine.
+- The viewer streams JPEG frames over a WebSocket; on a slow link it lags but stays usable for a sign-in.
+- Local agents (`seaport connect`) get no browser yet.
+
+## Related
+
+- [Hosted agents](hosted-agents.md): environments, slots and the state volume.
+- [Network](network.md): the egress proxy the browser goes through.
+- [Environment spec](../../reference/environment-spec.md#browser) and [Agent profile](../../reference/agent-profile.md): the two switches.
+- [MCP tools](../../reference/mcp-tools.md#login_needed): `login_needed`.

@@ -43,6 +43,7 @@ type profileRequest struct {
 	Approve      string            `json:"approve"`
 	Model        string            `json:"model"`
 	Effort       string            `json:"effort"`
+	Browser      bool              `json:"browser"`
 }
 
 func (h *Handler) saveProfile(c fiber.Ctx) error {
@@ -64,7 +65,7 @@ func (h *Handler) saveProfile(c fiber.Ctx) error {
 	}
 	out, err := h.commands.SaveProfile(c.Context(), p.Organization, id, agent.SaveProfile{Base: req.Base,
 		Instructions: req.Instructions, Skills: req.Skills, MCPServers: req.MCPServers, Approve: req.Approve,
-		Model: req.Model, Effort: req.Effort, CreatedBy: by})
+		Model: req.Model, Effort: req.Effort, Browser: req.Browser, CreatedBy: by})
 	if err != nil {
 		return err
 	}
@@ -142,4 +143,20 @@ func (h *Handler) deleteSecret(c fiber.Ctx) error {
 		return err
 	}
 	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h *Handler) clearLoginRequest(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	a, err := h.commands.ClearLoginRequest(c.Context(), org, id, httpx.Param(c, "host"))
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, a)
 }

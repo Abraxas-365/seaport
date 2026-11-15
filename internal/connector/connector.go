@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
@@ -66,6 +67,12 @@ type Config struct {
 	// Reload, when it fires, restarts the harness like a changed profile
 	// does (work in flight first): a hosted slot's harness signed in.
 	Reload <-chan struct{}
+	// Browser, when set, is the engine to start when the kit asks for a
+	// browser (a hosted slot's environment has one); "" with a kit that
+	// asks for one logs a warning (a local `seaport connect` has none yet).
+	Browser string
+	// State is where the browser's profile lives (hosting.BrowserDir).
+	State string
 }
 
 // Run fetches the agent's kit (profile and secrets), starts the harness
@@ -87,19 +94,39 @@ func Run(ctx context.Context, cfg Config) error {
 			}
 			return err
 		}
-		agent, err := StartAgent(ctx, cfg, kit)
+		browser, err := browserFor(ctx, cfg, kit)
 		if err != nil {
+			return err
+		}
+		agent, err := StartAgent(ctx, cfg, kit, browser)
+		if err != nil {
+			browser.Stop()
 			return err
 		}
 		err = keepConnected(ctx, agent.Done(), time.Second, func(ctx context.Context) error {
 			return session(ctx, cfg, agent)
 		})
 		agent.Stop()
+		browser.Stop()
 		if !errors.Is(err, errRestart) {
 			return err
 		}
 		slog.Info("agent profile changed; restarting the agent with it")
 	}
+}
+
+// browserFor starts the browser when the kit asks for one and the run has
+// an engine; it is nil otherwise. It lives as long as the harness (a kit
+// change restarts both; the profile on disk stays).
+func browserFor(ctx context.Context, cfg Config, kit *agent.Kit) (*Browser, error) {
+	if kit == nil || !kit.Browser {
+		return nil, nil
+	}
+	if cfg.Browser == "" {
+		slog.Warn("the agent's profile asks for a browser, but this connector has none (hosted slots of an environment with browser.engine do)")
+		return nil, nil
+	}
+	return StartBrowser(ctx, cfg.Browser, cfg.State)
 }
 
 // keepConnected runs connect again after each lost connection, waiting

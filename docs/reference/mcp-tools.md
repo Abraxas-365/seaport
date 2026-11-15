@@ -42,6 +42,7 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `skill` | only with skills | Loads the instructions of one of the agent's profile skills. |
 | `destinations` | only with destinations | Lists the places where the agent may open a conversation. |
 | `open` | only with destinations | Opens a conversation at a destination with a first message, optionally in the thread of another conversation. |
+| `login_needed` | only with the browser on | Tells the agent's people that a site in the managed browser asks for a sign-in they must do. |
 
 ### reply
 
@@ -224,6 +225,25 @@ Result:
 ```
 
 Errors: `no destination named <name> on your docks`, `several docks have a destination named <name>: give dock_id too`, the dock's replies are off, the dock isn't linked, the limits of `reply`, and a `thread_of` the agent can't see (not found).
+
+### login_needed
+
+Only added when the calling agent's current [profile](agent-profile.md) has `browser` on. Its description tells the model never to guess or ask for passwords: when a site in the [managed browser](../guides/hosting/browser.md) asks for a sign-in (a login page, an expired session, a 2FA prompt), call this, tell the person in the conversation that they need to sign in from the web app's browser tab, and go on with what doesn't need it.
+
+Arguments:
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `host` | string | yes | The site's host name, as in the address bar (`app.example.com`), at most 253 characters. |
+| `reason` | string | no | What the agent was doing there, one line, at most 200 characters. |
+
+Result:
+
+```json
+{ "host": "app.example.com", "recorded": true, "pending_logins": 1 }
+```
+
+The request appears on the agent's page (`login_requests` of the agent, `agent.updated`); a person opens the browser viewer, signs in, and clears it. An agent keeps at most 8 open requests, one per host. Errors: `host must be a site's DNS name`, and `no agent: a login request belongs to an agent` when the call has no agent.
 
 ## Errors
 

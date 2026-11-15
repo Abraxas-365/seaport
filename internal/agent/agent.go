@@ -49,7 +49,61 @@ type Agent struct {
 	ProfileVersion int `db:"profile_version" json:"profile_version"`
 	// Docks are where it works; none: it is inactive (nothing reaches it).
 	Docks []Assignment `db:"-" json:"docks"`
+	// LoginRequests are the sites the agent asked a person to sign its
+	// browser in to (MCP tool login_needed), newest first.
+	LoginRequests LoginRequests `db:"-" json:"login_requests"`
 }
+
+// LoginRequests is the list, newest first.
+type LoginRequests []LoginRequest
+
+// LoginRequest is one site the agent needs a person to sign in to from
+// the web's browser viewer: the agent's own browser session is missing or
+// expired there.
+type LoginRequest struct {
+	// Host is the site (a DNS name, lowercase).
+	Host string `json:"host"`
+	// Reason is what the agent was trying to do (optional, one line).
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
+}
+
+// MaxLoginRequests bounds an agent's open login requests (the oldest go).
+const MaxLoginRequests = 8
+
+// RequestLogin is what login_needed asks for.
+type RequestLogin struct {
+	Host   string
+	Reason string
+}
+
+func (r RequestLogin) Validate() error {
+	h := strings.ToLower(strings.TrimSpace(r.Host))
+	if h == "" || len(h) > 253 || !hostRule.MatchString(h) {
+		return errx.InvalidField("host", "host must be a site's DNS name (app.example.com)")
+	}
+	return text.Optional("reason", r.Reason, maxLoginReason)
+}
+
+// Add puts the request in list (replacing the host's older one; at most
+// MaxLoginRequests, newest first).
+func (r RequestLogin) Add(list LoginRequests, now time.Time) LoginRequests {
+	host := strings.ToLower(strings.TrimSpace(r.Host))
+	out := make(LoginRequests, 0, len(list)+1)
+	out = append(out, LoginRequest{Host: host, Reason: text.Clean(r.Reason), At: now})
+	for _, l := range list {
+		if l.Host != host && len(out) < MaxLoginRequests {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// hostRule is a login request's host: labels of letters, digits and -,
+// at least two of them.
+var hostRule = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$`)
+
+const maxLoginReason = 200
 
 // Assignment is an agent on a dock.
 type Assignment struct {
