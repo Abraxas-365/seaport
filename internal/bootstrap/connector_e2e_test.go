@@ -26,6 +26,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/connector/acptest"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -109,6 +110,21 @@ func (h *connectorRun) stop() {
 		}
 	case <-time.After(30 * time.Second):
 		h.t.Error("the connector did not stop after its context was cancelled")
+	}
+}
+
+// ended waits for connector.Run to return by itself (not because the test
+// cancelled it) and answers its error; later stop calls have nothing to
+// check.
+func (h *connectorRun) ended(within time.Duration) error {
+	h.t.Helper()
+	select {
+	case err := <-h.done:
+		h.stopped = true
+		return err
+	case <-time.After(within):
+		h.t.Fatalf("connector.Run did not return within %s", within)
+		return nil
 	}
 }
 
@@ -741,4 +757,77 @@ func TestConnectorReleasesAFailedTurn(t *testing.T) {
 	if got := outbound(p.history(bad.Conversation)); len(got) != 0 {
 		t.Fatalf("a failed turn replied: %+v", got)
 	}
+}
+
+// verifyWorking checks the connector answers one message: the port and the
+// connector are in a working state before a credential is taken away.
+func (p *port) verifyWorking(d dock.Dock) {
+	p.t.Helper()
+	in := p.inject(d, "900", "m1", "hello")
+	p.shipsOf(in.Conversation, "the echo reply stored", answered(1))
+}
+
+// noConnections waits for the crew status to show nobody connected and
+// checks it stays so for a while: a connector that kept retrying would
+// show up again after its backoff (1 s).
+func (p *port) noConnections() {
+	p.t.Helper()
+	count := func() int {
+		var st crew.Status
+		p.admin(http.MethodGet, "/api/v1/crew", nil, &st)
+		return len(st.Agents)
+	}
+	until(p.t, "no agent connected", func() bool { return count() == 0 })
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if n := count(); n != 0 {
+			p.t.Fatalf("%d connection(s) after the credential was taken away", n)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A crew token revoked while its connector is connected and working ends
+// the connector: the connection closes, the reconnect is refused (401) and
+// connector.Run returns an authorization error, so `seaport connect` exits
+// non-zero instead of retrying a token that never comes back.
+func TestConnectorStopsWhenItsTokenIsRevoked(t *testing.T) {
+	p := startPort(t)
+	d := p.apiDock("revoke")
+	p.letIn(d)
+	issued := p.issueAs(adminToken, p.agent(testAgent).ID, "to-revoke")
+	p.token = issued.Value
+	h := p.startConnector(connectorOpts{caps: "load"})
+	p.ready(anyConn)
+	p.verifyWorking(d)
+
+	if code := p.admin(http.MethodDelete, "/api/v1/crew/tokens/"+issued.ID.String(), nil, nil); code != http.StatusNoContent {
+		t.Fatalf("revoke token: %d", code)
+	}
+	err := h.ended(15 * time.Second)
+	if !errx.IsType(err, errx.TypeAuthorization) || !strings.Contains(err.Error(), "crew token") {
+		t.Fatalf("connector.Run ended with %v, want an authorization error about the crew token", err)
+	}
+	p.noConnections()
+}
+
+// Deleting the agent a connector works as, while it is connected, ends it
+// too: its tokens are revoked with it, so the reconnect is refused.
+func TestConnectorStopsWhenItsAgentIsDeleted(t *testing.T) {
+	p := startPort(t)
+	d := p.apiDock("gone")
+	p.letIn(d)
+	h := p.startConnector(connectorOpts{caps: "load"})
+	p.ready(anyConn)
+	p.verifyWorking(d)
+
+	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+p.agent(testAgent).ID.String(), nil, nil); code != http.StatusNoContent {
+		t.Fatalf("delete agent: %d", code)
+	}
+	err := h.ended(15 * time.Second)
+	if !errx.IsType(err, errx.TypeAuthorization) {
+		t.Fatalf("connector.Run ended with %v, want an authorization error", err)
+	}
+	t.Logf("connector.Run ended with: %v", err)
+	p.noConnections()
 }
