@@ -31,7 +31,7 @@ goreleaser release --snapshot --clean           # release binaries into dist/ (g
 CI (`.github/workflows/ci.yml`): gofmt, vet, `go test -race` against a
 Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
 IAMKit + its Postgres; with `CI` set, a missing test database or IAMKit
-fails instead of skipping), web lint + build, docker build. Releases: push a `v*` tag →
+fails instead of skipping), web lint + test + build, website tests + build + links, docker build. Releases: push a `v*` tag →
 `release.yml` runs goreleaser (`.goreleaser.yaml`) and publishes the
 binaries to GitHub Releases.
 
@@ -39,9 +39,20 @@ Run the integration tests before finishing any change to a repository, the
 hub, the MCP tools or the HTTP API; the IAMKit e2e too for anything touching
 auth, permissions, sessions or tenancy.
 
-Web (`web/`, pnpm): `pnpm lint && pnpm build` (tsc + vite → `web/dist`,
-embedded by `web/embed.go`; rebuild before `go build` to ship UI changes),
-`pnpm dev` for hot reload against a running `seaport serve`.
+Web (`web/`, pnpm): `pnpm lint && pnpm test && pnpm build` (eslint, vitest,
+tsc + vite → `web/dist`, embedded by `web/embed.go`; rebuild before `go build`
+to ship UI changes), `pnpm dev` for hot reload against a running `seaport serve`.
+
+Testing: Go tests as above (CI adds `-race -shuffle=on`); web tests are Vitest
+(jsdom + Testing Library, `src/**/*.test.{ts,tsx}`, helpers in `src/test/`).
+They load `web/src/lib/__fixtures__/wire.json`, which
+`internal/bootstrap/wire_fixtures_test.go` builds from the real Go types (one
+sample of every event in `EventPermissions` plus the main API shapes, and
+`hosting.HomeRulesOf`); `src/lib/wire.test.ts` makes `tsc` check it against
+`types.ts`. After changing a payload or API shape regenerate it and commit the
+result: `SEAPORT_UPDATE_FIXTURES=1 go test ./internal/bootstrap -run
+TestWireFixtures` (without the variable the test fails on drift). Fixture data
+is example data only (`+34600000000`…, `example.com`).
 
 ## Web conventions
 
@@ -193,6 +204,15 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   in `holdLabel` (`web/src/components/seaport/ship-bubble.tsx`), since
   held ships carry the reason string to the web
   (`TestEveryHoldReasonIsTranslated`).
+- Live handlers (`web_architecture_test.go`): every type in
+  `bootstrap.EventPermissions` has a key in the exported `handlers` object of
+  `web/src/lib/live.ts` (one line `  "type": …` per key, object closed by `}` in
+  column 0), or an entry with its reason in `unhandledEvents`
+  (`slot.browser`: an audit trail, the viewer is its own WebSocket), since the
+  browser silently drops an event it has no handler for; stale entries and
+  handlers of unknown types fail too (`TestEveryEventTypeHasALiveHandler`).
+  A new event also gets a sample in `wire_fixtures_test.go`
+  (`TestWireFixturesCoverEveryEvent`) and a case in `live.test.ts`.
 
 Never weaken a rule to pass; fix the code, or change the rule here and in the
 test together with the reason. Add a rule when you add a pattern.

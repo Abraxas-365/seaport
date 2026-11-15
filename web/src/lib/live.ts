@@ -107,7 +107,8 @@ function patchDock(qc: QueryClient, dock: Dock) {
   })
 }
 
-const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void } = {
+/** One handler per event type (exported for tests; TestEveryEventTypeHasALiveHandler reads its keys). */
+export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) => void } = {
   "dock.updated": patchDock,
   "dock.deleted": (qc, { id }) => {
     qc.setQueryData<Paginated<Dock>>(keys.docks, (old) =>

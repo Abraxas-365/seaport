@@ -2,7 +2,8 @@ import { writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
-import { defineConfig, type Plugin } from "vite"
+import type { Plugin } from "vite"
+import { defineConfig } from "vitest/config"
 
 // `pnpm dev` proxies the API to a running `seaport serve` (SEAPORT_URL,
 // default http://127.0.0.1:8740), so the session cookie stays same-origin.
@@ -30,6 +31,13 @@ export default defineConfig({
       "/api": { target: backend },
       "/healthz": { target: backend },
     },
+  },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
+    // Fresh module state per file: live.ts and activity.ts keep singletons.
+    isolate: true,
   },
   build: {
     // Embedded in the Go binary (web/embed.go).

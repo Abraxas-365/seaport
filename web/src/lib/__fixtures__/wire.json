@@ -1,0 +1,1207 @@
+{
+  "api": {
+    "agent": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "created_by": "admin",
+      "description": "Answers support questions",
+      "docks": [
+        {
+          "default": true,
+          "dock_id": "00000000-0000-4000-8000-000000000001"
+        }
+      ],
+      "id": "00000000-0000-4000-8000-000000000005",
+      "login_requests": [
+        {
+          "at": "2030-01-02T03:02:00Z",
+          "host": "app.example.com",
+          "reason": "read the dashboard"
+        }
+      ],
+      "name": "support-bot",
+      "profile_version": 3,
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "agents": {
+      "items": [
+        {
+          "created_at": "2030-01-02T03:00:00Z",
+          "created_by": "admin",
+          "description": "Answers support questions",
+          "docks": [
+            {
+              "default": true,
+              "dock_id": "00000000-0000-4000-8000-000000000001"
+            }
+          ],
+          "id": "00000000-0000-4000-8000-000000000005",
+          "login_requests": [
+            {
+              "at": "2030-01-02T03:02:00Z",
+              "host": "app.example.com",
+              "reason": "read the dashboard"
+            }
+          ],
+          "name": "support-bot",
+          "profile_version": 3,
+          "updated_at": "2030-01-02T03:01:00Z"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    },
+    "approval": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "answer": "Yes",
+      "answered_at": "2030-01-02T03:04:00Z",
+      "answered_by": "+34600000001 (Ana Example)",
+      "answered_ship_id": "00000000-0000-4000-8000-000000000003",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:03:00Z",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "expires_at": "2030-01-02T03:30:00Z",
+      "id": "00000000-0000-4000-8000-000000000008",
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "ship_id": "00000000-0000-4000-8000-000000000004",
+      "status": "answered",
+      "text": "Deploy to production?"
+    },
+    "approvals": {
+      "items": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "answer": "Yes",
+          "answered_at": "2030-01-02T03:04:00Z",
+          "answered_by": "+34600000001 (Ana Example)",
+          "answered_ship_id": "00000000-0000-4000-8000-000000000003",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:03:00Z",
+          "delivery_id": "00000000-0000-4000-8000-000000000006",
+          "expires_at": "2030-01-02T03:30:00Z",
+          "id": "00000000-0000-4000-8000-000000000008",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "ship_id": "00000000-0000-4000-8000-000000000004",
+          "status": "answered",
+          "text": "Deploy to production?"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    },
+    "build": {
+      "base": "ghcr.io/example/seaport-claude-code:latest",
+      "detail": "",
+      "environment_id": "00000000-0000-4000-8000-000000000007",
+      "finished_at": "2030-01-02T03:01:00Z",
+      "image": "sha256:0123456789abcdef",
+      "started_at": "2030-01-02T03:00:00Z",
+      "state": "ready",
+      "updated_at": "2030-01-02T03:01:00Z",
+      "version": 2
+    },
+    "conversation": {
+      "access": "auto",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "dock_id": "00000000-0000-4000-8000-000000000001",
+      "external_id": "C0EXAMPLE/1700000000.000100",
+      "group_mode": "all",
+      "handles": [
+        "C0EXAMPLE",
+        "+34600000000"
+      ],
+      "id": "00000000-0000-4000-8000-000000000002",
+      "kind": "group",
+      "last_activity_at": "2030-01-02T03:02:00Z",
+      "status": "allowed",
+      "thread_id": "00000000-0000-4000-8000-000000000002",
+      "title": "#support",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "conversation_dm": {
+      "access": "allow",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "dock_id": "00000000-0000-4000-8000-000000000001",
+      "external_id": "C0EXAMPLE/1700000000.000100",
+      "handles": [
+        "C0EXAMPLE",
+        "+34600000000"
+      ],
+      "id": "00000000-0000-4000-8000-000000000013",
+      "kind": "direct",
+      "last_activity_at": "2030-01-02T03:02:00Z",
+      "status": "allowed",
+      "thread_id": "00000000-0000-4000-8000-000000000013",
+      "title": "Ana Example",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "crew_status": {
+      "agents": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "agent_name": "support-bot",
+          "concurrency": 2,
+          "connected_at": "2030-01-02T03:00:00Z",
+          "deliveries": [
+            {
+              "conversation_id": "00000000-0000-4000-8000-000000000002",
+              "id": "00000000-0000-4000-8000-000000000006",
+              "ships": 1,
+              "since": "2030-01-02T03:03:00Z"
+            }
+          ],
+          "name": "laptop",
+          "outdated": false,
+          "profile_version": 3,
+          "remote": "203.0.113.7",
+          "session": "session-1",
+          "steer": true
+        }
+      ]
+    },
+    "crew_token": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "agent_name": "support-bot",
+      "created_at": "2030-01-02T03:00:00Z",
+      "created_by": "admin",
+      "expires_at": null,
+      "hint": "sp_crew_AbCd",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "last_used_at": "2030-01-02T03:02:00Z",
+      "name": "laptop"
+    },
+    "customs": {
+      "policy": {
+        "default": "ask",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "group_mode": "mentions"
+      },
+      "rules": [
+        {
+          "created_at": "2030-01-02T03:00:00Z",
+          "dock_id": "00000000-0000-4000-8000-000000000001",
+          "effect": "allow",
+          "id": "00000000-0000-4000-8000-000000000011",
+          "pattern": "+346000000*"
+        }
+      ]
+    },
+    "delivery": {
+      "approvals": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "answer": "Yes",
+          "answered_at": "2030-01-02T03:04:00Z",
+          "answered_by": "+34600000001 (Ana Example)",
+          "answered_ship_id": "00000000-0000-4000-8000-000000000003",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:03:00Z",
+          "delivery_id": "00000000-0000-4000-8000-000000000006",
+          "expires_at": "2030-01-02T03:30:00Z",
+          "id": "00000000-0000-4000-8000-000000000008",
+          "options": [
+            "Yes",
+            "No"
+          ],
+          "ship_id": "00000000-0000-4000-8000-000000000004",
+          "status": "answered",
+          "text": "Deploy to production?"
+        }
+      ],
+      "conversation": {
+        "access": "auto",
+        "channel": "slack",
+        "created_at": "2030-01-02T03:00:00Z",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "external_id": "C0EXAMPLE/1700000000.000100",
+        "group_mode": "all",
+        "handles": [
+          "C0EXAMPLE",
+          "+34600000000"
+        ],
+        "id": "00000000-0000-4000-8000-000000000002",
+        "kind": "group",
+        "last_activity_at": "2030-01-02T03:02:00Z",
+        "status": "allowed",
+        "thread_id": "00000000-0000-4000-8000-000000000002",
+        "title": "#support",
+        "updated_at": "2030-01-02T03:02:00Z"
+      },
+      "id": "00000000-0000-4000-8000-000000000006",
+      "read_only": [
+        "00000000-0000-4000-8000-000000000013"
+      ],
+      "ships": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "attachments": [
+            {
+              "id": "00000000-0000-4000-8000-000000000010",
+              "kind": "image",
+              "mime": "image/png",
+              "name": "screenshot.png",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "size": 2048
+            }
+          ],
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:02:00Z",
+          "direction": "in",
+          "external_id": "msg-1",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "sender_id": "+34600000001",
+          "sender_name": "Ana Example",
+          "sent_at": "2030-01-02T03:02:00Z",
+          "status": "queued",
+          "text": "Hello, can you look at this?"
+        }
+      ],
+      "thread": [
+        {
+          "access": "auto",
+          "channel": "slack",
+          "created_at": "2030-01-02T03:00:00Z",
+          "dock_id": "00000000-0000-4000-8000-000000000001",
+          "external_id": "C0EXAMPLE/1700000000.000100",
+          "group_mode": "all",
+          "handles": [
+            "C0EXAMPLE",
+            "+34600000000"
+          ],
+          "id": "00000000-0000-4000-8000-000000000002",
+          "kind": "group",
+          "last_activity_at": "2030-01-02T03:02:00Z",
+          "status": "allowed",
+          "thread_id": "00000000-0000-4000-8000-000000000002",
+          "title": "#support",
+          "updated_at": "2030-01-02T03:02:00Z"
+        },
+        {
+          "access": "allow",
+          "channel": "slack",
+          "created_at": "2030-01-02T03:00:00Z",
+          "dock_id": "00000000-0000-4000-8000-000000000001",
+          "external_id": "C0EXAMPLE/1700000000.000100",
+          "handles": [
+            "C0EXAMPLE",
+            "+34600000000"
+          ],
+          "id": "00000000-0000-4000-8000-000000000013",
+          "kind": "direct",
+          "last_activity_at": "2030-01-02T03:02:00Z",
+          "status": "allowed",
+          "thread_id": "00000000-0000-4000-8000-000000000013",
+          "title": "Ana Example",
+          "updated_at": "2030-01-02T03:02:00Z"
+        }
+      ]
+    },
+    "dock": {
+      "address": "example-workspace",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Support",
+      "replies": true,
+      "status": "linked",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "dock_linking": {
+      "address": "",
+      "channel": "whatsapp",
+      "created_at": "2030-01-02T03:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Phone",
+      "qr_code": "2@example-pairing-code",
+      "replies": true,
+      "status": "linking",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "dock_trigger": {
+      "address": "",
+      "channel": "webhook",
+      "created_at": "2030-01-02T03:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "Alerts",
+      "replies": false,
+      "status": "linked",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "docks": {
+      "items": [
+        {
+          "address": "example-workspace",
+          "channel": "slack",
+          "created_at": "2030-01-02T03:00:00Z",
+          "id": "00000000-0000-4000-8000-000000000001",
+          "name": "Support",
+          "replies": true,
+          "status": "linked",
+          "updated_at": "2030-01-02T03:01:00Z"
+        },
+        {
+          "address": "",
+          "channel": "webhook",
+          "created_at": "2030-01-02T03:00:00Z",
+          "id": "00000000-0000-4000-8000-000000000014",
+          "name": "Alerts",
+          "replies": false,
+          "status": "linked",
+          "updated_at": "2030-01-02T03:01:00Z"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 2
+      }
+    },
+    "environment": {
+      "agents": 1,
+      "created_at": "2030-01-02T03:00:00Z",
+      "created_by": "admin",
+      "id": "00000000-0000-4000-8000-000000000007",
+      "name": "default",
+      "spec": {
+        "browser": {
+          "engine": "chromium"
+        },
+        "description": "Go toolchain",
+        "harness": "claude-code",
+        "home": "",
+        "idle_stop": "30m",
+        "image": "",
+        "models": {
+          "anthropic": "${ANTHROPIC_KEY}"
+        },
+        "network": {
+          "egress": [
+            "example.com",
+            "*.example.org"
+          ]
+        },
+        "packages": [
+          "git",
+          "make"
+        ],
+        "repo_config": "ignore",
+        "repos": [
+          {
+            "credential": "${GIT_TOKEN}",
+            "on_start": "make deps",
+            "path": "repo",
+            "ref": "main",
+            "url": "https://example.com/org/repo.git"
+          }
+        ],
+        "resources": {
+          "cpus": 2,
+          "memory_mb": 4096,
+          "size": "M"
+        },
+        "setup": "echo ready",
+        "workspace": "persistent"
+      },
+      "updated_at": "2030-01-02T03:01:00Z",
+      "version": 2
+    },
+    "environments": {
+      "items": [
+        {
+          "agents": 1,
+          "created_at": "2030-01-02T03:00:00Z",
+          "created_by": "admin",
+          "id": "00000000-0000-4000-8000-000000000007",
+          "name": "default",
+          "spec": {
+            "browser": {
+              "engine": "chromium"
+            },
+            "description": "Go toolchain",
+            "harness": "claude-code",
+            "home": "",
+            "idle_stop": "30m",
+            "image": "",
+            "models": {
+              "anthropic": "${ANTHROPIC_KEY}"
+            },
+            "network": {
+              "egress": [
+                "example.com",
+                "*.example.org"
+              ]
+            },
+            "packages": [
+              "git",
+              "make"
+            ],
+            "repo_config": "ignore",
+            "repos": [
+              {
+                "credential": "${GIT_TOKEN}",
+                "on_start": "make deps",
+                "path": "repo",
+                "ref": "main",
+                "url": "https://example.com/org/repo.git"
+              }
+            ],
+            "resources": {
+              "cpus": 2,
+              "memory_mb": 4096,
+              "size": "M"
+            },
+            "setup": "echo ready",
+            "workspace": "persistent"
+          },
+          "updated_at": "2030-01-02T03:01:00Z",
+          "version": 2
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    },
+    "hosted": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "environment_id": "00000000-0000-4000-8000-000000000007",
+      "slots": [
+        {
+          "active_at": "2030-01-02T03:02:00Z",
+          "detail": "",
+          "environment_version": 2,
+          "image": "sha256:0123456789abcdef",
+          "index": 1,
+          "started_at": "2030-01-02T03:00:00Z",
+          "state": "running",
+          "updated_at": "2030-01-02T03:02:00Z"
+        }
+      ],
+      "updated_at": "2030-01-02T03:01:00Z",
+      "updated_by": "admin"
+    },
+    "inbox_item": {
+      "access": "auto",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "dock_id": "00000000-0000-4000-8000-000000000001",
+      "external_id": "C0EXAMPLE/1700000000.000100",
+      "group_mode": "all",
+      "handles": [
+        "C0EXAMPLE",
+        "+34600000000"
+      ],
+      "held": 1,
+      "id": "00000000-0000-4000-8000-000000000002",
+      "in_flight": true,
+      "kind": "group",
+      "last_activity_at": "2030-01-02T03:02:00Z",
+      "last_ship": {
+        "agent_id": "00000000-0000-4000-8000-000000000005",
+        "conversation_id": "00000000-0000-4000-8000-000000000002",
+        "created_at": "2030-01-02T03:03:00Z",
+        "delivery_id": "00000000-0000-4000-8000-000000000006",
+        "direction": "out",
+        "external_id": "out-1",
+        "id": "00000000-0000-4000-8000-000000000004",
+        "sender_id": "agent",
+        "sender_name": "support-bot",
+        "sent_at": "2030-01-02T03:03:00Z",
+        "status": "sent",
+        "text": "On it."
+      },
+      "queued": 0,
+      "status": "allowed",
+      "thread_id": "00000000-0000-4000-8000-000000000002",
+      "title": "#support",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "schedule": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "enabled": true,
+      "id": "00000000-0000-4000-8000-000000000009",
+      "last_at": "2030-01-02T03:01:00Z",
+      "last_ship_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Daily summary",
+      "next_at": "2030-01-02T03:10:00Z",
+      "preview": [
+        "2030-01-02T03:10:00Z",
+        "2030-01-02T03:20:00Z"
+      ],
+      "text": "Summarize yesterday.",
+      "timezone": "UTC",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "schedules": {
+      "items": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:00:00Z",
+          "cron": "0 9 * * 1-5",
+          "enabled": true,
+          "id": "00000000-0000-4000-8000-000000000009",
+          "last_at": "2030-01-02T03:01:00Z",
+          "last_ship_id": "00000000-0000-4000-8000-000000000003",
+          "name": "Daily summary",
+          "next_at": "2030-01-02T03:10:00Z",
+          "preview": [
+            "2030-01-02T03:10:00Z",
+            "2030-01-02T03:20:00Z"
+          ],
+          "text": "Summarize yesterday.",
+          "timezone": "UTC",
+          "updated_at": "2030-01-02T03:01:00Z"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    },
+    "ship_held": {
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:02:00Z",
+      "direction": "in",
+      "external_id": "msg-1",
+      "hold_reason": "conversation pending",
+      "id": "00000000-0000-4000-8000-000000000015",
+      "sender_id": "+34600000001",
+      "sender_name": "Ana Example",
+      "sent_at": "2030-01-02T03:02:00Z",
+      "status": "held",
+      "text": "Hello, can you look at this?"
+    },
+    "ship_in": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "attachments": [
+        {
+          "id": "00000000-0000-4000-8000-000000000010",
+          "kind": "image",
+          "mime": "image/png",
+          "name": "screenshot.png",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 2048
+        }
+      ],
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:02:00Z",
+      "direction": "in",
+      "external_id": "msg-1",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "sender_id": "+34600000001",
+      "sender_name": "Ana Example",
+      "sent_at": "2030-01-02T03:02:00Z",
+      "status": "queued",
+      "text": "Hello, can you look at this?"
+    },
+    "ship_out": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:03:00Z",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "direction": "out",
+      "external_id": "out-1",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "sender_id": "agent",
+      "sender_name": "support-bot",
+      "sent_at": "2030-01-02T03:03:00Z",
+      "status": "sent",
+      "text": "On it."
+    },
+    "ships": {
+      "items": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:03:00Z",
+          "delivery_id": "00000000-0000-4000-8000-000000000006",
+          "direction": "out",
+          "external_id": "out-1",
+          "id": "00000000-0000-4000-8000-000000000004",
+          "sender_id": "agent",
+          "sender_name": "support-bot",
+          "sent_at": "2030-01-02T03:03:00Z",
+          "status": "sent",
+          "text": "On it."
+        },
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "attachments": [
+            {
+              "id": "00000000-0000-4000-8000-000000000010",
+              "kind": "image",
+              "mime": "image/png",
+              "name": "screenshot.png",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "size": 2048
+            }
+          ],
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "created_at": "2030-01-02T03:02:00Z",
+          "direction": "in",
+          "external_id": "msg-1",
+          "id": "00000000-0000-4000-8000-000000000003",
+          "sender_id": "+34600000001",
+          "sender_name": "Ana Example",
+          "sent_at": "2030-01-02T03:02:00Z",
+          "status": "queued",
+          "text": "Hello, can you look at this?"
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 2
+      }
+    },
+    "turns": {
+      "items": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "agent_name": "support-bot",
+          "conversation_id": "00000000-0000-4000-8000-000000000002",
+          "delivery_id": "00000000-0000-4000-8000-000000000006",
+          "ended_at": "2030-01-02T03:04:00Z",
+          "omitted": 2,
+          "outcome": "acked",
+          "started_at": "2030-01-02T03:03:00Z",
+          "tools": [
+            {
+              "ended_at": "2030-01-02T03:03:00Z",
+              "kind": "read",
+              "started_at": "2030-01-02T03:03:00Z",
+              "status": "completed",
+              "title": "Read README.md"
+            }
+          ]
+        }
+      ],
+      "page": {
+        "limit": 20,
+        "offset": 0,
+        "total": 1
+      }
+    }
+  },
+  "events": {
+    "agent.deleted": {
+      "id": "00000000-0000-4000-8000-000000000005"
+    },
+    "agent.updated": {
+      "created_at": "2030-01-02T03:00:00Z",
+      "created_by": "admin",
+      "description": "Answers support questions",
+      "docks": [
+        {
+          "default": true,
+          "dock_id": "00000000-0000-4000-8000-000000000001"
+        }
+      ],
+      "id": "00000000-0000-4000-8000-000000000005",
+      "login_requests": [
+        {
+          "at": "2030-01-02T03:02:00Z",
+          "host": "app.example.com",
+          "reason": "read the dashboard"
+        }
+      ],
+      "name": "support-bot",
+      "profile_version": 3,
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "conversation.updated": {
+      "access": "auto",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "dock_id": "00000000-0000-4000-8000-000000000001",
+      "external_id": "C0EXAMPLE/1700000000.000100",
+      "group_mode": "all",
+      "handles": [
+        "C0EXAMPLE",
+        "+34600000000"
+      ],
+      "id": "00000000-0000-4000-8000-000000000002",
+      "kind": "group",
+      "last_activity_at": "2030-01-02T03:02:00Z",
+      "status": "allowed",
+      "thread_id": "00000000-0000-4000-8000-000000000002",
+      "title": "#support",
+      "updated_at": "2030-01-02T03:02:00Z"
+    },
+    "crew.activity": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "agent_name": "support-bot",
+      "at": "2030-01-02T03:03:00Z",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "items": [
+        {
+          "kind": "thought",
+          "text": "Let me check the logs."
+        },
+        {
+          "kind": "tool",
+          "status": "in_progress",
+          "title": "Read README.md",
+          "tool": "call-1",
+          "tool_kind": "read"
+        },
+        {
+          "kind": "message",
+          "text": "Found it."
+        }
+      ]
+    },
+    "crew.changed": {
+      "agents": [
+        {
+          "agent_id": "00000000-0000-4000-8000-000000000005",
+          "agent_name": "support-bot",
+          "concurrency": 2,
+          "connected_at": "2030-01-02T03:00:00Z",
+          "deliveries": [
+            {
+              "conversation_id": "00000000-0000-4000-8000-000000000002",
+              "id": "00000000-0000-4000-8000-000000000006",
+              "ships": 1,
+              "since": "2030-01-02T03:03:00Z"
+            }
+          ],
+          "name": "laptop",
+          "outdated": false,
+          "profile_version": 3,
+          "remote": "203.0.113.7",
+          "session": "session-1",
+          "steer": true
+        }
+      ]
+    },
+    "customs.updated": {
+      "policy": {
+        "default": "ask",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "group_mode": "mentions"
+      },
+      "rules": [
+        {
+          "created_at": "2030-01-02T03:00:00Z",
+          "dock_id": "00000000-0000-4000-8000-000000000001",
+          "effect": "allow",
+          "id": "00000000-0000-4000-8000-000000000011",
+          "pattern": "+346000000*"
+        }
+      ]
+    },
+    "delivery.changed": {
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "count": 1,
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "owner": "laptop",
+      "ship_ids": [
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "state": "acked"
+    },
+    "dock.deleted": {
+      "id": "00000000-0000-4000-8000-000000000001"
+    },
+    "dock.updated": {
+      "address": "example-workspace",
+      "channel": "slack",
+      "created_at": "2030-01-02T03:00:00Z",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Support",
+      "replies": true,
+      "status": "linked",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "environment.build": {
+      "base": "ghcr.io/example/seaport-claude-code:latest",
+      "detail": "",
+      "environment_id": "00000000-0000-4000-8000-000000000007",
+      "finished_at": "2030-01-02T03:01:00Z",
+      "image": "sha256:0123456789abcdef",
+      "started_at": "2030-01-02T03:00:00Z",
+      "state": "ready",
+      "updated_at": "2030-01-02T03:01:00Z",
+      "version": 2
+    },
+    "environment.deleted": {
+      "id": "00000000-0000-4000-8000-000000000007"
+    },
+    "environment.updated": {
+      "agents": 1,
+      "created_at": "2030-01-02T03:00:00Z",
+      "created_by": "admin",
+      "id": "00000000-0000-4000-8000-000000000007",
+      "name": "default",
+      "spec": {
+        "browser": {
+          "engine": "chromium"
+        },
+        "description": "Go toolchain",
+        "harness": "claude-code",
+        "home": "",
+        "idle_stop": "30m",
+        "image": "",
+        "models": {
+          "anthropic": "${ANTHROPIC_KEY}"
+        },
+        "network": {
+          "egress": [
+            "example.com",
+            "*.example.org"
+          ]
+        },
+        "packages": [
+          "git",
+          "make"
+        ],
+        "repo_config": "ignore",
+        "repos": [
+          {
+            "credential": "${GIT_TOKEN}",
+            "on_start": "make deps",
+            "path": "repo",
+            "ref": "main",
+            "url": "https://example.com/org/repo.git"
+          }
+        ],
+        "resources": {
+          "cpus": 2,
+          "memory_mb": 4096,
+          "size": "M"
+        },
+        "setup": "echo ready",
+        "workspace": "persistent"
+      },
+      "updated_at": "2030-01-02T03:01:00Z",
+      "version": 2
+    },
+    "schedule.created": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "enabled": true,
+      "id": "00000000-0000-4000-8000-000000000009",
+      "last_at": "2030-01-02T03:01:00Z",
+      "last_ship_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Daily summary",
+      "next_at": "2030-01-02T03:10:00Z",
+      "preview": [
+        "2030-01-02T03:10:00Z",
+        "2030-01-02T03:20:00Z"
+      ],
+      "text": "Summarize yesterday.",
+      "timezone": "UTC",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "schedule.deleted": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "enabled": true,
+      "id": "00000000-0000-4000-8000-000000000009",
+      "last_at": "2030-01-02T03:01:00Z",
+      "last_ship_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Daily summary",
+      "next_at": "2030-01-02T03:10:00Z",
+      "preview": [
+        "2030-01-02T03:10:00Z",
+        "2030-01-02T03:20:00Z"
+      ],
+      "text": "Summarize yesterday.",
+      "timezone": "UTC",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "schedule.fired": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "enabled": true,
+      "id": "00000000-0000-4000-8000-000000000009",
+      "last_at": "2030-01-02T03:01:00Z",
+      "last_ship_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Daily summary",
+      "next_at": "2030-01-02T03:10:00Z",
+      "preview": [
+        "2030-01-02T03:10:00Z",
+        "2030-01-02T03:20:00Z"
+      ],
+      "text": "Summarize yesterday.",
+      "timezone": "UTC",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "schedule.updated": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:00:00Z",
+      "cron": "0 9 * * 1-5",
+      "enabled": true,
+      "id": "00000000-0000-4000-8000-000000000009",
+      "last_at": "2030-01-02T03:01:00Z",
+      "last_ship_id": "00000000-0000-4000-8000-000000000003",
+      "name": "Daily summary",
+      "next_at": "2030-01-02T03:10:00Z",
+      "preview": [
+        "2030-01-02T03:10:00Z",
+        "2030-01-02T03:20:00Z"
+      ],
+      "text": "Summarize yesterday.",
+      "timezone": "UTC",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "ship.approval": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "answer": "Yes",
+      "answered_at": "2030-01-02T03:04:00Z",
+      "answered_by": "+34600000001 (Ana Example)",
+      "answered_ship_id": "00000000-0000-4000-8000-000000000003",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:03:00Z",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "expires_at": "2030-01-02T03:30:00Z",
+      "id": "00000000-0000-4000-8000-000000000008",
+      "options": [
+        "Yes",
+        "No"
+      ],
+      "ship_id": "00000000-0000-4000-8000-000000000004",
+      "status": "answered",
+      "text": "Deploy to production?"
+    },
+    "ship.created": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "attachments": [
+        {
+          "id": "00000000-0000-4000-8000-000000000010",
+          "kind": "image",
+          "mime": "image/png",
+          "name": "screenshot.png",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 2048
+        }
+      ],
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:02:00Z",
+      "direction": "in",
+      "external_id": "msg-1",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "sender_id": "+34600000001",
+      "sender_name": "Ana Example",
+      "sent_at": "2030-01-02T03:02:00Z",
+      "status": "queued",
+      "text": "Hello, can you look at this?"
+    },
+    "ship.turn": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "agent_name": "support-bot",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "ended_at": "2030-01-02T03:04:00Z",
+      "omitted": 2,
+      "outcome": "acked",
+      "started_at": "2030-01-02T03:03:00Z",
+      "tools": [
+        {
+          "ended_at": "2030-01-02T03:03:00Z",
+          "kind": "read",
+          "started_at": "2030-01-02T03:03:00Z",
+          "status": "completed",
+          "title": "Read README.md"
+        }
+      ]
+    },
+    "ship.updated": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "created_at": "2030-01-02T03:03:00Z",
+      "delivery_id": "00000000-0000-4000-8000-000000000006",
+      "direction": "out",
+      "external_id": "out-1",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "sender_id": "agent",
+      "sender_name": "support-bot",
+      "sent_at": "2030-01-02T03:03:00Z",
+      "status": "sent",
+      "text": "On it."
+    },
+    "slot.browser": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "by": "admin",
+      "slot": 1,
+      "state": "opened"
+    },
+    "slot.updated": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "environment_id": "00000000-0000-4000-8000-000000000007",
+      "slots": [
+        {
+          "active_at": "2030-01-02T03:02:00Z",
+          "detail": "",
+          "environment_version": 2,
+          "image": "sha256:0123456789abcdef",
+          "index": 1,
+          "started_at": "2030-01-02T03:00:00Z",
+          "state": "running",
+          "updated_at": "2030-01-02T03:02:00Z"
+        }
+      ],
+      "updated_at": "2030-01-02T03:01:00Z",
+      "updated_by": "admin"
+    }
+  },
+  "home_rules": {
+    "claude-code": {
+      "dirs": [
+        "agents",
+        "commands",
+        "hooks",
+        "output-styles",
+        "skills"
+      ],
+      "file_prefixes": [
+        "statusline"
+      ],
+      "files": [
+        "CLAUDE.md",
+        "keybindings.json",
+        "settings.json"
+      ],
+      "max_bytes": 20971520,
+      "max_depth": 12,
+      "max_file": 5242880,
+      "max_files": 2000,
+      "max_upload": 26214400,
+      "reserved": [],
+      "root": ".claude",
+      "secrets": [
+        {
+          "pattern": "sk-ant-[A-Za-z0-9_-]{20,}",
+          "what": "an Anthropic API key"
+        },
+        {
+          "pattern": "sk-(proj-|svcacct-)?[A-Za-z0-9_-]{40,}",
+          "what": "an OpenAI API key"
+        },
+        {
+          "pattern": "(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})",
+          "what": "a GitHub token"
+        },
+        {
+          "pattern": "glpat-[A-Za-z0-9_-]{20,}",
+          "what": "a GitLab token"
+        },
+        {
+          "pattern": "xox[abprs]-[A-Za-z0-9-]{10,}",
+          "what": "a Slack token"
+        },
+        {
+          "pattern": "\\b(AKIA|ASIA)[0-9A-Z]{16}\\b",
+          "what": "an AWS access key"
+        },
+        {
+          "pattern": "AIza[0-9A-Za-z_-]{35}",
+          "what": "a Google API key"
+        },
+        {
+          "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+          "what": "a private key"
+        },
+        {
+          "pattern": "sp_crew_[A-Za-z0-9_-]{16,}",
+          "what": "a Seaport crew token"
+        },
+        {
+          "pattern": "ik_key_[A-Za-z0-9_-]{16,}",
+          "what": "an IAMKit API key"
+        }
+      ]
+    },
+    "rness": {
+      "dirs": [
+        "lua",
+        "plugins",
+        "skills"
+      ],
+      "file_prefixes": [],
+      "files": [
+        "hooks.json",
+        "init.lua"
+      ],
+      "max_bytes": 20971520,
+      "max_depth": 12,
+      "max_file": 5242880,
+      "max_files": 2000,
+      "max_upload": 26214400,
+      "reserved": [
+        "lua/seaport.lua"
+      ],
+      "root": ".rness",
+      "secrets": [
+        {
+          "pattern": "sk-ant-[A-Za-z0-9_-]{20,}",
+          "what": "an Anthropic API key"
+        },
+        {
+          "pattern": "sk-(proj-|svcacct-)?[A-Za-z0-9_-]{40,}",
+          "what": "an OpenAI API key"
+        },
+        {
+          "pattern": "(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})",
+          "what": "a GitHub token"
+        },
+        {
+          "pattern": "glpat-[A-Za-z0-9_-]{20,}",
+          "what": "a GitLab token"
+        },
+        {
+          "pattern": "xox[abprs]-[A-Za-z0-9-]{10,}",
+          "what": "a Slack token"
+        },
+        {
+          "pattern": "\\b(AKIA|ASIA)[0-9A-Z]{16}\\b",
+          "what": "an AWS access key"
+        },
+        {
+          "pattern": "AIza[0-9A-Za-z_-]{35}",
+          "what": "a Google API key"
+        },
+        {
+          "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----",
+          "what": "a private key"
+        },
+        {
+          "pattern": "sp_crew_[A-Za-z0-9_-]{16,}",
+          "what": "a Seaport crew token"
+        },
+        {
+          "pattern": "ik_key_[A-Za-z0-9_-]{16,}",
+          "what": "an IAMKit API key"
+        }
+      ]
+    }
+  }
+}
