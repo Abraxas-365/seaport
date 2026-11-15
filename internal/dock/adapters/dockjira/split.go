@@ -97,7 +97,9 @@ func fenceOf(line string) string {
 func cutBlock(block string, max int) []string {
 	lines := strings.Split(block, "\n")
 	open, close := "", ""
-	if f := fenceOf(lines[0]); f != "" {
+	// A fence line that leaves less than half of max for the code (a huge
+	// info string) is plain text: the cut below must always make progress.
+	if f := fenceOf(lines[0]); f != "" && len(lines[0])+len(f)+2 <= max/2 {
 		open, close = lines[0], f
 		lines = lines[1:]
 		if n := len(lines); n > 0 && strings.TrimSpace(lines[n-1]) == close {
@@ -126,6 +128,9 @@ func cutBlock(block string, max int) []string {
 			cut := budget
 			for cut > 0 && !runeStart(line[cut]) {
 				cut--
+			}
+			if cut == 0 { // not UTF-8 (a run of continuation bytes): cut by size
+				cut = budget
 			}
 			if cur.Len() > 0 {
 				flush()

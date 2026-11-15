@@ -26,12 +26,22 @@ go test -count=1 -p 1 ./cmd/seaport              # admin CLI e2e (cli_e2e_test.g
 go generate ./internal/permission               # after editing iam/permissions.json (Go + web/src/lib/permissions.gen.ts)
 scripts/iamkit-provision.sh --dry-run           # provision IAMKit for iam mode (docs/guides/operations/iam-mode.md)
 goreleaser release --snapshot --clean           # release binaries into dist/ (goreleaser v2)
+scripts/fuzz.sh 10s                             # every FuzzX target, TIME each (FUZZ_SHARD=i/n, FUZZ_PKGS); no database
+scripts/upgrade-smoke.sh OLD_IMAGE NEW_IMAGE    # seed on one image, start the next on the same DB, read it back (Docker)
 ```
 
 CI (`.github/workflows/ci.yml`): gofmt, vet, `go test -race` against a
 Postgres service and with `SEAPORT_TEST_IAMKIT=1` (testcontainers starts
 IAMKit + its Postgres; with `CI` set, a missing test database or IAMKit
-fails instead of skipping), web lint + test + build, website tests + build + links, docker build. Releases: push a `v*` tag →
+fails instead of skipping), a `fuzz` job (every native `FuzzX` target, 10 s
+each, 4 parallel shards; `scripts/fuzz.sh` finds them with `go test -list`, so a new
+one needs no wiring; a failing input goes to `<pkg>/testdata/fuzz/<FuzzX>/` as a regression),
+web lint + test + build, website tests + build + links, docker build. `.github/workflows/nightly.yml` (06:00 UTC +
+`workflow_dispatch`, read-only, no notification) runs the slow checks: `fuzz-long`
+(2 min per target), `docker-runtime` (the Docker-engine tests of `hostingdocker` and
+the bootstrap build/slot tests, `CI=1`), `release-snapshot` (goreleaser) and
+`migrate-upgrade` (`scripts/upgrade-smoke.sh`: the latest release's image, else the
+previous commit's, then the current build on the same database). Releases: push a `v*` tag →
 `release.yml` runs goreleaser (`.goreleaser.yaml`) and publishes the
 binaries to GitHub Releases.
 
@@ -120,7 +130,8 @@ action/               composite GitHub Action: a workflow hands a message to a
                       GitHub dock (OIDC, POST /github/actions/{dock})
 images/               base images of hosted agents (Dockerfile targets rness,
                       claude-code; release.yml pushes ghcr.io/abraxas-365/seaport-*)
-scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode)
+scripts/              iamkit-provision.sh (idempotent IAMKit setup for iam mode), fuzz.sh,
+                      upgrade-smoke.sh (nightly upgrade check)
 migrations/           goose SQL, embedded, applied at start
 web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at /
 ```
@@ -269,6 +280,12 @@ net/http mux; only `/healthz` answers 405.
 
 ## Conventions
 
+- Fuzzing: code that parses untrusted bytes (webhook bodies, MIME, ADF/wiki/
+  Markdown, tar homes, crew frames, signatures, sealed values) has a native
+  `FuzzX` next to it asserting "no panic" plus invariants (limits, validity,
+  round trip, a wrong signature never passes). Seeds are ordinary tests in
+  `go test ./...`; a crash input is committed under `testdata/fuzz/FuzzX/`.
+  Build secret-looking seeds at runtime (`"sk-"+"ant-…"`), never as literals.
 - Errors: one system, `internal/errx`. `errx.Wrap` keeps an existing typed
   error's message (Op is logs only) and returns `error` (no typed nils;
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
