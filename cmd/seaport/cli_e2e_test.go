@@ -731,6 +731,39 @@ func TestCLIAgentCommands(t *testing.T) {
 	}
 }
 
+// `seaport connect` with a crew token the port rejects (garbage, or revoked)
+// or with none exits with an error instead of retrying: the agent command is
+// never started (the kit is fetched first), so any command will do.
+func TestCLIConnectStopsOnARejectedToken(t *testing.T) {
+	p := startCLIPort(t)
+	p.ok("agents", "add", "ci")
+	out, errOut, err := p.cli("", "crew", "tokens", "create", "runner", "-agent", "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := strings.TrimSpace(out)
+	mustContain(t, "revoke", p.ok("crew", "tokens", "revoke", firstID(t, errOut)), "crew token revoked")
+
+	start := time.Now()
+	for name, tc := range map[string]struct{ token, want string }{
+		"revoked": {revoked, "the port rejected the crew token"},
+		"garbage": {"sp_crew_not-a-token", "the port rejected the crew token"},
+		"none":    {"", "the port requires a crew token"},
+	} {
+		t.Setenv("SEAPORT_CREW_TOKEN", tc.token)
+		_, _, err := p.cli("", "connect", "--", "does-not-exist-agent", "--acp")
+		if err == nil {
+			t.Fatalf("%s: seaport connect succeeded", name)
+		}
+		if msg := errorMessage(err); !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: seaport connect failed with %q, want %q", name, msg, tc.want)
+		}
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("seaport connect took %s to give up: it retried", d)
+	}
+}
+
 // Schedules: create (with a zone), list, preview, edit, enable/disable,
 // run and delete; refused crons are readable.
 func TestCLISchedules(t *testing.T) {

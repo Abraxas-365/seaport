@@ -29,7 +29,7 @@ On start, the connector:
 
 The harness answers through the port's MCP tools, which the connector adds to every session: `reply` sends a message (with files if needed), `history` reads earlier ones, `conversations` lists the chats the agent can reply to, `attachment` shows an image or a document, and `skill` loads a [skill](profiles.md#skills). The agent's final text is **not** sent to anyone unless you use `-auto-reply`.
 
-If the connection drops, the connector reconnects, waiting 1 second and doubling up to 30 seconds. If the harness process exits, the connector stops with an error.
+If the connection drops, the connector reconnects, waiting 1 second and doubling up to 30 seconds. If the harness process exits, the connector stops with an error. If the port stops accepting the credential (the token was revoked or expired, or its agent was deleted, even while the connector was working), the connection closes, the reconnect is refused and the connector stops with an error and a non-zero exit status instead of retrying.
 
 ## Flags
 
