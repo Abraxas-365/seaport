@@ -94,6 +94,68 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # Browser tests of the admin web app (web/e2e, Playwright) through the real
+  # server: TestUI starts the port with the embedded build, a fake Slack and
+  # the echo agent. Opt-in by SEAPORT_TEST_UI; with CI set a missing browser
+  # fails instead of skipping. Runs in parallel with `go`.
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: seaport
+          POSTGRES_PASSWORD: seaport
+          POSTGRES_DB: seaport_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U seaport"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      SEAPORT_TEST_DATABASE_URL: postgres://seaport:seaport@localhost:5432/seaport_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 8.6.12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - run: pnpm build
+        working-directory: web
+      # The browser is cached by the Playwright version the lockfile pins.
+      - id: playwright
+        working-directory: web
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium
+        working-directory: web
+        run: |
+          if [ "${{ steps.browsers.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
+      - run: SEAPORT_TEST_UI=1 CI=1 go test -count=1 -run TestUI ./internal/bootstrap/ -v
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: web/e2e/test-results
+          if-no-files-found: ignore
+
   # The documentation site (website/, the same steps as website.yml minus the
   # publish): its tests, the build and the rendered links, on every PR.
   website:

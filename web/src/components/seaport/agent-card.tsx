@@ -20,7 +20,7 @@ export function AgentCard({
 }) {
   const busy = agent.deliveries.length
   return (
-    <Card className="gap-0 py-0">
+    <Card className="gap-0 py-0" data-testid="agent-card">
       <CardContent className="space-y-4 p-4">
         <div className="flex items-start gap-3">
           <span className="relative inline-flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">

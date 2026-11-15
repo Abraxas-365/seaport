@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // e2e/ has its own tsconfig (pnpm e2e:types) and Playwright idioms
+  globalIgnores(['dist', 'e2e']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

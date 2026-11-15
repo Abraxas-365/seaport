@@ -4,3 +4,5 @@
 *.test
 .env
 .iamkit.env
+/web/e2e/test-results/
+/web/e2e/playwright-report/
