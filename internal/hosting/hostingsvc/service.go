@@ -4,8 +4,6 @@ package hostingsvc
 import (
 	"context"
 	"reflect"
-	"slices"
-	"strings"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -113,7 +111,7 @@ func (s *Service) SaveEnvironment(ctx context.Context, org identity.Organization
 	}
 	for _, h := range hosted {
 		if h.Environment == id {
-			if err := s.checkSecrets(ctx, org, h.Agent, input.Spec); err != nil {
+			if err := s.checkSecrets(ctx, org, id, h.Agent, input.Spec); err != nil {
 				return hosting.Environment{}, err
 			}
 			if err := s.checkBrowser(ctx, org, h.Agent, input.Spec); err != nil {
@@ -137,38 +135,6 @@ func (s *Service) DeleteEnvironment(ctx context.Context, org identity.Organizati
 		return errx.Wrap(err, "delete environment", errx.TypeInternal)
 	}
 	s.events.Publish(org, hosting.EventEnvironmentDeleted, hosting.EnvironmentDeleted{ID: id})
-	return nil
-}
-
-// checkSecrets refuses a spec whose repo credentials or model keys name
-// secrets the agent doesn't have.
-func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
-	need := spec.Secrets()
-	if len(need) == 0 {
-		return nil
-	}
-	have, err := s.agents.Secrets(ctx, org, agentID)
-	if err != nil {
-		return err
-	}
-	names := make([]string, 0, len(have))
-	for _, sec := range have {
-		names = append(names, sec.Name)
-	}
-	var missing []string
-	for _, n := range need {
-		if !slices.Contains(names, n) {
-			missing = append(missing, n)
-		}
-	}
-	if len(missing) > 0 {
-		a, err := s.agents.Find(ctx, org, agentID)
-		if err != nil {
-			return err
-		}
-		return errx.Business("agent " + a.Name + " has no secret " + strings.Join(missing, ", ") +
-			" (the environment names it as a repo credential or model key): seaport agents secrets set " + a.Name + " " + missing[0])
-	}
 	return nil
 }
 
@@ -208,7 +174,7 @@ func (s *Service) Host(ctx context.Context, org identity.OrganizationID, agentID
 	if err != nil {
 		return hosting.Hosted{}, err
 	}
-	if err := s.checkSecrets(ctx, org, agentID, env.Spec); err != nil {
+	if err := s.checkSecrets(ctx, org, env.ID, agentID, env.Spec); err != nil {
 		return hosting.Hosted{}, err
 	}
 	if err := s.checkBrowser(ctx, org, agentID, env.Spec); err != nil {

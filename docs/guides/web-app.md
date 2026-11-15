@@ -128,7 +128,7 @@ An environment says where a [hosted agent](hosting/hosted-agents.md) runs: harne
 
 ![An environment](../assets/screenshots/environment.png)
 
-The page has the sections **Base**, **Herramientas**, **Configuración del harness** (the harness's own settings, such as `CLAUDE.md` or skills, uploaded from a folder or archive; see [Harness homes](hosting/harness-homes.md)), **Repos**, **Red y modelos** and **Recursos y espacio de trabajo**. If you only connect agents from your own machines, you can ignore this section.
+The page has the sections **Base**, **Herramientas**, **Configuración del harness** (the harness's own settings, such as `CLAUDE.md` or skills, uploaded from a folder or archive; see [Harness homes](hosting/harness-homes.md)), **Repos**, **Red**, **Variables y modelos** (plain variables every instance gets and, per model provider, the secret holding the key) and **Recursos y espacio de trabajo**. The **Secretos** card above the spec holds the environment's secrets (model keys, repo credentials; names only, never values; see [Variables and secrets](hosting/secrets.md)). If you only connect agents from your own machines, you can ignore this section.
 
 ## Tripulación (Crew)
 

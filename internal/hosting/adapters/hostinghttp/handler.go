@@ -3,6 +3,7 @@ package hostinghttp
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -25,8 +26,9 @@ func New(c hosting.Commands, q hosting.Queries, runtime bool) *Handler {
 }
 
 // Register mounts the routes on r (already behind admin auth). A spec
-// whose repo credentials name agent secrets directs them, so writing one,
-// or hosting an agent on one, needs agents:write too (credentials).
+// whose repo credentials or model keys name secrets the environment lacks
+// directs the hosted agents' secrets, so saving one, or hosting an agent
+// on one, needs agents:write too (credentials).
 func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/environments", httpx.RequireFunc(permission.EnvironmentsRead, h.list))
 	r.Post("/api/v1/environments", httpx.RequireFunc(permission.EnvironmentsWrite, h.create))
@@ -35,6 +37,9 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Delete("/api/v1/environments/:id", httpx.RequireFunc(permission.EnvironmentsWrite, h.delete))
 	r.Get("/api/v1/environments/:id/versions", httpx.RequireFunc(permission.EnvironmentsRead, h.versions))
 	r.Get("/api/v1/environments/:id/versions/:version", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
+	r.Get("/api/v1/environments/:id/secrets", httpx.RequireFunc(permission.EnvironmentsRead, h.secrets))
+	r.Put("/api/v1/environments/:id/secrets/:name", httpx.RequireFunc(permission.EnvironmentsWrite, h.setSecret))
+	r.Delete("/api/v1/environments/:id/secrets/:name", httpx.RequireFunc(permission.EnvironmentsWrite, h.deleteSecret))
 	r.Post("/api/v1/environments/:id/build", httpx.RequireFunc(permission.EnvironmentsWrite, h.startBuild))
 	r.Get("/api/v1/environments/:id/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
 	r.Get("/api/v1/environments/:id/versions/:version/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
@@ -93,12 +98,23 @@ func by(p httpx.Principal) string {
 	return p.Subject
 }
 
-// credentials: a spec naming agent secrets directs them (the repo URL
-// gets the token, the gateway spends the model key), which is
-// agents:write's to allow.
-func credentials(p httpx.Principal, spec hosting.Spec) error {
-	if len(spec.Secrets()) > 0 && !p.Can(permission.AgentsWrite) {
-		return errx.Forbidden("missing permission " + permission.AgentsWrite + " (the spec's repo credentials or model keys name agent secrets)")
+// credentials: a spec naming secrets the environment doesn't have directs
+// the hosted agents' (the repo URL gets the token, the gateway spends the
+// model key), which is agents:write's to allow. A new environment has no
+// secrets yet and no agent on it: its spec is checked when one is hosted.
+func (h *Handler) credentials(c fiber.Ctx, p httpx.Principal, id identity.EnvironmentID, spec hosting.Spec) error {
+	need := spec.Secrets()
+	if len(need) == 0 || p.Can(permission.AgentsWrite) {
+		return nil
+	}
+	ours, err := h.queries.Secrets(c.Context(), p.Organization, id)
+	if err != nil {
+		return err
+	}
+	for _, n := range need {
+		if !slices.ContainsFunc(ours, func(s hosting.EnvironmentSecret) bool { return s.Name == n }) {
+			return errx.Forbidden("missing permission " + permission.AgentsWrite + " (the spec names secret " + n + ", which the environment lacks: it would be the hosted agents')")
+		}
 	}
 	return nil
 }
@@ -144,9 +160,6 @@ func (h *Handler) create(c fiber.Ctx) error {
 	}
 	var req createRequest
 	if err := httpx.DecodeJSON(c, &req); err != nil {
-		return err
-	}
-	if err := credentials(p, req.Spec); err != nil {
 		return err
 	}
 	e, err := h.commands.CreateEnvironment(c.Context(), p.Organization, hosting.CreateEnvironment{Name: req.Name, Spec: req.Spec, CreatedBy: by(p)})
@@ -258,7 +271,7 @@ func (h *Handler) save(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	if err := credentials(p, req.Spec); err != nil {
+	if err := h.credentials(c, p, id, req.Spec); err != nil {
 		return err
 	}
 	e, err := h.commands.SaveEnvironment(c.Context(), p.Organization, id, hosting.SaveEnvironment{Base: req.Base, Spec: req.Spec, CreatedBy: by(p)})
@@ -278,6 +291,63 @@ func (h *Handler) delete(c fiber.Ctx) error {
 		return err
 	}
 	if err := h.commands.DeleteEnvironment(c.Context(), org, id); err != nil {
+		return err
+	}
+	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h *Handler) secrets(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := h.environmentID(c, org)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.Secrets(c.Context(), org, id)
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, map[string]any{"secrets": out})
+}
+
+type secretRequest struct {
+	Value string `json:"value"`
+	Env   bool   `json:"env"`
+}
+
+// setSecret answers with the secret's name and flags, never its value.
+func (h *Handler) setSecret(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := h.environmentID(c, org)
+	if err != nil {
+		return err
+	}
+	var req secretRequest
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	out, err := h.commands.SetSecret(c.Context(), org, id, hosting.SetEnvironmentSecret{Name: httpx.Param(c, "name"), Value: req.Value, Env: req.Env})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) deleteSecret(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := h.environmentID(c, org)
+	if err != nil {
+		return err
+	}
+	if err := h.commands.DeleteSecret(c.Context(), org, id, httpx.Param(c, "name")); err != nil {
 		return err
 	}
 	return c.SendStatus(http.StatusNoContent)
@@ -358,7 +428,7 @@ func (h *Handler) host(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := credentials(p, env.Spec); err != nil {
+	if err := h.credentials(c, p, env.ID, env.Spec); err != nil {
 		return err
 	}
 	out, err := h.commands.Host(c.Context(), p.Organization, id, hosting.Host{Environment: env.ID, Slots: req.Slots, By: by(p)})

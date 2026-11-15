@@ -884,6 +884,37 @@ func TestCLIEnvironments(t *testing.T) {
 	mustContain(t, "export applies back", p.ok("env", "apply", "-f", back), "unchanged (v2)")
 	mustContain(t, "versions", p.ok("env", "versions", "web"), "VERSION", "v1", "v2")
 
+	// secrets: values come from stdin and are never shown; the spec names them
+	mustContain(t, "no env secrets", p.ok("env", "secrets", "web"), "has no secrets")
+	out, _, err = p.cli("sk-model-key-0001\n", "env", "secrets", "set", "web", "OPENAI_KEY")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, "env secrets set", out, "secret OPENAI_KEY of environment web saved", "${OPENAI_KEY}")
+	out, _, err = p.cli("flag-value\n", "env", "secrets", "set", "web", "FEATURE_TOKEN", "-env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sl := p.ok("env", "secrets", "list", "web")
+	mustContain(t, "env secrets list", sl, "NAME", "ENV", "OPENAI_KEY", "false", "FEATURE_TOKEN", "true")
+	if strings.Contains(sl, "sk-model-key-0001") || strings.Contains(sl, "flag-value") {
+		t.Error("env secrets list shows a value")
+	}
+	withKey := strings.Replace(exp[strings.Index(exp, "\n")+1:], "idle_stop: 2h", "idle_stop: 2h\nmodels:\n  openai: ${OPENAI_KEY}\nenv:\n  TZ: UTC\n", 1)
+	out, _, err = p.cli(withKey, "env", "apply", "-f", "-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, "apply with models and env", out, "environment web v3")
+	mustContain(t, "export models and env", p.ok("env", "export", "web"), "openai: ${OPENAI_KEY}", "TZ: UTC")
+	if msg := p.fails("env", "secrets", "rm", "web", "OPENAI_KEY"); msg == "" {
+		t.Error("a secret the spec names was deleted")
+	}
+	mustContain(t, "env secrets rm", p.ok("env", "secrets", "rm", "web", "FEATURE_TOKEN"), "deleted")
+	if msg := p.fails("env", "secrets", "set", "web", "lower"); msg == "" {
+		t.Error("a bad secret name was accepted")
+	}
+
 	// refusals
 	typo := filepath.Join(dir, "typo.yaml")
 	if err := os.WriteFile(typo, []byte("name: x\nharnes: claude-code\n"), 0o600); err != nil {
@@ -931,9 +962,9 @@ func TestCLIEnvironments(t *testing.T) {
 	dry := p.ok("env", "home", "push", "web", home, "-dry-run")
 	mustContain(t, "dry run", dry, "left out (not claude-code config): projects/", "CLAUDE.md", "3 files", "dry run, nothing uploaded")
 	pushed := p.ok("env", "home", "push", "web", home)
-	mustContain(t, "push", pushed, "uploaded claude-code home from "+home, "3 files", "sha256:", "environment web v3")
+	mustContain(t, "push", pushed, "uploaded claude-code home from "+home, "3 files", "sha256:", "environment web v4")
 	show := p.ok("env", "home", "show", "web")
-	mustContain(t, "home show", show, "# web v3: claude-code home sha256:", "3 files", "CLAUDE.md", "settings.json", "skills/go/SKILL.md")
+	mustContain(t, "home show", show, "# web v4: claude-code home sha256:", "3 files", "CLAUDE.md", "settings.json", "skills/go/SKILL.md")
 
 	pull := filepath.Join(dir, "pulled")
 	mustContain(t, "pull", p.ok("env", "home", "pull", "web", pull), "3 files of web's home in "+pull)

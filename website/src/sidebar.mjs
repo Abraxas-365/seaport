@@ -40,6 +40,7 @@ export const sidebar = [
     group('Hosted agents', [
       page('guides/hosting/hosted-agents'),
       page('guides/hosting/network'),
+      page('guides/hosting/secrets'),
       page('guides/hosting/harness-homes'),
       page('guides/hosting/claude-subscriptions'),
       page('guides/hosting/browser'),

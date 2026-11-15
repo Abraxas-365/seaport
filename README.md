@@ -238,10 +238,11 @@ name: backend
 harness: rness                    # rness | claude-code
 repos:
   - url: https://github.com/acme/api.git
-    credential: ${GITHUB_TOKEN}   # a secret of the hosted agent
+    credential: ${GITHUB_TOKEN}   # a secret of the environment
 home: ./rness-home                # your own harness config
+env: {TZ: America/Lima}           # plain variables of every slot
 models:
-  anthropic: ${ANTHROPIC_API_KEY} # through the port's gateway
+  anthropic: ${ANTHROPIC_KEY}     # a secret of the environment, through the port's gateway
 network:
   egress: [registry.npmjs.org]    # + the repos' hosts
 idle_stop: 30m

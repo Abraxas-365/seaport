@@ -36,7 +36,7 @@ func TestEnvFileRoundTrip(t *testing.T) {
 	}
 	if f.Name != "web" || f.Harness != hosting.HarnessClaudeCode || f.Repos[0].Credential != "${GITHUB_TOKEN}" ||
 		f.Setup != "npm i -g pnpm\npnpm --version\n" || f.Resources.Size != "M" ||
-		f.Models.Anthropic != "${ANTHROPIC_API_KEY}" {
+		f.Models["anthropic"] != "${ANTHROPIC_API_KEY}" {
 		t.Fatalf("read: %+v", f)
 	}
 	var out bytes.Buffer

@@ -128,6 +128,7 @@ func Spec() wire.Spec {
 			"EnvSpec":            of[hosting.Spec](),
 			"EnvRepo":            of[hosting.Repo](),
 			"EnvModels":          of[hosting.Models](),
+			"EnvSecret":          of[hosting.EnvironmentSecret](),
 			"EnvNetwork":         of[hosting.Network](),
 			"EnvBrowser":         of[hosting.Browser](),
 			"EnvResources":       of[hosting.Resources](),

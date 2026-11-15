@@ -76,9 +76,9 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(w, "DAY\tMODEL\tREQUESTS\tINPUT\tOUTPUT\tCACHE WRITE\tCACHE READ")
+		fmt.Fprintln(w, "DAY\tPROVIDER\tMODEL\tREQUESTS\tINPUT\tOUTPUT\tCACHE WRITE\tCACHE READ")
 		for _, d := range out.Days {
-			fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n", d.Day.Format("2006-01-02"), d.Model, d.Requests, d.Input, d.Output, d.CacheWrite, d.CacheRead)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\n", d.Day.Format("2006-01-02"), d.Provider, d.Model, d.Requests, d.Input, d.Output, d.CacheWrite, d.CacheRead)
 		}
 		return w.Flush()
 	case "egress":

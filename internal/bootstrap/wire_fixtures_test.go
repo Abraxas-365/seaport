@@ -151,7 +151,7 @@ func wireFixtures() map[string]any {
 		Spec: hosting.Spec{Description: "Go toolchain", Harness: "claude-code", Image: "", Packages: []string{"git", "make"},
 			Setup: "echo ready", RepoConfig: "ignore", Home: "",
 			Repos:  []hosting.Repo{{URL: "https://example.com/org/repo.git", Ref: "main", Path: "repo", Credential: "${GIT_TOKEN}", OnStart: "make deps"}},
-			Models: hosting.Models{Anthropic: "${ANTHROPIC_KEY}"}, Network: hosting.Network{Egress: []string{"example.com", "*.example.org"}},
+			Models: hosting.Models{"anthropic": "${ANTHROPIC_KEY}"}, Env: map[string]string{"TZ": "UTC"}, Network: hosting.Network{Egress: []string{"example.com", "*.example.org"}},
 			Browser: hosting.Browser{Engine: "chromium"}, Resources: hosting.Resources{Size: "M", CPUs: 2, MemoryMB: 4096},
 			Workspace: "persistent", IdleStop: "30m"}}
 

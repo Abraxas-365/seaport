@@ -551,7 +551,7 @@ A crew status agent: `session`, `agent_id`, `agent_name`, `name`, `concurrency`,
 
 ### Hosting
 
-Environments, builds, homes and hosted agents. Permissions are `environments:read` and `environments:write`. A body that names secrets (repo credentials, model keys) also needs `agents:write`.
+Environments, their secrets, builds, homes and hosted agents. Permissions are `environments:read` and `environments:write`. Saving a spec, or hosting an agent on one, whose repo credentials or model keys name a secret the environment doesn't have also needs `agents:write` (it would be the hosted agents' secret).
 
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
@@ -562,6 +562,9 @@ Environments, builds, homes and hosted agents. Permissions are `environments:rea
 | `DELETE` | `/environments/{id}` | `environments:write` | `204`. Refused while agents are hosted on it. |
 | `GET` | `/environments/{id}/versions` | `environments:read` | `{"versions":[{"version","created_by","created_at"}]}`. |
 | `GET` | `/environments/{id}/versions/{version}` | `environments:read` | A past version. |
+| `GET` | `/environments/{id}/secrets` | `environments:read` | `{"secrets":[{"name","env","updated_at"}]}`. The environment's own secrets (model keys, repo credentials; with `env`, a variable of every slot). Never values. |
+| `PUT` | `/environments/{id}/secrets/{name}` | `environments:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
+| `DELETE` | `/environments/{id}/secrets/{name}` | `environments:write` | `204`. Refused while the spec names it. |
 | `POST` | `/environments/{id}/build` | `environments:write` | Optional body `{"version":0,"force":false}`. `202` with the build. |
 | `GET` | `/environments/{id}/build` | `environments:read` | The build of the current version. |
 | `GET` | `/environments/{id}/versions/{version}/build` | `environments:read` | The build of that version. |
@@ -669,15 +672,14 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `POST` | `/crew/reply` | A reply as the agent, with files. Body `{"conversation_id","text","files":[{"name","data"}]}` (`data` base64; body up to about 35 MiB). `201` `{"ship_id","status"}`. Agent tokens only (`403` without an agent). Same rules as the MCP `reply` tool. |
 | `GET` | `/crew/workspace` | A hosted slot's plan for `/workspace`: `slot`, `harness`, `repo_config`, `persistent`, `repos`, `sign_in`, with repo credentials resolved. Only a slot's own token gets it; any other is `403`. |
 | `POST` | `/crew/github/token` | A GitHub App token for one repository. Body `{"repository":"owner/repo","host":"github.com"}` (`host` optional: another host than the port's GitHub is `404`). `200` `{"token","expires_at","repository","host","api_url","app"}`, `Cache-Control: no-store`. Only an agent's crew token, and only for a repository where the App of one of its GitHub docks is installed and active; else `404` (`403` without an agent: `none` mode). See [GitHub](../guides/github.md#act-on-github-as-the-app). |
-| `*` | `/gateway/anthropic/…` | The model gateway for hosted slots. |
+| `*` | `/gateway/{provider}/…` | The model gateway for hosted slots: `anthropic`, `openai`, `openrouter`, `groq`, `deepseek`. |
 
-The gateway is for hosted slots only: it takes the slot token as the bearer or as `x-api-key`, drops the caller's own `Authorization`, adds the real provider key from the agent's secrets and forwards:
+The gateway is for hosted slots only: it takes the slot token as the bearer or as `x-api-key`, drops the caller's own `Authorization`, adds the real provider key (the environment's secret, else the agent's) and forwards:
 
-- `/v1/messages` and `/v1/messages/count_tokens`,
-- `/v1/models` and what is under it,
-- `/v1/files` and what is under it.
+- `anthropic` (Anthropic's protocol, `x-api-key`): `/v1/messages` and `/v1/messages/count_tokens`, `/v1/models` and what is under it, `/v1/files` and what is under it;
+- `openai`, `openrouter`, `groq`, `deepseek` (the OpenAI protocol, `Authorization: Bearer`; the slot's `<PROVIDER>_BASE_URL` already ends in the gateway path, so these come bare): `/chat/completions`, `/responses` and what is under it, `/embeddings`, `/models` and what is under it.
 
-Any other path under it answers `404`. It streams responses and records the token usage of successful Messages calls (`GET /api/v1/agents/{id}/usage`). Errors come back in Anthropic's error shape. It isn't covered by the API rate limit. Where it forwards to is `SEAPORT_GATEWAY_ANTHROPIC_URL`. See [Network](../guides/hosting/network.md).
+Any other path under it answers `404`. It streams responses and records the token usage of successful calls (Messages; Chat Completions, Responses and embeddings: a stream is metered when it carries usage, which Chat Completions does with `stream_options.include_usage`) in `GET /api/v1/agents/{id}/usage`. Errors come back in the provider's error shape. It isn't covered by the API rate limit. Where it forwards to is `SEAPORT_GATEWAY_<PROVIDER>_URL`. See [Network](../guides/hosting/network.md).
 
 > [!NOTE]
 > `/crew/profile`, `/crew/workspace` and `/crew/github/token` hand out secrets. They only answer the crew credential of the agent itself, never an admin credential. See [Security model](../explanation/security-model.md).

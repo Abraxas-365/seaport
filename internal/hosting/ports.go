@@ -20,12 +20,20 @@ type Commands interface {
 	// not the current one). A spec equal to the current one (normalized)
 	// stores nothing and answers the current version.
 	SaveEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SaveEnvironment) (Environment, error)
-	// DeleteEnvironment removes it with its history (Conflict while an
-	// agent is hosted on it).
+	// DeleteEnvironment removes it with its history and secrets (Conflict
+	// while an agent is hosted on it).
 	DeleteEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) error
+	// SetSecret creates or replaces an environment's secret (sealed; never
+	// read back; at most MaxSecrets). Running slots get it at their next
+	// start.
+	SetSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SetEnvironmentSecret) (EnvironmentSecret, error)
+	// DeleteSecret removes one (Conflict while the current spec names it as
+	// a repo credential or model key).
+	DeleteSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, name string) error
 	// Host hosts the agent on an environment, or moves it, or changes its
 	// slot count (slots beyond it must be stopped: Conflict). The secrets
-	// the environment's repo credentials name must be the agent's.
+	// the environment's spec names must be the environment's or the
+	// agent's.
 	Host(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Host) (Hosted, error)
 	// Unhost stops hosting it (Conflict while a slot is not stopped).
 	Unhost(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
@@ -53,12 +61,13 @@ type Commands interface {
 	// StopTimeout to finish) and answers the hosting.
 	StopSlot(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Hosted, error)
 	// OpenWorkspace is a running slot's workspace plan, repo credentials
-	// resolved (agent secrets): only for the slot's own token
-	// (hostinghttp, GET /crew/workspace; TestOnlyTheCrewEquips).
+	// resolved (the environment's secrets, else the agent's): only for the
+	// slot's own token (hostinghttp, GET /crew/workspace;
+	// TestOnlyTheCrewEquips).
 	OpenWorkspace(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int) (Workspace, error)
 	// ModelKey is the provider key the gateway forwards a slot's model
-	// calls with (the environment's models, an agent secret): only for
-	// the slot's own token (hostinggateway; TestOnlyTheCrewEquips).
+	// calls with (the environment's models: its secret, else the agent's):
+	// only for the slot's own token (hostinggateway; TestOnlyTheCrewEquips).
 	// NotFound when the environment names none.
 	ModelKey(ctx context.Context, organization identity.OrganizationID, input KeyRequest) (ModelKey, error)
 	// RecordUsage adds one model response's tokens to the agent's day.
@@ -94,6 +103,8 @@ type Queries interface {
 	EnvironmentByName(ctx context.Context, organization identity.OrganizationID, name string) (Environment, error)
 	Environments(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Environment], error)
 	Versions(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]Version, error)
+	// Secrets are the environment's secrets: names and flags, never values.
+	Secrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecret, error)
 	// Hosted is the agent's hosting (NotFound when it is not hosted).
 	Hosted(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Hosted, error)
 	// HostedAgents are the organization's hosted agents.
@@ -179,6 +190,16 @@ type Repository interface {
 	EnvironmentByName(ctx context.Context, organization identity.OrganizationID, name string) (Environment, error)
 	Environments(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Environment], error)
 	Versions(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]Version, error)
+
+	// SetSecret seals and upserts an environment's secret, at most limit
+	// per environment (Business when the port has no secret key).
+	SetSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SetEnvironmentSecret, limit int) (EnvironmentSecret, error)
+	// DeleteSecret removes one; Conflict while the current spec names it.
+	DeleteSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, name string) error
+	Secrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecret, error)
+	// OpenEnvironmentSecrets are the environment's secrets with their
+	// values (hostingsvc only: TestOnlyTheCrewEquips).
+	OpenEnvironmentSecrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecretValue, error)
 
 	// Host upserts the agent's hosting and makes its slots 1..input.Slots,
 	// atomically, under the organization's hosting lock: at most maxSlots

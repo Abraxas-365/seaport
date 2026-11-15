@@ -121,7 +121,7 @@ A `SKILL.md` has front matter with `name` (default: its directory's name) and a 
 | Command | What it does |
 | :--- | :--- |
 | `seaport agents secrets [list] <agent>` | Table of secret names, whether each is given as an environment variable, and update time. Values are never shown. |
-| `seaport agents secrets set <agent> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. MCP headers use it as `${NAME}`. `-env` also gives it to the harness as an environment variable. |
+| `seaport agents secrets set <agent> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. MCP headers use it as `${NAME}`. `-env` also gives it to the harness as an environment variable: hosted slots always get it; `seaport connect` only with `-env`. |
 | `seaport agents secrets rm <agent> NAME` | Deletes it. A secret an MCP header, a repo credential or a model key still uses can't be deleted. |
 
 ### Hosting
@@ -165,6 +165,16 @@ A harness home is an uploaded `~/.claude` or `~/.rness` baked into the environme
 | `seaport env home push <env> [dir] [-dry-run]` | Packs the harness's config files from `dir` (default `~/.claude` or `~/.rness`, by the environment's harness), checks them with the server's own rules, uploads them and saves a version naming the home. What isn't config (sessions, sign-in, memory…) is left out and listed. `-dry-run` lists what would be uploaded and uploads nothing. |
 | `seaport env home show <env>` | The files of its home: path, size, executable mark. |
 | `seaport env home pull <env> <dir>` | Downloads the home into a new or empty directory. |
+
+### Environment secrets
+
+An environment's own secrets: the model keys and repo credentials its spec names as `${NAME}`, and with `-env` variables every slot's harness gets. They belong to the environment, not to the agents hosted on it. See [Variables and secrets](../guides/hosting/secrets.md).
+
+| Command | What it does |
+| :--- | :--- |
+| `seaport env secrets [list] <env>` | Table of secret names, whether each is given as an environment variable, and update time. Values are never shown. |
+| `seaport env secrets set <env> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. The spec names it as `${NAME}`. `-env` also gives it to every slot's harness as an environment variable. |
+| `seaport env secrets rm <env> NAME` | Deletes it. A secret the spec still names can't be deleted. |
 
 ## Crew tokens
 
@@ -226,6 +236,7 @@ The organization's shared memory: markdown entries agents read and write. See [V
 | `-approve reject\|allow` | the agent profile's, else `reject` | Answer to the agent's permission requests. |
 | `-deliver steer\|queue` | `steer` | Messages that arrive mid-turn: `steer` puts them into the running turn when the agent supports it, `queue` waits for the next turn. |
 | `-cwd DIR` | the current directory | The agent's working directory. |
+| `-env` | off | Give the harness the agent's `env` secrets as environment variables. Off, they stay on the port (the machine's environment is yours to set); a hosted slot always gets them. |
 | `-v` | off | Debug logs. |
 
 The connector keeps its sessions in `sessions.json` under `<user config dir>/seaport/`, so conversations resume after a restart. A command is required after `--`; an invalid `-deliver` or `-approve` is refused before connecting.

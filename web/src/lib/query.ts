@@ -60,6 +60,7 @@ export const keys = {
   environments: ["environments"] as const,
   environment: (id: string, version = 0) => ["environments", id, version] as const,
   environmentVersions: (id: string) => ["environments", id, "versions"] as const,
+  environmentSecrets: (id: string) => ["environments", id, "secrets"] as const,
   buildAll: ["build"] as const,
   build: (id: string, version = 0) => ["build", id, version] as const,
   schedulesAll: ["schedules"] as const,

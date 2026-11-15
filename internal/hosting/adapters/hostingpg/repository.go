@@ -13,6 +13,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
 	"github.com/Abraxas-365/seaport/internal/query"
+	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -24,9 +25,14 @@ const hostingLock = 7_401_009
 var messages = pgerr.Messages{NotFound: "environment not found", Unique: "an environment with this name already exists",
 	ForeignKey: "environment not found"}
 
-type Repository struct{ db *sqlx.DB }
+type Repository struct {
+	db *sqlx.DB
+	// sealer seals environment secrets; nil when the port has no secret
+	// key (secrets are refused).
+	sealer *seal.Sealer
+}
 
-func New(db *sqlx.DB) *Repository { return &Repository{db: db} }
+func New(db *sqlx.DB, sealer *seal.Sealer) *Repository { return &Repository{db: db, sealer: sealer} }
 
 var _ hosting.Repository = (*Repository)(nil)
 

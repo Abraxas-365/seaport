@@ -26,6 +26,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -58,9 +59,9 @@ type Config struct {
 	AgentURL    string
 	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
 	SupervisePeriod time.Duration
-	// GatewayAnthropic is where the model gateway forwards Anthropic
-	// calls (default its API).
-	GatewayAnthropic string
+	// GatewayURLs is where the model gateway forwards each provider's
+	// calls (missing: the provider's own API, hosting.Providers).
+	GatewayURLs map[string]string
 	// Egress runs the slots' egress proxy on EgressAddr ("": off), which
 	// slots reach at EgressURL (default AgentURL's host with the proxy's
 	// port) and sign in to with their crew token (Tokens resolves it).
@@ -71,10 +72,15 @@ type Config struct {
 	EgressLookup          func(ctx context.Context, host string) ([]netip.Addr, error)
 	Tokens                httpx.CrewResolver
 	// Blobs and SecretKey keep harness homes sealed (either missing:
-	// uploads refused).
+	// uploads refused); SecretKey also seals environment secrets ("":
+	// refused).
 	Blobs     blob.Store
 	SecretKey string
 }
+
+// secretsInfo derives the environment secrets' key from the port's secret
+// key.
+const secretsInfo = "seaport environment secrets v1"
 
 // New builds the hosting module over the agent library (its secrets'
 // names).
@@ -88,7 +94,18 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 		}
 		m.docker, runtime = d, d
 	}
-	svc, err := hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
+	var sealer *seal.Sealer
+	if cfg.SecretKey != "" {
+		s, err := seal.New(cfg.SecretKey, secretsInfo)
+		if err != nil {
+			if m.docker != nil {
+				_ = m.docker.Close()
+			}
+			return nil, err
+		}
+		sealer = &s
+	}
+	svc, err := hostingsvc.New(hostingpg.New(db, sealer), agents, cfg.Limits, events,
 		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
 		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod},
 		hostingsvc.Homes{Blobs: cfg.Blobs, SecretKey: cfg.SecretKey})
@@ -100,7 +117,7 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 	}
 	m.Service = svc
 	m.http = hostinghttp.New(m.Service, m.Service, runtime != nil)
-	gw, err := hostinggateway.New(m.Service, hostinggateway.Config{Anthropic: cfg.GatewayAnthropic})
+	gw, err := hostinggateway.New(m.Service, hostinggateway.Config{Upstreams: cfg.GatewayURLs})
 	if err != nil {
 		m.Close()
 		return nil, err

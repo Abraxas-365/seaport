@@ -102,9 +102,11 @@ A secret is used in one of two ways:
 | Use | How | Reaches |
 | :--- | :--- | :--- |
 | **In a header** | `${NAME}` in an MCP server header | the MCP server, with the request |
-| **As an environment variable** | save it with `-env` (the **Variable de entorno** switch in the web app) | the harness process, under that name |
+| **As an environment variable** | save it with `-env` (the **Variable de entorno** switch in the web app) | the harness process of a hosted slot, under that name; `seaport connect` only with `-env` |
 
 Secrets are **sealed** with the port's secret key. The admin API and the web app show names and flags, never values, and no event or MCP tool returns one. Only the agent's own connector (with its crew token) receives them, to start the harness. A secret a header uses can't be deleted until you remove it from the header. To change a value, save the secret again.
+
+Agent secrets are for what is the agent's own: a tracker token, a key one agent must have apart from the others. A model key or a repo credential every hosted agent on an environment shares belongs to the environment: see [Variables and secrets](hosting/secrets.md).
 
 ## Versions
 

@@ -116,8 +116,8 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
 		Mode: h.mode, Cwd: cfg.Workspace, Command: h.command, SessionMeta: h.meta, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
-		Protect:      protected(),
-		Browser:      ws.Browser, State: cfg.State,
+		Protect:      protected(), KitEnv: true,
+		Browser: ws.Browser, State: cfg.State,
 	})
 	if errx.IsType(err, errx.TypeAuthorization) {
 		slog.Warn("the port refused this slot's token; stopping", "err", err)
@@ -131,8 +131,7 @@ var relayed = []string{"/mcp"}
 
 // slotSet are the variables the port sets on a slot for its network (the
 // model gateway and the egress proxy).
-var slotSet = []string{hosting.EnvGateway, "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY",
-	"HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY", "no_proxy"}
+var slotSet = hosting.SlotSet()
 
 // protected are the slot's network variables the port set: the agent's
 // kit can't point the harness elsewhere (an ANTHROPIC_BASE_URL secret

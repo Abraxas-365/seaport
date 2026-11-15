@@ -61,6 +61,11 @@ type Config struct {
 	// Protect names environment variables the kit's env may not replace (a
 	// hosted slot's gateway and proxy settings).
 	Protect []string
+	// KitEnv gives the harness the kit's env secrets as environment
+	// variables. A hosted slot always does (the slot is the port's); on a
+	// person's machine `seaport connect` does only with -env, since the
+	// machine's own environment is that person's to set.
+	KitEnv bool
 	// SessionMeta goes as _meta of every session setup request (agent
 	// specific options, e.g. Claude Code's settingSources).
 	SessionMeta map[string]any

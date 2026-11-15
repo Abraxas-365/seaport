@@ -388,6 +388,9 @@
           "engine": "chromium"
         },
         "description": "Go toolchain",
+        "env": {
+          "TZ": "UTC"
+        },
         "harness": "claude-code",
         "home": "",
         "idle_stop": "30m",
@@ -439,6 +442,9 @@
               "engine": "chromium"
             },
             "description": "Go toolchain",
+            "env": {
+              "TZ": "UTC"
+            },
             "harness": "claude-code",
             "home": "",
             "idle_stop": "30m",
@@ -1137,6 +1143,9 @@
           "engine": "chromium"
         },
         "description": "Go toolchain",
+        "env": {
+          "TZ": "UTC"
+        },
         "harness": "claude-code",
         "home": "",
         "idle_stop": "30m",

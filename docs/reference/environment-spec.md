@@ -17,7 +17,8 @@ An environment is versioned. Each change to its spec makes a new version, and th
 | `repos` | list of repo | empty | 10 | Git repositories cloned into the workspace. See [Repo](#repo). |
 | `repo_config` | string | `trust` | `trust` or `ignore` | Whether the harness reads the repositories' own configuration. |
 | `home` | string | empty | `sha256:` and 64 hex characters | The harness configuration baked into the image. See [Home](#home). |
-| `models` | object | empty | | Model keys for the port's gateway. See [Models](#models). |
+| `env` | object | empty | 50 variables, values one line of at most 4096 bytes | Plain environment variables of every slot's harness. See [Env](#env). |
+| `models` | object | empty | | Model keys for the port's gateway, per provider. See [Models](#models). |
 | `network` | object | empty | | What a slot may reach. See [Network](#network). |
 | `browser` | object | none | | A managed browser for the slots. See [Browser](#browser). |
 | `resources` | object | size `S` | | CPUs and memory of a slot. See [Resources](#resources). |
@@ -68,20 +69,36 @@ A git repository cloned into the workspace at start.
 | `url` | string | required | `https`, with a host and a path, no user info, query or fragment, at most 2048 characters | The repository. |
 | `ref` | string | the default branch | `^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`, no `..` | A branch or tag. |
 | `path` | string | the repository's name without `.git` | relative, no `.`-leading parts or `..`, characters `A-Za-z0-9._-` and `/`; not `wt` | Where it goes, relative to `/workspace`. |
-| `credential` | string | empty (public) | `${NAME}` | An agent secret that holds a token for the URL's host. |
+| `credential` | string | empty (public) | `${NAME}` | A secret that holds a token for the URL's host. |
 | `on_start` | string | empty | 4096 bytes, no NUL | A shell command run in the repository after each clone or fetch. |
 
 - Two repositories can't go to the same `path`; set `path` on one.
 - `wt` is Seaport's: each conversation gets a worktree under `wt/`.
-- `credential` names a secret of the agent that is hosted on the environment, in the form `${NAME}`. The secret must exist when you host the agent and when you save the spec, and it can't be deleted while a spec uses it. The credential never goes in the spec as a value. Git asks the port for it each time.
+- `credential` names a secret in the form `${NAME}`: one of the environment's own ([environment secrets](../guides/hosting/secrets.md)), or else one every agent hosted on it has. The secret must exist when you host an agent and when you save the spec, and it can't be deleted while a spec uses it. The credential never goes in the spec as a value. Git asks the port for it each time.
+
+## Env
+
+Plain, non-secret variables every slot's harness gets (a time zone, a feature flag, a region). Names are environment variable names (`A-Z`, `0-9`, `_`; not `SEAPORT_…`), and none of the slot's own network variables (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, the other providers', `HTTPS_PROXY`…). A value that looks like a credential is refused: that is a secret, set with `seaport env secrets set <env> NAME -env`. What a slot's harness sees, lowest precedence first: `env`, the environment's `-env` secrets, the hosted agent's `-env` secrets, the port's own slot variables.
+
+```yaml
+env:
+  TZ: America/Lima
+  FEATURE_FLAGS: beta
+```
 
 ## Models
 
-| Field | Type | Default | Meaning |
-| :--- | :--- | :--- | :--- |
-| `anthropic` | string | empty | An agent secret that holds an Anthropic API key, as `${NAME}`. |
+One key per provider, as `${NAME}`: a secret of the environment, or else one every hosted agent has. Providers:
 
-With a key set, the slots reach the provider through the port's model gateway (`/gateway/anthropic/`) with their own slot token. The key never enters the container. The gateway meters the usage per agent; read it with `GET /api/v1/agents/{id}/usage`. See [Network and models](../guides/hosting/network.md).
+| Field | Protocol | What the slot gets |
+| :--- | :--- | :--- |
+| `anthropic` | Anthropic | `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` |
+| `openai` | OpenAI | `OPENAI_BASE_URL`, `OPENAI_API_KEY` |
+| `openrouter` | OpenAI | `OPENROUTER_BASE_URL`, `OPENROUTER_API_KEY` |
+| `groq` | OpenAI | `GROQ_BASE_URL`, `GROQ_API_KEY` |
+| `deepseek` | OpenAI | `DEEPSEEK_BASE_URL`, `DEEPSEEK_API_KEY` |
+
+With a key set, the slots reach the provider through the port's model gateway (`/gateway/<provider>/`) with their own slot token as the key: the base URL points at the gateway and the key variable holds the slot token, so the real key never enters the container. `SEAPORT_GATEWAY_PROVIDERS` lists the providers served. The gateway meters the usage per agent; read it with `GET /api/v1/agents/{id}/usage`. See [Network and models](../guides/hosting/network.md).
 
 ## Network
 
@@ -161,6 +178,8 @@ repos:
     on_start: npm ci
 repo_config: trust
 home: ./claude-home
+env:
+  TZ: America/Lima
 models:
   anthropic: ${ANTHROPIC_KEY}
 network:

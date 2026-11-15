@@ -257,7 +257,7 @@ var (
 	}
 	docAllRoutes = map[string]string{
 		"ALL /mcp":       "POST /mcp",
-		"ALL /gateway/*": "ALL /gateway/anthropic/…",
+		"ALL /gateway/*": "ALL /gateway/{}/…",
 	}
 )
 
@@ -524,6 +524,7 @@ var cliSwitches = map[string]string{
 	"secretsCmd/sub":          "seaport agents secrets",
 	"env/sub":                 "seaport env",
 	"envHome/sub":             "seaport env home",
+	"envSecrets/sub":          "seaport env secrets",
 	"schedules/sub":           "seaport schedules",
 	"crewTokens/sub":          "seaport crew tokens",
 	"vaultCmd/sub":            "seaport vault",

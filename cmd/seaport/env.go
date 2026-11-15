@@ -112,7 +112,7 @@ func prune(n *yaml.Node) bool {
 	return false
 }
 
-// env is `seaport env [list|apply|export|versions|build|delete] ...`.
+// env is `seaport env [list|apply|export|versions|build|home|secrets|delete] ...`.
 func env(ctx context.Context, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
@@ -227,6 +227,8 @@ func env(ctx context.Context, args []string) error {
 		return buildEnv(ctx, a, args[0], *version, *force, *wait)
 	case "home":
 		return envHome(ctx, a, args)
+	case "secrets":
+		return envSecrets(ctx, a, args)
 	case "delete":
 		fs := flag.NewFlagSet("env delete", flag.ContinueOnError)
 		yes := fs.Bool("yes", false, "confirm")
@@ -319,4 +321,66 @@ func buildEnv(ctx context.Context, a *admin, name string, version int, force, wa
 		}
 		b.Log = ""
 	}
+}
+
+// envSecrets is `seaport env secrets [list|set|rm] <env> ...`: the
+// environment's own secrets (model keys, repo credentials, with -env a
+// variable of every slot); values come from stdin, never the command line.
+func envSecrets(ctx context.Context, a *admin, args []string) error {
+	sub := "list"
+	if len(args) > 0 && (args[0] == "list" || args[0] == "set" || args[0] == "rm") {
+		sub, args = args[0], args[1:]
+	}
+	if len(args) == 0 {
+		return errx.Validation("usage: seaport env secrets [list|set|rm] <env> ...")
+	}
+	name := args[0]
+	base := "/api/v1/environments/" + url.PathEscape(name) + "/secrets"
+	switch sub {
+	case "list":
+		var out struct {
+			Secrets []hosting.EnvironmentSecret `json:"secrets"`
+		}
+		if err := a.do(ctx, http.MethodGet, base, nil, &out); err != nil {
+			return err
+		}
+		if len(out.Secrets) == 0 {
+			fmt.Fprintf(stdout, "environment %s has no secrets: seaport env secrets set %s NAME [-env]\n", name, name)
+			return nil
+		}
+		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tENV\tUPDATED")
+		for _, s := range out.Secrets {
+			fmt.Fprintf(w, "%s\t%v\t%s\n", s.Name, s.Env, s.UpdatedAt.Local().Format("2006-01-02 15:04"))
+		}
+		return w.Flush()
+	case "set":
+		if len(args) < 2 {
+			return errx.Validation("usage: seaport env secrets set <env> NAME [-env]  (value from stdin)")
+		}
+		fs := flag.NewFlagSet("env secrets set", flag.ContinueOnError)
+		env := fs.Bool("env", false, "also give it to every slot's harness as an environment variable")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		value, err := readSecret(args[1])
+		if err != nil {
+			return err
+		}
+		if err := a.do(ctx, http.MethodPut, base+"/"+url.PathEscape(args[1]), map[string]any{"value": value, "env": *env}, nil); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "secret %s of environment %s saved; name it in the spec as ${%s}\n", args[1], name, args[1])
+		return nil
+	case "rm":
+		if len(args) != 2 {
+			return errx.Validation("usage: seaport env secrets rm <env> NAME")
+		}
+		if err := a.do(ctx, http.MethodDelete, base+"/"+url.PathEscape(args[1]), nil, nil); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "secret %s of environment %s deleted\n", args[1], name)
+		return nil
+	}
+	return nil
 }

@@ -74,6 +74,7 @@ func deliveryOf(texts ...string) ship.Delivery {
 func TestStartAgentEnvironmentAndPrompt(t *testing.T) {
 	cfg, log := echoConfig(t, "systemprompt,image,load", acptest.EnvEnvNames+"=REGION,KEPT,SEAPORT_URL,SEAPORT_CREW_TOKEN")
 	cfg.Protect = []string{"KEPT"}
+	cfg.KitEnv = true // a hosted slot: the kit's env secrets reach the harness
 	t.Setenv("KEPT", "from-the-slot")
 	kit := &agent.Kit{Name: "pm", Version: 2, Instructions: " Be brief. ", Env: map[string]string{"REGION": "eu-1", "KEPT": "from-the-kit"}}
 	a := startEcho(t, cfg, kit)
@@ -519,6 +520,7 @@ func TestRunRestartsTheHarnessOnANewKit(t *testing.T) {
 		}
 	})
 	cfg.Server = p.srv.URL
+	cfg.KitEnv = true
 	runUntil(t, cfg, "the second connection", func() bool { return len(p.seen(crew.FrameHello)) == 2 })
 	if len(p.seen(crew.FrameDrain)) != 1 {
 		t.Fatalf("drain frames: %+v", p.frames)

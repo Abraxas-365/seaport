@@ -571,13 +571,14 @@ export interface EnvBrowser {
 }
 
 /**
- * EnvModels name the hosted agent's secrets holding model API keys, as
- * ${NAME}. With one set, the slots reach that provider through the port's
- * model gateway with their own token: the key never enters the container.
+ * EnvModels name the secrets holding model API keys, by provider
+ * (Providers): provider → ${NAME}. With one set, the slots reach that
+ * provider through the port's model gateway with their own token: the key
+ * never enters the container. The secret is the environment's (the key is
+ * infrastructure its slots share), else the hosted agent's (transitional:
+ * specs from before environment secrets).
  */
-export interface EnvModels {
-  anthropic: string
-}
+export type EnvModels = Record<string, string>
 
 /** EnvNetwork is what a slot may reach besides the port. */
 export interface EnvNetwork {
@@ -597,8 +598,9 @@ export interface EnvRepo {
   /** Path is where it goes, relative to /workspace ("": its name). */
   path: string
   /**
-   * Credential names the hosted agent's secret holding a token for the
-   * URL's host: ${NAME} ("": public).
+   * Credential names the secret holding a token for the URL's host:
+   * ${NAME} ("": public). The environment's secret, else the hosted
+   * agent's.
    */
   credential: string
   /** OnStart runs in the repo after each clone or fetch (shell). */
@@ -613,8 +615,21 @@ export interface EnvResources {
 }
 
 /**
- * EnvSpec is one version of an environment. No secrets: repo credentials
- * name a secret of the hosted agent (${NAME}).
+ * EnvSecret is what the admin sees of an environment's secret:
+ * never its value. A secret is a repo credential or model key the spec
+ * names (${NAME}), or with Env an environment variable of every slot.
+ */
+export interface EnvSecret {
+  name: string
+  /** Env: also given to the slots' harness as an environment variable. */
+  env: boolean
+  updated_at: string
+}
+
+/**
+ * EnvSpec is one version of an environment. No secret values: repo
+ * credentials and model keys name a secret as ${NAME} (the environment's,
+ * else the hosted agent's: Secrets), and Env holds plain variables only.
  */
 export interface EnvSpec {
   description: string
@@ -649,8 +664,17 @@ export interface EnvSpec {
    * uploaded to this environment, as sha256:<digest> ("": none).
    */
   home: string
-  /** Models are the model keys the port's gateway uses for the slots. */
+  /**
+   * Models are the model keys the port's gateway uses for the slots:
+   * provider (Providers) → ${NAME} of a secret.
+   */
   models: EnvModels
+  /**
+   * Env are plain variables every slot's harness gets (TZ, NODE_ENV, a
+   * flag): name → value, never a credential (ValidEnv refuses what looks
+   * like one: those are secrets). The agent's env secrets win over them.
+   */
+  env: Record<string, string>
   network: EnvNetwork
   /**
    * Browser gives the slots a managed browser (Browser.Enabled): the

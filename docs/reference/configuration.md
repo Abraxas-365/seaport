@@ -64,7 +64,7 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 Things to know:
 
 - **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, connecting every Jira and Slack dock again, generating every webhook dock's secret again, connecting every email dock again, setting every agent secret again and losing every stored attachment and harness home; in `iam` mode it also signs everyone out.
-- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` , `webhook_docks` or `email_accounts` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
+- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `environment_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` , `webhook_docks` or `email_accounts` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
 - **With several processes, set it explicitly** (same value everywhere) instead of letting each generate its own file. See [Several processes](../guides/operations/several-processes.md).
 - **Changing it** makes sealed values unreadable. The start checks one WhatsApp device first, so a changed key stops the start instead of failing every dock.
 - In the image, `/data` holds the generated key: mount a volume.
@@ -176,11 +176,15 @@ Settings for [hosted agents](../guides/hosting/hosted-agents.md). The environmen
 | `SEAPORT_HOST_MAX_MEMORY_MB` | `8192` | Most memory (MB) one slot may ask for (`0` = no limit). |
 | `SEAPORT_MAX_SLOTS` | `10` | Slots per organization (`0` = no limit). |
 | `SEAPORT_GATEWAY_ANTHROPIC_URL` | `https://api.anthropic.com` | Where the model gateway forwards Anthropic calls. Must be an `http(s)` URL. |
+| `SEAPORT_GATEWAY_OPENAI_URL` | `https://api.openai.com/v1` | Where it forwards OpenAI calls. |
+| `SEAPORT_GATEWAY_OPENROUTER_URL` | `https://openrouter.ai/api/v1` | Where it forwards OpenRouter calls. |
+| `SEAPORT_GATEWAY_GROQ_URL` | `https://api.groq.com/openai/v1` | Where it forwards Groq calls. |
+| `SEAPORT_GATEWAY_DEEPSEEK_URL` | `https://api.deepseek.com/v1` | Where it forwards DeepSeek calls. |
 | `SEAPORT_EGRESS_ADDR` | none (off) | Listen address `host:port` (for example `:8741`) of the egress proxy that is the slots' only way out. Off: slots get no proxy. Needs `token` or `iam` mode; a taken address fails the start. |
 | `SEAPORT_EGRESS_URL` | host of `SEAPORT_AGENT_URL` + the listen port | How slots reach the proxy. Must be an `http://` URL without credentials. |
 | `SEAPORT_EGRESS_PRIVATE` | `false` | Only the exact value `true` lets allowed hosts resolve to private, loopback or link-local addresses (local testing). |
 
-Hosted slots receive their own variables (`SEAPORT_URL`, `SEAPORT_CREW_TOKEN`, `SEAPORT_SLOT`, `SEAPORT_HARNESS`, `SEAPORT_GATEWAY`, proxy variables); the port sets them, you don't. See [Network](../guides/hosting/network.md).
+Hosted slots receive their own variables (`SEAPORT_URL`, `SEAPORT_CREW_TOKEN`, `SEAPORT_SLOT`, `SEAPORT_HARNESS`, `SEAPORT_GATEWAY`, `SEAPORT_GATEWAY_PROVIDERS`, each provider's `_BASE_URL`/`_API_KEY`, proxy variables); the port sets them, you don't. The environment's `env` and its `-env` secrets come before them. See [Network](../guides/hosting/network.md).
 
 ## CLI and connector variables
 

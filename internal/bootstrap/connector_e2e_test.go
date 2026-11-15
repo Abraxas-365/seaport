@@ -62,6 +62,7 @@ type connectorOpts struct {
 	noAutoReply bool
 	vars        []string // more NAME=value for the echo agent
 	protect     []string
+	kitEnv      bool // connector.Config.KitEnv
 	mode        string
 }
 
@@ -85,7 +86,7 @@ func (p *port) startConnector(opts connectorOpts) *connectorRun {
 	vars := append([]string{acptest.EnvLog + "=" + h.log, acptest.EnvCaps + "=" + opts.caps}, opts.vars...)
 	cfg := connector.Config{
 		Server: p.srv.URL, Token: p.crewToken(), AgentName: "echo-e2e", Concurrency: 1,
-		AutoReply: !opts.noAutoReply, Deliver: opts.deliver, Mode: opts.mode, Protect: opts.protect,
+		AutoReply: !opts.noAutoReply, Deliver: opts.deliver, Mode: opts.mode, Protect: opts.protect, KitEnv: opts.kitEnv,
 		Cwd: dir, Command: acptest.Command(vars...), SessionsFile: h.sessions,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -519,7 +520,8 @@ func TestConnectorAnswersOnTheDoorThatTakesReplies(t *testing.T) {
 // A changed profile: the port tells the connector (profile frame), it
 // drains, restarts the harness and resumes the thread's session with
 // session/load; the next prompt carries the new instructions. The kit's
-// env reaches the harness (except what Protect keeps), and the profile's
+// env reaches the harness only with KitEnv (`seaport connect -env`, and
+// always in a hosted slot), except what Protect keeps, and the profile's
 // model and the connector's mode are set on the session.
 func TestConnectorRestartsOnAProfileChange(t *testing.T) {
 	p := startPortWith(t, func(c *config.Server) { c.SecretKey = "connector-e2e-secret-key-0123456789abcdef" }, bootstrap.Options{})
@@ -537,8 +539,21 @@ func TestConnectorRestartsOnAProfileChange(t *testing.T) {
 		t.Fatalf("save v1: %d %+v", code, v1)
 	}
 
+	// without KitEnv the harness sees none of them
+	h0 := p.startConnector(connectorOpts{caps: "load", vars: []string{acptest.EnvEnvNames + "=REGION,PROTECTED_VAR"}})
+	p.ready(func(a crew.Agent) bool { return a.ProfileVersion == 1 && !a.Outdated })
+	if start := acptest.Of(h0.records(), "start"); len(start) != 1 || start[0].Env["REGION"] != "" || start[0].Env["PROTECTED_VAR"] != "" {
+		t.Fatalf("the kit's env reached the harness without -env: %+v", start)
+	}
+	h0.stop()
+	until(t, "the first connection gone", func() bool {
+		var st crew.Status
+		p.admin(http.MethodGet, "/api/v1/crew", nil, &st)
+		return len(st.Agents) == 0
+	})
+
 	h := p.startConnector(connectorOpts{
-		caps: "load,systemprompt,modes,options", mode: "bypass", protect: []string{"PROTECTED_VAR"},
+		caps: "load,systemprompt,modes,options", mode: "bypass", protect: []string{"PROTECTED_VAR"}, kitEnv: true,
 		vars: []string{acptest.EnvEnvNames + "=REGION,PROTECTED_VAR"},
 	})
 	p.ready(func(a crew.Agent) bool { return a.ProfileVersion == 1 && !a.Outdated })

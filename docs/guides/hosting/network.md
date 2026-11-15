@@ -2,55 +2,60 @@
 
 Keep your model key out of hosted containers and limit which hosts they can contact, with the port's model gateway and egress proxy.
 
-A hosted agent runs code and reads text from strangers. If it also held your Anthropic key and could contact any host, one bad prompt could leak the key or send your data anywhere. Seaport narrows both: the key stays on the port, and the network leads only where you allow.
+A hosted agent runs code and reads text from strangers. If it also held your model key and could contact any host, one bad prompt could leak the key or send your data anywhere. Seaport narrows both: the key stays on the port, and the network leads only where you allow.
 
 ## Model gateway
 
-Name the secret that holds your key in the environment:
+Store the key as a secret of the environment and name it in the spec, one per provider:
+
+```sh
+printf %s "$ANTHROPIC_API_KEY" | seaport env secrets set dev ANTHROPIC_KEY
+```
 
 ```yaml
 models:
-  anthropic: ${ANTHROPIC_API_KEY}
+  anthropic: ${ANTHROPIC_KEY}
+  openrouter: ${OPENROUTER_KEY}   # optional: more providers
 ```
 
-The name is a secret of the hosted agent, created with `seaport agents secrets set <agent> ANTHROPIC_API_KEY`. The spec stores only the name.
+The spec stores only the name. The secret belongs to the environment (every agent hosted on it uses it); a secret of the hosted agent with that name works too, for agents that need their own key. See [Variables and secrets](secrets.md).
 
-With it, a slot never sees the key. Seaport gives the slot:
+With it, a slot never sees the key. For each provider named, Seaport gives the slot:
 
-- `ANTHROPIC_BASE_URL`, pointing at the port's `/gateway/anthropic`.
-- `ANTHROPIC_API_KEY`, set to the slot's own crew token (not your key).
+- `<PROVIDER>_BASE_URL` (`ANTHROPIC_BASE_URL`, `OPENROUTER_BASE_URL`…), pointing at the port's `/gateway/<provider>`.
+- `<PROVIDER>_API_KEY`, set to the slot's own crew token (not your key).
+- `SEAPORT_GATEWAY_PROVIDERS`, the providers served, comma separated.
 
-The harness calls Anthropic through the port, authenticating with that token. The port checks it, forwards the call with the real key, and streams the answer back. Only slot tokens may use the gateway, and the port drops the caller's own authorization header before forwarding. Neither the agent's profile nor a settings file (including a repo's) can point the harness around the gateway: Seaport pins these settings after them.
+The harness calls the provider through the port, authenticating with that token. The port checks it, forwards the call with the real key, and streams the answer back. Only slot tokens may use the gateway, and the port drops the caller's own authorization header before forwarding. Neither the agent's profile nor a settings file (including a repo's) can point the harness around the gateway: Seaport pins these settings after them.
 
 The gateway forwards only:
 
-| Path | Purpose |
-| :--- | :--- |
-| `/v1/messages` and `/v1/messages/count_tokens` | Model calls. |
-| `/v1/models*` | Model lists. |
-| `/v1/files*` | Files. |
+| Provider | Protocol | Paths |
+| :--- | :--- | :--- |
+| `anthropic` | Anthropic | `/v1/messages` and `/v1/messages/count_tokens`, `/v1/models*`, `/v1/files*`. |
+| `openai`, `openrouter`, `groq`, `deepseek` | OpenAI | `/chat/completions`, `/responses*`, `/embeddings`, `/models*` (the base URL already ends in the gateway's provider path, like each provider's own `…/v1`). |
 
-Anything else is a 404. Errors come back in Anthropic's error shape.
+Anything else is a 404. Errors come back in the provider's error shape.
 
-`SEAPORT_GATEWAY_ANTHROPIC_URL` changes where the gateway forwards. It defaults to `https://api.anthropic.com`.
+`SEAPORT_GATEWAY_<PROVIDER>_URL` changes where the gateway forwards; see [Configuration](../../reference/configuration.md#hosting). The defaults are the providers' public APIs.
 
 ### Usage
 
-The gateway counts tokens of every successful Messages call, per day (UTC), model and agent:
+The gateway counts tokens of every successful model call (Messages; Chat Completions, Responses and embeddings), per day (UTC), provider, model and agent. A streamed Chat Completions call is metered when it asks for usage (`stream_options.include_usage`, which the OpenAI SDKs do by default; Responses streams always carry it):
 
 ```sh
 seaport agents usage pm -days 7
 ```
 
 ```text
-DAY         MODEL              REQUESTS  INPUT  OUTPUT  CACHE WRITE  CACHE READ
-2026-01-05  claude-example     12        41230  5120    0            38000
+DAY         PROVIDER   MODEL              REQUESTS  INPUT  OUTPUT  CACHE WRITE  CACHE READ
+2026-01-05  anthropic  claude-example     12        41230  5120    0            38000
 ```
 
 The same data is at `GET /api/v1/agents/{id}/usage?days=N` (30 days by default, needs `agents:read`) and in the web app, in **Uso de modelos** on the agent's page.
 
 > [!NOTE]
-> This applies to environments with `models.anthropic`. A `claude-code` environment without it signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
+> This applies to environments with `models`. A `claude-code` environment without `models.anthropic` signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
 
 ## Egress proxy
 

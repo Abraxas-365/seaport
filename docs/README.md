@@ -33,6 +33,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Connect rness, Claude Code or any ACP agent | [The connector](guides/connector.md) |
 | Let the port run the agent in a container | [Hosted agents](guides/hosting/hosted-agents.md) |
 | Keep model keys out of containers and limit their network | [Model gateway and egress](guides/hosting/network.md) |
+| Decide where a hosted agent's variables and secrets live | [Variables and secrets](guides/hosting/secrets.md) |
 | Ship your own `~/.rness` or `~/.claude` to hosted agents | [Harness homes](guides/hosting/harness-homes.md) |
 | Run hosted Claude Code on a Claude subscription | [Claude subscriptions](guides/hosting/claude-subscriptions.md) |
 | Give a hosted agent a browser and sign in to sites for it | [Browser](guides/hosting/browser.md) |
