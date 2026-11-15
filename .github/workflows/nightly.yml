@@ -1,0 +1,158 @@
+name: Nightly
+
+# Slow checks that don't gate pull requests: long fuzzing, the Docker runtime
+# tests, a release dry run and the upgrade smoke. Failures show up in the run
+# list (no notification is sent); run it by hand with workflow_dispatch.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  # Every FuzzX target for 2 minutes (scripts/fuzz.sh finds them), in
+  # parallel shards. A failing input is uploaded: commit it under
+  # <pkg>/testdata/fuzz/<FuzzX>/ as a regression test.
+  fuzz-long:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: fuzz ${{ matrix.shard }}
+        env:
+          FUZZ_SHARD: ${{ matrix.shard }}
+        run: scripts/fuzz.sh 2m
+      - name: failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures-${{ strategy.job-index }}
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore
+
+  # The tests that need a real Docker engine (hostingdocker builds images and
+  # runs containers; with CI set a missing engine fails instead of skipping)
+  # next to the bootstrap build/slot e2e tests (Postgres). The rness base
+  # image is built the way ci.yml's images job does and must keep the
+  # contract hosted agents rely on.
+  docker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: seaport
+          POSTGRES_PASSWORD: seaport
+          POSTGRES_DB: seaport_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U seaport"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      SEAPORT_TEST_DATABASE_URL: postgres://seaport:seaport@localhost:5432/seaport_test?sslmode=disable
+      CI: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: images/Dockerfile
+          target: rness
+          push: false
+          load: true
+          tags: seaport-rness:nightly
+          build-args: VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=rness-amd64
+      - name: base image contract
+        run: |
+          test "$(docker inspect -f '{{.Config.User}} {{index .Config.Labels "io.seaport.base"}} {{index .Config.Labels "io.seaport.harness"}}' seaport-rness:nightly)" = "1000:1000 1 rness"
+          python3 images/acp-smoke.py seaport-rness:nightly rness
+      - name: docker runtime tests
+        run: go test -count=1 -p 1 ./internal/hosting/adapters/hostingdocker/ ./internal/bootstrap/ -run 'Docker|Runtime|Build|Slot|Exec'
+
+  # What a release ships: binaries for every platform (the web app is built
+  # by the before hook), without publishing anything.
+  release-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 8.6.12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: archives
+        run: |
+          ls -l dist
+          test "$(find dist -maxdepth 1 \( -name '*.tar.gz' -o -name '*.zip' \) | wc -l)" -eq 6
+
+  # Data written by the previous release must survive the current build:
+  # scripts/upgrade-smoke.sh seeds through the API, swaps the image on the
+  # same database and reads it back. Releases publish no image of the port
+  # itself (only the hosted agents' bases), so when the latest release's
+  # image can't be pulled the previous commit is built instead.
+  migrate-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - uses: docker/setup-buildx-action@v4
+      - name: current build
+        run: docker build -t seaport:nightly --build-arg VERSION="$GITHUB_SHA" .
+      - name: previous build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
+          old=seaport:previous
+          if [ -n "$tag" ]; then
+            echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            for ref in "ghcr.io/abraxas-365/seaport:${tag#v}" "ghcr.io/abraxas-365/seaport:$tag"; do
+              if docker pull "$ref"; then
+                docker tag "$ref" "$old"
+                echo "previous: $ref"
+                exit 0
+              fi
+            done
+          fi
+          echo "no release image of the port: building $(git rev-parse --short HEAD~1) (${tag:-no release})"
+          mkdir "$RUNNER_TEMP/previous"
+          git archive HEAD~1 | tar -x -C "$RUNNER_TEMP/previous"
+          docker build -t "$old" --build-arg VERSION=previous "$RUNNER_TEMP/previous"
+      - name: upgrade smoke
+        run: scripts/upgrade-smoke.sh seaport:previous seaport:nightly

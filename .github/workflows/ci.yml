@@ -44,6 +44,26 @@ jobs:
       # a test that depends on another's leftovers fails here, not by luck.
       - run: go test -race -count=1 -p 1 -shuffle=on ./...
 
+  # Native Go fuzz targets (FuzzX), 10s each, no database. scripts/fuzz.sh
+  # finds them with `go test -list`; the shards run in parallel so the job
+  # stays about 3 minutes. A failing input lands in testdata/fuzz/ (commit it).
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: fuzz ${{ matrix.shard }}
+        env:
+          FUZZ_SHARD: ${{ matrix.shard }}
+        run: scripts/fuzz.sh 10s
+
   web:
     runs-on: ubuntu-latest
     defaults:
