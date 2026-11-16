@@ -15,9 +15,9 @@ export interface Paginated<T> {
 
 /**
  * Event types the web has no handler for (the reason is in `unhandledEvents`
- * of web_architecture_test.go: slot.browser is an audit trail).
+ * of web_architecture_test.go: slot.browser and agent.takeover are audit trails).
  */
-export type UnhandledEvent = "slot.browser"
+export type UnhandledEvent = "slot.browser" | "agent.takeover"
 
 /** Server-Sent Event types the web handles (GET /api/v1/events), with their payloads. */
 export type EventMap = Omit<WireEvents, UnhandledEvent>

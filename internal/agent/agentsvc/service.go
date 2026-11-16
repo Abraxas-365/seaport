@@ -83,12 +83,24 @@ func (s *Service) RequestTakeover(ctx context.Context, org identity.Organization
 		return agent.Agent{}, err
 	}
 	host := strings.ToLower(strings.TrimSpace(input.Host))
-	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers { return input.Add(l, s.now()) })
+	var news bool
+	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers {
+		old, open := l.Find(host)
+		out := input.Add(l, s.now())
+		if t, ok := out.Find(host); ok {
+			news = !open || old.Kind != t.Kind
+		}
+		return out
+	})
 	if err != nil {
 		return agent.Agent{}, errx.Wrap(err, "request takeover", errx.TypeInternal)
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
-	if t, ok := a.Takeovers.Find(host); ok && t.NotifiedAt == nil {
+	t, ok := a.Takeovers.Find(host)
+	if ok && news {
+		s.events.Publish(org, agent.EventTakeover, t.Event(a.ID, agent.TakeoverStateAsked, ""))
+	}
+	if ok && t.NotifiedAt == nil {
 		a = s.notify(ctx, org, a, t)
 	}
 	if input.Wait > 0 {
@@ -159,13 +171,14 @@ func (s *Service) await(ctx context.Context, org identity.OrganizationID, a agen
 	}
 }
 
-func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, id identity.AgentID, host string) (agent.Agent, error) {
-	if err := agent.ValidHost(host); err != nil {
+func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, id identity.AgentID, input agent.EndTakeover) (agent.Agent, error) {
+	if err := input.Validate(); err != nil {
 		return agent.Agent{}, err
 	}
-	host = strings.ToLower(strings.TrimSpace(host))
+	host := strings.ToLower(strings.TrimSpace(input.Host))
 	var ended *agent.Takeover
 	a, err := s.repo.SetTakeovers(ctx, org, id, func(l agent.Takeovers) agent.Takeovers {
+		ended = nil
 		if t, ok := l.Find(host); ok {
 			ended = &t
 		}
@@ -176,6 +189,7 @@ func (s *Service) EndTakeover(ctx context.Context, org identity.OrganizationID, 
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
 	if ended != nil {
+		s.events.Publish(org, agent.EventTakeover, ended.Event(a.ID, agent.TakeoverDone.State(), text.Clean(input.By)))
 		s.wake(ctx, org, a, *ended, agent.TakeoverDone)
 	}
 	return a, nil
@@ -215,6 +229,7 @@ func (s *Service) SweepTakeovers(ctx context.Context, now time.Time) (int, error
 		s.events.Publish(ref.Organization, agent.EventUpdated, a)
 		for _, t := range expired {
 			slog.Info("takeover expired: nobody came", "agent", a.Name, "host", t.Host, "asked", t.At)
+			s.events.Publish(ref.Organization, agent.EventTakeover, t.Event(a.ID, agent.TakeoverExpired.State(), ""))
 			s.wake(ctx, ref.Organization, a, t, agent.TakeoverExpired)
 			n++
 		}

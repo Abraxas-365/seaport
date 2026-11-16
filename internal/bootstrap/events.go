@@ -29,9 +29,12 @@ var EventPermissions = map[string]string{
 	crew.EventChanged:         permission.CrewRead,
 	// Activity shows what the agent reads and writes in a conversation:
 	// the same permission as its messages.
-	crew.EventActivity:              permission.ShipsRead,
-	agent.EventUpdated:              permission.AgentsRead,
-	agent.EventDeleted:              permission.AgentsRead,
+	crew.EventActivity: permission.ShipsRead,
+	agent.EventUpdated: permission.AgentsRead,
+	agent.EventDeleted: permission.AgentsRead,
+	// The audit trail of takeovers: who asked a person into the agent's
+	// browser and who answered; the agent's takeovers list is the state.
+	agent.EventTakeover:             permission.AgentsRead,
 	hosting.EventEnvironmentUpdated: permission.EnvironmentsRead,
 	hosting.EventEnvironmentDeleted: permission.EnvironmentsRead,
 	hosting.EventSlotsUpdated:       permission.EnvironmentsRead,

@@ -51,7 +51,7 @@ function seed(key: readonly unknown[], data: unknown = {}) {
 }
 
 /** Event types the web ignores on purpose (also allow-listed, with the reason, in TestEveryEventTypeHasALiveHandler). */
-const ignored = ["slot.browser"]
+const ignored = ["agent.takeover", "slot.browser"]
 
 describe("the fixtures", () => {
   it("have a payload for every handler, and the only payloads without one are the ignored events", () => {

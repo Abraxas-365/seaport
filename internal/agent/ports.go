@@ -35,12 +35,14 @@ type Commands interface {
 	// profile's browser_assist says (once per host) and, with Wait, blocks
 	// until the takeover ends or the wait is up (Takeover.Done says which).
 	// EndTakeover drops the host's takeover once done and wakes the agent
-	// where it was told. Both publish agent.updated.
+	// where it was told. Both publish agent.updated, and agent.takeover
+	// (a new host asked; one ended, naming who) as the audit trail.
 	RequestTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input AskTakeover) (Agent, error)
-	EndTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, host string) (Agent, error)
+	EndTakeover(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input EndTakeover) (Agent, error)
 	// SweepTakeovers drops every organization's takeovers older than
-	// TakeoverTTL and wakes their agents once (TakeoverExpired); it
-	// answers how many ended. The claim sweeper runs it.
+	// TakeoverTTL and wakes their agents once (TakeoverExpired, with an
+	// agent.takeover per host); it answers how many ended. The claim
+	// sweeper runs it.
 	SweepTakeovers(ctx context.Context, now time.Time) (int, error)
 }
 

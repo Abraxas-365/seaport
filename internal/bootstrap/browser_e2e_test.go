@@ -211,8 +211,27 @@ func TestAskTakeover(t *testing.T) {
 			a.Takeovers[0].Kind == agent.KindLogin && a.Takeovers[0].Note == "reading the board" &&
 			a.Takeovers[0].Conversation != nil && *a.Takeovers[0].Conversation == conv
 	})
+	// The audit trail: asked, by the agent, about that conversation; the
+	// note (what the agent was doing) stays out of it.
+	trail := func(state agent.TakeoverState) agent.TakeoverEvent {
+		var e agent.TakeoverEvent
+		raw := next(t, events, agent.EventTakeover, func(raw json.RawMessage) bool {
+			return json.Unmarshal(raw, &e) == nil && e.State == state
+		})
+		if strings.Contains(string(raw.Data), "reading the board") || strings.Contains(string(raw.Data), "again") {
+			t.Fatalf("the trail carries the note: %s", raw.Data)
+		}
+		return e
+	}
+	if e := trail(agent.TakeoverStateAsked); e.Agent != ag.ID || e.Host != "app.example.com" || e.Kind != agent.KindLogin ||
+		e.By != agent.TakeoverByAgent || e.Conversation == nil || *e.Conversation != conv || e.AskedAt.IsZero() || e.EndedBy != "" {
+		t.Fatalf("asked: %+v", e)
+	}
 	if failed, msg, out := call(map[string]any{"host": "mail.example.com", "kind": "Captcha"}); failed || out["kind"] != "captcha" {
 		t.Fatalf("captcha: %v %s %v", failed, msg, out)
+	}
+	if e := trail(agent.TakeoverStateAsked); e.Host != "mail.example.com" || e.Kind != agent.KindCaptcha {
+		t.Fatalf("asked captcha: %+v", e)
 	}
 	call(map[string]any{"host": "app.example.com", "kind": "2fa", "note": "again"}) // replaces, newest first
 	var a agent.Agent
@@ -221,9 +240,29 @@ func TestAskTakeover(t *testing.T) {
 		a.Takeovers[0].Conversation != nil || a.Takeovers[1].Host != "mail.example.com" {
 		t.Fatalf("takeovers: %d %+v", code, a.Takeovers)
 	}
+	// A new kind for an open host is asked again in the trail; the same
+	// kind again (the agent retrying) is not.
+	if e := trail(agent.TakeoverStateAsked); e.Host != "app.example.com" || e.Kind != agent.Kind2FA {
+		t.Fatalf("asked 2fa: %+v", e)
+	}
+	call(map[string]any{"host": "app.example.com", "kind": "2fa"})
 	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/takeovers/app.example.com", nil, &a); code != http.StatusOK ||
 		len(a.Takeovers) != 1 || a.Takeovers[0].Host != "mail.example.com" {
 		t.Fatalf("end: %d %+v", code, a.Takeovers)
+	}
+	// The next trail event is the end by the caller: the retry added none.
+	var done agent.TakeoverEvent
+	next(t, events, agent.EventTakeover, func(raw json.RawMessage) bool {
+		if err := json.Unmarshal(raw, &done); err != nil {
+			t.Fatal(err)
+		}
+		if done.State != agent.TakeoverStateDone {
+			t.Fatalf("after the retry and Listo: %+v", done)
+		}
+		return true
+	})
+	if done.Host != "app.example.com" || done.Kind != agent.Kind2FA || done.EndedBy == "" || done.Conversation != nil {
+		t.Fatalf("done: %+v", done)
 	}
 	// Ending an absent host is fine; a bad one isn't.
 	if code := p.admin(http.MethodDelete, "/api/v1/agents/"+ag.ID.String()+"/takeovers/nothing.example.com", nil, nil); code != http.StatusOK {
@@ -429,6 +468,7 @@ func TestTakeoverExpires(t *testing.T) {
 	ack(conn, delivered(t, conn, first))
 	conv := first.Conversation
 	agentPath := "/api/v1/agents/" + ag.ID.String()
+	events := p.openEvents("")
 	s := mcpSession(t, p, tok.Value)
 	for _, host := range []string{"old.example.com", "fresh.example.com"} {
 		if failed, _, out := tool(t, s, "ask_takeover", map[string]any{"host": host, "kind": "captcha", "conversation_id": conv.String()}); failed || out["notified"] != true {
@@ -457,6 +497,11 @@ func TestTakeoverExpires(t *testing.T) {
 		!strings.Contains(f.Delivery.Ships[0].Text, "@patient [takeover old.example.com] nobody came within 1h0m0s (captcha) at old.example.com") {
 		t.Fatalf("expiry wake: %+v", f)
 	}
+	next(t, events, agent.EventTakeover, func(raw json.RawMessage) bool {
+		var e agent.TakeoverEvent
+		return json.Unmarshal(raw, &e) == nil && e.State == agent.TakeoverStateExpired && e.Host == "old.example.com" &&
+			e.Kind == agent.KindCaptcha && e.EndedBy == "" && e.Conversation != nil && *e.Conversation == conv
+	})
 	ack(conn, f)
 	// Once: the next sweeps find nothing stale.
 	time.Sleep(600 * time.Millisecond)

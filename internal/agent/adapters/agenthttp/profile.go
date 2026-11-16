@@ -153,7 +153,7 @@ func (h *Handler) deleteSecret(c fiber.Ctx) error {
 }
 
 func (h *Handler) endTakeover(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
+	p, err := httpx.Caller(c)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,11 @@ func (h *Handler) endTakeover(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	a, err := h.commands.EndTakeover(c.Context(), org, id, httpx.Param(c, "host"))
+	by := p.Name
+	if by == "" {
+		by = p.Subject
+	}
+	a, err := h.commands.EndTakeover(c.Context(), p.Organization, id, agent.EndTakeover{Host: httpx.Param(c, "host"), By: by})
 	if err != nil {
 		return err
 	}
