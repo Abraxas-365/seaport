@@ -150,5 +150,10 @@ func (s SetEnvironmentSecret) Validate() error {
 	if s.Value == "" || len(s.Value) > agent.MaxSecretValue || strings.ContainsRune(s.Value, 0) {
 		return errx.InvalidField("value", "value must be 1-"+strconv.Itoa(agent.MaxSecretValue)+" bytes without NUL")
 	}
+	// The slot's network variables are the port's: the connector would
+	// drop such a variable anyway (Config.Protect), so refuse it here.
+	if s.Env && slices.Contains(SlotSet(), s.Name) {
+		return errx.InvalidField("name", s.Name+" is set by the port for the slot's network; it can't be an environment variable")
+	}
 	return nil
 }

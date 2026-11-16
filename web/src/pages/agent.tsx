@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useParams } from "react-router"
+import { Link, Navigate, useParams } from "react-router"
 import {
   ArrowLeft,
   Bot,
@@ -24,6 +24,7 @@ import {
   useCan,
   useCrew,
   useDeleteSecret,
+  useDocksDestinations,
   useProfile,
   useProfileVersions,
   useSaveProfile,
@@ -116,6 +117,15 @@ export function AgentPage() {
       </div>
     )
   return <AgentDetail agent={agent.data} />
+}
+
+/**
+ * Takeover notices sent before the agent page had anchors link
+ * `/agents/{id}/hosting`: send them to the browser card.
+ */
+export function AgentHostingRedirect() {
+  const { agentId = "" } = useParams()
+  return <Navigate to={`/agents/${agentId}#navegador`} replace />
 }
 
 function AgentDetail({ agent }: { agent: LibraryAgent }) {
@@ -259,7 +269,7 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
         {!shown ? (
           <Skeleton className="h-64 rounded-xl" />
         ) : (
-          <ProfileFields profile={shown} readOnly={readOnly} set={set} />
+          <ProfileFields profile={shown} docks={agent.docks.map((d) => d.dock_id)} readOnly={readOnly} set={set} />
         )}
         {write && viewing === 0 && (
           <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
@@ -313,10 +323,13 @@ export function hostsOf(text: string): string[] {
 
 function ProfileFields({
   profile: p,
+  docks,
   readOnly,
   set,
 }: {
   profile: ProfileInput
+  /** The agent's docks: where browser_assist's destinations come from. */
+  docks: string[]
   readOnly: boolean
   set: (patch: Partial<ProfileInput>) => void
 }) {
@@ -462,20 +475,12 @@ function ProfileFields({
       {p.browser && (
         <Field>
           <FieldLabel htmlFor="profile-browser-assist">Avisar a una persona</FieldLabel>
-          <Input
-            id="profile-browser-assist"
-            value={p.browser_assist}
-            readOnly={readOnly}
-            onChange={(e) => set({ browser_assist: e.target.value.trim().toLowerCase() })}
-            placeholder="nadie"
-            className="font-mono"
-            maxLength={64}
-          />
+          <AssistSelect value={p.browser_assist} docks={docks} readOnly={readOnly} onChange={(browser_assist) => set({ browser_assist })} />
           <FieldDescription>
             Cuando el agente pide que alguien tome el control (<Mono>ask_takeover</Mono>) o el detector encuentra una
-            página que lo necesita, Seaport lo anuncia con un enlace a su navegador: vacío, a nadie (el aviso queda solo en esta página); <Mono>conversation</Mono>, en
-            la conversación que el agente trabaja; o el nombre de un destino de uno de sus docks, donde abre una
-            conversación. Al pulsar Listo, el agente recibe un mensaje de sistema en el mismo sitio y sigue.
+            página que lo necesita, Seaport lo anuncia con un enlace a su navegador: a nadie (el aviso queda solo en
+            esta página), en la conversación que el agente trabaja, o en un destino de uno de sus muelles, donde abre
+            una conversación. Al pulsar Listo, el agente recibe un mensaje de sistema en el mismo sitio y sigue.
           </FieldDescription>
         </Field>
       )}
@@ -483,6 +488,52 @@ function ProfileFields({
       <SkillsField skills={p.skills} readOnly={readOnly} onChange={(skills) => set({ skills })} />
       <ServersField servers={p.mcp_servers} readOnly={readOnly} onChange={(mcp_servers) => set({ mcp_servers })} />
     </FieldGroup>
+  )
+}
+
+/**
+ * Where takeover notices go (browser_assist): nobody, the conversation, or
+ * a destination of the agent's docks. A saved name no dock has any more
+ * stays listed (marked) so the select never hides what the profile says.
+ */
+function AssistSelect({
+  value,
+  docks,
+  readOnly,
+  onChange,
+}: {
+  value: string
+  docks: string[]
+  readOnly: boolean
+  onChange: (v: string) => void
+}) {
+  const names = useDocksDestinations(docks)
+  const none = "__none"
+  const conversation = "conversation"
+  const listed = names ?? []
+  // A saved name not in the lists (still loading, or no dock has it now).
+  const extra = value !== "" && value !== conversation && !listed.includes(value)
+  return (
+    <Select value={value || none} onValueChange={(v) => onChange(v === none ? "" : v)} disabled={readOnly}>
+      <SelectTrigger id="profile-browser-assist" className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={none}>Nadie</SelectItem>
+        <SelectItem value={conversation}>La conversación que trabaja</SelectItem>
+        {listed.map((n) => (
+          <SelectItem key={n} value={n}>
+            Destino <span className="font-mono">{n}</span>
+          </SelectItem>
+        ))}
+        {extra && (
+          <SelectItem value={value}>
+            Destino <span className="font-mono">{value}</span>
+            {names !== undefined && " (no está en sus muelles)"}
+          </SelectItem>
+        )}
+      </SelectContent>
+    </Select>
   )
 }
 

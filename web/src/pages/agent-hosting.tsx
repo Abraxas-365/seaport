@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link } from "react-router"
+import { Link, useLocation } from "react-router"
 import {
   Activity,
   AppWindow,
@@ -522,6 +522,18 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
   const profile = useProfile(agent.id)
   const [open, setOpen] = React.useState<{ slot: number; url?: string } | null>(null)
   const use = can(Perm.BrowserUse)
+  // Takeover notices link `/agents/{id}#navegador`: scroll here once, when
+  // the card first shows (it loads after the page).
+  const { hash } = useLocation()
+  const scrolled = React.useRef(false)
+  const anchor = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el || scrolled.current || hash !== "#navegador") return
+      scrolled.current = true
+      el.scrollIntoView({ block: "start" })
+    },
+    [hash]
+  )
   if (!can(Perm.EnvironmentsRead) || !hosted.data) return null
   const env = envs.data?.items.find((e) => e.id === hosted.data?.environment_id)
   const hasBrowser = !!env?.spec.browser?.engine
@@ -532,7 +544,7 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
   const slot = open ? hosted.data.slots.find((s) => s.index === open.slot) : undefined
   const openOn = (url?: string) => running[0] && setOpen({ slot: running[0].index, url })
   return (
-    <Card>
+    <Card id="navegador" ref={anchor} className="scroll-mt-4">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">

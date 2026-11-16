@@ -148,9 +148,13 @@ func TestProvidersAndEnvironmentSecrets(t *testing.T) {
 		"seaport": {Name: "SEAPORT_TOKEN", Value: "x"},
 		"empty":   {Name: "OPENAI", Value: ""},
 		"nul":     {Name: "OPENAI", Value: "a\x00b"},
+		// A slot's network variable can't be an environment variable…
+		"slot env": {Name: "ANTHROPIC_BASE_URL", Value: "https://x.example.com", Env: true},
+		// …but a secret named like one, read only through ${NAME}, can.
+		"slot name": {Name: "ANTHROPIC_API_KEY", Value: "x"},
 	} {
 		err := in.Validate()
-		if want := name == "ok" || name == "env"; (err == nil) != want {
+		if want := name == "ok" || name == "env" || name == "slot name"; (err == nil) != want {
 			t.Errorf("%s: %v", name, err)
 		}
 	}

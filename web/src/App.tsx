@@ -21,7 +21,7 @@ import { CrewPage } from "@/pages/crew"
 import { TokensPage } from "@/pages/tokens"
 import { MembersPage } from "@/pages/members"
 import { AgentsPage } from "@/pages/agents"
-import { AgentPage } from "@/pages/agent"
+import { AgentHostingRedirect, AgentPage } from "@/pages/agent"
 import { EnvironmentsPage } from "@/pages/environments"
 import { EnvironmentPage } from "@/pages/environment"
 import { VaultsPage } from "@/pages/vaults"
@@ -135,6 +135,7 @@ function Gate() {
             </Guard>
           }
         />
+        <Route path="/agents/:agentId/hosting" element={<AgentHostingRedirect />} />
         <Route
           path="/environments"
           element={

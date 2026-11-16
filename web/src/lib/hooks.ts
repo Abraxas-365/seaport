@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import {
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -199,6 +200,27 @@ export function useDestinations(dock: string, enabled = true) {
     queryKey: keys.destinations(dock),
     queryFn: () => api.destinations(dock),
     enabled: enabled && can(Perm.DocksRead),
+  })
+}
+
+/**
+ * The destination names of several docks (an agent's), sorted and without
+ * repeats: where a profile's browser_assist can point. Undefined while any
+ * dock's list is loading or the caller can't read docks.
+ */
+export function useDocksDestinations(docks: string[]): string[] | undefined {
+  const can = useCan()
+  const enabled = can(Perm.DocksRead)
+  return useQueries({
+    queries: docks.map((dock) => ({
+      queryKey: keys.destinations(dock),
+      queryFn: () => api.destinations(dock),
+      enabled,
+    })),
+    combine: (results) =>
+      !enabled || results.some((r) => !r.data)
+        ? undefined
+        : [...new Set(results.flatMap((r) => (r.data ?? []).map((d) => d.name)))].sort(),
   })
 }
 

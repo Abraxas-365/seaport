@@ -79,11 +79,13 @@ func (t Takeovers) notice(a agent.Agent, tk agent.Takeover) string {
 	} else {
 		fmt.Fprintf(&b, "El agente *%s* necesita que una persona %s en %s.", a.Name, takeoverAction(tk), tk.Host)
 	}
-	if tk.Note != "" {
+	// The detector's note is the connector's own (English, for the agent);
+	// the sentence above already says what the page needs.
+	if tk.Note != "" && tk.Asker() != agent.TakeoverByDetector {
 		fmt.Fprintf(&b, " Qué hacía: %s.", strings.TrimRight(tk.Note, "."))
 	}
 	if t.s.publicURL != "" {
-		fmt.Fprintf(&b, "\n\nAbre su navegador: %s/agents/%s/hosting\nCuando termines, pulsa Listo.", t.s.publicURL, a.ID)
+		fmt.Fprintf(&b, "\n\nAbre su navegador: %s/agents/%s#navegador\nCuando termines, pulsa Listo.", t.s.publicURL, a.ID)
 	} else {
 		b.WriteString("\n\nAbre su navegador en la app web (Agentes → el agente → Navegador). Cuando termines, pulsa Listo.")
 	}

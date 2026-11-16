@@ -39,7 +39,7 @@ When a site asks the agent for something only a person may do — credentials, a
 
 Left to itself, the agent tells the person in the conversation. The profile's `browser_assist` makes Seaport do it, with a link to the agent's browser (`SEAPORT_PUBLIC_URL`; without it the message says where in the web app):
 
-- `conversation`: a message in the conversation the agent named in the call — *El agente **surf** necesita que una persona inicie sesión en app.example.com. … Abre su navegador: https://seaport.example.com/agents/…/hosting. Cuando termines, pulsa Listo.* The conversation must be allowed and the dock must take replies, as for any reply.
+- `conversation`: a message in the conversation the agent named in the call — *El agente **surf** necesita que una persona inicie sesión en app.example.com. … Abre su navegador: https://seaport.example.com/agents/…#navegador. Cuando termines, pulsa Listo.* The conversation must be allowed and the dock must take replies, as for any reply.
 - A [destination](../destinations.md) name (`oncall`, `it-support`): Seaport opens a conversation at that destination of one of the agent's docks (a Slack thread, a WhatsApp chat) with the same message; when the destination's dock is the conversation's own, the new conversation joins its thread.
 - Empty (default): nobody; the takeover shows only in the web.
 

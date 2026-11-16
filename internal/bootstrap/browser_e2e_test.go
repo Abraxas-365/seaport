@@ -330,7 +330,7 @@ func TestTakeoverAssist(t *testing.T) {
 	if len(hist) != 2 || hist[0].Direction != ship.DirectionOut || hist[0].Agent == nil || *hist[0].Agent != ag.ID ||
 		!strings.Contains(hist[0].Text, "El agente *surf* necesita que una persona introduzca un código de verificación en app.example.com") ||
 		!strings.Contains(hist[0].Text, "Qué hacía: paying the invoice.") ||
-		!strings.Contains(hist[0].Text, p.srv.URL+"/agents/"+ag.ID.String()+"/hosting\n") || !strings.Contains(hist[0].Text, "pulsa Listo") {
+		!strings.Contains(hist[0].Text, p.srv.URL+"/agents/"+ag.ID.String()+"#navegador\n") || !strings.Contains(hist[0].Text, "pulsa Listo") {
 		t.Fatalf("notice: %+v", hist)
 	}
 	var a agent.Agent
@@ -573,7 +573,7 @@ func TestDetectorTakeover(t *testing.T) {
 
 	// The detector's ask: recorded with by/path, told in the conversation
 	// with the detector's wording.
-	ans, code := post(tok.Value, crew.TakeoverRequest{Host: "SSO.example.com", Kind: "login", Detected: true, Path: "/signin", ConversationID: &conv})
+	ans, code := post(tok.Value, crew.TakeoverRequest{Host: "SSO.example.com", Kind: "login", Note: "the page detector saw a sign-in form", Detected: true, Path: "/signin", ConversationID: &conv})
 	if code != http.StatusCreated || !ans.Notified || ans.Done || ans.Pending != 1 || ans.Host != "sso.example.com" {
 		t.Fatalf("detected ask: %d %+v", code, ans)
 	}
@@ -585,7 +585,7 @@ func TestDetectorTakeover(t *testing.T) {
 	}
 	hist := p.history(conv)
 	if len(hist) != 2 || !strings.Contains(hist[0].Text, "Seaport detectó que el navegador del agente *watcher* necesita que una persona inicie sesión en sso.example.com/signin") ||
-		!strings.Contains(hist[0].Text, "pulsa Listo") {
+		!strings.Contains(hist[0].Text, "pulsa Listo") || strings.Contains(hist[0].Text, "Qué hacía") {
 		t.Fatalf("notice: %+v", hist)
 	}
 	// The same host again (the page still needs someone) updates and tells
