@@ -184,6 +184,26 @@ func TestProxyRefusesPrivateAddresses(t *testing.T) {
 	}
 }
 
+// "*" opens the public web (search, any page) but never private addresses.
+func TestProxyAnyHost(t *testing.T) {
+	_, proxy, port := setup(t, true, hosting.AnyHost)
+	cl := client(proxy, "a-1", "slot")
+	for _, h := range []string{"html.duckduckgo.com", "example.org", "a.b.example.net"} {
+		if st, body := get(t, cl, "http://"+h+":"+port+"/q"); st != 200 || !strings.Contains(body, "hello from "+h) {
+			t.Fatalf("%s through *: %d %s", h, st, body)
+		}
+	}
+	c, proxy, port := setup(t, false, hosting.AnyHost)
+	if st, body := get(t, client(proxy, "a-1", "slot"), "http://internal.example.com:"+port+"/"); st != 403 || !strings.Contains(body, "private") {
+		t.Fatalf("* reached a private address: %d %s", st, body)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.denials) != 1 {
+		t.Fatalf("denials: %+v", c.denials)
+	}
+}
+
 func TestProxyNeedsAToken(t *testing.T) {
 	_, proxy, port := setup(t, true, "api.example.com")
 	cl := &http.Client{Transport: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return url.Parse(proxy) }}}

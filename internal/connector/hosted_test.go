@@ -202,11 +202,15 @@ func TestPinClaudeSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got struct {
-		Env          map[string]string `json:"env"`
-		APIKeyHelper *string           `json:"apiKeyHelper"`
+		Env           map[string]string `json:"env"`
+		APIKeyHelper  *string           `json:"apiKeyHelper"`
+		SkipPreflight bool              `json:"skipWebFetchPreflight"`
 	}
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
+	}
+	if !got.SkipPreflight {
+		t.Error("skipWebFetchPreflight off: WebFetch would ask api.anthropic.com past the gateway")
 	}
 	want := map[string]string{
 		hosting.EnvGateway: "http://port/gateway", "ANTHROPIC_BASE_URL": "http://port/gateway/anthropic",

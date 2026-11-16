@@ -107,6 +107,7 @@ With a key set, the slots reach the provider through the port's model gateway (`
 | `egress` | list of string | empty | 100 | Hosts a slot may reach through the egress proxy. |
 
 - Each host is a DNS name of at least two labels, such as `example.com`, or `*.example.com` for any subdomain. Hosts are lowercased and deduplicated.
+- `*` alone allows any public host (web search, any page). Private, loopback, link-local and carrier-grade NAT addresses stay refused. See [Network](../guides/hosting/network.md#egress-proxy).
 - The hosts of the `repos` are added on their own. A `claude-code` environment that signs in to a subscription also gets `api.anthropic.com` and `platform.claude.com`.
 - The proxy filters only when the port runs it (`SEAPORT_EGRESS_ADDR`) and the runtime network is internal. See [Network and models](../guides/hosting/network.md) and [Configuration](configuration.md).
 

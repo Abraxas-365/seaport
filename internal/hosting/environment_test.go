@@ -39,6 +39,8 @@ func TestSpecValidate(t *testing.T) {
 		},
 		"egress":          func(s *hosting.Spec) { s.Network.Egress = []string{"localhost"} },
 		"egress url":      func(s *hosting.Spec) { s.Network.Egress = []string{"https://example.com"} },
+		"egress stars":    func(s *hosting.Spec) { s.Network.Egress = []string{"**"} },
+		"egress star tld": func(s *hosting.Spec) { s.Network.Egress = []string{"*.*"} },
 		"size":            func(s *hosting.Spec) { s.Resources = hosting.Resources{Size: "XL"} },
 		"size and custom": func(s *hosting.Spec) { s.Resources = hosting.Resources{Size: "S", CPUs: 3, MemoryMB: 1024} },
 		"cpus":            func(s *hosting.Spec) { s.Resources = hosting.Resources{CPUs: 0.1, MemoryMB: 1024} },
@@ -199,6 +201,18 @@ func TestNetworkOfASpec(t *testing.T) {
 		if got := hosting.AllowedHost(host, allow); got != want {
 			t.Errorf("AllowedHost(%q) = %v", host, got)
 		}
+	}
+	for _, host := range []string{"html.duckduckgo.com", "example.org", "a.b.c.example.net"} {
+		if !hosting.AllowedHost(host, []string{hosting.AnyHost}) {
+			t.Errorf("AnyHost refused %q", host)
+		}
+	}
+	open := hosting.Spec{Harness: hosting.HarnessRness, Network: hosting.Network{Egress: []string{" * "}}}
+	if err := open.Validate(); err != nil {
+		t.Fatalf("egress *: %v", err)
+	}
+	if got := hosting.Normalize(open).Network.Egress; !reflect.DeepEqual(got, []string{"*"}) {
+		t.Fatalf("normalized egress *: %v", got)
 	}
 }
 

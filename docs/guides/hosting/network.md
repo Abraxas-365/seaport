@@ -81,6 +81,16 @@ network:
 
 Each entry is a host name with at least two labels. `*.example.com` matches subdomains, `example.com` the host itself. Up to 100 entries.
 
+`*` alone allows any public host. Use it when an agent must search the web or read any page: rness's `web_search` (DuckDuckGo) and `web_fetch`, Claude Code's `WebFetch`, or the [browser](browser.md) on sites you can't list ahead of time. Claude Code's `WebSearch` runs inside Anthropic's API, so it goes through the model gateway and needs no egress entry. Even with `*`, the proxy still refuses [private addresses](#private-addresses), so slots can't reach your internal services.
+
+```yaml
+network:
+  egress:
+    - "*"                   # the open web; still no private addresses
+```
+
+The harnesses' web tools go through the proxy on their own: rness's base image hands it `HTTPS_PROXY` as `rness.web.proxy`, and Claude Code's `WebFetch` skips its preflight call to `api.anthropic.com` (the port turns on `skipWebFetchPreflight` in its managed settings), so the hosts you list are the whole policy.
+
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
 | `SEAPORT_EGRESS_ADDR` | off | Listen address, such as `:8741`. Must be `host:port`. |

@@ -98,6 +98,14 @@ browser:
     expect(yaml).toContain("  - plain-name=1.2\n")
   })
 
+  it("quotes egress wildcards, which YAML would read as aliases", () => {
+    const e = env()
+    e.spec.network = { egress: ["*", "*.example.com"] }
+    const yaml = environmentYaml("x", e.spec)
+    expect(yaml).toContain('    - "*"\n')
+    expect(yaml).toContain('    - "*.example.com"\n')
+  })
+
   it("does not mutate the spec it is given", () => {
     const e = env()
     const before = structuredClone(e.spec)

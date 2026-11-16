@@ -162,12 +162,18 @@ func (d Denied) Validate() error {
 	return nil
 }
 
-// AllowedHost reports whether host matches the allowlist: equal, or a
-// subdomain of a "*.example.com" entry.
+// AnyHost as an egress entry lets slots reach any public host (the open
+// web: search, any page). The proxy still refuses private, loopback,
+// link-local and CGNAT addresses (SEAPORT_EGRESS_PRIVATE aside), so it
+// never opens the way to internal services.
+const AnyHost = "*"
+
+// AllowedHost reports whether host matches the allowlist: equal, a
+// subdomain of a "*.example.com" entry, or anything with AnyHost.
 func AllowedHost(host string, allow []string) bool {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	for _, a := range allow {
-		if a == host || (strings.HasPrefix(a, "*.") && strings.HasSuffix(host, a[1:])) {
+		if a == AnyHost || a == host || (strings.HasPrefix(a, "*.") && strings.HasSuffix(host, a[1:])) {
 			return true
 		}
 	}

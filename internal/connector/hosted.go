@@ -163,12 +163,18 @@ const ClaudeManaged = "/tmp/seaport/claude-code"
 // harness runs as the same user, so this guards configuration, not a
 // hostile agent (it holds the slot token anyway; the gateway and the
 // egress proxy are the boundary).
+//
+// skipWebFetchPreflight: before each new host WebFetch asks
+// api.anthropic.com itself (not the gateway) whether the host may be
+// fetched; in a slot that call goes to the egress proxy, which refuses it
+// unless the environment lists api.anthropic.com, and then WebFetch fails
+// even for the hosts it does list. The environment's egress is the policy.
 func pinClaudeSettings(dir string) error {
 	env := map[string]string{}
 	for _, k := range protected() {
 		env[k] = os.Getenv(k)
 	}
-	settings := map[string]any{"env": env}
+	settings := map[string]any{"env": env, "skipWebFetchPreflight": true}
 	if _, ok := os.LookupEnv(hosting.EnvGateway); ok {
 		settings["apiKeyHelper"] = ""
 	}

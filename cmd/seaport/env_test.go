@@ -58,4 +58,16 @@ func TestEnvFileRoundTrip(t *testing.T) {
 			t.Errorf("accepted %q", bad)
 		}
 	}
+	// "*" (any public host) must survive an export: unquoted it is a YAML alias.
+	open, err := readEnvFile([]byte("name: open\nharness: rness\nnetwork:\n  egress: [\"*\", \"*.example.com\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := writeEnvFile(&out, open); err != nil {
+		t.Fatal(err)
+	}
+	if back, err := readEnvFile(out.Bytes()); err != nil || !reflect.DeepEqual(back.Network.Egress, []string{"*", "*.example.com"}) {
+		t.Fatalf("egress * round trip: %v\n%s", err, out.String())
+	}
 }
