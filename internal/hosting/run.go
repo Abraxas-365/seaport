@@ -90,6 +90,12 @@ const (
 	EnvHarness = "SEAPORT_HARNESS"
 )
 
+// EnvAgentModel is the agent's profile model, which agent-run hands the
+// harness: rness's base image starts sessions on it when it is
+// <provider>/<model> of a provider the gateway serves
+// (images/rness/seaport.lua).
+const EnvAgentModel = "SEAPORT_AGENT_MODEL"
+
 // RuntimeSlot is a slot the runtime has something of: a container
 // (running or exited) and/or volumes.
 type RuntimeSlot struct {

@@ -54,6 +54,16 @@ DAY         PROVIDER   MODEL              REQUESTS  INPUT  OUTPUT  CACHE WRITE  
 
 The same data is at `GET /api/v1/agents/{id}/usage?days=N` (30 days by default, needs `agents:read`) and in the web app, in **Uso de modelos** on the agent's page.
 
+### Which model a slot uses
+
+Claude Code calls Anthropic only, so only `models.anthropic` matters to it. rness works with every provider in the table. Its base image points each provider the environment names at the gateway. It also declares `openai`, `groq` and `deepseek` itself, since its default config has only Anthropic and OpenRouter. Its sessions start on the first of:
+
+1. The agent's **Model** in its [profile](../profiles.md), written `<provider>/<model>`, when the environment names that provider (`openrouter/anthropic/claude-sonnet-4.5`, `deepseek/deepseek-chat`). When the environment names a single provider other than `anthropic`, a model without a provider (`gpt-4.1`) goes to that one.
+2. `SEAPORT_MODEL`, in the same format, set with `ENV` in a custom image (an environment's `env:` can't hold `SEAPORT_` names).
+3. `claude-sonnet-5-5`, when the environment names `anthropic` or has no `models` at all.
+
+If none of these applies, rness won't start, and the slot's log names the setting to add. A model name without a provider, such as `claude-opus-5-5`, is picked among the harness's own models once the session is open, along with the effort. rness lists only the Anthropic models of its default config there. So give a model of any other provider as `<provider>/<model>`.
+
 > [!NOTE]
 > This applies to environments with `models`. A `claude-code` environment without `models.anthropic` signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
 

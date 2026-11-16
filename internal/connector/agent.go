@@ -112,6 +112,12 @@ func StartAgent(ctx context.Context, cfg Config, kit *agent.Kit, browser *Browse
 			}
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
+		// A hosted rness starts its sessions on this model (a model it has
+		// no metadata for can't be picked among its options afterwards).
+		// After the kit's env, so a secret can't replace it.
+		if kit.Model != "" {
+			cmd.Env = append(cmd.Env, hosting.EnvAgentModel+"="+kit.Model)
+		}
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

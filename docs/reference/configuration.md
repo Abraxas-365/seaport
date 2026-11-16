@@ -184,7 +184,7 @@ Settings for [hosted agents](../guides/hosting/hosted-agents.md). The environmen
 | `SEAPORT_EGRESS_URL` | host of `SEAPORT_AGENT_URL` + the listen port | How slots reach the proxy. Must be an `http://` URL without credentials. |
 | `SEAPORT_EGRESS_PRIVATE` | `false` | Only the exact value `true` lets allowed hosts resolve to private, loopback or link-local addresses (local testing). |
 
-Hosted slots receive their own variables (`SEAPORT_URL`, `SEAPORT_CREW_TOKEN`, `SEAPORT_SLOT`, `SEAPORT_HARNESS`, `SEAPORT_GATEWAY`, `SEAPORT_GATEWAY_PROVIDERS`, each provider's `_BASE_URL`/`_API_KEY`, proxy variables); the port sets them, you don't. The environment's `env` and its `-env` secrets come before them. See [Network](../guides/hosting/network.md).
+Hosted slots receive their own variables (`SEAPORT_URL`, `SEAPORT_CREW_TOKEN`, `SEAPORT_SLOT`, `SEAPORT_HARNESS`, `SEAPORT_GATEWAY`, `SEAPORT_GATEWAY_PROVIDERS`, each provider's `_BASE_URL`/`_API_KEY`, proxy variables); the port sets them, you don't. `agent-run` hands the harness `SEAPORT_AGENT_MODEL`, the agent's profile model. The environment's `env` and its `-env` secrets come before them. See [Network](../guides/hosting/network.md#which-model-a-slot-uses).
 
 ## CLI and connector variables
 
