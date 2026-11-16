@@ -118,10 +118,7 @@ func fetchImage(ctx context.Context, cfg Config, id identity.AttachmentID) (imag
 // on dir, so a symlink in the work tree (a repository may commit one as
 // .seaport) never takes the write outside it.
 func saveAttachment(ctx context.Context, cfg Config, dir string, a ship.Attachment) (string, error) {
-	name := ship.CleanName(a.Name)
-	if name == "" {
-		name = string(a.Kind)
-	}
+	name := fileName(a)
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return "", errx.Wrap(err, "attachments directory", errx.TypeInternal)
@@ -148,6 +145,31 @@ func saveAttachment(ctx context.Context, cfg Config, dir string, a ship.Attachme
 		return "", errx.Wrap(err, "save attachment", errx.TypeInternal)
 	}
 	return filepath.Join(dir, rel), nil
+}
+
+// fileName is the name an attachment is saved under: its display name
+// (ship.CleanName), made a name every OS takes. Characters Windows (or a
+// shell) refuses become "_", trailing dots and spaces go, and a reserved
+// device name (CON, NUL, COM1...) gets a "_" in front, so a name that
+// works on one machine works on all; "" becomes the kind.
+func fileName(a ship.Attachment) string {
+	name := strings.Map(func(r rune) rune {
+		if strings.ContainsRune(`<>:"/\|?*`, r) || r < 0x20 {
+			return '_'
+		}
+		return r
+	}, ship.CleanName(a.Name))
+	name = strings.TrimRight(name, ". ")
+	if name == "" {
+		return string(a.Kind)
+	}
+	stem, _, _ := strings.Cut(name, ".")
+	switch s := strings.ToUpper(strings.TrimSpace(stem)); {
+	case s == "CON" || s == "PRN" || s == "AUX" || s == "NUL",
+		len(s) == 4 && (strings.HasPrefix(s, "COM") || strings.HasPrefix(s, "LPT")) && s[3] >= '0' && s[3] <= '9':
+		name = "_" + name
+	}
+	return name
 }
 
 // fetchAttachment reads GET /crew/attachments/{id} with the crew token, at

@@ -81,6 +81,10 @@ type Media struct {
 	Kind AttachmentKind
 	// Name is the file name the channel gave (CleanName), display only.
 	Name string
+	// Size is the size the channel declared (0 = unknown): a file that
+	// can't fit in what's left of MaxInboundMedia isn't downloaded. The
+	// bytes are checked again once fetched.
+	Size int64
 	Data []byte
 	// Fetch downloads the bytes now (a channel whose URLs expire calls it
 	// within the arrival); it returns ErrMediaTooLarge past MaxFile
@@ -102,6 +106,9 @@ func (m Media) Validate() error {
 	}
 	if (m.Data == nil) == (m.Fetch == nil) {
 		return errx.InvalidField("media.data", "media needs its bytes or a way to fetch them")
+	}
+	if m.Size < 0 {
+		return errx.InvalidField("media.size", "size can't be negative")
 	}
 	if m.Data != nil {
 		if err := CheckMediaSize(m.Data); err != nil {

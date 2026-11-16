@@ -788,7 +788,7 @@ net/http mux; only `/healthz` answers 405.
   sniffs the kind from the bytes (`shipsvc.sniff`: an image in
   `ship.ImageTypes` within `MaxImage`, else a document typed by
   `blob.FileType`, whatever the channel called it; at most
-  `MaxInboundMedia` per message; names through `ship.CleanName`), seals them (`internal/seal`,
+  `MaxInboundMedia` per message, and a `Media.Size` the channel declared (WhatsApp, Slack) that can't fit in what's left is not downloaded; names through `ship.CleanName`), seals them (`internal/seal`,
   info `seaport media v1`, purpose `attachment/<org>/<id>`) and puts them
   in the blob store (`SEAPORT_BLOB_URL`, opened once in `bootstrap`; off
   without a secret key) under `blob.TenantKey(org, "attachments", id)`

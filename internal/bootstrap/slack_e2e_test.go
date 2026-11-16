@@ -1,6 +1,7 @@
 package bootstrap_test
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -74,6 +75,13 @@ func (f *fakeSlack) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.uploads = append(f.uploads, "bytes:"+string(raw))
 		f.mu.Unlock()
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/files/big-") {
+		f.mu.Lock()
+		f.calls = append(f.calls, "download:"+strings.TrimPrefix(r.URL.Path, "/files/"))
+		f.mu.Unlock()
+		_, _ = w.Write(bytes.Repeat([]byte{'b'}, 10<<20))
 		return
 	}
 	if r.URL.Path == "/files/pic.png" || r.URL.Path == "/files/notes.pdf" {
@@ -185,6 +193,19 @@ func (f *fakeSlack) posted() []map[string]any {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]map[string]any(nil), f.posts...)
+}
+
+// downloads lists the big files the port downloaded, in order.
+func (f *fakeSlack) downloads() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, "download:") {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // slackEvent posts a body to the dock's events URL signed with secret at ts.
@@ -599,6 +620,26 @@ func TestSlackDock(t *testing.T) {
 		f.Delivery.Ships[0].Attachments[1].Kind != ship.AttachmentDocument || f.Delivery.Ships[0].Attachments[1].Name != "notes.pdf" ||
 		strings.Contains(f.Delivery.Ships[0].Text, "[file:") {
 		t.Fatalf("files delivery = %+v", f.Delivery.Ships)
+	}
+	ack(c, f)
+
+	// A file declared too big for what's left of the message's total
+	// isn't downloaded: a note stands in for it.
+	big := func(n string, size int) map[string]any {
+		return map[string]any{"name": "big-" + n + ".bin", "mimetype": "application/octet-stream", "size": size,
+			"url_private": sl.srv.URL + "/files/big-" + n + ".bin"}
+	}
+	files = map[string]any{"subtype": "file_share", "files": []map[string]any{big("1", 10<<20), big("2", 10<<20), big("3", 9<<20)}}
+	if code, out := p.slackEvent(d, slSigning, now, false, slMessage("app_mention", "C0SUP", "1700000600.000100", "1700000000.000100", "<@U0BOT> big ones", files)); code != http.StatusOK || out["status"] != "accepted" {
+		t.Fatalf("big files: %d %v", code, out)
+	}
+	f = c.read()
+	if f.Type != crew.FrameDelivery || len(f.Delivery.Ships[0].Attachments) != 2 ||
+		!strings.Contains(f.Delivery.Ships[0].Text, ship.MediaNote(ship.AttachmentDocument, "the message's files are too large together")) {
+		t.Fatalf("big files delivery = %+v", f.Delivery.Ships)
+	}
+	if got := sl.downloads(); strings.Join(got, ",") != "download:big-1.bin,download:big-2.bin" {
+		t.Fatalf("downloads: %v", got)
 	}
 	ack(c, f)
 

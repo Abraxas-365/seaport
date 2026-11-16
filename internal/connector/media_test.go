@@ -162,3 +162,24 @@ func TestGatherStaysInTheWorkTree(t *testing.T) {
 		t.Fatalf("wrote outside the work tree: %v", entries)
 	}
 }
+
+// A saved file's name is one every OS takes, whatever the sender named it.
+func TestFileNameIsPortable(t *testing.T) {
+	for in, want := range map[string]string{
+		"informe Q3.pdf":     "informe Q3.pdf",
+		`a:b*c?"d"<e>|f.txt`: "a_b_c__d__e__f.txt",
+		"notes. . .":         "notes",
+		"CON":                "_CON",
+		"nul.txt":            "_nul.txt",
+		"com7.log":           "_com7.log",
+		"console.txt":        "console.txt",
+		"COM.txt":            "COM.txt",
+		"...":                "document",
+		"":                   "document",
+		"../../etc/passwd":   "passwd",
+	} {
+		if got := fileName(ship.Attachment{Kind: ship.AttachmentDocument, Name: in}); got != want {
+			t.Errorf("fileName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
