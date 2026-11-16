@@ -17,6 +17,38 @@ test("an environment made from the UI shows as YAML", async ({ pages, page }) =>
   await expect(dialog).toContainText("harness: rness")
 })
 
+test("a new environment takes its model key on the way, or says what is left when it doesn't", async ({
+  pages,
+  page,
+  api,
+}) => {
+  // With the key: stored as an environment secret and named in Modelos (a second version).
+  const withKey = unique("keyed")
+  await pages.environments.open()
+  await pages.environments.create(withKey, "En blanco", { provider: "OpenAI", value: "s3cr3t-model-key-0002" })
+  await expect(page.getByText(withKey, { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("s3cr3t-model-key-0002")).toHaveCount(0)
+  const list = page.getByRole("list", { name: "Secretos del entorno" })
+  await expect(list.getByText("OPENAI_KEY", { exact: true })).toBeVisible()
+  await expect(page.getByRole("combobox", { name: "OpenAI" })).toContainText("OPENAI_KEY")
+  const keyed = await api.get<{ version: number; spec: { models: Record<string, string> } }>(
+    `/api/v1/environments/${withKey}`
+  )
+  expect(keyed.version).toBe(2)
+  expect(keyed.spec.models).toEqual({ openai: "${OPENAI_KEY}" })
+
+  // Without: the environment exists at v1 and the list says the key is missing.
+  const later = unique("later")
+  await pages.environments.open()
+  await pages.environments.create(later, "En blanco")
+  await expect(page.getByText(later, { exact: true }).first()).toBeVisible()
+  await expect(page.getByText("Añadir clave de Anthropic")).toBeVisible()
+  await pages.environments.open()
+  const row = page.getByRole("link", { name: new RegExp(`^${later} `) })
+  await expect(row).toContainText("Falta la clave del modelo")
+  await expect(page.getByRole("link", { name: new RegExp(`^${withKey} `) })).toContainText("Sin agentes")
+})
+
 test("an environment keeps plain variables in its spec and secrets apart, and names a model key", async ({
   pages,
   page,

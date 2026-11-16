@@ -119,13 +119,25 @@ export class EnvironmentsPage {
     await expect(this.page.getByRole("heading", { name: "Entornos" })).toBeVisible()
   }
 
-  /** Creates an environment from the dialog; `template` is the label of a starting point ("Python"). */
-  async create(name: string, template?: string) {
+  /**
+   * Creates an environment from the two-step dialog; `template` is the label of
+   * a starting point ("Python"). With `key`, the model key is stored on the way
+   * (step 2); without, the key is left for later ("Luego").
+   */
+  async create(name: string, template?: string, key?: { provider: string; value: string }) {
     await this.page.getByRole("button", { name: "Entorno" }).first().click()
-    const dialog = this.page.getByRole("dialog", { name: "Nuevo entorno" })
-    await dialog.getByLabel("Nombre").fill(name)
-    if (template) await dialog.getByRole("radio", { name: template }).click()
-    await dialog.getByRole("button", { name: "Crear" }).click()
+    const step1 = this.page.getByRole("dialog", { name: "Nuevo entorno" })
+    await step1.getByLabel("Nombre").fill(name)
+    if (template) await step1.getByRole("radio", { name: template }).click()
+    await step1.getByRole("button", { name: "Siguiente" }).click()
+    const step2 = this.page.getByRole("dialog", { name: "Clave del modelo" })
+    if (key) {
+      await step2.getByRole("radiogroup", { name: "Proveedor" }).getByRole("radio", { name: key.provider }).click()
+      await step2.getByLabel("Clave", { exact: true }).fill(key.value)
+      await step2.getByRole("button", { name: "Crear con clave" }).click()
+    } else {
+      await step2.getByRole("button", { name: "Luego" }).click()
+    }
   }
 }
 

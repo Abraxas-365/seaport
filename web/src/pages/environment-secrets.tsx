@@ -33,6 +33,9 @@ export const providers: { name: string; label: string; keyEnv: string }[] = [
   { name: "deepseek", label: "DeepSeek", keyEnv: "DEEPSEEK_API_KEY" },
 ]
 
+/** The suggested secret name for a provider's key (`ANTHROPIC_KEY`). */
+export const keyNameFor = (p: (typeof providers)[number]) => p.keyEnv.replace(/_API_KEY$/, "_KEY")
+
 export const secretNamePattern = /^[A-Z_][A-Z0-9_]{0,63}$/
 export const secretRefPattern = /^\$\{[A-Z_][A-Z0-9_]{0,63}\}$/
 const secretRef = /^\$\{([A-Z_][A-Z0-9_]{0,63})\}$/
