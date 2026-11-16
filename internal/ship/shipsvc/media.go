@@ -80,6 +80,10 @@ func (s *Service) keep(ctx context.Context, org identity.OrganizationID, in ship
 		case refused[hold]:
 			note(m.Kind, "not kept from a denied sender")
 			continue
+		case total+int(min(m.Size, int64(ship.MaxInboundMedia)+1)) > ship.MaxInboundMedia:
+			// Declared too big for what's left: not worth the download.
+			note(m.Kind, "the message's files are too large together")
+			continue
 		}
 		b, why := fetch(ctx, m)
 		if why != "" {

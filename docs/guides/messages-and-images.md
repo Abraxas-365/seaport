@@ -25,7 +25,7 @@ A file that doesn't pass, or can't be kept, doesn't lose the message. A note is 
 | Note | Why |
 | :--- | :--- |
 | `[image received; too large to keep]` | over 10 MiB (WhatsApp and Slack name the file) |
-| `[document received; the message's files are too large together]` | the message's files passed 25 MiB |
+| `[document received; the message's files are too large together]` | the message's files passed 25 MiB. When WhatsApp or Slack declare a file's size, one that can't fit in what's left isn't even downloaded |
 | `[image received; the download failed]` | the channel's download failed or was empty |
 | `[image received; media storage is off]` | no blob storage is configured |
 | `[image received; not kept from a denied sender]` | customs denied the chat or the sender: strangers can't fill your storage. Media from **pending** chats is kept, since allowing the chat delivers what it sent meanwhile |
@@ -44,7 +44,7 @@ Post images in the `images` field and any other file in `files`, each `{"name": 
 The prompt names each attachment under its message line. How the agent gets it depends on the harness:
 
 - **Images as image blocks.** If the harness advertises image support in ACP (`promptCapabilities.image`), the connector fetches each image from the port with the agent's token and sends it as an image block after the text, in order, up to **8 per prompt**. The prompt marks each one as attached below. Images that arrive while the agent is working (steering) are sent the same way.
-- **Everything else as files.** Documents, and images the harness doesn't take (or beyond the first 8), are saved in the session's working directory under `.seaport/attachments/<attachment id>/<name>` (up to 16 per prompt), and the prompt gives the path: `[document informe.pdf saved at /…/.seaport/attachments/…/informe.pdf]`. The agent reads them with its own tools. The directory has a `.gitignore` that keeps received files out of the repository; a redelivered message reuses the saved file.
+- **Everything else as files.** Documents, and images the harness doesn't take (or beyond the first 8), are saved in the session's working directory under `.seaport/attachments/<attachment id>/<name>` (up to 16 per prompt; characters or names Windows refuses, such as `:` or `CON`, are replaced so the file saves on any machine), and the prompt gives the path: `[document informe.pdf saved at /…/.seaport/attachments/…/informe.pdf]`. The agent reads them with its own tools. The directory has a `.gitignore` that keeps received files out of the repository; a redelivered message reuses the saved file.
 - **Otherwise, the agent asks.** A file that couldn't be fetched or saved is "not shown to you". The agent can call the MCP tools: `history` lists each message's attachments with their ids, and `attachment` returns an image as an image, a text document as its text, and says where to get any other document. These tools only work on conversations of the docks the agent is on.
 - **The dock keeps them.** On a dock whose [`attachments` switch](agents-and-routing.md#what-agents-may-read) is off, the prompt names the file and says its dock's owner keeps files from agents; nothing is fetched, saved or shown.
 

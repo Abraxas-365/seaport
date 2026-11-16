@@ -760,7 +760,7 @@ func fileMedia(kind ship.AttachmentKind, msg whatsmeow.DownloadableMessage, decl
 		}
 		return f.Bytes(), nil
 	}
-	return &ship.Media{Kind: kind, Name: ship.CleanName(name), Fetch: fetch}, caption
+	return &ship.Media{Kind: kind, Name: ship.CleanName(name), Size: int64(declared), Fetch: fetch}, caption
 }
 
 // messageText extracts the text of a message (captions included); media

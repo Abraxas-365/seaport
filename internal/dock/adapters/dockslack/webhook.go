@@ -220,7 +220,7 @@ func build(env envelope, d identity.DockID, rt routing, lk lookups) (arrival, bo
 			body += ship.MediaNote(kind, ship.CleanName(name)+" too large to keep")
 			continue
 		default:
-			media = append(media, ship.Media{Kind: kind, Name: ship.CleanName(name), Fetch: lk.fetch(f.URL, ship.MaxFile)})
+			media = append(media, ship.Media{Kind: kind, Name: ship.CleanName(name), Size: max(f.Size, 0), Fetch: lk.fetch(f.URL, ship.MaxFile)})
 			continue
 		}
 		if body != "" {
