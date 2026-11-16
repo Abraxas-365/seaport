@@ -19,7 +19,7 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:crew:read` | View connected agents (Tripulación). Read `crew.changed` events. |
 | `seaport:crew-tokens:read` | View crew tokens (Tokens de agentes). Never their values. |
 | `seaport:crew-tokens:write` | Create and revoke crew tokens. |
-| `seaport:agents:read` | View agents, the docks they work on, their profiles and secret names, and their model usage. Read `agent.updated` and `agent.deleted` events. |
+| `seaport:agents:read` | View agents, the docks they work on, their profiles and secret names, and their model usage. Read `agent.updated`, `agent.deleted` and `agent.takeover` events. |
 | `seaport:agents:write` | Create, change and delete agents, assign them to docks, save profiles, and set or delete secrets. Also required to name secrets in an environment (repo credentials, model keys). |
 | `seaport:environments:read` | View environments, builds, harness homes, and the agents the port hosts with their slots. Read `environment.updated`, `environment.deleted`, `environment.build` and `slot.updated` events. |
 | `seaport:environments:write` | Create, change and delete environments, start builds, upload homes, host and unhost agents, and start, stop and sign in slots. Read slot logs. |

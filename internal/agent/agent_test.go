@@ -1,6 +1,7 @@
 package agent_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -113,6 +114,41 @@ func TestAskTakeover(t *testing.T) {
 	}
 	if (agent.Takeover{}).Asker() != agent.TakeoverByAgent {
 		t.Fatal("an old row (no by) reads as the agent's")
+	}
+}
+
+func TestTakeoverEvent(t *testing.T) {
+	for name, c := range map[string]struct {
+		in agent.EndTakeover
+		ok bool
+	}{
+		"host":      {agent.EndTakeover{Host: "App.Example.com", By: "ana"}, true},
+		"no by":     {agent.EndTakeover{Host: "app.example.com"}, true},
+		"bad host":  {agent.EndTakeover{Host: "not a host"}, false},
+		"long name": {agent.EndTakeover{Host: "app.example.com", By: strings.Repeat("a", 300)}, false},
+	} {
+		if err := c.in.Validate(); (err == nil) != c.ok {
+			t.Errorf("%s: Validate() = %v", name, err)
+		}
+	}
+	id, conv, now := identity.NewAgentID(), identity.NewConversationID(), time.Now()
+	tk := agent.Takeover{Host: "app.example.com", Kind: agent.Kind2FA, Note: "the code", Path: "/signin", Conversation: &conv, At: now}
+	e := tk.Event(id, agent.TakeoverDone.State(), "ana")
+	if e.Agent != id || e.Host != tk.Host || e.Kind != agent.Kind2FA || e.By != agent.TakeoverByAgent || e.Path != "/signin" ||
+		e.Conversation == nil || *e.Conversation != conv || !e.AskedAt.Equal(now) || e.State != agent.TakeoverStateDone || e.EndedBy != "ana" {
+		t.Fatalf("event: %+v", e)
+	}
+	if agent.TakeoverExpired.State() != agent.TakeoverStateExpired {
+		t.Fatal("expired end")
+	}
+	tk.By = agent.TakeoverByDetector
+	e = tk.Event(id, agent.TakeoverStateAsked, "")
+	if e.By != agent.TakeoverByDetector || e.EndedBy != "" {
+		t.Fatalf("detector asked: %+v", e)
+	}
+	// The note (what the agent was doing) stays out of the trail.
+	if raw, _ := json.Marshal(e); strings.Contains(string(raw), "the code") || strings.Contains(string(raw), "ended_by") {
+		t.Fatalf("payload: %s", raw)
 	}
 }
 

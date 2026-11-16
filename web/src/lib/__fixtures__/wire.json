@@ -986,6 +986,16 @@
     "agent.deleted": {
       "id": "00000000-0000-4000-8000-000000000005"
     },
+    "agent.takeover": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "asked_at": "2030-01-02T03:02:00Z",
+      "by": "agent",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "ended_by": "admin",
+      "host": "app.example.com",
+      "kind": "login",
+      "state": "done"
+    },
     "agent.updated": {
       "created_at": "2030-01-02T03:00:00Z",
       "created_by": "admin",

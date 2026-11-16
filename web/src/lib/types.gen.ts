@@ -121,6 +121,12 @@ export type TakeoverBy = "agent" | "detector"
 /** TakeoverKind is what the person must do in the browser. */
 export type TakeoverKind = "login" | "captcha" | "2fa" | "other"
 
+/**
+ * TakeoverState is what happened to a takeover (TakeoverEvent.State): asked,
+ * or one of the ends (the TakeoverEnd values, through TakeoverEnd.State).
+ */
+export type TakeoverState = "asked" | "done" | "expired"
+
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed"
 
 /** TurnOutcome is how a delivery ended. */
@@ -1335,6 +1341,27 @@ export interface Takeover {
   notified_in?: ID
 }
 
+/**
+ * TakeoverEvent is the payload of EventTakeover: the takeover as it was
+ * (host, kind, who asked, the page's path, the conversation it was about)
+ * and what happened to it. It carries no page content and no credential.
+ */
+export interface TakeoverEvent {
+  agent_id: ID
+  host: string
+  kind: TakeoverKind
+  /** By is who asked: the agent or the detector (Takeover.Asker). */
+  by: TakeoverBy
+  path?: string
+  /** Conversation is the one the takeover was about, when it said so. */
+  conversation_id?: ID
+  /** AskedAt is when it was asked (the takeover's At). */
+  asked_at: string
+  state: TakeoverState
+  /** EndedBy names the person who ended it (TakeoverStateDone only). */
+  ended_by?: string
+}
+
 /** TeamMember is one agent of a dock's team. */
 export interface TeamMember {
   agent_id: ID
@@ -1562,6 +1589,7 @@ export interface WebhookTemplate {
 /** The payload of every live event type (GET /api/v1/events), by type. */
 export interface WireEvents {
   "agent.deleted": AgentDeleted
+  "agent.takeover": TakeoverEvent
   "agent.updated": LibraryAgent
   "conversation.updated": Conversation
   "crew.activity": ActivityEvent

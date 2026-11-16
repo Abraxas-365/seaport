@@ -185,6 +185,7 @@ func wireFixtures() map[string]any {
 		crew.EventActivity:              activity,
 		agent.EventUpdated:              libAgent,
 		agent.EventDeleted:              agent.Deleted{ID: agentID},
+		agent.EventTakeover:             libAgent.Takeovers[0].Event(agentID, agent.TakeoverStateDone, "admin"),
 		hosting.EventEnvironmentUpdated: env,
 		hosting.EventEnvironmentDeleted: hosting.EnvironmentDeleted{ID: envID},
 		hosting.EventSlotsUpdated:       hosted,

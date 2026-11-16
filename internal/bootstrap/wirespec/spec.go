@@ -107,6 +107,7 @@ func Spec() wire.Spec {
 			"McpHeader":      of[agent.Header](),
 			"AgentSecret":    of[agent.Secret](),
 			"Takeover":       of[agent.Takeover](),
+			"TakeoverEvent":  of[agent.TakeoverEvent](),
 			// schedules
 			"Schedule": of[schedule.Schedule](),
 			// vaults
@@ -172,6 +173,7 @@ func Spec() wire.Spec {
 			{Name: "DeliveryState", Type: of[ship.DeliveryState](), Anchor: "DeliveryClaimed"},
 			{Name: "TakeoverKind", Type: of[agent.TakeoverKind](), Anchor: "KindLogin"},
 			{Name: "TakeoverBy", Type: of[agent.TakeoverBy](), Anchor: "TakeoverByAgent"},
+			{Name: "TakeoverState", Type: of[agent.TakeoverState](), Anchor: "TakeoverStateAsked"},
 			{Name: "VaultMode", Type: of[vault.Mode](), Anchor: "ModeRead"},
 			{Name: "ProvenanceKind", Type: of[vault.ProvenanceKind](), Anchor: "WrittenByAgent"},
 			// string fields in Go: the block of constants says the values
@@ -227,6 +229,7 @@ func Spec() wire.Spec {
 			crew.EventActivity:        of[crew.Activity](),
 			agent.EventUpdated:        of[agent.Agent](),
 			agent.EventDeleted:        of[agent.Deleted](),
+			agent.EventTakeover:       of[agent.TakeoverEvent](),
 
 			hosting.EventEnvironmentUpdated: of[hosting.Environment](),
 			hosting.EventEnvironmentDeleted: of[hosting.EnvironmentDeleted](),

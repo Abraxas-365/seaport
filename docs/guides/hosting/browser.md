@@ -53,7 +53,7 @@ seaport agents profile set surf -browser-assist oncall     # a destination of on
 seaport agents profile set surf -browser-assist none
 ```
 
-A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `by`, `path`, `conversation_id`, `at`, `notified_at`, `notified_in`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`.
+A takeover is also visible in the API: `GET /api/v1/agents/{id}` answers `takeovers` (`host`, `kind`, `note`, `by`, `path`, `conversation_id`, `at`, `notified_at`, `notified_in`), and `DELETE /api/v1/agents/{id}/takeovers/{host}` ends one. Both change `agent.updated`, and each ask, **Listo** and expiry is an `agent.takeover` [event](../../reference/events.md): who asked (the agent or the detector), for what, and who ended it — the audit trail of people entering the agent's browser, kept in the event log after the card clears.
 
 ### Seaport detects it
 

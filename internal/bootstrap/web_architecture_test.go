@@ -108,7 +108,8 @@ const liveFile = "lib/live.ts"
 
 // unhandledEvents: event types the web deliberately has no handler for.
 var unhandledEvents = map[string]string{
-	"slot.browser": "an audit trail of who opened the browser viewer; the viewer is its own WebSocket and nothing in the cache depends on it",
+	"slot.browser":   "an audit trail of who opened the browser viewer; the viewer is its own WebSocket and nothing in the cache depends on it",
+	"agent.takeover": "an audit trail of who asked a takeover and who ended it; the Navegador card follows agent.updated, which carries the open takeovers",
 }
 
 var handlerKey = regexp.MustCompile(`(?m)^  "([a-z_]+\.[a-z_]+)":`)

@@ -249,6 +249,21 @@ func ValidHost(host string) error {
 	return nil
 }
 
+// EndTakeover is what Listo (and the DELETE) asks: the host whose takeover
+// a person finished, and who says so (for the audit trail, EventTakeover).
+type EndTakeover struct {
+	Host string
+	// By is the person's name or subject (optional: the API's caller).
+	By string
+}
+
+func (r EndTakeover) Validate() error {
+	if err := ValidHost(r.Host); err != nil {
+		return err
+	}
+	return text.Optional("by", r.By, text.MaxName)
+}
+
 // Add puts the takeover in list (replacing the host's older one, whose
 // notice is kept: a person was told once; at most MaxTakeovers, newest
 // first).

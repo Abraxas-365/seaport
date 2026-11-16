@@ -750,8 +750,16 @@ net/http mux; only `/healthz` answers 405.
   (`crewhttp.Takeovers`, agent tokens only; `crew.TakeoverRequest`, the
   tool's input over HTTP, `Detected: true` → `Takeover.By = detector` with
   the page's `Path`, never the query), naming the newest running job's
-  conversation, and `detectNote` is steered into every running turn. Plan
-  `~/.rness/plans/puerto/browser-assist.md` (step 4 pending).
+  conversation, and `detectNote` is steered into every running turn. The
+  audit trail is the event `agent.takeover` (`agent.TakeoverEvent`,
+  `agents:read`; `Takeover.Event`): `asked` when a host with no open
+  takeover, or one of another kind, is asked (a retry of the same kind
+  publishes nothing), `done` from `EndTakeover` (`agent.EndTakeover{Host,
+  By}`: the caller's name, `ended_by`) and `expired` from the sweep; it
+  carries host, kind, `by`, `path`, the conversation and `asked_at`, never
+  the note, page content or a credential; the web ignores it
+  (`unhandledEvents`: the card follows `agent.updated`). Plan
+  `~/.rness/plans/puerto/browser-assist.md` (complete).
 - Message media (`ship/attachment.go`, migration 00020,
   `shipsvc/media.go`): a message is text plus attachments (images only so
   far); channels normalize to that (`ship.Inbound.Media`) and nothing downstream branches on a channel's message type. A channel

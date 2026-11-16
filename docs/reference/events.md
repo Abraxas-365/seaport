@@ -94,6 +94,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
 | `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one, or its `takeovers` changed. |
 | `agent.deleted` | `seaport:agents:read` | `{"id"}` | An agent left the library. |
+| `agent.takeover` | `seaport:agents:read` | `{"agent_id","host","kind","by","path","conversation_id","asked_at","state","ended_by"}` | A [browser takeover](../guides/hosting/browser.md#when-a-person-must-take-over) was asked (`state: asked`; `by` is `agent` or `detector`), ended by a person (`done`; `ended_by` names them) or expired unattended (`expired`). An audit trail: `agent.updated` carries the open ones. Never page content or a credential. |
 | `environment.updated` | `seaport:environments:read` | Environment | An environment was created or got a new version. |
 | `environment.deleted` | `seaport:environments:read` | `{"id"}` | An environment was deleted. |
 | `slot.updated` | `seaport:environments:read` | Hosted agent (`agent`, `slots`) | An agent was hosted, moved or unhosted, or one of its slots changed state. When the agent is no longer hosted the payload has no environment and no slots. |
