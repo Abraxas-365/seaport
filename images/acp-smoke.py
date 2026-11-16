@@ -4,7 +4,10 @@
 Starts the image's harness the way `seaport agent-run` does (hosted:
 SEAPORT_SLOT, the gateway and the slot token as the Anthropic key; no
 network, read-only root), then checks it answers initialize and opens a
-session: what a slot needs before its first message.
+session: what a slot needs before its first message. rness also runs as
+the slots of other environments (RNESS_CASES: no gateway, OpenAI-protocol
+providers through it, the agent's model), each session starting on the
+model its images/rness/seaport.lua picks.
 
     images/acp-smoke.py IMAGE rness|claude-code
 """
@@ -23,18 +26,50 @@ COMMANDS = {
 }
 
 
+GATEWAY = "http://127.0.0.1:9/gateway"
+
+
+def slot(*providers, **env):
+    """A slot's variables for an environment whose models name providers."""
+    out = {"SEAPORT_GATEWAY": GATEWAY, "SEAPORT_GATEWAY_PROVIDERS": ",".join(providers)}
+    for p in providers:
+        out[p.upper() + "_BASE_URL"] = f"{GATEWAY}/{p}"
+        out[p.upper() + "_API_KEY"] = "sp_crew_ci"
+    return {**out, **env}
+
+
+# (what, the slot's variables, the model its sessions must start on)
+RNESS_CASES = [
+    ("no gateway (key as an env secret)", {"ANTHROPIC_API_KEY": "sk-ci"}, "anthropic/claude-sonnet-5-5"),
+    ("openrouter, the agent's model", slot("openrouter", SEAPORT_AGENT_MODEL="openrouter/acme/model-1"),
+     "openrouter/acme/model-1"),
+    ("openai, a bare agent model", slot("openai", SEAPORT_AGENT_MODEL="gpt-ci"), "openai/gpt-ci"),
+    ("anthropic and deepseek, the agent's model", slot("anthropic", "deepseek", SEAPORT_AGENT_MODEL="deepseek/deepseek-chat"),
+     "deepseek/deepseek-chat"),
+    ("anthropic and groq, a bare Claude model", slot("anthropic", "groq", SEAPORT_AGENT_MODEL="claude-opus-5-5"),
+     "anthropic/claude-sonnet-5-5"),
+]
+
+
 def main():
     image, harness = sys.argv[1], sys.argv[2]
+    smoke(image, harness, slot("anthropic"), None)
+    if harness == "rness":
+        for what, env, model in RNESS_CASES:
+            print(f"-- {what}")
+            smoke(image, harness, env, model)
+
+
+def smoke(image, harness, env, model):
     command = COMMANDS[harness]
+    flags = [f for k, v in env.items() for f in ("-e", f"{k}={v}")]
     proc = subprocess.Popen(
         # the home as an anonymous volume, seeded from the image like the
         # slot's home volume
         ["docker", "run", "--rm", "-i", "--network", "none", "--read-only",
          "--tmpfs", "/tmp", "-v", "/home/agent",
          "-e", "SEAPORT_SLOT=ci-1",
-         "-e", "SEAPORT_GATEWAY=http://127.0.0.1:9/gateway",
-         "-e", "ANTHROPIC_BASE_URL=http://127.0.0.1:9/gateway/anthropic",
-         "-e", "ANTHROPIC_API_KEY=sp_crew_ci",
+         *flags,
          "--entrypoint", command[0], image, *command[1:]],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     lines = queue.Queue()
@@ -73,10 +108,13 @@ def main():
         new = call(2, "session/new", params)
         if not new.get("sessionId"):
             sys.exit(f"session/new: no session id: {new}")
-        options = [o.get("id") for o in new.get("configOptions") or []]
-        print("session/new:", new["sessionId"], "options:", options)
+        options = {o.get("id"): o for o in new.get("configOptions") or []}
+        print("session/new:", new["sessionId"], "options:", list(options))
         if "model" not in options:
             sys.exit("session/new: no model option (the profile's model can't be applied)")
+        current = options["model"].get("currentValue")
+        if model and current != model:
+            sys.exit(f"session/new: model {current}, want {model}")
     finally:
         proc.kill()
 

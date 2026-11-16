@@ -659,7 +659,15 @@ net/http mux; only `/healthz` answers 405.
   links from `/etc/claude-code`; plus a blank `apiKeyHelper` and
   `ANTHROPIC_AUTH_TOKEN`, and, with `HTTPS_PROXY` set, `skipWebFetchPreflight`: WebFetch's own
   call to `api.anthropic.com` would bypass the gateway and be refused by
-  the proxy), so no `settings.json` overrides them. The
+  the proxy), so no `settings.json` overrides them. For rness the base
+  image's `images/rness/seaport.lua` registers every provider of
+  `SEAPORT_GATEWAY_PROVIDERS` on the gateway (`<PROVIDER>_API_KEY`, the
+  protocol table checked against `hosting.Providers` by
+  `TestRnessGatewayProviders`), drops later registrations of those names,
+  and starts sessions on `SEAPORT_AGENT_MODEL` (the kit's model, set by
+  the connector after the kit's env) or an image's `SEAPORT_MODEL`, else
+  Claude Sonnet when Anthropic is served or there is no gateway
+  (`images/acp-smoke.py` `RNESS_CASES` check the picks). The
   spec's `repo_config: ignore` keeps the repos' configuration out
   (`connector.harnessFor`: rness `--instructions none`, Claude Code
   `settingSources: ["user"]` in the session `_meta`). The gateway (`hostinggateway`, behind crew auth;

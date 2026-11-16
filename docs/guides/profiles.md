@@ -13,7 +13,7 @@ A profile is what an agent is told and given: its instructions, skills, extra MC
 | **MCP servers** | Extra tools the agent can call, added to every session | up to 20, each with up to 20 headers |
 | **Secrets** | Values the agent needs (API tokens), kept sealed | up to 50, each up to 16384 characters |
 | **Approve** | How the connector answers the harness's permission requests: `allow`, `reject`, or the connector decides | |
-| **Model**, **Effort** | The model and reasoning effort, when the harness offers them | |
+| **Model**, **Effort** | The model and reasoning effort, when the harness offers them. A hosted rness also takes `<provider>/<model>` of any provider its environment names (see [Which model a slot uses](hosting/network.md#which-model-a-slot-uses)) | |
 
 Instructions reach the harness as its system prompt when it supports that (Claude Code does), and otherwise ahead of the first prompt of each session. When you change the instructions, a conversation that already has a session gets the new ones with its next prompt, marked as changed, because a system prompt added on resume doesn't outweigh a long history.
 

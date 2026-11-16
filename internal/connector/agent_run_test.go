@@ -69,19 +69,22 @@ func deliveryOf(texts ...string) ship.Delivery {
 }
 
 // The harness gets the kit's env except what the slot protects, the
-// connector's own address and token, and the kit's instructions as a system
+// connector's own address and token, the profile's model (rness's base
+// image starts sessions on it), and the kit's instructions as a system
 // prompt when it takes one; a turn's text is the answer.
 func TestStartAgentEnvironmentAndPrompt(t *testing.T) {
-	cfg, log := echoConfig(t, "systemprompt,image,load", acptest.EnvEnvNames+"=REGION,KEPT,SEAPORT_URL,SEAPORT_CREW_TOKEN")
+	cfg, log := echoConfig(t, "systemprompt,image,load", acptest.EnvEnvNames+"=REGION,KEPT,SEAPORT_URL,SEAPORT_CREW_TOKEN,SEAPORT_AGENT_MODEL")
 	cfg.Protect = []string{"KEPT"}
 	cfg.KitEnv = true // a hosted slot: the kit's env secrets reach the harness
 	t.Setenv("KEPT", "from-the-slot")
-	kit := &agent.Kit{Name: "pm", Version: 2, Instructions: " Be brief. ", Env: map[string]string{"REGION": "eu-1", "KEPT": "from-the-kit"}}
+	kit := &agent.Kit{Name: "pm", Version: 2, Instructions: " Be brief. ", Model: "openrouter/acme/m1",
+		Env: map[string]string{"REGION": "eu-1", "KEPT": "from-the-kit", "SEAPORT_AGENT_MODEL": "from-the-kit"}}
 	a := startEcho(t, cfg, kit)
 
 	start := acptest.Of(acptest.ReadLog(log), "start")
 	if len(start) != 1 || start[0].Env["REGION"] != "eu-1" || start[0].Env["KEPT"] != "from-the-slot" ||
-		start[0].Env["SEAPORT_URL"] != cfg.Server || start[0].Env["SEAPORT_CREW_TOKEN"] != "sp_crew_test" {
+		start[0].Env["SEAPORT_URL"] != cfg.Server || start[0].Env["SEAPORT_CREW_TOKEN"] != "sp_crew_test" ||
+		start[0].Env["SEAPORT_AGENT_MODEL"] != "openrouter/acme/m1" {
 		t.Fatalf("environment: %+v", start)
 	}
 	if a.Version() != 2 || a.Revision() != "" || !a.Profiled() || !a.TakesImages() || a.CanSteer() {

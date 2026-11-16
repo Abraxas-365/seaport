@@ -98,7 +98,7 @@ One key per provider, as `${NAME}`: a secret of the environment, or else one eve
 | `groq` | OpenAI | `GROQ_BASE_URL`, `GROQ_API_KEY` |
 | `deepseek` | OpenAI | `DEEPSEEK_BASE_URL`, `DEEPSEEK_API_KEY` |
 
-With a key set, the slots reach the provider through the port's model gateway (`/gateway/<provider>/`) with their own slot token as the key: the base URL points at the gateway and the key variable holds the slot token, so the real key never enters the container. `SEAPORT_GATEWAY_PROVIDERS` lists the providers served. The gateway meters the usage per agent; read it with `GET /api/v1/agents/{id}/usage`. See [Network and models](../guides/hosting/network.md).
+With a key set, the slots reach the provider through the port's model gateway (`/gateway/<provider>/`) with their own slot token as the key: the base URL points at the gateway and the key variable holds the slot token, so the real key never enters the container. `SEAPORT_GATEWAY_PROVIDERS` lists the providers served. The gateway meters the usage per agent; read it with `GET /api/v1/agents/{id}/usage`. A `rness` slot works with any of them; Claude Code uses only `anthropic`. For how a slot picks its model, see [Which model a slot uses](../guides/hosting/network.md#which-model-a-slot-uses).
 
 ## Network
 
