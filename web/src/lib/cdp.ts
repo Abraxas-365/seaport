@@ -108,6 +108,16 @@ export class CDPClient {
   }
 }
 
+/**
+ * The page a viewer opens on: the one the agent is working, i.e. the first
+ * with a real address (the browser starts with an `about:blank` tab, which
+ * the agent's DevTools MCP usually leaves behind when it opens its own),
+ * else the first page; undefined when there is none.
+ */
+export function pickPage(pages: PageTarget[]): PageTarget | undefined {
+  return pages.find((p) => /^https?:\/\//i.test(p.url)) ?? pages[0]
+}
+
 /** A cookie as Storage.getCookies lists it (what a sign-in leaves). */
 export interface Cookie {
   name: string

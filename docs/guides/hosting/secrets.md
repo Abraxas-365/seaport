@@ -39,7 +39,7 @@ seaport env secrets rm dev GITHUB_TOKEN
 Two uses:
 
 - **Named by the spec.** `models.<provider>: ${ANTHROPIC_KEY}` and `repos[].credential: ${GITHUB_TOKEN}` take the value from the environment's secret of that name. The slot never sees it: the [gateway](network.md) forwards model calls with the key, and git asks the port for the credential each time. A secret the spec names can't be deleted.
-- **A variable of every slot (`-env`).** A connection string or a service token the harness itself needs. It reaches every slot's harness under that name.
+- **A variable of every slot (`-env`).** A connection string or a service token the harness itself needs. It reaches every slot's harness under that name. The names of the slot's own network variables (`ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, the other providers', `HTTPS_PROXY`…) are refused with `-env`: the port sets those.
 
 When you host an agent on an environment, or save a spec, every `${NAME}` the spec uses must exist: as a secret of the environment, or else as a secret of every agent hosted on it. Saving a spec that names a secret the environment doesn't have needs `agents:write` besides `environments:write`, since the agents' secrets would answer for it.
 

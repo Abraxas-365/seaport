@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react"
 
-import { CDPClient, groupCookies, keyParams, modifiers, mouseButtons, type Cookie, type CookieSite, type PageTarget } from "@/lib/cdp"
+import { CDPClient, groupCookies, pickPage, keyParams, modifiers, mouseButtons, type Cookie, type CookieSite, type PageTarget } from "@/lib/cdp"
 import { api } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
 import { useCrew, useEndTakeover, useNow } from "@/lib/hooks"
@@ -83,7 +83,7 @@ export function BrowserViewer({
         const list = await c.pages()
         if (cancelled) return
         setPages(list)
-        const first = startUrl ? await c.newPage(startUrl) : (list[0]?.targetId ?? (await c.newPage()))
+        const first = startUrl ? await c.newPage(startUrl) : (pickPage(list)?.targetId ?? (await c.newPage()))
         await attach(c, first)
       })
       .catch((err: Error) => {
@@ -106,10 +106,13 @@ export function BrowserViewer({
   async function attach(c: CDPClient, targetId: string) {
     const sessionId = await c.attach(targetId)
     await c.send("Page.enable", {}, sessionId)
-    await c.send("Page.startScreencast", { format: "jpeg", quality: 70, maxWidth: width, maxHeight: height, everyNthFrame: 1 }, sessionId)
+    await startScreencast(c, sessionId)
     setPage({ targetId, sessionId })
     const info = (await c.send("Target.getTargetInfo", { targetId })) as { targetInfo: PageTarget }
     setUrl(info.targetInfo.url === "about:blank" ? "" : info.targetInfo.url)
+  }
+  function startScreencast(c: CDPClient, sessionId: string) {
+    return c.send("Page.startScreencast", { format: "jpeg", quality: 70, maxWidth: width, maxHeight: height, everyNthFrame: 1 }, sessionId)
   }
 
   // Frames, navigations and target changes.
@@ -124,7 +127,15 @@ export function BrowserViewer({
         client.send("Page.screencastFrameAck", { sessionId: ev.params.sessionId }, page.sessionId).catch(() => {})
       } else if (ev.method === "Page.frameNavigated" && ev.sessionId === page.sessionId) {
         const f = ev.params.frame as { parentId?: string; url: string }
-        if (!f.parentId) setUrl(f.url === "about:blank" ? "" : f.url)
+        if (f.parentId) return
+        setUrl(f.url === "about:blank" ? "" : f.url)
+        // A navigation to another site swaps the page's renderer, and the
+        // screencast stays on the old one (white until the tab changes):
+        // start it again on every main-frame navigation.
+        client
+          .send("Page.stopScreencast", {}, page.sessionId)
+          .then(() => startScreencast(client, page.sessionId))
+          .catch(() => {})
       } else if (ev.method === "Target.targetCreated" || ev.method === "Target.targetDestroyed" || ev.method === "Target.targetInfoChanged") {
         client.pages().then(setPages).catch(() => {})
       }
