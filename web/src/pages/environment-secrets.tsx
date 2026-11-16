@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
@@ -35,6 +36,14 @@ export const providers: { name: string; label: string; keyEnv: string }[] = [
 export const secretNamePattern = /^[A-Z_][A-Z0-9_]{0,63}$/
 export const secretRefPattern = /^\$\{[A-Z_][A-Z0-9_]{0,63}\}$/
 const secretRef = /^\$\{([A-Z_][A-Z0-9_]{0,63})\}$/
+
+/** The name a `${NAME}` reference points at, or "" when it isn't one. */
+export function secretRefName(ref: string): string {
+  return secretRef.exec(ref)?.[1] ?? ""
+}
+
+/** The model providers' keys as `${NAME}`: the spec's shape. */
+export const asSecretRef = (name: string) => `\${${name}}`
 
 /** The names the spec's model keys and repo credentials refer to, with
  * what names each ("modelo openai", "repo <url>"). */
@@ -85,7 +94,8 @@ export function parseEnv(text: string): Record<string, string> {
 /** What's wrong with an `env` name, or "" when nothing. */
 export function envProblem(env: Record<string, string>): string {
   for (const [k, v] of Object.entries(env)) {
-    if (!secretNamePattern.test(k) || k.startsWith("SEAPORT_")) return `${k}: mayúsculas, dígitos y _; no puede empezar con SEAPORT_.`
+    if (!secretNamePattern.test(k) || k.startsWith("SEAPORT_"))
+      return `${k}: mayúsculas, dígitos y _; no puede empezar con SEAPORT_.`
     if (slotVars.has(k)) return `${k} la pone el puerto en cada instancia.`
     if (!v) return `${k} no tiene valor.`
   }
@@ -93,8 +103,8 @@ export function envProblem(env: Record<string, string>): string {
   return ""
 }
 
-/** The spec's plain variables and model providers, edited with the spec. */
-export function EnvAndModelsFields({
+/** The spec's plain variables, edited with the spec. */
+export function EnvVarsField({
   spec: s,
   readOnly,
   set,
@@ -105,68 +115,150 @@ export function EnvAndModelsFields({
 }) {
   // The textarea keeps what's typed (a half-written line), the draft its parse.
   const env = s.env ?? {}
-  const models = s.models ?? {}
   const [text, setText] = React.useState(() => envText(env))
   const [editing, setEditing] = React.useState(false)
   if (!editing && envText(parseEnv(text)) !== envText(env)) setText(envText(env))
   const problem = envProblem(env)
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <Field data-invalid={!!problem}>
-        <FieldLabel htmlFor="env-vars">Variables</FieldLabel>
-        <Textarea
-          id="env-vars"
-          value={text}
-          readOnly={readOnly}
-          onFocus={() => setEditing(true)}
-          onBlur={() => setEditing(false)}
-          onChange={(e) => {
-            setText(e.target.value)
-            set({ env: parseEnv(e.target.value) })
-          }}
-          placeholder={"TZ=America/Lima\nFEATURE_FLAGS=beta"}
-          className="min-h-28 font-mono text-sm"
-        />
-        <FieldDescription>
-          {problem ||
-            "NOMBRE=valor por línea, para todas las instancias. Nada secreto: una credencial va abajo, como secreto con «Variable de entorno»."}
-        </FieldDescription>
-      </Field>
-      <div className="space-y-3">
-        <FieldLabel>Modelos</FieldLabel>
+    <Field data-invalid={!!problem}>
+      <FieldLabel htmlFor="env-vars">Variables</FieldLabel>
+      <Textarea
+        id="env-vars"
+        value={text}
+        readOnly={readOnly}
+        onFocus={() => setEditing(true)}
+        onBlur={() => setEditing(false)}
+        onChange={(e) => {
+          setText(e.target.value)
+          set({ env: parseEnv(e.target.value) })
+        }}
+        placeholder={"TZ=America/Lima\nFEATURE_FLAGS=beta"}
+        className="min-h-28 font-mono text-sm placeholder:text-muted-foreground/50"
+      />
+      <FieldDescription>
+        {problem ||
+          "NOMBRE=valor por línea, para todas las instancias. Nada secreto: una credencial es un secreto con «Variable de entorno»."}
+      </FieldDescription>
+    </Field>
+  )
+}
+
+/**
+ * Picks one of the environment's secrets for a `${NAME}` field (a model
+ * key, a repo credential). A value the environment doesn't have (typed in
+ * YAML, or lent by the agents) stays selectable and is marked.
+ */
+export function SecretSelect({
+  id,
+  label,
+  value,
+  onChange,
+  secrets,
+  readOnly,
+  none = "Ninguno",
+}: {
+  id: string
+  label: string
+  /** The spec's value: `${NAME}` or "". */
+  value: string
+  onChange: (ref: string) => void
+  secrets: string[]
+  readOnly?: boolean
+  none?: string
+}) {
+  const name = secretRefName(value)
+  const known = secrets.includes(name)
+  const bad = !!value && !name
+  return (
+    <Select value={value || "none"} onValueChange={(v) => onChange(v === "none" ? "" : v)} disabled={readOnly}>
+      <SelectTrigger id={id} aria-label={label} aria-invalid={bad || undefined} className="w-full font-mono">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none" className="text-muted-foreground">
+          {none}
+        </SelectItem>
+        {secrets.map((n) => (
+          <SelectItem key={n} value={asSecretRef(n)} className="font-mono">
+            {n}
+          </SelectItem>
+        ))}
+        {value && !known && (
+          <SelectItem value={value} className="font-mono">
+            {name || value} <span className="font-sans text-xs text-muted-foreground">(no está en el entorno)</span>
+          </SelectItem>
+        )}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/**
+ * Per model provider, which secret holds the key. Needs the environment's
+ * secrets (names); `onNewSecret` opens the secret dialog for a provider.
+ */
+export function ModelFields({
+  spec: s,
+  readOnly,
+  set,
+  secrets,
+  onNewSecret,
+}: {
+  spec: EnvSpec
+  readOnly: boolean
+  set: (patch: Partial<EnvSpec>) => void
+  secrets: string[]
+  onNewSecret?: (provider: (typeof providers)[number]) => void
+}) {
+  const models = s.models ?? {}
+  const bad = Object.values(models).some((v) => v && !secretRefPattern.test(v))
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
         {providers.map((p) => {
           const v = models[p.name] ?? ""
-          const ok = !v || secretRefPattern.test(v)
           return (
-            <Field key={p.name} data-invalid={!ok} orientation="horizontal" className="items-center">
-              <FieldLabel htmlFor={`env-model-${p.name}`} className="w-24 shrink-0">
-                {p.label}
-              </FieldLabel>
-              <Input
-                id={`env-model-${p.name}`}
-                value={v}
-                readOnly={readOnly}
-                onChange={(e) => {
-                  const next = { ...models }
-                  const v = e.target.value.trim()
-                  if (v) next[p.name] = v
-                  else delete next[p.name]
-                  set({ models: next })
-                }}
-                placeholder={`\${${p.keyEnv}}`}
-                className="font-mono"
-              />
-            </Field>
+            <div key={p.name} className="grid grid-cols-[6rem_1fr] items-center gap-2">
+              <FieldLabel htmlFor={`env-model-${p.name}`}>{p.label}</FieldLabel>
+              <div className="flex min-w-0 items-center gap-1">
+                <SecretSelect
+                  id={`env-model-${p.name}`}
+                  label={p.label}
+                  value={v}
+                  secrets={secrets}
+                  readOnly={readOnly}
+                  none="Sin clave"
+                  onChange={(ref) => {
+                    const next = { ...models }
+                    if (ref) next[p.name] = ref
+                    else delete next[p.name]
+                    set({ models: next })
+                  }}
+                />
+                {!readOnly && onNewSecret && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Nuevo secreto para ${p.label}`}
+                    title="Nuevo secreto"
+                    onClick={() => onNewSecret(p)}
+                  >
+                    <Plus />
+                  </Button>
+                )}
+              </div>
+            </div>
           )
         })}
-        <FieldDescription>
-          {Object.values(models).some((v) => v && !secretRefPattern.test(v))
-            ? "Cada clave nombra un secreto del entorno, como ${NOMBRE}."
-            : !models.anthropic && s.harness === "claude-code"
-              ? "Sin clave de Anthropic, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente."
-              : "El nombre de un secreto de abajo. La clave pasa por el gateway del puerto: nunca entra al contenedor y el uso queda medido por agente."}
-        </FieldDescription>
       </div>
+      <FieldDescription>
+        {bad
+          ? "Cada clave nombra un secreto del entorno, como ${NOMBRE}."
+          : !models.anthropic && s.harness === "claude-code"
+            ? "Sin clave de Anthropic, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente."
+            : "La clave pasa por el gateway del puerto: nunca entra al contenedor y el uso queda medido por agente."}
+      </FieldDescription>
     </div>
   )
 }
@@ -181,10 +273,6 @@ export function EnvironmentSecrets({ envId, spec, write }: { envId: string; spec
   const missing = [...named.keys()].filter((n) => !have.has(n))
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <FieldLabel>Secretos</FieldLabel>
-        {write && <EnvironmentSecretDialog envId={envId} />}
-      </div>
       {secrets.isPending ? (
         <Skeleton className="h-16 rounded-lg" />
       ) : secrets.isError ? (
@@ -193,48 +281,61 @@ export function EnvironmentSecrets({ envId, spec, write }: { envId: string; spec
         <EmptyState
           icon={KeyRound}
           title="Sin secretos"
-          description="La clave del modelo, la credencial de un repo, o con «Variable de entorno» lo que el harness necesite en su entorno."
+          description="La clave del modelo, el token de un repo, o lo que el harness necesite en su entorno."
+          action={write && <EnvironmentSecretDialog envId={envId} />}
         />
       ) : (
-        <ul className="divide-y rounded-lg border" aria-label="Secretos del entorno">
-          {secrets.data.secrets.map((s) => (
-            <li key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
-              <span className="font-mono text-sm">{s.name}</span>
-              {s.env && (
-                <StatusBadge dot={false} title="Cada instancia lo recibe como variable de entorno">
-                  env
-                </StatusBadge>
-              )}
-              {named.has(s.name) && (
-                <StatusBadge tone="brand" dot={false} title={`Lo nombra la especificación: ${named.get(s.name)!.join(", ")}`}>
-                  en uso
-                </StatusBadge>
-              )}
-              <span className="ml-auto text-xs text-muted-foreground">actualizado {formatFull(s.updated_at)}</span>
-              {write && (
-                <>
-                  <EnvironmentSecretDialog envId={envId} name={s.name} env={s.env} />
-                  <ConfirmAction
-                    trigger={
-                      <Button variant="ghost" size="icon-sm" aria-label={`Eliminar ${s.name}`} disabled={named.has(s.name)}>
-                        <Trash2 />
-                      </Button>
-                    }
-                    title={`¿Eliminar ${s.name}?`}
-                    description={<p>Las instancias que lo reciben reinician sin él al quedar libres.</p>}
-                    destructive
-                    actionLabel="Eliminar"
-                    onConfirm={() => remove.mutateAsync(s.name)}
-                  />
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="divide-y rounded-lg border" aria-label="Secretos del entorno">
+            {secrets.data.secrets.map((s) => (
+              <li key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                <span className="font-mono text-sm">{s.name}</span>
+                {s.env && (
+                  <StatusBadge dot={false} title="Cada instancia lo recibe como variable de entorno">
+                    env
+                  </StatusBadge>
+                )}
+                {named.has(s.name) && (
+                  <StatusBadge tone="brand" dot={false} title={`Lo usa: ${named.get(s.name)!.join(", ")}`}>
+                    en uso
+                  </StatusBadge>
+                )}
+                <span className="ml-auto text-xs text-muted-foreground">actualizado {formatFull(s.updated_at)}</span>
+                {write && (
+                  <>
+                    <EnvironmentSecretDialog envId={envId} name={s.name} env={s.env} />
+                    <ConfirmAction
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Eliminar ${s.name}`}
+                          disabled={named.has(s.name)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      }
+                      title={`¿Eliminar ${s.name}?`}
+                      description={<p>Las instancias que lo reciben reinician sin él al quedar libres.</p>}
+                      destructive
+                      actionLabel="Eliminar"
+                      onConfirm={() => remove.mutateAsync(s.name)}
+                    />
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+          {write && (
+            <div className="flex justify-end">
+              <EnvironmentSecretDialog envId={envId} />
+            </div>
+          )}
+        </>
       )}
       {missing.length > 0 && secrets.data && (
         <p className="text-sm text-warning">
-          La especificación nombra {missing.map((n, i) => [i > 0 && ", ", <Mono key={n}>{n}</Mono>])} y el entorno no lo
+          La configuración nombra {missing.map((n, i) => [i > 0 && ", ", <Mono key={n}>{n}</Mono>])} y el entorno no lo
           tiene: lo aporta cada agente alojado, o créalo aquí.
         </p>
       )}
@@ -242,11 +343,42 @@ export function EnvironmentSecrets({ envId, spec, write }: { envId: string; spec
   )
 }
 
-/** Sets an environment secret (new, or a new value for an existing one). */
-function EnvironmentSecretDialog({ envId, name: fixed, env: wasEnv }: { envId: string; name?: string; env?: boolean }) {
+/**
+ * Sets an environment secret (new, or a new value for an existing one).
+ * Uncontrolled with its own trigger, or controlled (`open`/`onOpenChange`)
+ * with a `preset` name, for the places that lead here ("Añadir clave").
+ */
+export function EnvironmentSecretDialog({
+  envId,
+  name: fixed,
+  env: wasEnv,
+  preset,
+  title,
+  description,
+  open: controlled,
+  onOpenChange,
+  onSaved,
+}: {
+  envId: string
+  name?: string
+  env?: boolean
+  /** A suggested name for a new secret (editable). */
+  preset?: string
+  title?: string
+  description?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Called with the name once saved (before closing). */
+  onSaved?: (name: string) => void
+}) {
   const setSecret = useSetEnvironmentSecret(envId)
-  const [open, setOpen] = React.useState(false)
-  const [name, setName] = React.useState(fixed ?? "")
+  const [own, setOwn] = React.useState(false)
+  const open = controlled ?? own
+  const setOpen = (o: boolean) => {
+    setOwn(o)
+    onOpenChange?.(o)
+  }
+  const [name, setName] = React.useState(fixed ?? preset ?? "")
   const [value, setValue] = React.useState("")
   const [env, setEnv] = React.useState(wasEnv ?? false)
   const nameOk = secretNamePattern.test(name) && !name.startsWith("SEAPORT_")
@@ -256,34 +388,47 @@ function EnvironmentSecretDialog({ envId, name: fixed, env: wasEnv }: { envId: s
       onOpenChange={(o) => {
         setOpen(o)
         if (o) {
-          setName(fixed ?? "")
+          setName(fixed ?? preset ?? "")
           setEnv(wasEnv ?? false)
         }
         setValue("")
       }}
     >
-      <DialogTrigger asChild>
-        {fixed ? (
-          <Button variant="ghost" size="icon-sm" aria-label={`Cambiar ${fixed}`}>
-            <Pencil />
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm">
-            <Plus /> Secreto
-          </Button>
-        )}
-      </DialogTrigger>
+      {controlled === undefined && (
+        <DialogTrigger asChild>
+          {fixed ? (
+            <Button variant="ghost" size="icon-sm" aria-label={`Cambiar ${fixed}`}>
+              <Pencil />
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm">
+              <Plus /> Secreto
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            setSecret.mutate({ name, value, env }, { onSuccess: () => setOpen(false) })
+            setSecret.mutate(
+              { name, value, env },
+              {
+                onSuccess: () => {
+                  onSaved?.(name)
+                  setOpen(false)
+                },
+              }
+            )
           }}
         >
           <DialogHeader>
-            <DialogTitle>{fixed ? `Cambiar ${fixed}` : "Nuevo secreto del entorno"}</DialogTitle>
+            <DialogTitle>{title ?? (fixed ? `Cambiar ${fixed}` : "Nuevo secreto del entorno")}</DialogTitle>
             <DialogDescription>
-              {fixed ? "El valor anterior se reemplaza; no se puede ver." : "Para todas sus instancias. No se puede volver a ver."}
+              {description ??
+                (fixed
+                  ? "El valor anterior se reemplaza; no se puede ver."
+                  : "Para todas sus instancias. No se puede volver a ver.")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-5">
@@ -301,7 +446,7 @@ function EnvironmentSecretDialog({ envId, name: fixed, env: wasEnv }: { envId: s
               <FieldDescription>
                 {!!name && !nameOk
                   ? "Mayúsculas, dígitos y _; no puede empezar con SEAPORT_."
-                  : `La especificación lo nombra como \${${name || "NOMBRE"}}.`}
+                  : `En YAML se nombra como \${${name || "NOMBRE"}}.`}
               </FieldDescription>
             </Field>
             <Field>
@@ -314,12 +459,15 @@ function EnvironmentSecretDialog({ envId, name: fixed, env: wasEnv }: { envId: s
                 className="font-mono"
                 autoComplete="new-password"
                 maxLength={16384}
+                autoFocus={!!fixed || !!preset}
               />
             </Field>
             <Field orientation="horizontal">
               <FieldContent>
                 <FieldLabel htmlFor="env-secret-env">Variable de entorno</FieldLabel>
-                <FieldDescription>El harness de cada instancia también lo recibe en su entorno al arrancar.</FieldDescription>
+                <FieldDescription>
+                  El harness de cada instancia también lo recibe en su entorno al arrancar.
+                </FieldDescription>
               </FieldContent>
               <Switch id="env-secret-env" checked={env} onCheckedChange={setEnv} />
             </Field>

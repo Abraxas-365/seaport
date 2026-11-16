@@ -6,7 +6,7 @@ A hosted agent's harness runs in a container the port starts. What it finds in i
 
 | Where | What | Set with |
 | :--- | :--- | :--- |
-| The environment's `env` | plain variables every slot gets: a time zone, a feature flag, a region | the spec (`seaport env apply`, the web app's **Variables y modelos**) |
+| The environment's `env` | plain variables every slot gets: a time zone, a feature flag, a region | the spec (`seaport env apply`, the web app's **Variables** section) |
 | The environment's secrets | the model keys and repo credentials the spec names as `${NAME}`; with `-env`, a credential every slot's harness needs as a variable | `seaport env secrets set <env> NAME [-env]` |
 | The agent's secrets | what is one agent's own: a tracker token for its MCP headers, a key it must have apart from the others | `seaport agents secrets set <agent> NAME [-env]` |
 
@@ -43,7 +43,7 @@ Two uses:
 
 When you host an agent on an environment, or save a spec, every `${NAME}` the spec uses must exist: as a secret of the environment, or else as a secret of every agent hosted on it. Saving a spec that names a secret the environment doesn't have needs `agents:write` besides `environments:write`, since the agents' secrets would answer for it.
 
-On the web, the environment's page has a **Secretos** card (the environment's secrets with their **Variable de entorno** switch; one the spec names can't be deleted) and, in the spec, a **Variables y modelos** section: the plain variables as `NAME=value` lines and one field per model provider that names the secret of the key.
+On the web, the environment's page has a **Modelos y secretos** section: one selector per model provider that picks the secret of the key among the environment's secrets (or creates one with **+**), next to the list of **Secretos del entorno** (each with its **Variable de entorno** switch; one the spec names shows **en uso** and can't be deleted). The checklist at the top of the page offers **Añadir clave de Anthropic**, which saves the secret and names it in a new version in one step. Plain variables go in the **Variables** section as `NAME=value` lines.
 
 ## Agent secrets
 

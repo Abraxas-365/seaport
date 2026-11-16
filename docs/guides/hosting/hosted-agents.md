@@ -105,7 +105,9 @@ seaport env delete backend -yes      # only when no agent runs on it
 
 ### From the web app
 
-Open **Entornos** and pick an environment. The page follows the spec: **Base**, **Herramientas** (packages and setup), **Configuración del harness**, **Repos**, **Red**, **Variables y modelos**, **Navegador** and **Recursos y espacio de trabajo**; the **Secretos** card above it holds the environment's secrets, apart from the versions. A selector at the top switches between saved versions; the current one is editable.
+Open **Entornos** and pick an environment. The page opens with a checklist of what is left before an agent can run there (model key, repos, image, agents), each step with the action that resolves it: **Añadir clave de Anthropic** stores the key as an environment secret and names it in the spec in one step, and **Alojar agente** hosts one of the library's agents here. Once an agent is hosted the card folds into one line.
+
+The **Configuración** card below follows the spec: **Harness**, **Modelos y secretos** (per model provider, which environment secret holds the key, picked from a list; the secrets themselves are kept apart from the versions, names only), **Repos**, **Paquetes y setup**, **Configuración del harness**, **Red**, **Variables**, **Navegador**, **Recursos** and **Imagen base**. A selector at the top switches between saved versions; the current one is editable, and while there are unsaved changes a bar with **Guardar vN** stays in view at the bottom.
 
 ![An environment in the web app](../../assets/screenshots/environment.png)
 

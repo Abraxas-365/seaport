@@ -56,6 +56,9 @@ export class Api {
   patch<T = unknown>(path: string, body?: unknown) {
     return this.call<T>("PATCH", path, body)
   }
+  delete<T = unknown>(path: string) {
+    return this.call<T>("DELETE", path)
+  }
 
   /** A dock worked by the echo agent; `allow` lets every chat in (customs). */
   async dock(channel: string, name: string, opts: { allow?: boolean } = {}): Promise<{ id: string; name: string }> {

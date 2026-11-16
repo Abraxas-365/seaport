@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { test, expect, unique } from "../fixtures"
+import { context, test, expect, unique } from "../fixtures"
 
 test("an environment made from the UI shows as YAML", async ({ pages, page }) => {
   const name = unique("backend")
@@ -24,7 +24,7 @@ test("an environment keeps plain variables in its spec and secrets apart, and na
   await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
 
   // A secret: only its name comes back, never the value; the spec names it.
-  await page.getByRole("button", { name: "Secreto" }).click()
+  await page.getByRole("button", { name: "Secreto", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Nuevo secreto del entorno" })
   await dialog.getByLabel("Nombre").fill("OPENAI_KEY")
   await dialog.getByLabel("Valor").fill("s3cr3t-model-key-0001")
@@ -40,9 +40,11 @@ test("an environment keeps plain variables in its spec and secrets apart, and na
   await expect(page.getByText("ANTHROPIC_API_KEY la pone el puerto en cada instancia.")).toBeVisible()
   await expect(page.getByRole("button", { name: /^Guardar v\d+$/ })).toBeDisabled()
   await vars.fill("TZ=UTC\nFEATURE=on")
-  await page.getByRole("textbox", { name: "OpenAI" }).fill("${OPENAI_KEY}")
+  // A model key is picked among the environment's secrets, not typed.
+  await page.getByRole("combobox", { name: "OpenAI" }).click()
+  await page.getByRole("option", { name: "OPENAI_KEY" }).click()
   await page.getByRole("button", { name: /^Guardar v\d+$/ }).click()
-  await expect(page.getByRole("button", { name: /^Guardar v\d+$/ })).toBeDisabled()
+  await expect(page.getByRole("region", { name: "Cambios sin guardar" })).toHaveCount(0)
   await expect(list.getByText("en uso")).toBeVisible()
 
   // The named secret can't be deleted; the YAML carries variables and models, never values.
@@ -60,6 +62,50 @@ test("an environment keeps plain variables in its spec and secrets apart, and na
   const stored = JSON.stringify(await api.get(`/api/v1/environments/${env.id}/secrets`))
   expect(stored).toContain("OPENAI_KEY")
   expect(stored).not.toContain("s3cr3t-model-key-0001")
+})
+
+test("the checklist adds the model key in one step and hosts an agent", async ({ pages, page, api }) => {
+  const name = unique("setup")
+  await pages.environments.open()
+  await pages.environments.create(name)
+  await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
+
+  // A new environment says what's left; the model key (rness) is a step to do.
+  const setup = page.getByTestId("env-setup")
+  await expect(setup.getByText("Para empezar")).toBeVisible()
+  const steps = setup.getByRole("list", { name: "Pasos" })
+  await expect(steps.getByText("Clave del modelo")).toBeVisible()
+  await expect(steps.getByText("Ninguno todavía", { exact: false })).toBeVisible()
+
+  // "Añadir clave" saves the secret and names it in a new version: one step.
+  await steps.getByRole("button", { name: "Añadir clave de Anthropic" }).click()
+  const key = page.getByRole("dialog", { name: "Clave de Anthropic" })
+  await expect(key.getByLabel("Nombre")).toHaveValue("ANTHROPIC_KEY")
+  await key.getByLabel("Valor").fill("s3cr3t-anthropic-0002")
+  await key.getByRole("button", { name: "Guardar" }).click()
+  await expect(key).toHaveCount(0)
+  await expect(page.getByRole("combobox", { name: "Anthropic" })).toHaveText("ANTHROPIC_KEY")
+  await expect(steps.getByText("Anthropic: ANTHROPIC_KEY")).toBeVisible()
+  await expect(page.getByRole("region", { name: "Cambios sin guardar" })).toHaveCount(0)
+  await expect(page.getByText("Entorno v2 guardado")).toBeVisible()
+
+  // Hosting from here: the agent shows as hosted and the checklist is done.
+  await steps.getByRole("button", { name: "Alojar agente" }).click()
+  const host = page.getByRole("dialog", { name: `Alojar un agente en ${name}` })
+  await host.getByRole("combobox", { name: "Agente" }).click()
+  await page.getByRole("option", { name: context().agent.name }).click()
+  await host.getByRole("button", { name: "Alojar" }).click()
+  await expect(host).toHaveCount(0)
+  await expect(setup.getByText("Listo para trabajar")).toBeVisible()
+  await expect(page.getByText("Alojados aquí:")).toBeVisible()
+  await expect(page.getByText(`@${context().agent.name}`)).toBeVisible()
+
+  const envs = await api.get<{ items: { id: string; name: string }[] }>("/api/v1/environments")
+  const env = envs.items.find((e) => e.name === name)!
+  const hosted = await api.get<{ environment_id: string; slots: unknown[] }>(`/api/v1/agents/${context().agent.id}/hosting`)
+  expect(hosted.environment_id).toBe(env.id)
+  // Leave the shared echo agent unhosted for the other specs.
+  await api.delete(`/api/v1/agents/${context().agent.id}/hosting`)
 })
 
 /** A folder on disk: a directory input takes a path, not buffers. */
