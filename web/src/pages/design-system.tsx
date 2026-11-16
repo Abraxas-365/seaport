@@ -25,6 +25,7 @@ import {
   Composer,
   Checklist,
   ChecklistItem,
+  ChipInput,
   ConfirmAction,
   ConversationRow,
   CountBadge,
@@ -253,6 +254,7 @@ function Signals() {
 function Primitives() {
   const [access, setAccess] = React.useState<"auto" | "allow" | "deny">("auto")
   const [def, setDef] = React.useState<"ask" | "allow" | "deny">("ask")
+  const [chips, setChips] = React.useState(["nodejs", "npm"])
   return (
     <Block title="Primitivas" description="shadcn/ui tal cual, con los tokens de Seaport.">
       <div className="grid gap-8 md:grid-cols-2">
@@ -267,6 +269,10 @@ function Primitives() {
         <Specimen label="Entrada" className="space-y-2">
           <Input placeholder="+51999123436, +51*" className="font-mono" />
           <Skeleton className="h-8 w-2/3" />
+        </Specimen>
+        <Specimen label="ChipInput" className="space-y-2">
+          <ChipInput aria-label="Paquetes" value={chips} onChange={setChips} placeholder="python3" />
+          <p className="text-xs text-muted-foreground">Enter, coma o espacio añaden; × o Backspace quitan.</p>
         </Specimen>
         <Specimen label="SegmentedChoice">
           <SegmentedChoice
