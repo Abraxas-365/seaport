@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router"
 import {
   ArrowLeft,
   Boxes,
+  ChevronDown,
+  ChevronRight,
   Copy,
   FileCode2,
   FolderCog,
@@ -65,6 +67,7 @@ import {
   BuildBadge,
   Checklist,
   ChecklistItem,
+  ChipInput,
   ConfirmAction,
   ErrorState,
   LogView,
@@ -834,6 +837,7 @@ function Section({
   id,
   icon: Icon,
   title,
+  yaml,
   description,
   children,
   className,
@@ -841,6 +845,8 @@ function Section({
   id?: string
   icon: React.ComponentType<{ className?: string }>
   title: string
+  /** The spec's key(s) for this section, so the CLI/YAML mapping stays in sight. */
+  yaml?: string
   description: React.ReactNode
   children: React.ReactNode
   className?: string
@@ -848,13 +854,65 @@ function Section({
   return (
     <section id={id} className={cn("scroll-mt-6 space-y-3 border-t pt-5 first:border-t-0 first:pt-0", className)}>
       <div>
-        <h3 className="flex items-center gap-2 text-sm font-medium">
+        <h3 className="flex flex-wrap items-center gap-2 text-sm font-medium">
           <Icon className="size-4" /> {title}
+          {yaml && (
+            <Mono className="text-xs font-normal text-muted-foreground" title="Clave en el YAML del entorno">
+              {yaml}
+            </Mono>
+          )}
         </h3>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       {children}
     </section>
+  )
+}
+
+/**
+ * The knobs most environments never touch, folded under one line. Open when
+ * any of them is off its default, so nothing set is ever hidden.
+ */
+function Advanced({ open: initial, children }: { open: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = React.useState<boolean | null>(null)
+  const show = open ?? initial
+  return (
+    <div className="border-t pt-5">
+      <button
+        type="button"
+        aria-expanded={show}
+        aria-controls="env-advanced"
+        onClick={() => setOpen(!show)}
+        className="flex w-full items-center gap-2 text-left text-sm font-medium hover:text-foreground"
+      >
+        {show ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        Avanzado
+        <span className="text-xs font-normal text-muted-foreground">
+          red, navegador, recursos, variables, imagen base
+        </span>
+      </button>
+      {show && (
+        <div
+          id="env-advanced"
+          className="mt-5 space-y-5 border-l-2 border-muted pl-4 [&>section]:first:border-t-0 [&>section]:first:pt-0"
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Whether a spec differs from the defaults in anything the Avanzado fold holds. */
+export function advancedTouched(s: EnvSpec): boolean {
+  return (
+    s.network.egress.some((h) => h.trim()) ||
+    Object.keys(s.env ?? {}).length > 0 ||
+    !!s.browser?.engine ||
+    s.resources.size !== "S" ||
+    s.workspace !== "persistent" ||
+    (s.idle_stop.trim() !== "" && s.idle_stop.trim() !== "30m") ||
+    s.image.trim() !== ""
   )
 }
 
@@ -890,7 +948,7 @@ function SpecFields({
   const idleOk = idleStopPattern.test(s.idle_stop.trim())
   return (
     <FieldGroup>
-      <Section icon={Server} title="Harness" description="Qué agente corre en cada instancia.">
+      <Section icon={Server} title="Harness" yaml="harness" description="Qué agente corre en cada instancia.">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field>
             <FieldLabel>Harness</FieldLabel>
@@ -925,6 +983,7 @@ function SpecFields({
         id="env-section-models"
         icon={KeyRound}
         title="Modelos y secretos"
+        yaml="models"
         description="La clave de cada proveedor es un secreto del entorno; se guardan cifrados y no se vuelven a leer."
       >
         <div className="grid gap-6 lg:grid-cols-2">
@@ -946,6 +1005,7 @@ function SpecFields({
         id="env-section-repos"
         icon={GitBranch}
         title="Repos"
+        yaml="repos"
         description={
           <>
             Se clonan en <Mono>/workspace</Mono>; cada conversación trabaja en su propia copia (worktree).
@@ -953,69 +1013,76 @@ function SpecFields({
         }
       >
         <ReposField repos={s.repos} readOnly={readOnly} onChange={(repos) => set({ repos })} secrets={secrets} />
-        <Field>
-          <FieldLabel>Configuración de los repos</FieldLabel>
-          <SegmentedChoice
-            aria-label="Configuración de los repos"
-            value={s.repo_config}
-            onChange={(repo_config) => set({ repo_config })}
-            options={[
-              {
-                value: "trust",
-                label: "Confiar",
-                description: "El harness lee AGENTS.md, CLAUDE.md, .claude/, .rness/",
-              },
-              {
-                value: "ignore",
-                label: "Ignorar",
-                description: "El harness no lee la configuración de los repos",
-              },
-            ]}
-            disabled={readOnly}
-            size="sm"
-          />
-        </Field>
+        {(s.repos.length > 0 || s.repo_config !== "trust") && (
+          <Field>
+            <FieldLabel>
+              Configuración de los repos <Mono className="text-xs font-normal text-muted-foreground">repo_config</Mono>
+            </FieldLabel>
+            <SegmentedChoice
+              aria-label="Configuración de los repos"
+              value={s.repo_config}
+              onChange={(repo_config) => set({ repo_config })}
+              options={[
+                {
+                  value: "trust",
+                  label: "Confiar",
+                  description: "El harness lee AGENTS.md, CLAUDE.md, .claude/, .rness/",
+                },
+                {
+                  value: "ignore",
+                  label: "Ignorar",
+                  description: "El harness no lee la configuración de los repos",
+                },
+              ]}
+              disabled={readOnly}
+              size="sm"
+            />
+          </Field>
+        )}
       </Section>
 
-      <Section icon={Hammer} title="Paquetes y setup" description="Lo que se instala en la imagen al construirla.">
-        <div className="grid gap-4 sm:grid-cols-[14rem_1fr]">
-          <Field>
-            <FieldLabel htmlFor="env-packages">Paquetes (apt)</FieldLabel>
-            <Textarea
-              id="env-packages"
-              value={s.packages.join("\n")}
-              readOnly={readOnly}
-              onChange={(e) => set({ packages: e.target.value.split("\n") })}
-              placeholder={"nodejs\nnpm"}
-              className={cn("min-h-32 font-mono text-sm", placeholderMuted)}
-            />
-            <FieldDescription>Uno por línea; nombre o nombre=versión.</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="env-setup">Setup</FieldLabel>
-            <Textarea
-              id="env-setup"
-              value={s.setup}
-              readOnly={readOnly}
-              onChange={(e) => set({ setup: e.target.value })}
-              placeholder="curl -fsSL https://… | bash"
-              className={cn("min-h-32 font-mono text-sm", placeholderMuted)}
-              maxLength={16384}
-            />
-            <FieldDescription>
-              bash como root al construir la imagen. Nada secreto: queda en la imagen.
-            </FieldDescription>
-          </Field>
-        </div>
+      <Section
+        icon={Hammer}
+        title="Paquetes del sistema"
+        yaml="packages · setup"
+        description="Lo que se instala en la imagen al construirla."
+      >
+        <Field>
+          <FieldLabel htmlFor="env-packages">Paquetes (apt)</FieldLabel>
+          <ChipInput
+            id="env-packages"
+            aria-label="Paquetes (apt)"
+            aria-describedby="env-packages-help"
+            value={s.packages}
+            readOnly={readOnly}
+            onChange={(packages) => set({ packages })}
+            placeholder="nodejs"
+          />
+          <FieldDescription id="env-packages-help">Enter añade; nombre o nombre=versión.</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="env-setup">Setup</FieldLabel>
+          <Textarea
+            id="env-setup"
+            value={s.setup}
+            readOnly={readOnly}
+            onChange={(e) => set({ setup: e.target.value })}
+            placeholder="curl -fsSL https://… | bash"
+            className={cn("min-h-24 font-mono text-sm", placeholderMuted)}
+            maxLength={16384}
+          />
+          <FieldDescription>bash como root al construir la imagen. Nada secreto: queda en la imagen.</FieldDescription>
+        </Field>
       </Section>
 
       <Section
         icon={FolderCog}
         title="Configuración del harness"
+        yaml="home"
         description={
           <>
             Tu <Mono>~/{s.harness === "rness" ? ".rness" : ".claude"}</Mono> (instrucciones, skills, hooks), horneado en
-            la imagen. Sin secretos: esos van arriba.
+            la imagen. Sin secretos: esos van en Modelos y secretos.
           </>
         }
       >
@@ -1029,187 +1096,199 @@ function SpecFields({
         />
       </Section>
 
-      <Section
-        icon={Globe}
-        title="Red"
-        description="Con el proxy de salida activo, las instancias solo llegan a estos hosts (más los de sus repos y modelos)."
-      >
-        <Field>
-          <FieldLabel htmlFor="env-egress">Hosts permitidos</FieldLabel>
-          <Textarea
-            id="env-egress"
-            value={s.network.egress.join("\n")}
-            readOnly={readOnly}
-            onChange={(e) => set({ network: { egress: e.target.value.split("\n") } })}
-            placeholder={"registry.npmjs.org\n*.example.com"}
-            className={cn("min-h-28 font-mono text-sm", placeholderMuted)}
-          />
-          <FieldDescription>
-            Uno por línea; *.dominio para sus subdominios; * sola para cualquier web pública (búsquedas, cualquier
-            página). Las direcciones privadas siguen bloqueadas.
-          </FieldDescription>
-        </Field>
-      </Section>
-
-      <Section
-        icon={Boxes}
-        title="Variables"
-        description="Variables de entorno de cada instancia, además de los secretos marcados como variable."
-      >
-        <EnvVarsField spec={s} readOnly={readOnly} set={set} />
-      </Section>
-
-      <Section
-        icon={AppWindow}
-        title="Navegador"
-        description="Un Chromium por instancia, con perfil persistente que comparten el agente y las personas."
-      >
-        <Field>
-          <FieldLabel>Motor</FieldLabel>
-          <SegmentedChoice
-            aria-label="Navegador"
-            value={s.browser?.engine || "none"}
-            onChange={(v) => set({ browser: { engine: v === "none" ? "" : "chromium" } })}
-            options={[
-              { value: "none", label: "Sin navegador" },
-              {
-                value: "chromium",
-                label: "Chromium",
-                description: "Headless, dentro de la instancia",
-              },
-            ]}
-            disabled={readOnly}
-            size="sm"
-          />
-          <FieldDescription>
-            Cada agente lo activa en su perfil; una persona inicia sesión en los sitios desde la pestaña Navegador del
-            agente. Añade los hosts de esos sitios en Red.
-          </FieldDescription>
-        </Field>
-      </Section>
-
-      <Section icon={HardDrive} title="Recursos" description="Por instancia.">
-        <Field>
-          <FieldLabel>Tamaño</FieldLabel>
-          <SegmentedChoice
-            aria-label="Tamaño"
-            value={s.resources.size ?? "custom"}
-            onChange={(v) =>
-              set({
-                resources:
-                  v === "custom"
-                    ? {
-                        cpus: s.resources.cpus || 1,
-                        memory_mb: s.resources.memory_mb || 2048,
-                      }
-                    : { size: v as ResourceSize, cpus: 0, memory_mb: 0 },
-              })
-            }
-            options={sizeOptions}
-            disabled={readOnly}
-            size="sm"
-          />
-        </Field>
-        {!s.resources.size && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor="env-cpus">CPUs</FieldLabel>
-              <Input
-                id="env-cpus"
-                type="number"
-                step={0.25}
-                min={0.25}
-                max={64}
-                value={s.resources.cpus}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  set({
-                    resources: { ...s.resources, cpus: Number(e.target.value) },
-                  })
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="env-memory">Memoria (MB)</FieldLabel>
-              <Input
-                id="env-memory"
-                type="number"
-                step={256}
-                min={256}
-                value={s.resources.memory_mb}
-                readOnly={readOnly}
-                onChange={(e) =>
-                  set({
-                    resources: {
-                      ...s.resources,
-                      memory_mb: Number(e.target.value),
-                    },
-                  })
-                }
-              />
-            </Field>
-          </div>
-        )}
-        <div className="grid gap-4 sm:grid-cols-2">
+      <Advanced open={advancedTouched(s)}>
+        <Section
+          icon={Globe}
+          title="Hosts permitidos (salida)"
+          yaml="network.egress"
+          description="Con el proxy de salida activo, las instancias solo llegan a estos hosts (más los de sus repos y modelos)."
+        >
           <Field>
-            <FieldLabel>Espacio de trabajo</FieldLabel>
+            <FieldLabel htmlFor="env-egress">Hosts permitidos</FieldLabel>
+            <ChipInput
+              id="env-egress"
+              aria-label="Hosts permitidos"
+              aria-describedby="env-egress-help"
+              value={s.network.egress}
+              readOnly={readOnly}
+              onChange={(egress) => set({ network: { egress } })}
+              placeholder="registry.npmjs.org"
+            />
+            <FieldDescription id="env-egress-help">
+              Enter añade; *.dominio para sus subdominios; * sola para cualquier web pública (búsquedas, cualquier
+              página). Las direcciones privadas siguen bloqueadas.
+            </FieldDescription>
+          </Field>
+        </Section>
+
+        <Section
+          icon={AppWindow}
+          title="Navegador"
+          yaml="browser"
+          description="Un Chromium por instancia, con perfil persistente que comparten el agente y las personas."
+        >
+          <Field>
+            <FieldLabel>Motor</FieldLabel>
             <SegmentedChoice
-              aria-label="Espacio de trabajo"
-              value={s.workspace}
-              onChange={(workspace) => set({ workspace })}
+              aria-label="Navegador"
+              value={s.browser?.engine || "none"}
+              onChange={(v) => set({ browser: { engine: v === "none" ? "" : "chromium" } })}
               options={[
+                { value: "none", label: "Sin navegador" },
                 {
-                  value: "persistent",
-                  label: "Persistente",
-                  description: "Clones y worktrees sobreviven a los reinicios",
-                },
-                {
-                  value: "ephemeral",
-                  label: "Efímero",
-                  description: "Se borra con el contenedor",
+                  value: "chromium",
+                  label: "Chromium",
+                  description: "Headless, dentro de la instancia",
                 },
               ]}
               disabled={readOnly}
               size="sm"
             />
-          </Field>
-          <Field data-invalid={!idleOk}>
-            <FieldLabel htmlFor="env-idle">Detener sin trabajo tras</FieldLabel>
-            <Input
-              id="env-idle"
-              value={s.idle_stop}
-              readOnly={readOnly}
-              onChange={(e) => set({ idle_stop: e.target.value.trim() })}
-              placeholder="30m"
-              className="font-mono"
-            />
             <FieldDescription>
-              {idleOk
-                ? "Minutos u horas (30m, 2h); 0 nunca. Un mensaje nuevo la vuelve a arrancar."
-                : "Como 30m o 2h, o 0."}
+              Cada agente lo activa en su perfil; una persona inicia sesión en los sitios desde la pestaña Navegador del
+              agente. Añade los hosts de esos sitios arriba.
             </FieldDescription>
           </Field>
-        </div>
-      </Section>
+        </Section>
 
-      <Section
-        icon={Server}
-        title="Imagen base"
-        description="Avanzado: una imagen propia en lugar de la de Seaport. Debe derivar de la base del mismo harness."
-      >
-        <Field>
-          <FieldLabel htmlFor="env-image">Imagen base</FieldLabel>
-          <Input
-            id="env-image"
-            value={s.image}
-            readOnly={readOnly}
-            onChange={(e) => set({ image: e.target.value.trim() })}
-            placeholder="la de Seaport para el harness"
-            className={cn("font-mono", placeholderMuted)}
-            maxLength={255}
-          />
-        </Field>
-      </Section>
+        <Section
+          icon={HardDrive}
+          title="Recursos"
+          yaml="resources · workspace · idle_stop"
+          description="Por instancia."
+        >
+          <Field>
+            <FieldLabel>Tamaño</FieldLabel>
+            <SegmentedChoice
+              aria-label="Tamaño"
+              value={s.resources.size ?? "custom"}
+              onChange={(v) =>
+                set({
+                  resources:
+                    v === "custom"
+                      ? {
+                          cpus: s.resources.cpus || 1,
+                          memory_mb: s.resources.memory_mb || 2048,
+                        }
+                      : { size: v as ResourceSize, cpus: 0, memory_mb: 0 },
+                })
+              }
+              options={sizeOptions}
+              disabled={readOnly}
+              size="sm"
+            />
+          </Field>
+          {!s.resources.size && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="env-cpus">CPUs</FieldLabel>
+                <Input
+                  id="env-cpus"
+                  type="number"
+                  step={0.25}
+                  min={0.25}
+                  max={64}
+                  value={s.resources.cpus}
+                  readOnly={readOnly}
+                  onChange={(e) =>
+                    set({
+                      resources: { ...s.resources, cpus: Number(e.target.value) },
+                    })
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="env-memory">Memoria (MB)</FieldLabel>
+                <Input
+                  id="env-memory"
+                  type="number"
+                  step={256}
+                  min={256}
+                  value={s.resources.memory_mb}
+                  readOnly={readOnly}
+                  onChange={(e) =>
+                    set({
+                      resources: {
+                        ...s.resources,
+                        memory_mb: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+              </Field>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Espacio de trabajo</FieldLabel>
+              <SegmentedChoice
+                aria-label="Espacio de trabajo"
+                value={s.workspace}
+                onChange={(workspace) => set({ workspace })}
+                options={[
+                  {
+                    value: "persistent",
+                    label: "Persistente",
+                    description: "Clones y worktrees sobreviven a los reinicios",
+                  },
+                  {
+                    value: "ephemeral",
+                    label: "Efímero",
+                    description: "Se borra con el contenedor",
+                  },
+                ]}
+                disabled={readOnly}
+                size="sm"
+              />
+            </Field>
+            <Field data-invalid={!idleOk}>
+              <FieldLabel htmlFor="env-idle">Detener sin trabajo tras</FieldLabel>
+              <Input
+                id="env-idle"
+                value={s.idle_stop}
+                readOnly={readOnly}
+                onChange={(e) => set({ idle_stop: e.target.value.trim() })}
+                placeholder="30m"
+                className={cn("font-mono", placeholderMuted)}
+              />
+              <FieldDescription>
+                {idleOk
+                  ? "Minutos u horas (30m, 2h); 0 nunca. Un mensaje nuevo la vuelve a arrancar."
+                  : "Como 30m o 2h, o 0."}
+              </FieldDescription>
+            </Field>
+          </div>
+        </Section>
+
+        <Section
+          icon={Boxes}
+          title="Variables"
+          yaml="env"
+          description="Variables de entorno de cada instancia, además de los secretos marcados como variable."
+        >
+          <EnvVarsField spec={s} readOnly={readOnly} set={set} />
+        </Section>
+
+        <Section
+          icon={Server}
+          title="Imagen base"
+          yaml="image"
+          description="Una imagen propia en lugar de la de Seaport. Debe derivar de la base del mismo harness."
+        >
+          <Field>
+            <FieldLabel htmlFor="env-image">Imagen base</FieldLabel>
+            <Input
+              id="env-image"
+              value={s.image}
+              readOnly={readOnly}
+              onChange={(e) => set({ image: e.target.value.trim() })}
+              placeholder="la de Seaport para el harness"
+              className={cn("font-mono", placeholderMuted)}
+              maxLength={255}
+            />
+          </Field>
+        </Section>
+      </Advanced>
     </FieldGroup>
   )
 }

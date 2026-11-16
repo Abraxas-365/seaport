@@ -17,10 +17,14 @@ test("an environment made from the UI shows as YAML", async ({ pages, page }) =>
   await expect(dialog).toContainText("harness: rness")
 })
 
-test("an environment keeps plain variables in its spec and secrets apart, and names a model key", async ({ pages, page, api }) => {
+test("an environment keeps plain variables in its spec and secrets apart, and names a model key", async ({
+  pages,
+  page,
+  api,
+}) => {
   const name = unique("vars")
   await pages.environments.open()
-  await pages.environments.create(name)
+  await pages.environments.create(name, "En blanco")
   await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
 
   // A secret: only its name comes back, never the value; the spec names it.
@@ -34,6 +38,10 @@ test("an environment keeps plain variables in its spec and secrets apart, and na
   await expect(list.getByText("OPENAI_KEY", { exact: true })).toBeVisible()
   await expect(page.getByText("s3cr3t-model-key-0001")).toHaveCount(0)
 
+  // Plain variables are an advanced knob: folded while everything there is at its default.
+  const advanced = page.getByRole("button", { name: "Avanzado", exact: false })
+  await expect(advanced).toHaveAttribute("aria-expanded", "false")
+  await advanced.click()
   // Plain variables go in the spec; a credential-looking name is refused before saving.
   const vars = page.getByLabel("Variables")
   await vars.fill("TZ=UTC\nANTHROPIC_API_KEY=x")
@@ -56,6 +64,10 @@ test("an environment keeps plain variables in its spec and secrets apart, and na
   await expect(yaml).toContainText("openai: ${OPENAI_KEY}")
   await expect(yaml).not.toContainText("s3cr3t-model-key-0001")
   await yaml.getByRole("button", { name: "Close" }).click()
+  // With variables set, Avanzado opens by itself next time.
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Avanzado", exact: false })).toHaveAttribute("aria-expanded", "true")
+  await expect(page.getByLabel("Variables")).toHaveValue(/TZ=UTC/)
 
   const envs = await api.get<{ items: { id: string; name: string }[] }>("/api/v1/environments")
   const env = envs.items.find((e) => e.name === name)!
@@ -102,10 +114,45 @@ test("the checklist adds the model key in one step and hosts an agent", async ({
 
   const envs = await api.get<{ items: { id: string; name: string }[] }>("/api/v1/environments")
   const env = envs.items.find((e) => e.name === name)!
-  const hosted = await api.get<{ environment_id: string; slots: unknown[] }>(`/api/v1/agents/${context().agent.id}/hosting`)
+  const hosted = await api.get<{ environment_id: string; slots: unknown[] }>(
+    `/api/v1/agents/${context().agent.id}/hosting`
+  )
   expect(hosted.environment_id).toBe(env.id)
   // Leave the shared echo agent unhosted for the other specs.
   await api.delete(`/api/v1/agents/${context().agent.id}/hosting`)
+})
+
+test("packages and egress hosts are typed one at a time as chips", async ({ pages, page, api }) => {
+  const name = unique("chips")
+  await pages.environments.open()
+  await pages.environments.create(name, "Python")
+  await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
+
+  // The template's packages come as chips; Enter adds, × removes, duplicates are dropped.
+  const packages = page.getByRole("textbox", { name: "Paquetes (apt)" })
+  await expect(page.getByRole("button", { name: "Quitar python3-pip" })).toBeVisible()
+  await packages.fill("make")
+  await packages.press("Enter")
+  await packages.fill("python3")
+  await packages.press("Enter")
+  await expect(page.getByRole("button", { name: "Quitar make" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Quitar python3", exact: true })).toHaveCount(1)
+  await page.getByRole("button", { name: "Quitar python3-venv" }).click()
+
+  // Egress hosts live under Avanzado, open because the template set some.
+  await expect(page.getByRole("button", { name: "Avanzado", exact: false })).toHaveAttribute("aria-expanded", "true")
+  const hosts = page.getByRole("textbox", { name: "Hosts permitidos" })
+  await hosts.fill("Github.com")
+  await hosts.press("Enter")
+  await page.getByRole("button", { name: /^Guardar v\d+$/ }).click()
+  await expect(page.getByRole("region", { name: "Cambios sin guardar" })).toHaveCount(0)
+
+  const envs = await api.get<{
+    items: { id: string; name: string; spec: { packages: string[]; network: { egress: string[] } } }[]
+  }>("/api/v1/environments")
+  const env = envs.items.find((e) => e.name === name)!
+  expect(env.spec.packages).toEqual(["python3", "python3-pip", "make"])
+  expect(env.spec.network.egress).toEqual(["pypi.org", "files.pythonhosted.org", "github.com"])
 })
 
 /** A folder on disk: a directory input takes a path, not buffers. */
@@ -128,7 +175,7 @@ test("the home upload refuses a file with a secret and takes a clean folder", as
   // The browser checks the server's own rules (GET /api/v1/homes/rules) first.
   await input.setInputFiles(
     // AWS's documented example key: it looks like a credential and is not one.
-    folder({ "init.lua": 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' }),
+    folder({ "init.lua": 'aws_key = "AKIAIOSFODNN7EXAMPLE"\n' })
   )
   const refused = page.getByRole("dialog", { name: "Configuración de rness" })
   await expect(refused).toBeVisible()

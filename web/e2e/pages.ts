@@ -119,10 +119,12 @@ export class EnvironmentsPage {
     await expect(this.page.getByRole("heading", { name: "Entornos" })).toBeVisible()
   }
 
-  async create(name: string) {
+  /** Creates an environment from the dialog; `template` is the label of a starting point ("Python"). */
+  async create(name: string, template?: string) {
     await this.page.getByRole("button", { name: "Entorno" }).first().click()
     const dialog = this.page.getByRole("dialog", { name: "Nuevo entorno" })
     await dialog.getByLabel("Nombre").fill(name)
+    if (template) await dialog.getByRole("radio", { name: template }).click()
     await dialog.getByRole("button", { name: "Crear" }).click()
   }
 }
