@@ -81,6 +81,16 @@ network:
 
 Each entry is a host name with at least two labels. `*.example.com` matches subdomains, `example.com` the host itself. Up to 100 entries.
 
+`*` alone allows any public host. Use it when an agent must search the web or read any page: rness's `web_search` (DuckDuckGo) and `web_fetch`, Claude Code's `WebFetch`, or the [browser](browser.md) on sites you can't list ahead of time. Claude Code's `WebSearch` runs inside Anthropic's API, so it goes through the model gateway and needs no egress entry. Even with `*`, the proxy still refuses [private addresses](#private-addresses), so slots can't reach your internal services.
+
+```yaml
+network:
+  egress:
+    - "*"                   # the open web; still no private addresses
+```
+
+The harnesses' web tools go through the proxy on their own: rness's base image always hands it `HTTPS_PROXY` as `rness.web.proxy`, and behind the proxy Claude Code's `WebFetch` skips its preflight call to `api.anthropic.com` (the port turns on `skipWebFetchPreflight` in its managed settings), so the hosts you list are the whole policy. That preflight is also Anthropic's check against known-bad domains. With `*`, an agent that reads untrusted content can be told to send data to any public host, so give `*` only to agents whose inputs you trust, or list hosts.
+
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
 | `SEAPORT_EGRESS_ADDR` | off | Listen address, such as `:8741`. Must be `host:port`. |
@@ -99,7 +109,7 @@ Set `SEAPORT_RUNTIME_NETWORK=seaport-slots` and attach the Seaport container to 
 
 ### Private addresses
 
-The proxy never connects to loopback, link-local, private or carrier-grade NAT addresses, even for an allowed host. This stops a slot from reaching your internal services through a DNS name that points inside. Set `SEAPORT_EGRESS_PRIVATE=true` only for local testing.
+The proxy never connects to loopback, link-local, private or carrier-grade NAT addresses, or to the other special-purpose ranges (documentation, benchmarking, reserved, and IPv6 forms such as NAT64 and 6to4 that embed one of these), even for an allowed host. This stops a slot from reaching your internal services through a DNS name that points inside. Set `SEAPORT_EGRESS_PRIVATE=true` only for local testing: together with `*` it opens every address the port can reach, cloud metadata endpoints included.
 
 ### What was refused
 

@@ -220,11 +220,49 @@ func (p *Proxy) dial(ctx context.Context, host, port string) (net.Conn, error) {
 }
 
 func public(ip netip.Addr) bool {
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !cgnat.Contains(ip)
+	ip = ip.Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	for _, p := range special {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	// Prefixes that embed an IPv4 address (NAT64, 6to4) are as public as
+	// that address.
+	if nat64.Contains(ip) || sixToFour.Contains(ip) {
+		b := ip.As16()
+		v4 := netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+		if sixToFour.Contains(ip) {
+			v4 = netip.AddrFrom4([4]byte{b[2], b[3], b[4], b[5]})
+		}
+		return public(v4)
+	}
+	return true
 }
 
-// cgnat is 100.64.0.0/10 (shared address space, not routed publicly).
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+// special are the IANA special-purpose ranges a global unicast check lets
+// through but no public host has: with egress "*" any name may resolve to
+// one of them.
+var special = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),       // "this network"
+	netip.MustParsePrefix("100.64.0.0/10"),   // shared address space (CGNAT)
+	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
+	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // documentation
+	netip.MustParsePrefix("203.0.113.0/24"),  // documentation
+	netip.MustParsePrefix("240.0.0.0/4"),     // reserved
+	netip.MustParsePrefix("2001::/23"),       // IETF protocol assignments (Teredo, ORCHID…)
+	netip.MustParsePrefix("2001:db8::/32"),   // documentation
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // local-use NAT64
+}
+
+var (
+	nat64     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
 
 func (p *Proxy) tunnel(w http.ResponseWriter, up net.Conn) {
 	rc := http.NewResponseController(w)

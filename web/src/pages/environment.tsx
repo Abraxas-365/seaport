@@ -628,7 +628,10 @@ function SpecFields({
             placeholder={"registry.npmjs.org\n*.example.com"}
             className="min-h-28 font-mono text-sm"
           />
-          <FieldDescription>Uno por línea; *.dominio para sus subdominios.</FieldDescription>
+          <FieldDescription>
+            Uno por línea; *.dominio para sus subdominios; * sola para cualquier web pública (búsquedas, cualquier
+            página). Las direcciones privadas siguen bloqueadas.
+          </FieldDescription>
         </Field>
       </Section>
 

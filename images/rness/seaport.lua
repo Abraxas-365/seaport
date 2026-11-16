@@ -16,6 +16,36 @@ rness.profiles.declare("seaport", {
 })
 rness.default_profile = "seaport"
 
+-- A slot's only way out is the port's egress proxy (HTTPS_PROXY, with the
+-- slot's credentials), and rness's web tools ignore proxy variables: hand
+-- it to them as rness.web.proxy (always: no other way out exists), whenever
+-- init.lua (the flavor's or a home's) assigns rness.web after this file ran.
+local egress = os.getenv("HTTPS_PROXY") or ""
+if egress ~= "" then
+  local function proxied(web)
+    if type(web) == "table" then
+      web.proxy = egress
+    end
+    return web
+  end
+  local web = proxied(rawget(rness, "web"))
+  rawset(rness, "web", nil)
+  setmetatable(rness, {
+    __index = function(_, key)
+      if key == "web" then
+        return web
+      end
+    end,
+    __newindex = function(t, key, value)
+      if key == "web" then
+        web = proxied(value)
+      else
+        rawset(t, key, value)
+      end
+    end,
+  })
+end
+
 local gateway = os.getenv("SEAPORT_GATEWAY")
 if gateway == nil or gateway == "" then
   return

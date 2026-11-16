@@ -184,6 +184,45 @@ func TestProxyRefusesPrivateAddresses(t *testing.T) {
 	}
 }
 
+// "*" opens the public web (search, any page) but never private addresses.
+func TestProxyAnyHost(t *testing.T) {
+	_, proxy, port := setup(t, true, hosting.AnyHost)
+	cl := client(proxy, "a-1", "slot")
+	for _, h := range []string{"html.duckduckgo.com", "example.org", "a.b.example.net"} {
+		if st, body := get(t, cl, "http://"+h+":"+port+"/q"); st != 200 || !strings.Contains(body, "hello from "+h) {
+			t.Fatalf("%s through *: %d %s", h, st, body)
+		}
+	}
+	c, proxy, port := setup(t, false, hosting.AnyHost)
+	if st, body := get(t, client(proxy, "a-1", "slot"), "http://internal.example.com:"+port+"/"); st != 403 || !strings.Contains(body, "private") {
+		t.Fatalf("* reached a private address: %d %s", st, body)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.denials) != 1 {
+		t.Fatalf("denials: %+v", c.denials)
+	}
+}
+
+// With egress "*" any name may resolve anywhere, so the address check is
+// the boundary: special-purpose ranges and IPv6 forms that embed a private
+// IPv4 address are refused.
+func TestPublicAddresses(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"93.184.215.14": true, "2606:2800:21f:cb07:6820:80da:af6b:8b2c": true,
+		"10.1.2.3": false, "127.0.0.1": false, "169.254.169.254": false, "100.64.0.1": false,
+		"0.1.2.3": false, "192.0.0.8": false, "198.18.0.1": false, "240.0.0.1": false, "255.255.255.255": false,
+		"192.0.2.1": false, "::1": false, "fe80::1": false, "fd00::1": false,
+		"::ffff:10.0.0.1": false, "::ffff:93.184.215.14": true,
+		"64:ff9b::a9fe:a9fe": false, "64:ff9b::5db8:d70e": true, "64:ff9b:1::1": false,
+		"2002:a00:1::1": false, "2002:5db8:d70e::1": true, "2001::1": false, "2001:db8::1": false,
+	} {
+		if got := hostingegress.Public(netip.MustParseAddr(addr)); got != want {
+			t.Errorf("public(%s) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
 func TestProxyNeedsAToken(t *testing.T) {
 	_, proxy, port := setup(t, true, "api.example.com")
 	cl := &http.Client{Transport: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) { return url.Parse(proxy) }}}

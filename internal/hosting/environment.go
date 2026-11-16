@@ -298,7 +298,7 @@ func (s Spec) Validate() error {
 	}
 	for _, h := range s.Network.Egress {
 		if !ValidEgressHost(strings.ToLower(strings.TrimSpace(h))) {
-			return errx.InvalidField("network.egress", strconv.Quote(h)+" must be a host name (example.com or *.example.com)")
+			return errx.InvalidField("network.egress", strconv.Quote(h)+" must be a host name (example.com or *.example.com), or * for any public host")
 		}
 	}
 	switch strings.TrimSpace(s.Browser.Engine) {
@@ -397,8 +397,11 @@ func (r Resources) validate() error {
 }
 
 // ValidEgressHost checks an egress host: a DNS name of two labels or
-// more, optionally starting with "*." (any subdomain).
+// more, optionally starting with "*." (any subdomain), or AnyHost.
 func ValidEgressHost(h string) bool {
+	if h == AnyHost {
+		return true
+	}
 	h = strings.TrimPrefix(h, "*.")
 	if len(h) > 253 {
 		return false
