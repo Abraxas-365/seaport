@@ -163,9 +163,15 @@ export function formatTokens(n: number) {
   return compact.format(n)
 }
 
+/** "1 búsqueda web", "3 búsquedas web"; nothing for 0. */
+function countOf(n: number, one: string, many: string): string {
+  return n === 0 ? "" : `${n.toLocaleString("es")} ${n === 1 ? one : many}`
+}
+
 /**
  * Model use per day through the gateway: one bar per day (input + output +
- * cache tokens), newest on the right, with totals.
+ * cache tokens), newest on the right, with totals and the provider's
+ * per-call server tools (web search, web fetch) when there were any.
  */
 export function UsageChart({ days, span = 30, className }: { days: UsageDay[]; span?: number; className?: string }) {
   const byDay = new Map<string, { tokens: number; requests: number }>()
@@ -189,10 +195,16 @@ export function UsageChart({ days, span = 30, className }: { days: UsageDay[]; s
       input: t.input + d.input_tokens,
       output: t.output + d.output_tokens,
       cache: t.cache + d.cache_read_tokens + d.cache_write_tokens,
+      search: t.search + d.web_search_requests,
+      fetch: t.fetch + d.web_fetch_requests,
     }),
-    { requests: 0, input: 0, output: 0, cache: 0 },
+    { requests: 0, input: 0, output: 0, cache: 0, search: 0, fetch: 0 },
   )
   const models = [...new Set(days.map((d) => d.model))]
+  const tools = [
+    countOf(totals.search, "búsqueda web", "búsquedas web"),
+    countOf(totals.fetch, "lectura web", "lecturas web"),
+  ].filter(Boolean)
   return (
     <div data-slot="usage-chart" className={cn("space-y-3", className)}>
       <div className="flex h-20 items-end gap-px" role="img" aria-label={`Tokens por día, últimos ${span} días`}>
@@ -218,6 +230,11 @@ export function UsageChart({ days, span = 30, className }: { days: UsageDay[]; s
           </div>
         ))}
       </dl>
+      {tools.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Herramientas del proveedor (se cobran por uso, aparte de los tokens): {tools.join(" · ")}
+        </p>
+      )}
       {models.length > 0 && (
         <p className="text-xs text-muted-foreground">
           Modelos:{" "}
