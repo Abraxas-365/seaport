@@ -86,6 +86,7 @@ import {
   SecretSelect,
   asSecretRef,
   envProblem,
+  keyNameFor,
   providers,
   secretRefPattern,
 } from "@/pages/environment-secrets"
@@ -751,7 +752,7 @@ function SpecEditor({
               envId={env.id}
               open
               onOpenChange={(o) => !o && onKeyFor(null)}
-              preset={keyFor.keyEnv.replace(/_API_KEY$/, "_KEY")}
+              preset={keyNameFor(keyFor)}
               title={`Clave de ${keyFor.label}`}
               description="Se guarda cifrada como secreto del entorno y se nombra en Modelos. La clave pasa por el gateway del puerto: nunca entra al contenedor."
               onSaved={(name) => keySaved(keyFor.name, name)}

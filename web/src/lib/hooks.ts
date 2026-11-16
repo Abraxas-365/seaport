@@ -891,6 +891,42 @@ export function useCreateEnvironment() {
   })
 }
 
+/**
+ * The "Nuevo entorno" dialog: creates the environment and, when a model key
+ * comes with it, stores the key as an environment secret and names it in a
+ * second version. A key that fails to store still leaves the environment
+ * (the page's checklist says what's left).
+ */
+export function useNewEnvironment() {
+  const changed = useEnvironmentsChanged()
+  return useMutation({
+    mutationFn: async ({
+      name,
+      spec,
+      key,
+    }: {
+      name: string
+      spec: Partial<EnvSpec>
+      key?: { provider: string; secret: string; value: string }
+    }) => {
+      const env = await api.createEnvironment(name, spec)
+      if (!key) return env
+      try {
+        await api.setEnvironmentSecret(env.id, key.secret, key.value, false)
+        return await api.saveEnvironment(env.id, env.version, {
+          ...env.spec,
+          models: { ...(env.spec.models ?? {}), [key.provider]: `\${${key.secret}}` },
+        })
+      } catch (err) {
+        toast.error("El entorno se creó, pero la clave no se guardó", { description: (err as Error).message })
+        return env
+      }
+    },
+    onSuccess: changed,
+    onError: fail("No se pudo crear el entorno"),
+  })
+}
+
 export function useSaveEnvironment(id: string) {
   const changed = useEnvironmentsChanged()
   return useMutation({
