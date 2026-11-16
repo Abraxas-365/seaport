@@ -1230,12 +1230,12 @@ function SpecFields({
                   {
                     value: "persistent",
                     label: "Persistente",
-                    description: "Clones y worktrees sobreviven a los reinicios",
+                    description: "Lo que el agente clona, descarga o crea sigue ahí en la siguiente ejecución",
                   },
                   {
                     value: "ephemeral",
                     label: "Efímero",
-                    description: "Se borra con el contenedor",
+                    description: "Cada arranque empieza de cero (las conversaciones se retoman igual)",
                   },
                 ]}
                 disabled={readOnly}

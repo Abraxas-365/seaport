@@ -86,6 +86,11 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 	if err := linkState(cfg); err != nil {
 		return err
 	}
+	if ws.Persistent {
+		if err := linkHomeWork(cfg); err != nil {
+			return err
+		}
+	}
 	if cfg.Harness == hosting.HarnessClaudeCode && cfg.ClaudeManaged != "" {
 		if err := pinClaudeSettings(cfg.ClaudeManaged); err != nil {
 			return err
@@ -118,6 +123,7 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
 		Protect:      protected(), KitEnv: true,
 		Browser: ws.Browser, State: cfg.State,
+		Disk: diskNote(ws.Persistent, len(ws.Repos) == 0),
 	})
 	if errx.IsType(err, errx.TypeAuthorization) {
 		slog.Warn("the port refused this slot's token; stopping", "err", err)
@@ -381,6 +387,94 @@ func linkState(cfg HostedConfig) error {
 		}
 	}
 	return os.MkdirAll(filepath.Join(cfg.State, "connector"), 0o700)
+}
+
+// homeWork are the parts of the home that hold the agent's own work, not
+// the harness's: downloads, caches, tools it installed. In a persistent
+// workspace they live in the state volume (under homeWorkDir), so a slot
+// that stops and wakes finds them again; in an ephemeral one they go
+// with the home.
+var homeWork = []string{"Downloads", ".cache", ".local", ".npm", ".config"}
+
+const homeWorkDir = "home"
+
+// linkHomeWork links homeWork into the state volume. What the image ships
+// at a path is moved in the first time only (it is the agent's from then
+// on, not the environment's, unlike the harness's seeded config); a path
+// the image doesn't have is created. Re-running on a fresh home (every
+// start) just links again.
+func linkHomeWork(cfg HostedConfig) error {
+	for _, name := range homeWork {
+		home, state := filepath.Join(cfg.Home, name), filepath.Join(cfg.State, homeWorkDir, name)
+		if err := os.MkdirAll(filepath.Dir(state), 0o700); err != nil {
+			return errx.Wrap(err, "prepare the state volume", errx.TypeInternal)
+		}
+		if _, err := os.Lstat(state); os.IsNotExist(err) {
+			if fi, err := os.Lstat(home); err == nil && fi.IsDir() {
+				if err := copyTree(home, state); err != nil {
+					return err
+				}
+			} else if err := os.MkdirAll(state, 0o700); err != nil {
+				return errx.Wrap(err, "prepare the state volume", errx.TypeInternal)
+			}
+		}
+		if err := os.RemoveAll(home); err != nil {
+			return errx.Wrap(err, "prepare the home", errx.TypeInternal)
+		}
+		if err := os.Symlink(state, home); err != nil {
+			return errx.Wrap(err, "link the slot's home", errx.TypeInternal)
+		}
+	}
+	return nil
+}
+
+// copyTree copies the dirs and regular files under from into to (modes
+// kept; links and the like skipped).
+func copyTree(from, to string) error {
+	err := filepath.WalkDir(from, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(from, p)
+		dst := filepath.Join(to, rel)
+		switch {
+		case d.IsDir():
+			return os.MkdirAll(dst, 0o700)
+		case d.Type().IsRegular():
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			raw, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(dst, raw, info.Mode().Perm()|0o600)
+		}
+		return nil
+	})
+	if err != nil {
+		return errx.Wrap(err, "move the home into the state volume", errx.TypeInternal)
+	}
+	return nil
+}
+
+// diskNote is what a hosted agent is told about its disk with each
+// prompt: whether its files outlive this run (the environment's
+// workspace), and whether its working directory is shared with the
+// agent's other conversations (no repos: every thread works in
+// /workspace itself).
+func diskNote(persistent, shared bool) string {
+	var b strings.Builder
+	if persistent {
+		b.WriteString("Files you keep in your working directory or your home (Downloads, caches, tools you install) persist between runs of this agent; /tmp does not.")
+	} else {
+		b.WriteString("Nothing on disk persists between runs of this agent: deliver what must be kept in your answer, or push it to a repository.")
+	}
+	if shared {
+		b.WriteString(" Your working directory is shared with this agent's other conversations.")
+	}
+	return b.String()
 }
 
 // seededFile lists, in a seeded dir of the state volume, the files the

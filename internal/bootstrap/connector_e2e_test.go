@@ -65,6 +65,7 @@ type connectorOpts struct {
 	protect     []string
 	kitEnv      bool // connector.Config.KitEnv
 	mode        string
+	disk        string // connector.Config.Disk (a hosted slot's note)
 }
 
 // connectorRun is a connector running in this process.
@@ -88,7 +89,7 @@ func (p *port) startConnector(opts connectorOpts) *connectorRun {
 	cfg := connector.Config{
 		Server: p.srv.URL, Token: p.crewToken(), AgentName: "echo-e2e", Concurrency: 1,
 		AutoReply: !opts.noAutoReply, Deliver: opts.deliver, Mode: opts.mode, Protect: opts.protect, KitEnv: opts.kitEnv,
-		Cwd: dir, Command: acptest.Command(vars...), SessionsFile: h.sessions,
+		Cwd: dir, Command: acptest.Command(vars...), SessionsFile: h.sessions, Disk: opts.disk,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
@@ -230,7 +231,7 @@ func TestConnectorEchoesAnInboundShip(t *testing.T) {
 	p := startPort(t)
 	d := p.apiDock("echo")
 	p.letIn(d)
-	h := p.startConnector(connectorOpts{caps: "load"})
+	h := p.startConnector(connectorOpts{caps: "load", disk: "Files you keep persist between runs."})
 	p.ready(anyConn)
 
 	in := p.inject(d, "900", "m1", "hello tool: now")
@@ -259,6 +260,11 @@ func TestConnectorEchoesAnInboundShip(t *testing.T) {
 	}
 	if prompt.Session == "" || prompt.Images != 0 {
 		t.Fatalf("prompt record: %+v", prompt)
+	}
+	// A hosted slot's disk note opens the prompt (Config.Disk; a local
+	// connector sets none).
+	if !strings.HasPrefix(prompt.Text, "[seaport] Files you keep persist between runs.\n\n[seaport] New api message(s)") {
+		t.Fatalf("prompt does not open with the disk note:\n%s", prompt.Text)
 	}
 
 	// The tool call of the turn is its summary (ship.turn).
