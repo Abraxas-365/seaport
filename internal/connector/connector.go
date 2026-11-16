@@ -78,6 +78,11 @@ type Config struct {
 	Browser string
 	// State is where the browser's profile lives (hosting.BrowserDir).
 	State string
+	// Disk, when set, is a line of each prompt telling the agent what
+	// outlives this run on its disk (a hosted slot: its environment's
+	// workspace; see diskNote). "" on a person's machine: the disk is
+	// theirs, nothing to tell.
+	Disk string
 }
 
 // Run fetches the agent's kit (profile and secrets), starts the harness
@@ -540,7 +545,7 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 	// What the agent does goes to the port's live view as it happens; the
 	// last of it is sent before the ack or release.
 	f := newFeed(id, send)
-	answer, err := agent.Prompt(ctx, d.Conversation.Thread, j.prelude+Prompt(d, cfg.AutoReply, ok), images, f)
+	answer, err := agent.Prompt(ctx, d.Conversation.Thread, j.prelude+diskLine(cfg.Disk)+Prompt(d, cfg.AutoReply, ok), images, f)
 	handled := j.finish()
 	f.close()
 	if err != nil {
@@ -746,6 +751,15 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 		b.WriteString("\n" + approvalHint)
 	}
 	return b.String()
+}
+
+// diskLine is Config.Disk as a line before the delivery's prompt ("" for
+// none).
+func diskLine(disk string) string {
+	if disk == "" {
+		return ""
+	}
+	return "[seaport] " + disk + "\n\n"
 }
 
 // historyOr is hint when the agent may read the conversation's history

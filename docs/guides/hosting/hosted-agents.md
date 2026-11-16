@@ -194,7 +194,7 @@ Git gets credentials from the port each time it asks: inside the slot, git's cre
 
 The base images ship GitHub's CLI. `gh` in a slot runs it with the App's token for the repository the command is about, so an agent of a GitHub dock can review pull requests, comment on lines and push branches as the App.
 
-`workspace: persistent` keeps `/workspace` in a per-slot volume across restarts. `ephemeral` starts every run clean. The harness's sessions and sign-in live in a separate state volume, so a woken slot resumes its conversations either way.
+`workspace: persistent` (the default) keeps what the agent does on disk between runs of a slot: `/workspace` in a per-slot volume, and the working parts of its home (`~/Downloads`, `~/.cache`, `~/.local`, `~/.npm`, `~/.config`) in the slot's state volume. A report it wrote, a file you sent it, a tool it installed with `pip install --user` are there when the next message wakes the slot. `ephemeral` starts every run clean. Each prompt tells the agent which it is, and that `/tmp` is never kept. The harness's own configuration always comes from the image, and its sessions and sign-in live in the state volume in both modes, so a woken slot resumes its conversations either way. Volumes are per slot: with several slots, a conversation woken on another slot doesn't see the first one's files.
 
 ## Resources
 

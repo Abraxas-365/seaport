@@ -22,7 +22,7 @@ An environment is versioned. Each change to its spec makes a new version, and th
 | `network` | object | empty | | What a slot may reach. See [Network](#network). |
 | `browser` | object | none | | A managed browser for the slots. See [Browser](#browser). |
 | `resources` | object | size `S` | | CPUs and memory of a slot. See [Resources](#resources). |
-| `workspace` | string | `persistent` | `persistent` or `ephemeral` | Whether `/workspace` is kept across restarts. |
+| `workspace` | string | `persistent` | `persistent` or `ephemeral` | Whether what the agent keeps on disk (`/workspace` and the working parts of its home) survives between runs. |
 | `idle_stop` | string | `30m` | `1m` to `168h`, whole minutes, or `0` | How long a slot may stay idle before it stops. |
 
 The port refuses unknown fields and validates the whole spec before it stores anything. Text is trimmed.
@@ -53,8 +53,12 @@ A bash script that runs as root while the derived image is built, with `HOME=/ho
 
 ### workspace
 
-- `persistent`: `/workspace` lives in a volume that survives restarts of the slot.
-- `ephemeral`: it doesn't.
+What the agent does and keeps on disk between runs of a slot (a slot that stops after `idle_stop` and wakes for the next message):
+
+- `persistent` (the default): `/workspace` (repositories, each conversation's worktree, the files the agent creates there, the attachments it is handed) and the working parts of its home (`~/Downloads`, `~/.cache`, `~/.local`, `~/.npm`, `~/.config`) live in the slot's volumes and are there again at the next run. Each prompt tells the agent so.
+- `ephemeral`: every run starts clean; the agent is told nothing persists.
+
+In both, the harness's configuration comes from the image (a new version replaces it), its sessions and sign-in live in the slot's state volume (a woken slot resumes its conversations either way), and `/tmp` is never kept. Volumes are per slot: an agent with several slots doesn't see one slot's files from another.
 
 ### idle_stop
 

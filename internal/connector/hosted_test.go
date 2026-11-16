@@ -156,6 +156,85 @@ func TestLinkState(t *testing.T) {
 	}
 }
 
+// A persistent workspace keeps the agent's own work in its home across
+// restarts: what the image shipped there is moved in once, what the agent
+// wrote through the link is there after a restart; an ephemeral one
+// never calls linkHomeWork, so nothing of it is in the state volume.
+func TestLinkHomeWorkSurvivesARestart(t *testing.T) {
+	write := func(p, v string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(v), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(p string) string {
+		raw, _ := os.ReadFile(p)
+		return string(raw)
+	}
+	cfg := HostedConfig{Harness: hosting.HarnessRness, Home: t.TempDir(), State: t.TempDir()}
+	write(filepath.Join(cfg.Home, ".cache", "pip", "index"), "image")
+	write(filepath.Join(cfg.Home, ".rness", "init.lua"), "harness") // not the agent's work: untouched
+	if err := linkHomeWork(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(filepath.Join(cfg.State, homeWorkDir, ".cache", "pip", "index")); got != "image" {
+		t.Fatalf("image's cache moved in: %q", got)
+	}
+	for _, name := range homeWork {
+		fi, err := os.Lstat(filepath.Join(cfg.Home, name))
+		if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s not linked: %v %v", name, fi, err)
+		}
+	}
+	if fi, err := os.Lstat(filepath.Join(cfg.Home, ".rness")); err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("the harness's dir was touched: %v %v", fi, err)
+	}
+	// The agent downloads and installs through the links.
+	write(filepath.Join(cfg.Home, "Downloads", "report.pdf"), "pdf")
+	write(filepath.Join(cfg.Home, ".local", "bin", "tool"), "#!/bin/sh")
+	// A fresh home (the container restarted): the image's cache is there
+	// again but stays the image's; the agent's files are back.
+	cfg.Home = t.TempDir()
+	write(filepath.Join(cfg.Home, ".cache", "pip", "index"), "image-v2")
+	if err := linkHomeWork(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(filepath.Join(cfg.Home, "Downloads", "report.pdf")); got != "pdf" {
+		t.Fatalf("download after restart: %q", got)
+	}
+	if got := read(filepath.Join(cfg.Home, ".local", "bin", "tool")); got != "#!/bin/sh" {
+		t.Fatalf("installed tool after restart: %q", got)
+	}
+	if got := read(filepath.Join(cfg.Home, ".cache", "pip", "index")); got != "image" {
+		t.Fatalf("the agent's cache was replaced by the image's: %q", got)
+	}
+}
+
+func TestDiskNote(t *testing.T) {
+	for _, c := range []struct {
+		persistent, shared bool
+		want, never        string
+	}{
+		{true, false, "persist between runs", "shared"},
+		{true, true, "shared with this agent's other conversations", "Nothing"},
+		{false, false, "Nothing on disk persists", "shared"},
+	} {
+		got := diskNote(c.persistent, c.shared)
+		if !strings.Contains(got, c.want) || strings.Contains(got, c.never) {
+			t.Fatalf("diskNote(%v, %v) = %q", c.persistent, c.shared, got)
+		}
+	}
+	if got := diskLine(""); got != "" {
+		t.Fatalf("a local connector tells nothing: %q", got)
+	}
+	if got := diskLine(diskNote(true, false)); !strings.HasPrefix(got, "[seaport] ") || !strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("diskLine: %q", got)
+	}
+}
+
 // repo_config ignore keeps the repos' configuration from the harness:
 // rness reads no instruction files, Claude Code only user settings.
 func TestHarnessFollowsRepoConfig(t *testing.T) {
