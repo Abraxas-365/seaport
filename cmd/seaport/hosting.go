@@ -103,7 +103,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", hosting.SlotName(ag.Name, d.Slot), d.Host, d.Count, d.LastSeen.Local().Format("2006-01-02 15:04"))
 		}
 		_ = w.Flush()
-		fmt.Fprintln(stdout, "allow one: add it to the environment's network.egress (seaport env export|apply)")
+		fmt.Fprintln(stdout, "allow one: add it to the environment's network.egress (seaport env export|apply); a host that resolves to a private address stays refused")
 		return nil
 	case "logs":
 		if len(args) < 1 {

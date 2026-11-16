@@ -133,6 +133,9 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 			return nil, errx.Wrap(err, "egress proxy: listen on SEAPORT_EGRESS_ADDR", errx.TypeInternal)
 		}
 		m.egress = hostingegress.New(m.Service, cfg.Tokens, hostingegress.Config{Private: cfg.EgressPrivate, Lookup: cfg.EgressLookup}).Server(cfg.EgressAddr)
+		if cfg.EgressPrivate {
+			slog.Warn("egress proxy: SEAPORT_EGRESS_PRIVATE lets slots reach private addresses (with egress \"*\", every address the port reaches); for local testing only")
+		}
 		u := cfg.EgressURL
 		if u == "" {
 			u = defaultEgressURL(cfg.AgentURL, m.egressL.Addr())

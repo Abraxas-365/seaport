@@ -14,7 +14,7 @@
 
 # rness has no releases: it is built from source at a pinned commit (its
 # repository keeps no Cargo.lock yet, so dependencies resolve at build time).
-ARG RNESS_REF=e2ef4131032f9e0d783c8bf0ba15b5cf575c9bbe
+ARG RNESS_REF=7c5b043fa3293d4ad554060c373492453b2d2582
 # claude-agent-acp's standalone build (it bundles `claude`; no node needed).
 ARG CLAUDE_AGENT_ACP_VERSION=0.102.0
 ARG CLAUDE_AGENT_ACP_SHA256_AMD64=b3f99ebf7580b2eb30d3efb1b42a9a81be5669e7e2a341e6bfed722a8f56eacb

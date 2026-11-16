@@ -228,6 +228,15 @@ func TestPinClaudeSettings(t *testing.T) {
 	if fi, err := os.Stat(filepath.Join(dir, "managed-settings.json")); err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v, %v", fi.Mode(), err)
 	}
+	// No egress proxy: WebFetch keeps its preflight.
+	t.Setenv("HTTPS_PROXY", "")
+	if err := pinClaudeSettings(dir); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(dir, "managed-settings.json"))
+	if strings.Contains(string(raw), "skipWebFetchPreflight") {
+		t.Errorf("preflight skipped without the egress proxy: %s", raw)
+	}
 }
 
 // Repos are cloned once and fetched afterwards (the agent's work stays);

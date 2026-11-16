@@ -657,7 +657,7 @@ net/http mux; only `/healthz` answers 405.
   managed settings (`connector.pinClaudeSettings`, in
   `connector.ClaudeManaged` on the slot's tmpfs, which the base image
   links from `/etc/claude-code`; plus a blank `apiKeyHelper` and
-  `ANTHROPIC_AUTH_TOKEN`, and `skipWebFetchPreflight`: WebFetch's own
+  `ANTHROPIC_AUTH_TOKEN`, and, with `HTTPS_PROXY` set, `skipWebFetchPreflight`: WebFetch's own
   call to `api.anthropic.com` would bypass the gateway and be refused by
   the proxy), so no `settings.json` overrides them. The
   spec's `repo_config: ignore` keeps the repos' configuration out
@@ -676,7 +676,7 @@ net/http mux; only `/healthz` answers 405.
   isn't): slots get `HTTP(S)_PROXY` with `<slot>:<slot token>` and
   `NO_PROXY` for the port; CONNECT and plain http reach only the
   environment's egress plus repo hosts (`Spec.EgressHosts`, cached
-  `EgressCacheFor` per token; `hosting.AnyHost` `*` = any host), never private/loopback/link-local/CGNAT
+  `EgressCacheFor` per token; `hosting.AnyHost` `*` = any host), never private/loopback/link-local/CGNAT/special-purpose (`hostingegress.public`, NAT64/6to4 unwrapped)
   addresses unless `SEAPORT_EGRESS_PRIVATE`; rness's base image hands
   `HTTPS_PROXY` to its web tools as `rness.web.proxy` (`images/rness/seaport.lua`);
   refusals are counted per slot

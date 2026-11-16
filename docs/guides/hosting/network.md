@@ -89,7 +89,7 @@ network:
     - "*"                   # the open web; still no private addresses
 ```
 
-The harnesses' web tools go through the proxy on their own: rness's base image hands it `HTTPS_PROXY` as `rness.web.proxy`, and Claude Code's `WebFetch` skips its preflight call to `api.anthropic.com` (the port turns on `skipWebFetchPreflight` in its managed settings), so the hosts you list are the whole policy.
+The harnesses' web tools go through the proxy on their own: rness's base image always hands it `HTTPS_PROXY` as `rness.web.proxy`, and behind the proxy Claude Code's `WebFetch` skips its preflight call to `api.anthropic.com` (the port turns on `skipWebFetchPreflight` in its managed settings), so the hosts you list are the whole policy. That preflight is also Anthropic's check against known-bad domains. With `*`, an agent that reads untrusted content can be told to send data to any public host, so give `*` only to agents whose inputs you trust, or list hosts.
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
@@ -109,7 +109,7 @@ Set `SEAPORT_RUNTIME_NETWORK=seaport-slots` and attach the Seaport container to 
 
 ### Private addresses
 
-The proxy never connects to loopback, link-local, private or carrier-grade NAT addresses, even for an allowed host. This stops a slot from reaching your internal services through a DNS name that points inside. Set `SEAPORT_EGRESS_PRIVATE=true` only for local testing.
+The proxy never connects to loopback, link-local, private or carrier-grade NAT addresses, or to the other special-purpose ranges (documentation, benchmarking, reserved, and IPv6 forms such as NAT64 and 6to4 that embed one of these), even for an allowed host. This stops a slot from reaching your internal services through a DNS name that points inside. Set `SEAPORT_EGRESS_PRIVATE=true` only for local testing: together with `*` it opens every address the port can reach, cloud metadata endpoints included.
 
 ### What was refused
 
