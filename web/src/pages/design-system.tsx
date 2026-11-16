@@ -23,6 +23,8 @@ import {
   ChatAvatar,
   ChoiceCards,
   Composer,
+  Checklist,
+  ChecklistItem,
   ConfirmAction,
   ConversationRow,
   CountBadge,
@@ -840,6 +842,24 @@ function Feedback() {
         </Card>
         <Card className="py-0">
           <NoAccess what="los tokens de agentes" />
+        </Card>
+        <Card className="py-0">
+          <CardContent className="flex h-full flex-col justify-center gap-3 p-6">
+            <p className="text-sm text-muted-foreground">
+              Una lista de pasos dice qué falta y ofrece la acción que lo resuelve.
+            </p>
+            <Checklist aria-label="Pasos">
+              <ChecklistItem state="done" title="Harness: Claude Code" detail="Entorno de soporte" />
+              <ChecklistItem
+                state="todo"
+                title="Clave del modelo"
+                detail="Un secreto con la clave de API."
+                action={<Button size="sm">Añadir clave</Button>}
+              />
+              <ChecklistItem state="optional" title="Repos" detail="Opcional: los repos con los que trabaja." />
+              <ChecklistItem state="blocked" title="Imagen" detail="Este puerto no construye imágenes." />
+            </Checklist>
+          </CardContent>
         </Card>
         <Card className="py-0">
           <CardContent className="flex h-full flex-col items-start justify-center gap-3 p-6">
