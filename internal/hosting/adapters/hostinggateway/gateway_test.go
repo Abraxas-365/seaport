@@ -111,7 +111,7 @@ func TestGatewaySwapsTheKeyAndMeters(t *testing.T) {
 	s := serve(t, c, func(w http.ResponseWriter, r *http.Request) {
 		got, path = r.Header.Clone(), r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"m","model":"claude-x","usage":{"input_tokens":12,"output_tokens":5,"cache_read_input_tokens":3}}`)
+		_, _ = io.WriteString(w, `{"id":"m","model":"claude-x","usage":{"input_tokens":12,"output_tokens":5,"cache_read_input_tokens":3,"server_tool_use":{"web_search_requests":4}}}`)
 	}, 1)
 	resp, body := call(t, s, "/gateway/anthropic/v1/messages", `{"model":"claude-x"}`)
 	if resp.StatusCode != 200 || !strings.Contains(body, `"claude-x"`) {
@@ -122,6 +122,7 @@ func TestGatewaySwapsTheKeyAndMeters(t *testing.T) {
 	}
 	u := c.recorded()
 	if len(u) != 1 || u[0].Model != "claude-x" || u[0].Input != 12 || u[0].Output != 5 || u[0].CacheRead != 3 ||
+		u[0].WebSearch != 4 || u[0].WebFetch != 0 ||
 		u[0].Agent != agentID || u[0].Provider != hosting.ProviderAnthropic {
 		t.Fatalf("usage: %+v", u)
 	}
@@ -135,8 +136,8 @@ func TestGatewayMetersStreams(t *testing.T) {
 		for _, ev := range []string{
 			`event: message_start` + "\n" + `data: {"type":"message_start","message":{"model":"claude-s","usage":{"input_tokens":40,"output_tokens":1,"cache_creation_input_tokens":7}}}`,
 			`event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","delta":{"text":"hi"}}`,
-			`event: message_delta` + "\n" + `data: {"type":"message_delta","usage":{"output_tokens":9}}`,
-			`event: message_delta` + "\n" + `data: {"type":"message_delta","usage":{"output_tokens":21}}`,
+			`event: message_delta` + "\n" + `data: {"type":"message_delta","usage":{"output_tokens":9,"server_tool_use":{"web_search_requests":1}}}`,
+			`event: message_delta` + "\n" + `data: {"type":"message_delta","usage":{"output_tokens":21,"server_tool_use":{"web_search_requests":2,"web_fetch_requests":1}}}`,
 			`event: message_stop` + "\n" + `data: {"type":"message_stop"}`,
 		} {
 			_, _ = io.WriteString(w, ev+"\n\n")
@@ -148,7 +149,8 @@ func TestGatewayMetersStreams(t *testing.T) {
 		t.Fatalf("stream: %d %s", resp.StatusCode, body)
 	}
 	u := c.recorded()
-	if len(u) != 1 || u[0].Model != "claude-s" || u[0].Input != 40 || u[0].Output != 21 || u[0].CacheWrite != 7 {
+	if len(u) != 1 || u[0].Model != "claude-s" || u[0].Input != 40 || u[0].Output != 21 || u[0].CacheWrite != 7 ||
+		u[0].WebSearch != 2 || u[0].WebFetch != 1 {
 		t.Fatalf("usage: %+v", u)
 	}
 }

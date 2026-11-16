@@ -1450,6 +1450,9 @@ export interface UsageDay {
   output_tokens: number
   cache_write_tokens: number
   cache_read_tokens: number
+  /** Server tool calls (billed per call, on top of tokens). */
+  web_search_requests: number
+  web_fetch_requests: number
 }
 
 /** Vault is a named set of entries of an organization. */

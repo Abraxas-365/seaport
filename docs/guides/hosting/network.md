@@ -41,15 +41,15 @@ Anything else is a 404. Errors come back in the provider's error shape.
 
 ### Usage
 
-The gateway counts tokens of every successful model call (Messages; Chat Completions, Responses and embeddings), per day (UTC), provider, model and agent. A streamed Chat Completions call is metered when it asks for usage (`stream_options.include_usage`, which the OpenAI SDKs do by default; Responses streams always carry it):
+The gateway counts tokens of every successful model call (Messages; Chat Completions, Responses and embeddings), per day (UTC), provider, model and agent. A streamed Chat Completions call is metered when it asks for usage (`stream_options.include_usage`, which the OpenAI SDKs do by default; Responses streams always carry it). It also counts the server tools Anthropic runs and bills per call on top of tokens (`usage.server_tool_use`): web searches (Claude Code's `WebSearch`) and web fetches:
 
 ```sh
 seaport agents usage pm -days 7
 ```
 
 ```text
-DAY         PROVIDER   MODEL              REQUESTS  INPUT  OUTPUT  CACHE WRITE  CACHE READ
-2026-01-05  anthropic  claude-example     12        41230  5120    0            38000
+DAY         PROVIDER   MODEL              REQUESTS  INPUT  OUTPUT  CACHE WRITE  CACHE READ  WEB SEARCH  WEB FETCH
+2026-01-05  anthropic  claude-example     12        41230  5120    0            38000       3           0
 ```
 
 The same data is at `GET /api/v1/agents/{id}/usage?days=N` (30 days by default, needs `agents:read`) and in the web app, in **Uso de modelos** on the agent's page.

@@ -583,6 +583,8 @@ const sampleUsage: UsageDay[] = Array.from({ length: 18 }, (_, i) => ({
   output_tokens: 6_000 + ((i * 1_733) % 12_000),
   cache_write_tokens: 8_000,
   cache_read_tokens: 120_000 + ((i * 17_011) % 200_000),
+  web_search_requests: i % 3,
+  web_fetch_requests: i % 5 === 0 ? 1 : 0,
 }))
 
 function Domain() {

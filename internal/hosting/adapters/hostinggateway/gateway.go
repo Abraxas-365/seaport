@@ -366,6 +366,12 @@ type usage struct {
 	Output     *int64 `json:"output_tokens"`
 	CacheWrite *int64 `json:"cache_creation_input_tokens"`
 	CacheRead  *int64 `json:"cache_read_input_tokens"`
+	// Server tools Anthropic runs and bills per call (web search, web
+	// fetch); message_delta carries the stream's totals.
+	ServerTools *struct {
+		WebSearch *int64 `json:"web_search_requests"`
+		WebFetch  *int64 `json:"web_fetch_requests"`
+	} `json:"server_tool_use"`
 }
 
 // add sets u's counts on the total: message_delta's counts are
@@ -380,6 +386,10 @@ func (u usage) add(t *hosting.Usage, delta bool) {
 	set(&t.Output, u.Output)
 	set(&t.CacheWrite, u.CacheWrite)
 	set(&t.CacheRead, u.CacheRead)
+	if u.ServerTools != nil {
+		set(&t.WebSearch, u.ServerTools.WebSearch)
+		set(&t.WebFetch, u.ServerTools.WebFetch)
+	}
 }
 
 // writeErrx answers a typed error in the provider's error shape, so the

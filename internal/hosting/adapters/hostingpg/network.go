@@ -12,16 +12,19 @@ import (
 
 func (r *Repository) AddUsage(ctx context.Context, org identity.OrganizationID, u hosting.Usage) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO model_usage (organization_id, agent_id, day, provider, model,
-			requests, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
-		SELECT $1, $2, (now() AT TIME ZONE 'UTC')::date, $3, $4, 1, $5, $6, $7, $8
+			requests, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
+			web_search_requests, web_fetch_requests)
+		SELECT $1, $2, (now() AT TIME ZONE 'UTC')::date, $3, $4, 1, $5, $6, $7, $8, $9, $10
 		WHERE EXISTS (SELECT 1 FROM agents WHERE organization_id = $1 AND id = $2)
 		ON CONFLICT (organization_id, agent_id, day, provider, model) DO UPDATE SET
 			requests = model_usage.requests + 1,
 			input_tokens = model_usage.input_tokens + EXCLUDED.input_tokens,
 			output_tokens = model_usage.output_tokens + EXCLUDED.output_tokens,
 			cache_write_tokens = model_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,
-			cache_read_tokens = model_usage.cache_read_tokens + EXCLUDED.cache_read_tokens`,
-		org, u.Agent, u.Provider, u.Model, u.Input, u.Output, u.CacheWrite, u.CacheRead)
+			cache_read_tokens = model_usage.cache_read_tokens + EXCLUDED.cache_read_tokens,
+			web_search_requests = model_usage.web_search_requests + EXCLUDED.web_search_requests,
+			web_fetch_requests = model_usage.web_fetch_requests + EXCLUDED.web_fetch_requests`,
+		org, u.Agent, u.Provider, u.Model, u.Input, u.Output, u.CacheWrite, u.CacheRead, u.WebSearch, u.WebFetch)
 	return pgerr.Map(err, "add model usage")
 }
 
@@ -32,7 +35,7 @@ func (r *Repository) Usage(ctx context.Context, org identity.OrganizationID, age
 	// local zone, so the CLI and the web (which format it as a date) showed
 	// the day before on a port west of UTC.
 	err := r.db.SelectContext(ctx, &out, `SELECT (day::timestamp AT TIME ZONE 'UTC') AS day, provider, model, requests, input_tokens,
-			output_tokens, cache_write_tokens, cache_read_tokens
+			output_tokens, cache_write_tokens, cache_read_tokens, web_search_requests, web_fetch_requests
 		FROM model_usage
 		WHERE organization_id = $1 AND agent_id = $2 AND day > (now() AT TIME ZONE 'UTC')::date - $3::int
 		ORDER BY day DESC, provider, model`, org, agentID, days)

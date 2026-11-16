@@ -87,6 +87,9 @@ type Usage struct {
 	Model    string
 	// Tokens: input (uncached), output, cache writes and reads.
 	Input, Output, CacheWrite, CacheRead int64
+	// Server tool calls the provider ran and bills per call (Anthropic's
+	// usage.server_tool_use: web search, web fetch).
+	WebSearch, WebFetch int64
 }
 
 func (u Usage) Validate() error {
@@ -102,12 +105,16 @@ func (u Usage) Validate() error {
 	if u.Input < 0 || u.Output < 0 || u.CacheWrite < 0 || u.CacheRead < 0 {
 		return errx.InvalidField("usage", "token counts can't be negative")
 	}
+	if u.WebSearch < 0 || u.WebFetch < 0 {
+		return errx.InvalidField("usage", "server tool counts can't be negative")
+	}
 	return nil
 }
 
 // Empty: nothing to record.
 func (u Usage) Empty() bool {
-	return u.Input == 0 && u.Output == 0 && u.CacheWrite == 0 && u.CacheRead == 0
+	return u.Input == 0 && u.Output == 0 && u.CacheWrite == 0 && u.CacheRead == 0 &&
+		u.WebSearch == 0 && u.WebFetch == 0
 }
 
 // UsageDay is an agent's model use of one day (UTC) with one model.
@@ -120,6 +127,9 @@ type UsageDay struct {
 	Output     int64     `db:"output_tokens" json:"output_tokens"`
 	CacheWrite int64     `db:"cache_write_tokens" json:"cache_write_tokens"`
 	CacheRead  int64     `db:"cache_read_tokens" json:"cache_read_tokens"`
+	// Server tool calls (billed per call, on top of tokens).
+	WebSearch int64 `db:"web_search_requests" json:"web_search_requests"`
+	WebFetch  int64 `db:"web_fetch_requests" json:"web_fetch_requests"`
 }
 
 // UsageQuery picks an agent's usage days.

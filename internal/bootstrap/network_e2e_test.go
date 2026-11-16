@@ -38,7 +38,7 @@ func TestHostedNetwork(t *testing.T) {
 			return
 		}
 		seenKey = r.Header.Get("X-Api-Key")
-		_, _ = io.WriteString(w, `{"model":"claude-test","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":5}}`)
+		_, _ = io.WriteString(w, `{"model":"claude-test","usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":5,"server_tool_use":{"web_search_requests":3,"web_fetch_requests":1}}}`)
 	}))
 	defer provider.Close()
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +204,8 @@ func TestHostedNetwork(t *testing.T) {
 	for _, u := range usage.Days {
 		byProvider[u.Provider] = u
 	}
-	if u := byProvider["anthropic"]; u.Model != "claude-test" || u.Requests != 2 || u.Input != 200 || u.Output != 40 || u.CacheRead != 10 {
+	if u := byProvider["anthropic"]; u.Model != "claude-test" || u.Requests != 2 || u.Input != 200 || u.Output != 40 || u.CacheRead != 10 ||
+		u.WebSearch != 6 || u.WebFetch != 2 {
 		t.Fatalf("anthropic usage: %+v", u)
 	}
 	if u := byProvider["groq"]; u.Model != "groq-test" || u.Requests != 1 || u.Input != 30 || u.Output != 6 {
