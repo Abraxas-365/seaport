@@ -34,7 +34,7 @@ import {
   useUsage,
 } from "@/lib/hooks"
 import { formatRelative } from "@/lib/format"
-import { specSecrets } from "@/pages/environment-secrets"
+import { signsIn as specSignsIn, specSecrets } from "@/pages/environment-secrets"
 import { Perm } from "@/lib/permissions.gen"
 import type { Environment, Hosted, LibraryAgent, Slot } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -266,8 +266,9 @@ function Slots({
   const now = useNow(10_000)
   const action = useSlotAction(agent.id)
   const busy = (s: Slot) => action.isPending && action.variables?.slot === s.index
-  // Claude Code with no model key: each slot signs in to a subscription.
-  const signsIn = env?.spec.harness === "claude-code" && !env.spec.models?.anthropic
+  // No model key (Claude Code: no Anthropic key): each slot signs in to a
+  // Claude subscription.
+  const signsIn = !!env && specSignsIn(env.spec)
   return (
     <ul className="divide-y rounded-lg border">
       {hosted.slots.map((s) => {
@@ -319,8 +320,8 @@ function SlotAccountBadge({ agent, slot }: { agent: LibraryAgent; slot: Slot }) 
 const live = (state: string | undefined) => state === "starting" || state === "waiting" || state === "verifying"
 
 /**
- * Signs a running Claude Code slot in to a Claude subscription
- * (experimental): Claude Code's own login runs in the slot; the person
+ * Signs a running slot (Claude Code or rness) in to a Claude subscription
+ * (experimental): the harness's own login runs in the slot; the person
  * opens its URL, signs in and pastes the code the page shows.
  */
 function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
@@ -365,7 +366,7 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
           <ErrorState error={start.error} onRetry={() => start.mutate()} />
         ) : (!l || state === "starting" || start.isPending) ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner /> Iniciando el login de Claude Code en la instancia…
+            <Spinner /> Iniciando el login en la instancia…
           </p>
         ) : state === "waiting" ? (
           <form

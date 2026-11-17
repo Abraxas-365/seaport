@@ -32,7 +32,7 @@ The port refuses unknown fields and validates the whole spec before it stores an
 - `rness`: the rness agent harness.
 - `claude-code`: Claude Code.
 
-A `claude-code` environment with no `models.anthropic` signs its slots in to a subscription. This is experimental; see [Claude subscriptions](../guides/hosting/claude-subscriptions.md).
+A `claude-code` environment with no `models.anthropic`, or an `rness` one with no `models`, signs its slots in to a Claude subscription. This is experimental; see [Claude subscriptions](../guides/hosting/claude-subscriptions.md).
 
 ### image
 

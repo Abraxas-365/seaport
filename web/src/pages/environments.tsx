@@ -141,13 +141,8 @@ export function readiness(
   runtime: boolean
 ): { tone: Tone; label: string; detail?: string } {
   const models = env.spec.models ?? {}
+  // No model key is not a gap: the slots sign in to a Claude account.
   const named = Object.values(models).filter(Boolean)
-  if (named.length === 0 && env.spec.harness !== "claude-code")
-    return {
-      tone: "warning",
-      label: "Falta la clave del modelo",
-      detail: "Sin ella ningún agente puede trabajar aquí.",
-    }
   const missing = secrets && named.map((v) => v.slice(2, -1)).find((n) => !secrets.includes(n))
   if (missing)
     return {
@@ -299,8 +294,8 @@ function NewEnvironmentDialog() {
                   value={harness}
                   onChange={(v) => setHarness(v as EnvSpec["harness"])}
                   options={[
-                    { value: "rness", label: "rness", description: "El harness de Seaport; modelos por el gateway." },
-                    { value: "claude-code", label: "Claude Code", description: "Con clave de API por el gateway." },
+                    { value: "rness", label: "rness", description: "El harness de Seaport; modelos por el gateway o una cuenta de Claude." },
+                    { value: "claude-code", label: "Claude Code", description: "Con clave de API por el gateway o una cuenta de Claude." },
                   ]}
                 />
               </Field>
@@ -379,7 +374,7 @@ function NewEnvironmentDialog() {
               <FieldDescription>
                 {harness === "claude-code"
                   ? "Sin clave, cada instancia inicia sesión con una cuenta de Claude desde la página del agente (experimental)."
-                  : "Sin clave el entorno queda creado; su página dice lo que falta y la clave se añade ahí en un paso."}
+                  : "Sin clave, cada instancia inicia sesión con una cuenta de Claude desde la página del agente (experimental) y usa modelos de Anthropic; la clave se puede añadir después."}
               </FieldDescription>
             </FieldGroup>
             <DialogFooter className="sm:justify-between">

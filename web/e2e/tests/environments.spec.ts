@@ -37,15 +37,16 @@ test("a new environment takes its model key on the way, or says what is left whe
   expect(keyed.version).toBe(2)
   expect(keyed.spec.models).toEqual({ openai: "${OPENAI_KEY}" })
 
-  // Without: the environment exists at v1 and the list says the key is missing.
+  // Without: the environment exists at v1; its slots will sign in to a Claude account.
   const later = unique("later")
   await pages.environments.open()
   await pages.environments.create(later, "En blanco")
   await expect(page.getByText(later, { exact: true }).first()).toBeVisible()
   await expect(page.getByText("Añadir clave de Anthropic")).toBeVisible()
+  await expect(page.getByText(/cada instancia inicia sesión con una cuenta de Claude/).first()).toBeVisible()
   await pages.environments.open()
   const row = page.getByRole("link", { name: new RegExp(`^${later} `) })
-  await expect(row).toContainText("Falta la clave del modelo")
+  await expect(row).toContainText("Sin agentes")
   await expect(page.getByRole("link", { name: new RegExp(`^${withKey} `) })).toContainText("Sin agentes")
 })
 

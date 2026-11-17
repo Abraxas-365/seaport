@@ -61,6 +61,17 @@ export function specSecrets(spec: EnvSpec): Map<string, string[]> {
   return out
 }
 
+/**
+ * Whether the environment's slots sign in to a Claude subscription
+ * instead of using a model key (hosting Spec.SignsIn): Claude Code with
+ * no Anthropic key, rness with no model key at all.
+ */
+export function signsIn(spec: Pick<EnvSpec, "harness" | "models">): boolean {
+  const named = Object.entries(spec.models ?? {}).filter(([, v]) => v)
+  if (spec.harness === "claude-code") return !named.some(([p]) => p === "anthropic")
+  return named.length === 0
+}
+
 /** The slot's own variables: the spec's env may not set them. */
 const slotVars = new Set([
   "SEAPORT_GATEWAY",
@@ -258,8 +269,10 @@ export function ModelFields({
       <FieldDescription>
         {bad
           ? "Cada clave nombra un secreto del entorno, como ${NOMBRE}."
-          : !models.anthropic && s.harness === "claude-code"
-            ? "Sin clave de Anthropic, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente."
+          : signsIn(s)
+            ? s.harness === "claude-code"
+              ? "Sin clave de Anthropic, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente."
+              : "Sin claves, cada instancia se conecta a una cuenta de Claude (suscripción, experimental) desde la página del agente y usa modelos de Anthropic."
             : "La clave pasa por el gateway del puerto: nunca entra al contenedor y el uso queda medido por agente."}
       </FieldDescription>
     </div>

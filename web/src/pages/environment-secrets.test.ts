@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { envProblem, envText, parseEnv, specSecrets } from "./environment-secrets"
+import { envProblem, envText, parseEnv, signsIn, specSecrets } from "./environment-secrets"
 import type { EnvSpec } from "@/lib/types"
 
 describe("parseEnv / envText", () => {
@@ -46,5 +46,16 @@ describe("specSecrets", () => {
     expect([...named.keys()].sort()).toEqual(["ANTHROPIC_KEY", "GIT_TOKEN", "OPENAI_KEY"])
     expect(named.get("GIT_TOKEN")).toEqual(["repo https://example.com/org/repo.git"])
     expect(named.get("OPENAI_KEY")).toEqual(["modelo openai"])
+  })
+})
+
+describe("signsIn", () => {
+  it("follows hosting Spec.SignsIn: Claude Code without an Anthropic key, rness without any key", () => {
+    expect(signsIn({ harness: "claude-code", models: {} })).toBe(true)
+    expect(signsIn({ harness: "claude-code", models: { openai: "${OPENAI_KEY}" } })).toBe(true)
+    expect(signsIn({ harness: "claude-code", models: { anthropic: "${ANTHROPIC_KEY}" } })).toBe(false)
+    expect(signsIn({ harness: "rness", models: {} })).toBe(true)
+    expect(signsIn({ harness: "rness", models: { anthropic: "" } })).toBe(true)
+    expect(signsIn({ harness: "rness", models: { groq: "${GROQ_KEY}" } })).toBe(false)
   })
 })

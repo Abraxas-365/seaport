@@ -65,7 +65,7 @@ Claude Code calls Anthropic only, so only `models.anthropic` matters to it. rnes
 If none of these applies, rness won't start, and the slot's log names the setting to add. A model name without a provider, such as `claude-opus-5-5`, is picked among the harness's own models once the session is open, along with the effort. rness lists only the Anthropic models of its default config there. So give a model of any other provider as `<provider>/<model>`.
 
 > [!NOTE]
-> This applies to environments with `models`. A `claude-code` environment without `models.anthropic` signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
+> This applies to environments with `models`. A `claude-code` environment without `models.anthropic`, or an `rness` one without `models`, signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
 
 ## Egress proxy
 

@@ -48,8 +48,8 @@ local protocols = {
 
 -- The ones this slot's environment names (SEAPORT_GATEWAY_PROVIDERS,
 -- sorted); an older port sets only Anthropic's variables. With no gateway
--- (an environment without `models`: a key in an env secret, say) the
--- providers stay as declared and sessions start on Anthropic.
+-- (an environment without `models`) sessions start on Anthropic, with a
+-- key in an env secret (ANTHROPIC_API_KEY) or else the slot's sign-in.
 local gateway = (os.getenv("SEAPORT_GATEWAY") or ""):gsub("/+$", "")
 local served, names = {}, {}
 local list = gateway ~= "" and os.getenv("SEAPORT_GATEWAY_PROVIDERS") or "anthropic"
@@ -83,6 +83,20 @@ if gateway ~= "" then
         rness.log.warn("seaport: provider " .. name .. " goes through the port's gateway; this registration is ignored")
       end
       return
+    end
+    return register(name, spec)
+  end
+elseif (os.getenv("ANTHROPIC_API_KEY") or "") == "" then
+  -- No gateway and no key: the slot signs in to the person's Claude
+  -- subscription (`seaport agents login`, the web's "Conectar cuenta"),
+  -- which rness keeps as its "anthropic" OAuth tokens. The flavor (or a
+  -- home) declares Anthropic with the key's variable, which rness never
+  -- swaps for a sign-in: such a registration uses the sign-in instead.
+  local register = rness.providers.register
+  rness.providers.register = function(name, spec)
+    if name == "anthropic" and type(spec) == "table" and type(spec.auth) == "table"
+      and spec.auth.env == "ANTHROPIC_API_KEY" then
+      spec.auth = { oauth = "anthropic" }
     end
     return register(name, spec)
   end

@@ -35,7 +35,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Keep model keys out of containers and limit their network | [Model gateway and egress](guides/hosting/network.md) |
 | Decide where a hosted agent's variables and secrets live | [Variables and secrets](guides/hosting/secrets.md) |
 | Ship your own `~/.rness` or `~/.claude` to hosted agents | [Harness homes](guides/hosting/harness-homes.md) |
-| Run hosted Claude Code on a Claude subscription | [Claude subscriptions](guides/hosting/claude-subscriptions.md) |
+| Run hosted agents on a Claude subscription | [Claude subscriptions](guides/hosting/claude-subscriptions.md) |
 | Give a hosted agent a browser and sign in to sites for it | [Browser](guides/hosting/browser.md) |
 | Deploy on a server with HTTPS | [Deploy on one server](guides/operations/deploy.md) |
 | Serve many organizations | [IAM mode](guides/operations/iam-mode.md) |

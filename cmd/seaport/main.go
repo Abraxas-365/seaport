@@ -115,7 +115,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents logs <agent>[-<n>] [-lines N]   the tail of a running slot's output
   seaport agents usage <agent> [-days N]   model tokens it used through the port's gateway
   seaport agents egress <agent>         hosts the egress proxy refused its slots
-  seaport agents login <agent>[-<n>]    sign a Claude Code slot in to a subscription (experimental)
+  seaport agents login <agent>[-<n>]    sign a slot in to a Claude subscription (experimental)
   seaport agents account <agent>[-<n>]  how a running slot's harness is signed in
   seaport crew tokens [list]            agent credentials of your organization
   seaport crew tokens create <name> -agent <agent> [-expires 720h]   prints the token once

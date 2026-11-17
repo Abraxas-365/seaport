@@ -692,22 +692,32 @@ net/http mux; only `/healthz` answers 405.
   `GET /api/v1/agents/{id}/hosting/egress`).
 - Subscription sign-in (experimental; `hosting/login.go`, migration
   00019, `hostingsvc/logins.go`): a `claude-code` spec with no
-  `models.anthropic` (`Spec.SignsIn`) adds the subscription hosts to the
+  `models.anthropic`, or an `rness` spec with no `models` at all
+  (`Spec.SignsIn`), adds the subscription hosts to the
   egress and `Workspace.SignIn`, so `agent-run` waits (taking no work)
-  until `claude auth status` says logged in, and restarts the harness on
+  until the harness says logged in (`connector.harnessAccount`: `claude
+  auth status`; `rness auth status --json`, counting only Anthropic: its
+  `ANTHROPIC_API_KEY` env, else unexpired-or-refreshable `anthropic`
+  OAuth tokens), and restarts the harness on
   each new sign-in mark. `StartLogin` (one live per slot in `slot_logins`,
   keyed by the slot's run) runs `seaport agent-login` in the slot through
   `Runtime.Exec` (uid 1000) in a background relay of the process that
   started it: it takes only a Claude OAuth URL from the output
   (`LoginURL`: https, Anthropic's hosts, `/oauth/authorize`), feeds the
   code posted to `slot_logins` (`TakeLoginCode` clears it at once) to
-  claude's stdin, beats every `LoginBeat` (a sign-in with no beat for
+  the harness's stdin (`claude auth login --claudeai`; `rness auth login
+  --provider anthropic --manual`, which fails on a wrong code since stdin
+  isn't a terminal), beats every `LoginBeat` (a sign-in with no beat for
   `LoginStale` reads as failed) and ends within `LoginTimeout`. Tokens
-  stay in the slot's state volume (`~/.claude` and `~/.claude.json`
-  linked there); the port never sees them, and the code is not a secret
-  opener (single use, bound to the PKCE of that login). `Account` asks
-  the harness (`agent-account`). rness refuses (no headless sign-in);
-  the fallback is an env secret `CLAUDE_CODE_OAUTH_TOKEN`.
+  stay in the slot's state volume (`~/.claude` and `~/.claude.json`, or
+  `~/.rness/credentials.json`, linked there); the port never sees them,
+  and the code is not a secret opener (single use, bound to the PKCE of
+  that login). `Account` asks the harness (`agent-account`). Without a
+  gateway and without `ANTHROPIC_API_KEY`, `images/rness/seaport.lua`
+  rewrites an `anthropic` registration with `auth = {env =
+  "ANTHROPIC_API_KEY"}` to `auth = {oauth = "anthropic"}` (rness never
+  swaps an env-declared key for stored tokens). Fallbacks: env secret
+  `CLAUDE_CODE_OAUTH_TOKEN` (Claude Code), `ANTHROPIC_API_KEY` (rness).
 - Managed browser (`hosting/browser.go`, migration 00036, plan
   `~/.rness/plans/puerto/browser-login.md`): two switches. The environment's
   `browser: {engine: chromium}` (`Spec.Browser`, the only engine) makes the

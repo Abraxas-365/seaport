@@ -212,7 +212,8 @@ function SetupCard({
   const models = env.spec.models ?? {}
   const anthropic = providers[0]
   const modelNamed = Object.values(models).some(Boolean)
-  const keyState: ChecklistState = modelNamed ? "done" : env.spec.harness === "claude-code" ? "optional" : "todo"
+  // No model key: every harness signs its slots in to a Claude account instead.
+  const keyState: ChecklistState = modelNamed ? "done" : "optional"
   const anthropicKey = models.anthropic ? models.anthropic.slice(2, -1) : ""
   const built = build?.state === "ready"
   const buildState: ChecklistState = built
@@ -223,7 +224,7 @@ function SetupCard({
         : "optional"
       : "blocked"
   const agentsState: ChecklistState = hosted.length > 0 ? "done" : "todo"
-  const ready = keyState !== "todo" && agentsState === "done"
+  const ready = agentsState === "done"
   const [open, setOpen] = React.useState<boolean | null>(null)
   const show = open ?? !ready
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -268,7 +269,7 @@ function SetupCard({
                       .join(" · ")
                   : env.spec.harness === "claude-code"
                     ? "Sin clave, cada instancia inicia sesión con una cuenta de Claude desde la página del agente (experimental)."
-                    : "Un secreto con la clave de API; el modelo pasa por el gateway del puerto."
+                    : "Sin clave, cada instancia inicia sesión con una cuenta de Claude desde la página del agente (experimental) y usa modelos de Anthropic. Con clave, el modelo pasa por el gateway del puerto."
               }
               action={
                 write &&

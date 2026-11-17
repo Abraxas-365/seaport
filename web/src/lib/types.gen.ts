@@ -1297,8 +1297,8 @@ export interface SlotAccount {
   logged_in: boolean
   /**
    * Method: claude.ai (a subscription), oauth_token
-   * (CLAUDE_CODE_OAUTH_TOKEN), api_key (the gateway's or the kit's key),
-   * none.
+   * (CLAUDE_CODE_OAUTH_TOKEN), api_key (the gateway's or the kit's key,
+   * or rness's ANTHROPIC_API_KEY env secret), none.
    */
   method: string
   subscription?: string

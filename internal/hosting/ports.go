@@ -79,8 +79,9 @@ type Commands interface {
 	RecordDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
 
 	// StartLogin starts signing a running slot's harness in to the
-	// person's subscription (experimental; Claude Code only, Business
-	// otherwise): the harness's login runs in the slot's container,
+	// person's subscription (experimental; Claude Code and rness when
+	// Spec.SignsIn, Business otherwise): the harness's login runs in the
+	// slot's container,
 	// relayed by this process, and the answer is the sign-in (poll Login
 	// for its URL). One already going for the slot's run is answered as
 	// it is.

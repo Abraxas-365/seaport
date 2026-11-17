@@ -141,7 +141,7 @@ These commands need `SEAPORT_RUNTIME=docker` on the port for anything that build
 | `seaport agents logs <agent>[-<n>] [-lines N]` | The tail of a running slot's output; `-lines` defaults to 300, at most 2000. |
 | `seaport agents usage <agent> [-days N]` | Model tokens and web search/fetch calls the agent used through the port's gateway, by day and model; `-days` defaults to 30. |
 | `seaport agents egress <agent>` | Hosts the egress proxy refused its slots. |
-| `seaport agents login <agent>[-<n>]` | Signs a running Claude Code slot in to a subscription: prints a URL, reads the code you paste, waits for the result. Experimental; see [Claude subscriptions](../guides/hosting/claude-subscriptions.md). |
+| `seaport agents login <agent>[-<n>]` | Signs a running Claude Code or rness slot in to a Claude subscription: prints a URL, reads the code you paste, waits for the result. Experimental; see [Claude subscriptions](../guides/hosting/claude-subscriptions.md). |
 | `seaport agents account <agent>[-<n>]` | How a running slot's harness is signed in. |
 
 `<agent>-<n>` names slot `n` of an agent; an agent whose own name looks like that wins.

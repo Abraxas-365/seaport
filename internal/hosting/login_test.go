@@ -40,6 +40,12 @@ func TestLoginFailure(t *testing.T) {
 	if got := LoginFailure("visit: https://claude.com/cai/oauth/authorize?x=1\nseaport: sign in\n", 2); got != "the sign-in ended without an answer (exit 2)" {
 		t.Fatalf("no answer: %q", got)
 	}
+	// rness's manual login: its "Error: oauth: …" line, not the wrapper's.
+	rness := "Open this address in any browser and sign in with your Claude account:\n\n  https://claude.com/cai/oauth/authorize?code=true&x=1\n\n" +
+		"Paste the code the page shows here > Error: oauth: that code is from another sign-in: paste the one this sign-in's page shows\nseaport: sign in: exit status 1\n"
+	if got := LoginFailure(rness, 1); got != "that code is from another sign-in: paste the one this sign-in's page shows" {
+		t.Fatalf("rness failure: %q", got)
+	}
 }
 
 // A subscription slot (Claude Code, no model key) reaches its provider
@@ -54,8 +60,12 @@ func TestSubscriptionEgress(t *testing.T) {
 	if keyed.SignsIn() || !slices.Equal(keyed.EgressHosts(), []string{"pypi.org"}) {
 		t.Fatalf("keyed egress: %v", keyed.EgressHosts())
 	}
-	if (Spec{Harness: HarnessRness}).SignsIn() {
-		t.Fatal("rness signs in")
+	if (Spec{Harness: HarnessRness, Models: Models{"groq": "${GROQ_KEY}"}}).SignsIn() {
+		t.Fatal("an rness environment with a model key signs in")
+	}
+	rness := Spec{Harness: HarnessRness, Network: Network{Egress: []string{"pypi.org"}}}
+	if !rness.SignsIn() || !slices.Equal(rness.EgressHosts(), []string{"pypi.org", "api.anthropic.com", "platform.claude.com"}) {
+		t.Fatalf("rness subscription egress: %v", rness.EgressHosts())
 	}
 	if err := (LoginCode{Agent: identity.NewAgentID(), Index: 1, Code: "abc#def"}).Validate(); err != nil {
 		t.Fatalf("code: %v", err)

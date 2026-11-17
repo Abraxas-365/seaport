@@ -63,8 +63,10 @@ func (s *Service) signsIn(ctx context.Context, org identity.OrganizationID, inpu
 		return err
 	}
 	switch {
-	case env.Spec.Harness != hosting.HarnessClaudeCode:
-		return errx.Business("signing in from Seaport works with Claude Code only for now; " + env.Spec.Harness + " uses the environment's model key")
+	case env.Spec.Harness != hosting.HarnessClaudeCode && env.Spec.Harness != hosting.HarnessRness:
+		return errx.Business("signing in from Seaport works with Claude Code and rness; " + env.Spec.Harness + " uses the environment's model key")
+	case env.Spec.Harness == hosting.HarnessRness && !env.Spec.SignsIn():
+		return errx.Business("the environment gives its agents model keys (models), served by the port's gateway: remove them to sign in")
 	case !env.Spec.SignsIn():
 		return errx.Business("the environment gives its agents an API key (models.anthropic), which wins over a subscription: remove it to sign in")
 	}
