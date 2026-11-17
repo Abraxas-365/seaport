@@ -119,6 +119,9 @@ type conn struct {
 	profile     int
 	wake        chan struct{}
 	send        chan crew.Frame
+	// workers are the claimer and the lease keeper: drop waits for them,
+	// so a claim committing as the connection closes is released too.
+	workers sync.WaitGroup
 
 	mu sync.Mutex
 	// draining: the connector asked for no new deliveries (it restarts
@@ -800,8 +803,9 @@ func (h *Hub) run(a *admitted, raw *websocket.Conn) {
 
 	go c.writer(ctx, cancel)
 	c.send <- crew.Frame{Type: crew.FrameWelcome, MCPURL: h.mcpURL}
-	go h.claimer(ctx, c)
-	go h.leaseKeeper(ctx, c)
+	c.workers.Add(2)
+	go func() { defer c.workers.Done(); h.claimer(ctx, c) }()
+	go func() { defer c.workers.Done(); h.leaseKeeper(ctx, c) }()
 	h.reader(ctx, c)
 }
 
@@ -1026,6 +1030,12 @@ func (h *Hub) drop(c *conn) {
 	delete(h.conns, c)
 	h.mu.Unlock()
 	c.ws.closeWith(websocket.CloseNormalClosure, "")
+	// Stop the claimer first and wait for it: a claim it is committing
+	// right now must land before the releases below, or its ships stay
+	// claimed by a gone session (and their thread blocked) until the lease
+	// runs out. Its calls are bounded by opTimeout and the cancel.
+	c.cancel()
+	c.workers.Wait()
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 	for _, id := range c.deliveries() {

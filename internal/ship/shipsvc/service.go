@@ -22,6 +22,9 @@ import (
 // sendTimeout bounds one outbound send through a dock.
 const sendTimeout = 90 * time.Second
 
+// releaseTimeout bounds giving back a claim that couldn't be delivered.
+const releaseTimeout = 10 * time.Second
+
 type Deps struct {
 	Repo          ship.Repository
 	Conversations interface {
@@ -204,7 +207,14 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 	}
 	d, err := s.delivery(ctx, org, id, convID, ships)
 	if err != nil {
-		_ = s.repo.Release(ctx, org, id)
+		// The claim committed: give its ships back even when ctx is what
+		// failed (the connection closing), or they stay claimed until the
+		// lease runs out.
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
+		if rerr := s.repo.Release(rctx, org, id); rerr != nil {
+			slog.Error("release a claim that couldn't be delivered", "delivery", id, "err", rerr)
+		}
+		cancel()
 		return ship.Delivery{}, false, err
 	}
 	slog.Info("delivery claimed", "delivery", id, "conversation", convID, "ships", len(ships), "owner", input.Owner)
