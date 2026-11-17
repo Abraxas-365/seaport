@@ -10,12 +10,13 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 )
 
-// A Claude Code slot with no model key signs in to a subscription from
-// Seaport: the harness's login runs in its container, its authorize URL
-// shows, the pasted code goes to it, and the account then reads signed
-// in. A bad code fails the sign-in with the harness's reason; a slot that
-// isn't running, an environment with a model key or an rness one can't
-// sign in; its workspace tells agent-run to wait for a sign-in.
+// A slot with no model key (Claude Code; rness with none at all) signs in
+// to a subscription from Seaport: the harness's login runs in its
+// container, its authorize URL shows, the pasted code goes to it, and the
+// account then reads signed in. A bad code fails the sign-in with the
+// harness's reason; a slot that isn't running or an environment with a
+// model key can't sign in; its workspace tells agent-run to wait for a
+// sign-in.
 func TestSlotSignIn(t *testing.T) {
 	rt := &fakeRuntime{results: make(chan string, 4)}
 	p := startPortWith(t, func(c *config.Server) {
@@ -108,7 +109,8 @@ func TestSlotSignIn(t *testing.T) {
 		t.Fatalf("account after: %d %+v", code, acc)
 	}
 
-	// An environment with a model key (it wins) or rness: no sign-in.
+	// An environment with a model key (it wins; for rness any key): no
+	// sign-in. rness with none signs in like Claude Code.
 	if code := p.admin(http.MethodPut, "/api/v1/agents/"+cc.ID.String()+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-x"}, nil); code != http.StatusOK {
 		t.Fatalf("set secret: %d", code)
 	}
@@ -121,12 +123,24 @@ func TestSlotSignIn(t *testing.T) {
 		t.Fatalf("sign in with a model key: %d", code)
 	}
 	if code := p.admin(http.MethodPut, envPath, map[string]any{"base": env.Version + 1,
+		"spec": map[string]any{"harness": "rness", "models": map[string]string{"groq": "${ANTHROPIC_KEY}"}}}, nil); code != http.StatusOK {
+		t.Fatalf("save rness environment with a key: %d", code)
+	}
+	if code := p.admin(http.MethodPost, login, nil, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("sign in rness with a model key: %d", code)
+	}
+	if code := p.admin(http.MethodPut, envPath, map[string]any{"base": env.Version + 2,
 		"spec": map[string]any{"harness": "rness"}}, nil); code != http.StatusOK {
 		t.Fatalf("save rness environment: %d", code)
 	}
-	if code := p.admin(http.MethodPost, login, nil, nil); code != http.StatusUnprocessableEntity {
-		t.Fatalf("sign in rness: %d", code)
+	if code := p.admin(http.MethodPost, login, nil, &l); code != http.StatusAccepted {
+		t.Fatalf("sign in rness: %d %+v", code, l)
 	}
+	waitLogin(t, p, login, hosting.LoginWaiting)
+	if code := p.admin(http.MethodPost, login+"/code", map[string]string{"code": "good-code"}, nil); code != http.StatusAccepted {
+		t.Fatalf("submit rness code: %d", code)
+	}
+	waitLogin(t, p, login, hosting.LoginDone)
 }
 
 func waitLogin(t *testing.T, p *port, path, state string) hosting.Login {

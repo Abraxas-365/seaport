@@ -23,7 +23,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
 	case "login":
 		if len(args) != 1 {
-			return errx.Validation("usage: seaport agents login <agent>[-<slot>]   (a running Claude Code slot; experimental)")
+			return errx.Validation("usage: seaport agents login <agent>[-<slot>]   (a running slot that signs in: Claude Code or rness; experimental)")
 		}
 		ag, idx, err := findSlot(ctx, a, args[0])
 		if err != nil {

@@ -32,16 +32,29 @@ func Login(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Harness != hosting.HarnessClaudeCode {
-		return errx.Business("signing in from Seaport works with Claude Code only for now")
+	return login(ctx, cfg, stdin, stdout)
+}
+
+func login(ctx context.Context, cfg HostedConfig, stdin io.Reader, stdout io.Writer) error {
+	var args []string
+	switch cfg.Harness {
+	case hosting.HarnessClaudeCode:
+		args = []string{"claude", "auth", "login", "--claudeai"}
+	case hosting.HarnessRness:
+		// the paste-code login: prints the authorize URL, reads the code
+		// (`<code>#<state>`) from stdin, and fails on a wrong one (stdin
+		// isn't a terminal) instead of waiting for another
+		args = []string{"rness", "auth", "login", "--provider", "anthropic", "--manual"}
+	default:
+		return errx.Business("signing in from Seaport works with Claude Code and rness only")
 	}
 	// The relay closing stdin (it gave up, or its process ended) ends the
-	// login: claude would wait on a closed stdin forever.
+	// login: the harness would wait on a closed stdin forever.
 	ctx, cancel := context.WithTimeout(ctx, hosting.LoginTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "claude", "auth", "login", "--claudeai")
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	// A file, not a reader: exec would wait on its copy goroutine (the
-	// relay's stdin stays open) after claude exited.
+	// relay's stdin stays open) after the harness exited.
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return errx.Wrap(err, "sign in", errx.TypeInternal)
@@ -111,9 +124,16 @@ func kitEnv(ctx context.Context, cfg HostedConfig) []string {
 // harness's environment). A harness Seaport can't sign in answers
 // Supported false.
 func harnessAccount(ctx context.Context, cfg HostedConfig, env []string) (hosting.Account, error) {
-	if cfg.Harness != hosting.HarnessClaudeCode {
-		return hosting.Account{Method: "none"}, nil
+	switch cfg.Harness {
+	case hosting.HarnessClaudeCode:
+		return claudeAccount(ctx, env)
+	case hosting.HarnessRness:
+		return rnessAccount(ctx, env)
 	}
+	return hosting.Account{Method: "none"}, nil
+}
+
+func claudeAccount(ctx context.Context, env []string) (hosting.Account, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "claude", "auth", "status", "--json")
@@ -134,6 +154,70 @@ func harnessAccount(ctx context.Context, cfg HostedConfig, env []string) (hostin
 		st.AuthMethod = "none"
 	}
 	return hosting.Account{Supported: true, LoggedIn: st.LoggedIn, Method: st.AuthMethod, Subscription: st.SubscriptionType}, nil
+}
+
+// rnessAccount reads `rness auth status --json`. A slot without the
+// gateway starts its sessions on Anthropic (images/rness/seaport.lua), so
+// only Anthropic credentials count: ANTHROPIC_API_KEY (an env secret,
+// which then stays rness's credential) is api_key, so a slot given a key
+// goes to work as before; else its sign-in (the stored "anthropic" OAuth
+// tokens, usable while unexpired or refreshable) is claude.ai. A stored
+// key doesn't count: seaport.lua has rness use the sign-in only.
+func rnessAccount(ctx context.Context, env []string) (hosting.Account, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "rness", "auth", "status", "--json")
+	cmd.Env = env
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		return hosting.Account{}, errx.Wrap(err, "read rness's account", errx.TypeExternal)
+	}
+	var st struct {
+		Credentials []struct {
+			Name  string `json:"name"`
+			OAuth *struct {
+				Expired      bool   `json:"expired"`
+				Refreshable  bool   `json:"refreshable"`
+				Subscription string `json:"subscription"`
+			} `json:"oauth"`
+		} `json:"credentials"`
+		Env []struct {
+			Provider string `json:"provider"`
+			Set      bool   `json:"set"`
+		} `json:"env"`
+	}
+	if err := json.Unmarshal(lastJSONLine(out.Bytes()), &st); err != nil {
+		return hosting.Account{}, errx.Wrap(err, "read rness's account", errx.TypeExternal)
+	}
+	acc := hosting.Account{Supported: true, Method: "none"}
+	for _, e := range st.Env {
+		if e.Provider == hosting.ProviderAnthropic && e.Set {
+			acc.LoggedIn, acc.Method = true, "api_key"
+		}
+	}
+	for _, c := range st.Credentials {
+		if c.Name != hosting.ProviderAnthropic {
+			continue
+		}
+		if c.OAuth != nil && (!c.OAuth.Expired || c.OAuth.Refreshable) && !acc.LoggedIn {
+			acc.LoggedIn, acc.Method, acc.Subscription = true, "claude.ai", c.OAuth.Subscription
+		}
+	}
+	return acc, nil
+}
+
+// lastJSONLine is the last line of b that starts a JSON object (rness may
+// log before it).
+func lastJSONLine(b []byte) []byte {
+	lines := bytes.Split(bytes.TrimSpace(b), []byte("\n"))
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := bytes.TrimSpace(lines[i]); bytes.HasPrefix(l, []byte("{")) {
+			return l
+		}
+	}
+	return nil
 }
 
 // waitSignedIn holds a subscription slot until its harness is signed in

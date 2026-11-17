@@ -13,8 +13,9 @@ import (
 )
 
 // Subscription sign-in (experimental): a slot's harness signs in to the
-// person's own subscription (Claude Code: their Claude account) with its
-// own login, run in the slot's container. Seaport relays it: it shows the
+// person's own subscription (their Claude account: Claude Code's login, or
+// rness's manual one) with its own login, run in the slot's container.
+// Seaport relays it: it shows the
 // harness's authorize URL and hands the code the person pastes to the
 // harness's stdin. The harness keeps (and refreshes) the tokens in the
 // slot's state volume; Seaport stores none.
@@ -121,8 +122,9 @@ func wrapperLine(l string) bool {
 }
 
 // LoginFailure is what to show of the harness's output when its login
-// failed: its "Login failed" line, else its last line that isn't the
-// URL or the wrapper's own ("seaport: …"), cleaned and bounded.
+// failed: its "Login failed" line (Claude Code) or what follows "Error: "
+// (rness), else its last line that isn't the URL or the wrapper's own
+// ("seaport: …"), cleaned and bounded.
 func LoginFailure(output string, exit int) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	pick := ""
@@ -130,6 +132,10 @@ func LoginFailure(output string, exit int) string {
 		l := strings.TrimSpace(lines[i])
 		if j := strings.Index(l, "Login failed"); j >= 0 {
 			pick = l[j:]
+			break
+		}
+		if j := strings.Index(l, "Error: "); j >= 0 && !wrapperLine(l) {
+			pick = strings.TrimPrefix(l[j+len("Error: "):], "oauth: ")
 			break
 		}
 		if pick == "" && l != "" && LoginURL(l) == "" && !wrapperLine(l) {
@@ -154,8 +160,8 @@ type Account struct {
 	Supported bool `json:"supported"`
 	LoggedIn  bool `json:"logged_in"`
 	// Method: claude.ai (a subscription), oauth_token
-	// (CLAUDE_CODE_OAUTH_TOKEN), api_key (the gateway's or the kit's key),
-	// none.
+	// (CLAUDE_CODE_OAUTH_TOKEN), api_key (the gateway's or the kit's key,
+	// or rness's ANTHROPIC_API_KEY env secret), none.
 	Method       string `json:"method"`
 	Subscription string `json:"subscription,omitempty"`
 }
@@ -168,12 +174,19 @@ var (
 )
 
 // SignsIn: slots of an environment with this spec sign in to a
-// subscription (Claude Code with no model key: with one the gateway's key
-// wins).
+// subscription: Claude Code with no Anthropic key (with one the gateway's
+// key wins), rness with no model key at all (with any, the gateway serves
+// its providers and its sessions start there).
 func (s Spec) SignsIn() bool {
-	return s.Harness == HarnessClaudeCode && s.Models.KeyName(ProviderAnthropic) == ""
+	switch s.Harness {
+	case HarnessClaudeCode:
+		return s.Models.KeyName(ProviderAnthropic) == ""
+	case HarnessRness:
+		return len(s.Models.Providers()) == 0
+	}
+	return false
 }
 
-// subscriptionHosts are what a signed-in Claude Code reaches itself: its
-// API and the token refresh.
+// subscriptionHosts are what a signed-in harness reaches itself: the
+// Anthropic API and the token refresh.
 var subscriptionHosts = []string{"api.anthropic.com", "platform.claude.com"}

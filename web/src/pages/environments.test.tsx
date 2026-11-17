@@ -14,12 +14,8 @@ const env = (over: Partial<Environment> = {}, spec: Partial<Environment["spec"]>
 const build = (state: Build["state"]): Build => ({ ...apiData<Build>("build"), state })
 
 describe("readiness", () => {
-  it("asks for the model key first", () => {
-    expect(readiness(env({}, { models: {} }), [], null, true).label).toBe("Falta la clave del modelo")
-    expect(readiness(env({}, { models: {} }), [], null, true).tone).toBe("warning")
-  })
-
-  it("lets a Claude Code environment sign in instead", () => {
+  it("takes no model key as signing in, not as a gap", () => {
+    expect(readiness(env({}, { models: {} }), [], null, true).label).toBe("Sin agentes")
     expect(readiness(env({}, { harness: "claude-code", models: {} }), [], null, true).label).toBe("Sin agentes")
   })
 

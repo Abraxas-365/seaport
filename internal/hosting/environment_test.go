@@ -117,7 +117,7 @@ func TestProvidersAndEnvironmentSecrets(t *testing.T) {
 		t.Fatalf("secrets: %v", got)
 	}
 	if s.SignsIn() {
-		t.Fatal("rness never signs in")
+		t.Fatal("rness with model keys signs in")
 	}
 	for _, name := range hosting.ProviderNames() {
 		p := hosting.Providers[name]

@@ -28,25 +28,31 @@ import (
 // exits with code; it records its arguments in the returned file.
 func fakeClaude(t *testing.T, out string, code int) string {
 	t.Helper()
+	return fakeHarness(t, "claude", out, code)
+}
+
+// fakeHarness is fakeClaude for any harness binary name.
+func fakeHarness(t *testing.T, name, out string, code int) string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("shell script fake claude")
+		t.Skip("shell script fake harness")
 	}
 	dir := t.TempDir()
 	args := filepath.Join(dir, "args")
 	script := "#!/bin/sh\necho \"$*\" >> " + args + "\ncat <<'EOF'\n" + out + "\nEOF\nexit " + strings.TrimSpace(string(rune('0'+code))) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return args
 }
 
-// Only Claude Code's account is read; its status JSON is the answer even
-// when claude exits 1 (signed out).
+// Claude Code's status JSON is the answer even when claude exits 1
+// (signed out).
 func TestHarnessAccount(t *testing.T) {
 	ctx := context.Background()
-	if acc, err := harnessAccount(ctx, HostedConfig{Harness: hosting.HarnessRness}, nil); err != nil || acc.Supported || acc.Method != "none" {
-		t.Fatalf("rness: %+v %v", acc, err)
+	if acc, err := harnessAccount(ctx, HostedConfig{Harness: "other"}, nil); err != nil || acc.Supported || acc.Method != "none" {
+		t.Fatalf("other harness: %+v %v", acc, err)
 	}
 	cfg := HostedConfig{Harness: hosting.HarnessClaudeCode}
 	fakeClaude(t, `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}`, 0)
@@ -62,6 +68,53 @@ func TestHarnessAccount(t *testing.T) {
 	fakeClaude(t, `not json`, 0)
 	if _, err := harnessAccount(ctx, cfg, os.Environ()); err == nil {
 		t.Fatal("an unreadable status must be an error")
+	}
+}
+
+// rness's account is its Anthropic credential only (a slot without the
+// gateway starts on Anthropic): the key in its environment, else a usable
+// sign-in; another provider's key or sign-in, a stored key or a dead
+// sign-in leave it signed out.
+func TestRnessAccount(t *testing.T) {
+	ctx := context.Background()
+	cfg := HostedConfig{Harness: hosting.HarnessRness}
+	status := func(creds, env string) string {
+		return `{"credentials":[` + creds + `],"env":[` + env + `],"file":"/home/agent/.rness/credentials.json"}`
+	}
+	signedIn := `{"name":"anthropic","api_key":false,"oauth":{"expired":true,"refreshable":true,"subscription":"max"}}`
+	for _, c := range []struct {
+		name, out    string
+		code         int
+		logged       bool
+		method, plan string
+		fails        bool
+	}{
+		{name: "signed in (a log line first)", out: "WARN something\n" + status(signedIn, `{"provider":"openrouter","env":"OPENROUTER_API_KEY","set":false}`),
+			logged: true, method: "claude.ai", plan: "max"},
+		{name: "a key wins over the sign-in", out: status(signedIn, `{"provider":"anthropic","env":"ANTHROPIC_API_KEY","set":true}`),
+			logged: true, method: "api_key"},
+		{name: "signed out", out: status(`{"name":"anthropic","api_key":false,"oauth":null}`, ""), method: "none"},
+		{name: "a dead sign-in", out: status(`{"name":"anthropic","api_key":false,"oauth":{"expired":true,"refreshable":false,"subscription":""}}`, ""), method: "none"},
+		{name: "a stored key", out: status(`{"name":"anthropic","api_key":true,"oauth":null}`, ""), method: "none"},
+		{name: "other providers", out: status(`{"name":"openai-chatgpt","api_key":false,"oauth":{"expired":false,"refreshable":true,"subscription":"plus"}}`,
+			`{"provider":"openrouter","env":"OPENROUTER_API_KEY","set":true}`), method: "none"},
+		{name: "rness fails", out: "Error: startup configuration: boom", code: 1, fails: true},
+		{name: "not json", out: "hello", fails: true},
+	} {
+		args := fakeHarness(t, "rness", c.out, c.code)
+		acc, err := harnessAccount(ctx, cfg, os.Environ())
+		if c.fails {
+			if err == nil {
+				t.Errorf("%s: want an error, got %+v", c.name, acc)
+			}
+			continue
+		}
+		if err != nil || !acc.Supported || acc.LoggedIn != c.logged || acc.Method != c.method || acc.Subscription != c.plan {
+			t.Errorf("%s: %+v %v", c.name, acc, err)
+		}
+		if raw, _ := os.ReadFile(args); strings.TrimSpace(string(raw)) != "auth status --json" {
+			t.Errorf("%s: rness ran with %q", c.name, raw)
+		}
 	}
 }
 
@@ -170,7 +223,9 @@ func TestSignInMarks(t *testing.T) {
 	}
 }
 
-// Login is for Claude Code only, and a slot environment is required.
+// Login runs the slot's harness's own sign-in (rness: the paste-code one)
+// with the relay's stdin, marks a success for agent-run and refuses
+// another harness or no slot environment.
 func TestLoginRefusals(t *testing.T) {
 	t.Setenv(hosting.EnvURL, "")
 	if err := Login(context.Background(), strings.NewReader(""), io.Discard); err == nil {
@@ -178,10 +233,43 @@ func TestLoginRefusals(t *testing.T) {
 	}
 	t.Setenv(hosting.EnvURL, "http://port.example.com")
 	t.Setenv(hosting.EnvToken, "tok")
-	t.Setenv(hosting.EnvHarness, hosting.HarnessRness)
+	t.Setenv(hosting.EnvHarness, "other")
 	err := Login(context.Background(), strings.NewReader(""), io.Discard)
 	if err == nil || !errx.IsType(err, errx.TypeBusiness) {
-		t.Fatalf("rness login: %v", err)
+		t.Fatalf("other harness: %v", err)
+	}
+}
+
+func TestLoginRunsTheHarness(t *testing.T) {
+	state := t.TempDir()
+	for _, c := range []struct {
+		harness, bin, args string
+	}{
+		{hosting.HarnessRness, "rness", "auth login --provider anthropic --manual"},
+		{hosting.HarnessClaudeCode, "claude", "auth login --claudeai"},
+	} {
+		cfg := HostedConfig{Harness: c.harness, State: state}
+		_ = os.Remove(filepath.Join(state, signedInMark))
+		args := fakeHarness(t, c.bin, "Login successful!", 0)
+		var out bytes.Buffer
+		if err := login(context.Background(), cfg, strings.NewReader("code#state\n"), &out); err != nil {
+			t.Fatalf("%s: %v", c.harness, err)
+		}
+		if raw, _ := os.ReadFile(args); strings.TrimSpace(string(raw)) != c.args {
+			t.Errorf("%s ran with %q", c.harness, raw)
+		}
+		if !strings.Contains(out.String(), "Login successful") || markTime(cfg).IsZero() {
+			t.Errorf("%s: output %q, mark %v", c.harness, out.String(), markTime(cfg))
+		}
+		// a failed sign-in leaves no mark
+		_ = os.Remove(filepath.Join(state, signedInMark))
+		fakeHarness(t, c.bin, "Error: oauth: that code is from another sign-in", 1)
+		if err := login(context.Background(), cfg, strings.NewReader("x#y\n"), io.Discard); err == nil {
+			t.Errorf("%s: a failed sign-in must fail", c.harness)
+		}
+		if !markTime(cfg).IsZero() {
+			t.Errorf("%s: a failed sign-in marked the state", c.harness)
+		}
 	}
 }
 
