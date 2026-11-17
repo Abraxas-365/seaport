@@ -344,3 +344,68 @@ func TestWatchdogLeavesARunningConnection(t *testing.T) {
 		t.Fatal("finish did not release")
 	}
 }
+
+// slowClaim is a claim that is still committing when its connection
+// closes: Claim blocks until released, then commits regardless of the
+// cancelled context (as a claim whose transaction already committed).
+type slowClaim struct {
+	idleShips
+	started, finish chan struct{}
+	mu              sync.Mutex
+	claimed         bool
+	releasedSession bool
+}
+
+func (s *slowClaim) Claim(ctx context.Context, _ identity.OrganizationID, in ship.Claim) (ship.Delivery, bool, error) {
+	s.mu.Lock()
+	if s.claimed {
+		s.mu.Unlock()
+		return ship.Delivery{}, false, nil
+	}
+	s.claimed = true
+	s.mu.Unlock()
+	close(s.started)
+	<-s.finish
+	return ship.Delivery{}, false, ctx.Err()
+}
+
+func (s *slowClaim) ReleaseSession(context.Context, identity.OrganizationID, string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed {
+		// Only a release after the claim committed gives its ships back.
+		select {
+		case <-s.finish:
+			s.releasedSession = true
+		default:
+		}
+	}
+	return 0, nil
+}
+
+// A claim committing as the connection closes lands before drop's
+// releases, so its ships never stay claimed by a gone session.
+func TestDropWaitsForAClaimInFlight(t *testing.T) {
+	r := start(t, agentPrincipal("pm"))
+	claims := &slowClaim{started: make(chan struct{}), finish: make(chan struct{})}
+	r.hub.Bind(claims, noAgents{})
+	ws, _, err := r.dial(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, ws, `{"type":"hello","agent":"laptop","concurrency":1}`)
+	read(t, ws) // welcome
+	<-claims.started
+	ws.Close(websocket.StatusNormalClosure, "")
+	time.Sleep(100 * time.Millisecond) // drop is running, the claim isn't done
+	if r.pres.opened() != 1 {
+		t.Fatal("the connection was forgotten before its claim finished")
+	}
+	close(claims.finish)
+	waitFor(t, "the connection to be forgotten", func() bool { return r.pres.opened() == 0 })
+	claims.mu.Lock()
+	defer claims.mu.Unlock()
+	if !claims.releasedSession {
+		t.Fatal("the session was released before the claim committed")
+	}
+}
