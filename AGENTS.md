@@ -744,7 +744,14 @@ net/http mux; only `/healthz` answers 405.
   an image without Xvfb, CDP on loopback `hosting.BrowserPort`, profile in the state
   volume under `hosting.BrowserDir`, egress through a loopback bridge that
   adds the slot's proxy credentials, since Chromium takes none in
-  `--proxy-server`) only when the kit asks and `Config.Browser` is set (a
+  `--proxy-server`; every page, popup and out-of-process iframe runs in
+  Chromium's virtual WebAuthn environment with no authenticators and no
+  dialog (`browser_webauthn.go`: a guard CDP connection auto-attaches with
+  `waitForDebuggerOnStart`, `WebAuthn.enable {enableUI: false}`, then resumes
+  the target), since no security key reaches a container and Chromium's native
+  key dialog, invisible in the screencast, takes the page's input; the
+  real-engine check is `TestGuardWebAuthnRealChromium`, `SEAPORT_TEST_CHROMIUM=1`
+  in an environment image) only when the kit asks and `Config.Browser` is set (a
   hosted slot of such an environment; `seaport connect` warns and goes on),
   and every harness session gets the MCP server `browser` (stdio,
   `/opt/seaport/browser/bin/chrome-devtools-mcp --browserUrl …`). The web's

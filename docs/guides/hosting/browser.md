@@ -87,6 +87,7 @@ seaport agents profile set surf -browser-detect off
 - One viewer per slot at a time; a second opener gets `409`. A viewer ends after 10 minutes without a message or 2 hours in all.
 - An open viewer keeps the slot busy: `idle_stop` doesn't stop it and a new environment version doesn't restart it while you are in it. The port marks the slot every 20 s; a mark older than a minute (the port that relayed the viewer went away) no longer counts.
 - The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Alojamiento** section.
+- **Security keys and passkeys don't work in the slot's browser**: no USB key or device authenticator can reach a container. So the browser has no WebAuthn authenticator and never opens Chromium's *Use your security key* dialog, which the viewer can't show and which would block every click on the page. A site that asks for a key (Google's 2-Step Verification, Okta, GitHub…) gets no answer and offers its other methods: click **Try another way** (or the site's equivalent) and pick a code, a phone prompt or a backup code.
 
 Opening and closing a viewer publish `slot.browser` (`opened`/`closed`, with who did it); the stream itself is never stored. The permission is `seaport:browser:use` (Admin and Operator in iam mode); see [Permissions](../../reference/permissions.md).
 
