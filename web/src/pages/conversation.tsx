@@ -5,6 +5,7 @@ import {
   Ban,
   Bot,
   Check,
+  Hand,
   Info,
   Link2,
   MessageSquareDashed,
@@ -16,6 +17,7 @@ import {
 import {
   flatten,
   useCan,
+  useAssignAgent,
   useConversation,
   useAgents,
   useCrew,
@@ -54,6 +56,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -88,8 +91,10 @@ import {
   channelReplies,
   customsLabel,
   customsTone,
+  routingHolds,
   type ChoiceOption,
 } from "@/components/seaport"
+import { BrowserButton, TakeoverBanners } from "./conversation-browser"
 
 const accessOptions: ChoiceOption<Access>[] = [
   { value: "auto", label: "Reglas", icon: Sparkles, description: "Decide la aduana del muelle", tone: "brand" },
@@ -139,6 +144,10 @@ export function ConversationPage() {
       <ConversationHeader conversation={c} doors={doors} working={working} agentName={worker?.agent_name} />
       <ThreadChips doors={doors} current={c.id} whole={whole} onWhole={setWhole} />
       {c.status === "pending" && can(Perm.ConversationsWrite) && <PendingBanner conversation={c} />}
+      {allowed && can(Perm.ShipsRead) && (
+        <RoutingBanner conversation={c} dockName={dock?.name} ships={flatten(ships.data)} />
+      )}
+      <TakeoverBanners conversation={c} doors={doors} />
       {can(Perm.ShipsRead) ? (
         <ShipList
           conversation={c}
@@ -214,10 +223,102 @@ function ConversationHeader({
       <StatusBadge tone={customsTone[c.status]} className="hidden sm:inline-flex">
         {customsLabel[c.status]}
       </StatusBadge>
+      <TeamBrowsers dock={c.dock_id} />
       <DetailsSheet conversation={c} doors={doors} />
     </header>
   )
 }
+
+/** A browser button per agent of the dock's team that has a managed browser. */
+function TeamBrowsers({ dock }: { dock: string }) {
+  const team = useDockTeam(dock)
+  const agents = useAgents()
+  const members = (agents.data?.items ?? []).filter((a) => team.data?.agents.some((m) => m.agent_id === a.id))
+  return members.map((a) => <BrowserButton key={a.id} agent={a} />)
+}
+
+/**
+ * Shown while the chat's newest message is held for routing (no agent on
+ * the dock, nobody called, its agent left): says why and, for whoever may
+ * edit teams, assigns an agent right here. Assigning routes the message
+ * again (within ship.ReleaseWindow), so nobody has to send it twice.
+ */
+function RoutingBanner({ conversation: c, dockName, ships }: { conversation: Conversation; dockName?: string; ships: Ship[] }) {
+  const can = useCan()
+  const write = can(Perm.AgentsWrite)
+  const team = useDockTeam(c.dock_id)
+  const agents = useAgents()
+  const assign = useAssignAgent()
+  const now = useNow(60_000)
+  const [pick, setPick] = React.useState("")
+  // The newest ship of this door: a held one the chat hasn't moved past.
+  const last = ships.find((s) => s.conversation_id === c.id)
+  if (!last || last.direction !== "in" || last.status !== "held" || !routingHolds.includes(last.hold_reason ?? "")) return null
+  const members = team.data?.agents ?? []
+  const fresh = now - new Date(last.created_at).getTime() < releaseWindowMs
+  const dock = dockName ? <b>{dockName}</b> : "este muelle"
+  const why =
+    last.hold_reason === "no agent is assigned to this dock" ? (
+      <>Ningún agente atiende {dock}.</>
+    ) : last.hold_reason === "its agent left the dock" ? (
+      <>El agente al que iba dejó {dock}.</>
+    ) : (
+      <>El mensaje no llama a ningún agente (@nombre) y {dock} no tiene uno por defecto.</>
+    )
+  // With a team already, a new member or a promoted one must be the
+  // default to take a message that calls nobody.
+  const asDefault = members.length > 0
+  const options = agents.data?.items ?? []
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-b bg-warning/10 px-4 py-2.5 text-sm">
+      <Hand className="size-4 shrink-0 text-warning" />
+      <span className="min-w-0 flex-1">
+        <b>Retenido.</b> {why}{" "}
+        {fresh
+          ? asDefault
+            ? "Elige un agente por defecto y le llega lo retenido, sin reenviarlo."
+            : "Asigna un agente y le llega lo retenido, sin reenviarlo."
+          : "Es de hace más de 24 h: asignar un agente no lo entrega; escribe de nuevo."}
+      </span>
+      {write && options.length > 0 ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (pick) assign.mutate({ dock: c.dock_id, agent: pick, isDefault: asDefault }, { onSuccess: () => setPick("") })
+          }}
+        >
+          <Select value={pick} onValueChange={setPick}>
+            <SelectTrigger size="sm" className="w-44" aria-label="Agente para el muelle">
+              <SelectValue placeholder="Elegir agente" />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((a) => (
+                <SelectItem key={a.id} value={a.id} className="font-mono">
+                  @{a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="submit" size="sm" disabled={!pick || assign.isPending}>
+            {asDefault ? "Hacer por defecto" : "Asignar"}
+          </Button>
+        </form>
+      ) : write && options.length === 0 ? (
+        <Button asChild size="sm" variant="outline">
+          <Link to="/agents">Crear un agente</Link>
+        </Button>
+      ) : (
+        <Button asChild size="sm" variant="outline">
+          <Link to={`/docks/${c.dock_id}`}>Ver el muelle</Link>
+        </Button>
+      )}
+    </div>
+  )
+}
+
+/** ship.ReleaseWindow: held messages older than this aren't routed again. */
+const releaseWindowMs = 24 * 60 * 60_000
 
 function PendingBanner({ conversation: c }: { conversation: Conversation }) {
   const setAccess = useSetAccess()
@@ -467,7 +568,8 @@ function DetailsSheet({ conversation: c, doors }: { conversation: Conversation; 
                 : c.access === "allow"
                   ? "Forzado: sus mensajes siempre despiertan al agente."
                   : "Forzado: sus mensajes se guardan pero nunca llegan al agente."}{" "}
-              Permitir no entrega los mensajes retenidos; el agente puede leerlos con <code>history</code>.
+              Al permitirlo, le llega lo que esperaba tu decisión (últimas 24 h); lo bloqueado antes no: el agente
+              puede leerlo con <code>history</code>.
             </p>
           </div>
           {c.kind === "group" && (

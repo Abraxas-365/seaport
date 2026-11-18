@@ -25,7 +25,8 @@ const (
 )
 
 // Hold reasons of a message no agent takes (the ship is held, like a
-// customs hold: readable in the history, never delivered later).
+// customs hold: readable in the history). Assigning an agent to the dock
+// routes again the recent ones the chat hasn't moved past (Releaser).
 const (
 	HoldNoAgent   = "no agent is assigned to this dock"
 	HoldNotCalled = "no agent was called (mention one with @name)"
@@ -33,6 +34,9 @@ const (
 	// deleted.
 	HoldAgentGone = "its agent left the dock"
 )
+
+// RoutingHolds are the hold reasons a change of the dock's team can lift.
+var RoutingHolds = []string{HoldNoAgent, HoldNotCalled, HoldAgentGone}
 
 // nameRule is an agent name: also its @mention handle.
 var nameRule = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)

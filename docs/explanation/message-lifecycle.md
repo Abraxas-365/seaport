@@ -51,7 +51,7 @@ When a delivery ends (acked, released, or dropped because the connection closed)
 
 ## Held reasons
 
-A held ship keeps its reason, which the web app shows when you hover the message. A held message is never lost, and the agent can read it with the `history` tool.
+A held ship keeps its reason, which the web app shows under the message. A held message is never lost, and the agent can read it with the `history` tool.
 
 | Reason | Set by | Meaning |
 | :--- | :--- | :--- |
@@ -65,7 +65,11 @@ A held ship keeps its reason, which the web app shows when you hover the message
 
 ### Release on allow
 
-When a chat that was pending becomes allowed (you allowed it, a rule matches, or the policy changed), the ships held as `conversation pending` go through customs again and are routed and queued, oldest first. Only messages from the **last 24 hours** go, and at most the **newest 50**. In a group, a message that didn't mention you (in mentions mode) or whose sender a rule denies is held again with that reason. Everything else stays held: older messages, a denied chat's messages, and ships held by routing, which is decided once.
+When a chat that was pending becomes allowed (you allowed it, a rule matches, or the policy changed), the ships held as `conversation pending` go through customs again and are routed and queued, oldest first. Only messages from the **last 24 hours** go, and at most the **newest 50**. In a group, a message that didn't mention you (in mentions mode) or whose sender a rule denies is held again with that reason. Everything else stays held: older messages, a denied chat's messages, and ships held by routing (those go when you assign an agent, see below).
+
+### Release on assign
+
+When you assign an agent to a dock (a new member, or a member made the default), the dock's ships held by routing (`no agent is assigned to this dock`, `no agent was called…`, `its agent left the dock`) are routed again with the new team, oldest first per chat, and queued. The same limits apply (**last 24 hours**, the **newest 50** per chat, at most **50** chats, those with the newest held ships first), plus two: only **allowed** chats, and only messages newer than the chat's last routed message or reply. What the chat has moved past stays held, so an agent never answers an old question after the conversation went on. Customs' message-level checks run again, as on allow.
 
 ## Outbound: replies
 
@@ -104,6 +108,6 @@ The first prompt of a session also carries the agent's instructions when the har
 
 | You want to know | Look at |
 | :--- | :--- |
-| why a message is held | hover it in the [Bandeja](../guides/web-app.md#bandeja-inbox) |
+| why a message is held | under it in the [Bandeja](../guides/web-app.md#bandeja-inbox) |
 | whether an agent is working on it | **Tripulación**, or `seaport crew` |
 | everything that happened | the live [event stream](../reference/events.md) |

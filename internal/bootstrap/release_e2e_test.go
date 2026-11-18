@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
@@ -92,6 +93,62 @@ func TestAllowingDeliversWhatWaited(t *testing.T) {
 		c.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f.Delivery.ID})
 	}
 	c.quiet(300 * time.Millisecond)
+}
+
+// Assigning an agent to a dock routes again what it held for routing
+// (no team, nobody called) within ship.ReleaseWindow: the message that
+// came before the agent gets an answer without being sent again.
+func TestAssigningDeliversWhatWaitedForATeam(t *testing.T) {
+	p := startPort(t)
+	d := p.openDock("t")
+	stale := p.inject(d, "100", "a0", "hace dos días")
+	first := p.inject(d, "100", "a1", "hola")
+	second := p.inject(d, "100", "a2", "sigues ahí?")
+	other := p.inject(d, "200", "b1", "buenas")
+	for _, s := range []ship.Ship{stale, first, second, other} {
+		held(t, s, agent.HoldNoAgent)
+	}
+	db, err := bootstrap.OpenDB(context.Background(), testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE ships SET created_at = now() - interval '25 hours' WHERE id = $1`, stale.ID); err != nil {
+		t.Fatal(err)
+	}
+	pm, reviewer := p.agent("pm"), p.agent("reviewer")
+	pmConn := p.dialCrewAs(p.issueAs(adminToken, pm.ID, "pm").Value, crew.Frame{Type: crew.FrameHello, Agent: "pm-laptop", Concurrency: 2})
+
+	// The first agent: both chats go to it, the recent messages in order.
+	p.assignAs(adminToken, d.ID, pm.ID, false)
+	got := map[identity.ConversationID][]identity.ShipID{}
+	for range 2 {
+		f := pmConn.read()
+		if f.Type != crew.FrameDelivery {
+			t.Fatalf("released delivery: %+v", f)
+		}
+		for _, s := range f.Delivery.Ships {
+			got[s.Conversation] = append(got[s.Conversation], s.ID)
+		}
+		ack(pmConn, f)
+	}
+	if a, b := got[first.Conversation], got[other.Conversation]; len(a) != 2 || a[0] != first.ID || a[1] != second.ID ||
+		len(b) != 1 || b[0] != other.ID {
+		t.Fatalf("released: %+v", got)
+	}
+	if s := shipOf(t, p, stale); s.Status != ship.StatusHeld || s.HoldReason != agent.HoldNoAgent {
+		t.Fatalf("a message older than the window must stay held: %+v", s)
+	}
+
+	// Two agents and no default: nobody called is held; naming a default
+	// delivers it.
+	p.assignAs(adminToken, d.ID, reviewer.ID, false)
+	uncalled := p.inject(d, "300", "c1", "necesito ayuda")
+	held(t, uncalled, agent.HoldNotCalled)
+	pmConn.quiet(200 * time.Millisecond)
+	p.assignAs(adminToken, d.ID, pm.ID, true)
+	ack(pmConn, delivered(t, pmConn, uncalled))
+	pmConn.quiet(300 * time.Millisecond)
 }
 
 func find(ships []ship.Ship, id identity.ShipID) ship.Ship {

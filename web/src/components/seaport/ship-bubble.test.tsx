@@ -20,6 +20,8 @@ describe("ShipBubble", () => {
     bubble(apiData<Ship>("ship_held"))
     expect(screen.getByText("retenido")).toBeInTheDocument()
     expect(screen.getByText("Hello, can you look at this?")).toBeInTheDocument()
+    // The reason shows under the text, without hovering.
+    expect(screen.getByText("esperando tu decisión en la aduana")).toBeInTheDocument()
     await hoverFooter("retenido")
     expect((await screen.findAllByText(/Retenido · .* · esperando tu decisión en la aduana/)).length).toBeGreaterThan(0)
   })

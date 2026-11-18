@@ -22,7 +22,10 @@ type Service struct {
 	// assistant tells people about takeovers and wakes the agent (bound
 	// late: the ship service is built after this one; nil: nobody is told).
 	assistant agent.Assistant
-	now       func() time.Time
+	// releaser routes again what a dock held for routing once an agent is
+	// assigned (bound late too; nil: nothing is released).
+	releaser agent.Releaser
+	now      func() time.Time
 	// poll is how often a blocked ask_takeover looks for its end.
 	poll time.Duration
 }
@@ -34,8 +37,9 @@ func New(repo agent.Repository, revoker agent.Revoker, events event.Publisher) *
 	return &Service{repo: repo, revoker: revoker, events: events, now: func() time.Time { return time.Now().UTC() }, poll: takeoverPoll}
 }
 
-// Bind sets the assistant (the ship service).
-func (s *Service) Bind(a agent.Assistant) { s.assistant = a }
+// Bind sets the assistant and the releaser (the ship service; either may
+// be nil).
+func (s *Service) Bind(a agent.Assistant, r agent.Releaser) { s.assistant, s.releaser = a, r }
 
 const (
 	takeoverPoll = time.Second
@@ -274,7 +278,18 @@ func (s *Service) Assign(ctx context.Context, org identity.OrganizationID, input
 	if err := s.repo.Assign(ctx, org, input); err != nil {
 		return agent.Agent{}, errx.Wrap(err, "assign agent", errx.TypeInternal)
 	}
-	return s.announce(ctx, org, input.Agent)
+	a, err := s.announce(ctx, org, input.Agent)
+	if err != nil {
+		return agent.Agent{}, err
+	}
+	if s.releaser != nil {
+		// The assignment is stored: a failed release leaves those messages
+		// held (readable with history), it doesn't undo it.
+		if _, err := s.releaser.ReleaseRouted(context.WithoutCancel(ctx), org, input.Dock); err != nil {
+			slog.Error("route again what the dock held for routing", "dock", input.Dock, "err", err)
+		}
+	}
+	return a, nil
 }
 
 func (s *Service) Unassign(ctx context.Context, org identity.OrganizationID, dock identity.DockID, id identity.AgentID) (agent.Agent, error) {

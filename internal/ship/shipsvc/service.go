@@ -374,12 +374,66 @@ func (s *Service) ReleaseHeld(ctx context.Context, org identity.OrganizationID, 
 	if err != nil {
 		return 0, errx.Wrap(err, "load customs", errx.TypeInternal)
 	}
-	admit := func(addressed bool, senders []string) string { return customs.Admit(c, senders, addressed) }
-	changed, err := s.repo.ReleaseHeld(ctx, org, conv, s.now().Add(-ship.ReleaseWindow), admit, agent.Route)
+	queued, held, err := s.release(ctx, org, c, customs, ship.Release{
+		Reasons: []string{conversation.HoldPending}, Since: s.now().Add(-ship.ReleaseWindow)})
 	if err != nil {
-		return 0, errx.Wrap(err, "release held ships", errx.TypeInternal)
+		return 0, err
 	}
-	queued := 0
+	if queued+held > 0 {
+		slog.Info("released ships held while the conversation was pending", "organization", org,
+			"conversation", conv, "queued", queued, "held", held)
+	}
+	return queued, nil
+}
+
+func (s *Service) ReleaseRouted(ctx context.Context, org identity.OrganizationID, dockID identity.DockID) (int, error) {
+	if dockID.IsZero() {
+		return 0, errx.InvalidField("dock_id", "dock_id is required")
+	}
+	rel := ship.Release{Reasons: agent.RoutingHolds, Since: s.now().Add(-ship.ReleaseWindow), Fresh: true}
+	convs, err := s.repo.Rerouting(ctx, org, dockID, rel.Reasons, rel.Since, ship.MaxRerouteChats)
+	if err != nil {
+		return 0, errx.Wrap(err, "find chats held for routing", errx.TypeInternal)
+	}
+	if len(convs) == 0 {
+		return 0, nil
+	}
+	customs, err := s.convs.Customs(ctx, org, dockID)
+	if err != nil {
+		return 0, errx.Wrap(err, "load customs", errx.TypeInternal)
+	}
+	total := 0
+	for _, id := range convs {
+		c, err := s.convs.Find(ctx, org, id)
+		if errx.IsType(err, errx.TypeNotFound) {
+			continue // deleted meanwhile
+		}
+		if err != nil {
+			return total, errx.Wrap(err, "find released conversation", errx.TypeInternal)
+		}
+		queued, held, err := s.release(ctx, org, c, customs, rel)
+		if err != nil {
+			return total, err
+		}
+		total += queued
+		if queued+held > 0 {
+			slog.Info("routed again ships held for routing", "organization", org,
+				"conversation", id, "queued", queued, "held", held)
+		}
+	}
+	return total, nil
+}
+
+// release routes again the conversation's held ships that rel names and
+// tells their agents; it says how many it queued and how many stay held
+// with another reason.
+func (s *Service) release(ctx context.Context, org identity.OrganizationID, c conversation.Conversation,
+	customs conversation.Customs, rel ship.Release) (queued, held int, err error) {
+	admit := func(addressed bool, senders []string) string { return customs.Admit(c, senders, addressed) }
+	changed, err := s.repo.ReleaseHeld(ctx, org, c.ID, rel, admit, agent.Route)
+	if err != nil {
+		return 0, 0, errx.Wrap(err, "release held ships", errx.TypeInternal)
+	}
 	agents := map[identity.AgentID]bool{}
 	for _, st := range changed {
 		s.events.Publish(org, ship.EventUpdated, st)
@@ -391,11 +445,7 @@ func (s *Service) ReleaseHeld(ctx context.Context, org identity.OrganizationID, 
 	for a := range agents {
 		s.notifier.Notify(org, a)
 	}
-	if len(changed) > 0 {
-		slog.Info("released ships held while the conversation was pending", "organization", org,
-			"conversation", conv, "queued", queued, "held", len(changed)-queued)
-	}
-	return queued, nil
+	return queued, len(changed) - queued, nil
 }
 
 func (s *Service) ReleaseExpired(ctx context.Context, before time.Time) (int, error) {

@@ -48,12 +48,27 @@ const (
 	// MaxHistory is the most ships History returns per page.
 	MaxHistory = 100
 	// ReleaseWindow: allowing a chat delivers what it sent while pending
-	// in this window (older messages stay held: answering them late would
+	// in this window, and assigning an agent to a dock what it held for
+	// routing (older messages stay held: answering them late would
 	// surprise more than help; the agent can read them with history).
 	ReleaseWindow = 24 * time.Hour
-	// MaxRelease bounds the ships one allow delivers (the newest).
+	// MaxRelease bounds the ships one release delivers per conversation
+	// (the newest).
 	MaxRelease = 50
+	// MaxRerouteChats bounds the conversations one assignment releases
+	// (those with the newest held ships).
+	MaxRerouteChats = 50
 )
+
+// Release says which held ships of a conversation Repository.ReleaseHeld
+// routes again: held with one of Reasons since Since; with Fresh, only
+// those newer than the thread's last routed or outbound message (what the
+// chat already moved past stays held, and the thread keeps its order).
+type Release struct {
+	Reasons []string
+	Since   time.Time
+	Fresh   bool
+}
 
 // Ship is one message, inbound or outbound.
 type Ship struct {

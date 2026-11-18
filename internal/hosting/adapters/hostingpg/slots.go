@@ -155,10 +155,16 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		return nil, pgerr.Map(err, "begin supervise")
 	}
 	defer func() { _ = tx.Rollback() }()
-	// Agents with work keep their running slots active.
+	// Agents with work keep their running slots active, and so does a
+	// sign-in under way on the slot's run: idle_stop must not stop a slot
+	// while someone signs it in (it takes no work until signed in).
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_slots s SET active_at = now()
-		WHERE s.state = 'running' AND EXISTS (SELECT 1 FROM ships sh WHERE sh.organization_id = s.organization_id
-		  AND sh.agent_id = s.agent_id AND sh.status IN ('queued', 'claimed'))`); err != nil {
+		WHERE s.state = 'running' AND (EXISTS (SELECT 1 FROM ships sh WHERE sh.organization_id = s.organization_id
+		  AND sh.agent_id = s.agent_id AND sh.status IN ('queued', 'claimed'))
+		  OR EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
+		  AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
+		  AND l.state IN ('starting', 'waiting', 'verifying')
+		  AND l.updated_at > now() - make_interval(secs => $1::float8)))`, hosting.LoginStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "touch active slots")
 	}
 	out := []hosting.Supervised{}
@@ -170,14 +176,18 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		SELECT s.organization_id, s.agent_id, s.idx, s.state, s.run, s.updated_at, s.active_at, s.started_at,
 		  COALESCE(v.spec->>'idle_stop', '') AS idle_stop,
 		  (s.state = 'running' AND (s.environment_id IS DISTINCT FROM h.environment_id OR s.environment_version <> e.version)) AS outdated,
-		  COALESCE(w.queued, 0) AS queued, COALESCE(w.claimed, 0) AS claimed
+		  COALESCE(w.queued, 0) AS queued, COALESCE(w.claimed, 0) AS claimed,
+		  (s.state = 'running' AND EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
+		    AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
+		    AND l.state IN ('starting', 'waiting', 'verifying')
+		    AND l.updated_at > now() - make_interval(secs => $1::float8))) AS signing
 		FROM agent_slots s
 		JOIN agent_hosting h ON h.organization_id = s.organization_id AND h.agent_id = s.agent_id
 		JOIN agents a ON a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
 		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
 		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
 		LEFT JOIN work w ON w.organization_id = s.organization_id AND w.agent_id = s.agent_id
-		ORDER BY s.organization_id, s.agent_id, s.idx`); err != nil {
+		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "list slots to supervise")
 	}
 	return out, pgerr.Map(tx.Commit(), "commit supervise")

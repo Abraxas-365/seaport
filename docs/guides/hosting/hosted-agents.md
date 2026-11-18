@@ -177,7 +177,7 @@ Starting builds the environment's image if needed, mints a crew token for this r
 You rarely start slots by hand. Every Seaport process runs a supervisor that checks every 15 seconds and when new work is queued:
 
 - **Wakes** a hosted agent that has queued ships and no slot up. It starts the lowest stopped slot, or a failed one after 5 minutes, one at a time per agent.
-- **Stops** a running slot that has been idle longer than `idle_stop`.
+- **Stops** a running slot that has been idle longer than `idle_stop`. A slot being [signed in](claude-subscriptions.md) isn't idle.
 - **Restarts** an idle slot whose environment has a newer version.
 - **Fails** a running slot whose container is gone or exited.
 - **Cleans up** starts and stops that stalled, and containers that no slot row owns.

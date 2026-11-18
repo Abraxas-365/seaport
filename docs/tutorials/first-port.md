@@ -104,7 +104,7 @@ You should see Ana's message, inbound. The web app's **Bandeja** (Inbox) shows t
 | `DATABASE_URL is required` | Export it in the terminal that runs `seaport serve`. |
 | `connection refused` from the CLI | The port isn't running, or it listens elsewhere: set `SEAPORT_URL`. |
 | `403` from `curl` through a tunnel or proxy | `none` mode refuses forwarded requests. Use `token` mode for anything beyond your computer. |
-| The message stays held after `allow` | It was held for routing, not customs: no agent is assigned to the dock yet. The [next tutorial](first-agent.md) fixes that. |
+| The message stays held after `allow` | It was held for routing, not customs: no agent is assigned to the dock yet. The [next tutorial](first-agent.md) assigns one, and the message goes out. |
 
 ## Next
 

@@ -17,7 +17,9 @@ type Commands interface {
 	// revoked (live connections closed), it leaves every dock, and the
 	// ships waiting for it are held. Tokens and ships keep naming it.
 	Delete(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
-	// Assign puts the agent on a dock (idempotent; sets Default).
+	// Assign puts the agent on a dock (idempotent; sets Default), then
+	// routes again the dock's recent messages held for routing that their
+	// chat hasn't moved past (Releaser).
 	Assign(ctx context.Context, organization identity.OrganizationID, input Assign) (Agent, error)
 	// Unassign takes it off a dock; the ships of that dock waiting for it
 	// are held.
@@ -60,6 +62,14 @@ type Assistant interface {
 	// agent, saying the takeover at the host ended: a person is done, or
 	// nobody came (end).
 	Wake(ctx context.Context, organization identity.OrganizationID, agent Agent, t Takeover, end TakeoverEnd, in identity.ConversationID) error
+}
+
+// Releaser routes again what a dock held for routing (RoutingHolds) after
+// its team changed (the ship service; bound late, like Assistant) and
+// says how many it queued. A failure leaves them held: the assignment
+// stands.
+type Releaser interface {
+	ReleaseRouted(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (int, error)
 }
 
 type Queries interface {

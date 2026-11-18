@@ -71,8 +71,9 @@ func TestAgentsRouteMessages(t *testing.T) {
 	p := startPort(t)
 	d := p.openDock("team")
 
-	// No agent on the dock: stored, held, never delivered.
-	held(t, p.inject(d, "100", "n1", "hola?"), agent.HoldNoAgent)
+	// No agent on the dock: stored and held until one is assigned.
+	waited := p.inject(d, "100", "n1", "hola?")
+	held(t, waited, agent.HoldNoAgent)
 
 	pm, reviewer := p.agent("pm"), p.agent("reviewer")
 	pmTok, revTok := p.issueAs(adminToken, pm.ID, "pm"), p.issueAs(adminToken, reviewer.ID, "reviewer")
@@ -84,8 +85,10 @@ func TestAgentsRouteMessages(t *testing.T) {
 	pmConn := p.dialCrewAs(pmTok.Value, crew.Frame{Type: crew.FrameHello, Agent: "pm-laptop", As: "pm", Concurrency: 2})
 	revConn := p.dialCrewAs(revTok.Value, crew.Frame{Type: crew.FrameHello, Agent: "rev-laptop", Concurrency: 2})
 
-	// One agent: it takes everything, mention or not.
+	// One agent: what waited for a team goes to it, and it takes
+	// everything, mention or not.
 	p.assignAs(adminToken, d.ID, pm.ID, false)
+	ack(pmConn, delivered(t, pmConn, waited))
 	first := p.inject(d, "200", "a1", "hola @reviewer")
 	if first.Agent == nil || *first.Agent != pm.ID {
 		t.Fatalf("single member: %+v", first)
@@ -129,7 +132,8 @@ func TestAgentsRouteMessages(t *testing.T) {
 
 	// No default and nobody called: held; mentioning someone still works.
 	p.assignAs(adminToken, d.ID, pm.ID, false)
-	held(t, p.inject(d, "500", "e1", "hola"), agent.HoldNotCalled)
+	uncalled := p.inject(d, "500", "e1", "hola")
+	held(t, uncalled, agent.HoldNotCalled)
 	held(t, p.inject(d, "500", "e2", "@nadie hola"), agent.HoldNotCalled)
 	s = p.inject(d, "500", "e3", "@pm hola")
 	ack(pmConn, delivered(t, pmConn, s))
@@ -184,8 +188,20 @@ func TestAgentsRouteMessages(t *testing.T) {
 	if e := revConn.read(); e.Type != crew.FrameError {
 		t.Fatalf("ack after unassign: %+v", e)
 	}
-	// The chat goes back to the default rule (reviewer gone from the team).
+	// The chat goes back to the default rule (reviewer gone from the team):
+	// assigning routes again what waited for the reviewer, then new ones.
 	p.assignAs(adminToken, d.ID, pm.ID, true)
+	if f := pmConn.read(); f.Type != crew.FrameDelivery || len(f.Delivery.Ships) != 2 ||
+		f.Delivery.Ships[0].ID != waiting.ID || f.Delivery.Ships[1].ID != queued.ID {
+		t.Fatalf("what waited for the reviewer, rerouted: %+v", f)
+	} else {
+		ack(pmConn, f)
+	}
+	// A chat that moved past its held message (answered since) keeps it
+	// held: the new default doesn't answer it late.
+	if got := shipOf(t, p, uncalled); got.Status != ship.StatusHeld || got.HoldReason != agent.HoldNotCalled {
+		t.Fatalf("a message the chat moved past: %+v", got)
+	}
 	s = p.inject(d, "300", "f3", "hola de nuevo")
 	ack(pmConn, delivered(t, pmConn, s))
 

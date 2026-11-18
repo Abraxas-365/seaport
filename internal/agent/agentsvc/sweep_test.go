@@ -112,7 +112,7 @@ func TestSweepTakeovers(t *testing.T) {
 	events := &recorder{}
 	helper := &assistant{}
 	svc := agentsvc.New(repo, nil, events)
-	svc.Bind(helper)
+	svc.Bind(helper, nil)
 
 	n, err := svc.SweepTakeovers(context.Background(), now)
 	if err == nil || !errx.IsType(err, errx.TypeInternal) {

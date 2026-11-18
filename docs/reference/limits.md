@@ -148,8 +148,9 @@ Comments and workflow messages are cut to `text.MaxMessage`. Files an agent send
 | Files saved for one prompt (connector) | 16 | `connector.maxPromptFiles` | No |
 | Document text the `attachment` tool hands back | 256 KiB | `crewmcp.maxAttachmentText` | No |
 | Messages per history page | 100 | `ship.MaxHistory` | No |
-| Held messages released when a chat is allowed | newest 50 | `ship.MaxRelease` | No |
+| Held messages released when a chat is allowed or an agent is assigned | newest 50 per chat | `ship.MaxRelease` | No |
 | Age of held messages that get released | 24 h | `ship.ReleaseWindow` | No |
+| Chats released when an agent is assigned | 50 (newest held first) | `ship.MaxRerouteChats` | No |
 | Rules per dock | 1000 | `conversation.MaxRules` | No |
 | Rule pattern | 256 characters | `conversation.MaxPattern` | No |
 | Slack: markdown per message | 12000 characters (longer replies are split) | `dockslack.MaxMarkdown` | No |

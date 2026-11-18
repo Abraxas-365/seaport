@@ -542,6 +542,14 @@ net/http mux; only `/healthz` answers 405.
   transaction, so an unassign/delete (which deletes the rows first, then
   holds the agent's waiting ships with `HoldAgentGone`) and an arrival
   never cross. Held ships keep their `hold_reason` (customs or routing).
+  `agentsvc.Assign` then calls `agent.Releaser` (= `shipsvc.ReleaseRouted`,
+  bound late with the `Assistant`): the dock's allowed chats with ships
+  held with `agent.RoutingHolds` within `ship.ReleaseWindow`
+  (`Repository.Rerouting`, at most `ship.MaxRerouteChats`) go through
+  `shippg.ReleaseHeld` with `ship.Release{Fresh: true}`: only ships newer
+  than the thread's last routed (queued/claimed/handled) or outbound ship,
+  so nothing the chat moved past is answered late and the thread keeps
+  its order. A failed release is logged; the assignment stands.
   Claims are per agent: a connection claims only its agent's ships, and a
   conversation is worked in arrival order by one agent at a time
   (`claimable`: never past an older ship queued for another agent; so a
@@ -634,7 +642,8 @@ net/http mux; only `/healthz` answers 405.
   queued ships and no slot up (lowest stopped slot, else a failed one
   after 5 min; one at a time per agent), fails a running slot whose
   container is gone or exited, restarts an idle outdated one, stops one
-  idle past `idle_stop`, ends stale starts/stops, and removes runtime
+  idle past `idle_stop` (a live sign-in on the slot's run counts as work:
+  `Supervised.Signing`, and it touches `active_at`), ends stale starts/stops, and removes runtime
   slots with no row after two rounds; each step is a conditional
   transition (`BeginStop(run)` only stops that run). Inside, `seaport
   agent-run` (`connector.Hosted`) reads `GET /crew/workspace` (slot tokens

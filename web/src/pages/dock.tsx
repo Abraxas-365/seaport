@@ -821,12 +821,12 @@ function DockTeam({ dock }: { dock: Dock }) {
   const hasDefault = members.some((m) => m.default)
   const description =
     members.length === 0
-      ? "Nadie atiende este muelle: los mensajes que lleguen quedan retenidos."
+      ? "Nadie atiende este muelle: los mensajes quedan retenidos hasta que asignes un agente (le llegan los de las últimas 24 h)."
       : members.length === 1
         ? "Recibe todos los mensajes del muelle."
         : hasDefault
           ? "Se llama a uno con @nombre; un chat sigue con el agente con el que hablaba; el resto va al de por defecto."
-          : "Se llama a uno con @nombre; un chat sigue con el agente con el que hablaba; sin agente por defecto, lo que no llama a nadie queda retenido."
+          : "Se llama a uno con @nombre; un chat sigue con el agente con el que hablaba; sin agente por defecto, lo que no llama a nadie queda retenido hasta que elijas uno."
 
   return (
     <Card>

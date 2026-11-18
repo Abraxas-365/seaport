@@ -33,17 +33,17 @@ seaport connect -agent support -- rness --acp -m anthropic/claude-sonnet-4-5
 
 The connector logs that it is connected and waits for work.
 
-## 3. Write again as Ana
+## 3. Ana's message goes out
 
-Ana's first message was held before the agent existed (routing is decided once, when a message arrives). Send a follow-up:
+Ana's first message arrived before the dock had an agent, so it was held with `no agent is assigned to this dock`. Assigning `support` routed it again (a held message from the last 24 hours that the chat hasn't moved past), and it waited, queued, for a connection. As soon as the connector is up it is delivered: the connector opens one agent session for the conversation and sends the message as a prompt. The agent answers with Seaport's `reply` tool.
+
+To add to the conversation, write as Ana again:
 
 ```sh
 curl -sS -X POST "http://127.0.0.1:8740/api/v1/docks/$DOCK/ships" \
   -H 'Content-Type: application/json' \
   -d '{"chat_id":"ticket-42","message_id":"m-2","sender_id":"ana","sender_name":"Ana Torres","text":"It is invoice 1043, from October."}'
 ```
-
-The message is routed to `support` and delivered at once: the connector opens one agent session for the conversation and sends the message as a prompt. The agent can read the earlier message with Seaport's `history` tool, and answers with the `reply` tool.
 
 ## 4. Watch the answer
 
@@ -85,7 +85,7 @@ The running connector notices, finishes what it is working on, restarts the harn
 | :--- | :--- |
 | The connector says the agent is unknown | `-agent` must name an agent of the library (`seaport agents`). |
 | The message stays queued | No connection works as the dock's agent; check **Tripulación**. |
-| The message is held with "no agent is assigned to this dock" | It arrived before the agent was assigned. Post a new message. |
+| The message is held with "no agent is assigned to this dock" | It arrived before the agent was assigned and more than 24 hours ago, or the chat moved on since. Post a new message. |
 | The answer appears in the connector's log but not in the chat | The agent didn't call `reply`. Use `-auto-reply` for agents without HTTP MCP. |
 | `rness` exits at start | rness needs a model: pass `-m provider/model`. |
 

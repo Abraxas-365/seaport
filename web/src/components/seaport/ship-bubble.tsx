@@ -30,7 +30,7 @@ export function ShipStatusIcon({ ship, className }: { ship: Ship; className?: st
 }
 
 /** Why a ship was held (internal/conversation/customs.go, internal/agent/agent.go). */
-const holdLabel: Record<string, string> = {
+export const holdLabel: Record<string, string> = {
   "conversation pending": "esperando tu decisión en la aduana",
   "conversation denied": "conversación bloqueada",
   "sender denied by a rule": "remitente bloqueado por una regla",
@@ -39,6 +39,16 @@ const holdLabel: Record<string, string> = {
   "no agent was called (mention one with @name)": "no se llamó a ningún agente (@nombre)",
   "its agent left the dock": "su agente dejó el muelle",
 }
+
+/**
+ * The hold reasons routing gives (internal/agent/agent.go RoutingHolds):
+ * assigning an agent to the dock routes such messages again.
+ */
+export const routingHolds = [
+  "no agent is assigned to this dock",
+  "no agent was called (mention one with @name)",
+  "its agent left the dock",
+]
 
 /**
  * One message in a conversation. Inbound on the left (sender shown in
@@ -100,6 +110,9 @@ export function ShipBubble({
           ) : (
             <p className="break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{ship.text}</p>
           ))}
+        {held && ship.hold_reason && (
+          <p className="mt-1 text-[0.7rem] text-warning">{holdLabel[ship.hold_reason] ?? ship.hold_reason}</p>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <div
