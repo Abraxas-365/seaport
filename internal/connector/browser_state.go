@@ -116,6 +116,28 @@ func (t *jobTable) detected(h pageHit, kit *agent.Kit, now time.Time) (ask bool,
 	return true, conv, running
 }
 
+// refusal decides whether to tell the running turns about a page that
+// refuses automated browsers: not while a person is in the viewer (the
+// viewer tells them), not on an ignored host, at most once per host per
+// agent.DetectEvery, and only when a turn runs to hear it.
+func (t *jobTable) refusal(h pageHit, kit *agent.Kit, now time.Time) []*job {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.viewerOn || kit == nil || len(t.jobs) == 0 || agent.HostIgnored(h.Host, kit.BrowserIgnoreHosts) {
+		return nil
+	}
+	key := "refused " + h.Host
+	if last, ok := t.asked[key]; ok && now.Sub(last) < agent.DetectEvery {
+		return nil
+	}
+	t.asked[key] = now
+	running := make([]*job, 0, len(t.jobs))
+	for _, j := range t.jobs {
+		running = append(running, j)
+	}
+	return running
+}
+
 // detector is the connector's side of a detected page: it asks the port
 // for the takeover and tells the running turns.
 type detector struct {
@@ -134,6 +156,18 @@ func newDetector(cfg Config, kit *agent.Kit, jobs *jobTable) *detector {
 
 // hit handles one flagged page.
 func (d *detector) hit(ctx context.Context, h pageHit) {
+	if h.Refused {
+		// No person can pass it in this browser: no takeover, the agent is
+		// told to take another way.
+		running := d.jobs.refusal(h, d.kit, time.Now())
+		if len(running) > 0 {
+			slog.Info("browser detector saw a sign-in that refuses automated browsers", "host", h.Host, "path", h.Path)
+		}
+		for _, j := range running {
+			j.note(refusedNote(h))
+		}
+		return
+	}
 	ask, conv, running := d.jobs.detected(h, d.kit, time.Now())
 	if !ask {
 		return
@@ -173,6 +207,17 @@ func detectNote(h pageHit, notified bool) string {
 	}
 	b.WriteString(". Never guess or type credentials or codes. Go on with what doesn't need that page, or wait.")
 	return b.String()
+}
+
+// refusedNote is steered into the running turns when the browser lands on
+// a sign-in page that refuses automated browsers (Google's "This browser or
+// app may not be secure"): neither the agent nor a person in the viewer can
+// pass it, so retrying is pointless.
+func refusedNote(h pageHit) string {
+	return "[seaport] Your browser is on " + h.Host + h.Path + ": the identity provider refuses to sign anyone in from an automated browser like yours, " +
+		"and a person in the viewer gets the same refusal. Don't retry it and don't ask for a takeover of it. " +
+		"Use the site's own sign-in (email and password, which a person can enter through a takeover) or its API or MCP server with keys " +
+		"the people you work with add as the agent's secrets, and tell them that is what you need."
 }
 
 // callTakeovers is POST /crew/takeovers as the connector's agent.

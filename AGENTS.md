@@ -804,7 +804,14 @@ net/http mux; only `/healthz` answers 405.
   (`crewhttp.Takeovers`, agent tokens only; `crew.TakeoverRequest`, the
   tool's input over HTTP, `Detected: true` → `Takeover.By = detector` with
   the page's `Path`, never the query), naming the newest running job's
-  conversation, and `detectNote` is steered into every running turn. The
+  conversation, and `detectNote` is steered into every running turn. A
+  sign-in that refuses automated browsers (`REFUSED_PAGES` in `detect.js`:
+  Google's `accounts.google.com/…rejected`; the web's `refusedSignIn` in
+  `lib/cdp.ts` must agree, `browser-detect.test.ts`) is `pageHit.Refused`,
+  never a takeover (nobody passes it, the viewer is CDP too):
+  `jobTable.refusal` (same quiet rules, once per host per `DetectEvery`,
+  only with turns running) steers `refusedNote` (use the site's own sign-in
+  or its API/MCP with secrets), and the viewer shows `RefusedSignIn`. The
   audit trail is the event `agent.takeover` (`agent.TakeoverEvent`,
   `agents:read`; `Takeover.Event`): `asked` when a host with no open
   takeover, or one of another kind, is asked (a retry of the same kind

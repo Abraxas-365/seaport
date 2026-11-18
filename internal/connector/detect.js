@@ -1,6 +1,7 @@
 // seaportDetect reads a page and says what only a person can do on it:
 // "login" (a sign-in form or a known sign-in host), "captcha" (a challenge
-// widget or wall) or "2fa" (a one-time code), else "". It writes nothing to
+// widget or wall) or "2fa" (a one-time code), else "", and refused: true on
+// a sign-in page that refuses automated browsers. It writes nothing to
 // the page. The connector runs it over CDP (Runtime.evaluate) on every
 // loaded page of the agent's browser; the web's Vitest suite runs it under
 // jsdom with fixture pages (web/src/lib/browser-detect.test.ts).
@@ -68,6 +69,24 @@
     "iframe[title*='challenge' i]",
     "[data-sitekey]",
   ];
+
+  // Pages where an identity provider refuses to sign anyone in because the
+  // browser is automated (Google's "Couldn't sign you in · This browser or
+  // app may not be secure"). No person can pass them in this browser, so
+  // they are not a takeover: the page is reported as refused and the agent
+  // is told to use the site's own sign-in or an API instead. A match is the
+  // host (or a subdomain) and a path containing the marker.
+  var REFUSED_PAGES = [
+    { host: "accounts.google.com", path: "rejected" },
+  ];
+
+  function refused(host, path) {
+    for (var i = 0; i < REFUSED_PAGES.length; i++) {
+      var r = REFUSED_PAGES[i];
+      if ((host === r.host || endsWithDot(host, r.host)) && path.indexOf(r.path) >= 0) return true;
+    }
+    return false;
+  }
 
   function hostMatches(host, path, entry) {
     var slash = entry.indexOf("/");
@@ -149,8 +168,12 @@
     var host = String((loc && loc.hostname) || "").toLowerCase();
     var path = String((loc && loc.pathname) || "/");
     var proto = String((loc && loc.protocol) || "");
-    var out = { host: host, path: path, kind: "" };
+    var out = { host: host, path: path, kind: "", refused: false };
     if (!host || (proto !== "http:" && proto !== "https:")) return out;
+    if (refused(host, path)) {
+      out.refused = true;
+      return out;
+    }
     if (hasOneTimeCode(doc)) {
       out.kind = "2fa";
       return out;

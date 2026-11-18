@@ -50,6 +50,7 @@ import {
   ShipBubble,
   SlotRow,
   Takeovers,
+  RefusedSignIn,
   StatusBadge,
   StatusDot,
   ProvenanceLine,
@@ -713,6 +714,11 @@ function Domain() {
             canClear={false}
             onOpen={() => {}}
           />
+        </Specimen>
+        <Specimen label="RefusedSignIn (aviso del visor sobre un inicio de sesión que bloquea navegadores automatizados)" className="lg:col-span-2">
+          <div className="overflow-hidden rounded-xl border">
+            <RefusedSignIn />
+          </div>
         </Specimen>
         <Specimen label="AccountBadge (cuenta de una instancia con suscripción; experimental)" className="flex flex-wrap items-center gap-2">
           <AccountBadge account={undefined} />
