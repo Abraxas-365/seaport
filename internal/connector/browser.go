@@ -121,6 +121,9 @@ func StartBrowser(ctx context.Context, engine, state string) (*Browser, error) {
 		return nil, err
 	}
 	slog.Info("browser started", "engine", engine, "profile", profile, "headed", disp != nil)
+	// No site may block the page with a security-key dialog nobody can
+	// answer (browser_webauthn.go); the guard ends with the browser.
+	go guardWebAuthn(ctx, b)
 	return b, nil
 }
 
