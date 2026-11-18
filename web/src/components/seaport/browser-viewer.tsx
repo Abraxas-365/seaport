@@ -68,6 +68,7 @@ export function BrowserViewer({
   // null: panel closed; "loading": open, cookies on their way; else the sites.
   const [sites, setSites] = React.useState<CookieSite[] | "loading" | null>(null)
   const canvasRef = React.useRef<HTMLDivElement>(null)
+  const sinkRef = React.useRef<HTMLTextAreaElement>(null)
   const crew = useCrew()
   const working = (crew.data?.agents ?? []).some((c) => c.agent_id === agent.id && c.deliveries.length > 0)
   const readOnly = working && !taken
@@ -188,8 +189,11 @@ export function BrowserViewer({
   }
   const key = (type: "keyDown" | "keyUp", e: React.KeyboardEvent) => {
     if (!client || !page || readOnly) return
-    e.preventDefault()
     client.send("Input.dispatchKeyEvent", keyParams(e, type), page.sessionId).catch(() => {})
+  }
+  const insert = (text: string) => {
+    if (!client || !page || readOnly) return
+    client.send("Input.insertText", { text }, page.sessionId).catch(() => {})
   }
   const loadSites = async () => {
     if (!client) return
@@ -310,25 +314,24 @@ export function BrowserViewer({
       <div className="flex min-h-0">
         <div
           ref={canvasRef}
-          tabIndex={0}
           role="application"
           aria-label="Página del navegador"
           style={{ aspectRatio: `${size.w} / ${size.h}` }}
           className={cn(
-            "relative min-w-0 flex-1 select-none bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "relative min-w-0 flex-1 select-none bg-muted outline-none focus-within:ring-2 focus-within:ring-ring",
             readOnly ? "cursor-not-allowed" : "cursor-default",
           )}
           onMouseDown={(e) => {
-            canvasRef.current?.focus()
+            e.preventDefault() // keep the focus on the key sink
+            sinkRef.current?.focus({ preventScroll: true })
             mouse("mousePressed", e, e.detail || 1)
           }}
           onMouseUp={(e) => mouse("mouseReleased", e, e.detail || 1)}
           onMouseMove={(e) => mouse("mouseMoved", e)}
           onWheel={wheel}
-          onKeyDown={(e) => key("keyDown", e)}
-          onKeyUp={(e) => key("keyUp", e)}
           onContextMenu={(e) => e.preventDefault()}
         >
+          <KeySink inputRef={sinkRef} onKey={key} onText={insert} />
           {frame ? (
             <img src={frame} alt="" draggable={false} className="size-full object-fill" />
           ) : (
@@ -412,6 +415,76 @@ function SessionsPanel({
  * "Couldn't sign you in"): the agent's browser is driven over DevTools,
  * so neither the agent nor a person in the viewer gets past it.
  */
+/**
+ * The viewer's keyboard: a hidden textarea that holds the focus while the
+ * person drives the page. Keys go to the slot's browser as key events; text
+ * the system composes (dead-key accents, IME) and pasted text go as
+ * inserted text. Being an editable field that stops the keys' propagation,
+ * the web's own shortcuts (the theme's "d") never see what is typed here.
+ */
+export function KeySink({
+  inputRef,
+  onKey,
+  onText,
+}: {
+  inputRef: React.Ref<HTMLTextAreaElement>
+  onKey: (type: "keyDown" | "keyUp", e: React.KeyboardEvent) => void
+  onText: (text: string) => void
+}) {
+  // Composed text sits in the field until the composition ends; browsers
+  // order compositionend and the last input event differently, so whichever
+  // comes second finds the field already emptied.
+  const flush = (el: HTMLTextAreaElement) => {
+    const text = el.value
+    el.value = ""
+    if (text) onText(text)
+  }
+  return (
+    <textarea
+      ref={inputRef}
+      aria-label="Teclado del navegador"
+      autoCapitalize="off"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      className="pointer-events-none absolute left-0 top-0 size-px resize-none opacity-0"
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (composing(e) || pasting(e)) return
+        e.preventDefault()
+        onKey("keyDown", e)
+      }}
+      onKeyUp={(e) => {
+        e.stopPropagation()
+        if (composing(e) || pasting(e)) return
+        e.preventDefault()
+        onKey("keyUp", e)
+      }}
+      onCompositionEnd={(e) => flush(e.currentTarget)}
+      onInput={(e) => {
+        if (!(e.nativeEvent as InputEvent).isComposing) flush(e.currentTarget)
+      }}
+      onPaste={(e) => {
+        e.preventDefault()
+        const text = e.clipboardData.getData("text/plain")
+        if (text) onText(text)
+      }}
+    />
+  )
+}
+
+// A key the system turns into text itself: a dead key or one inside a
+// composition (229 is the keyCode of a key the IME took).
+function composing(e: React.KeyboardEvent) {
+  return e.nativeEvent.isComposing || e.key === "Dead" || e.keyCode === 229
+}
+
+// Cmd/Ctrl+V: the paste event brings the person's clipboard (the slot's
+// browser has its own, empty one).
+function pasting(e: React.KeyboardEvent) {
+  return (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === "v"
+}
+
 export function RefusedSignIn() {
   return (
     <div role="alert" className="flex gap-2 border-b border-warning/40 bg-warning/5 px-3 py-2 text-sm">
