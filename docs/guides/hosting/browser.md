@@ -67,6 +67,8 @@ A model doesn't always notice it is on a sign-in page, and one that does may try
 
 The script reads the DOM and writes nothing; the page's content never leaves the slot. A hit records the takeover (`POST /crew/takeovers`, `by: detector`, with the page's path and never its query) on the conversation of the newest turn running, tells a person as `browser_assist` says, and steers a note into every running turn: the page needs a person, whether one was told, never guess credentials or codes, go on with what doesn't need it or wait. The **Navegador** card shows *Seaport detectó que el navegador necesita que inicies sesión en sso.example.com/signin*. A host is asked at most once every 10 minutes while the page keeps needing someone; nothing is asked while a person is in the viewer (they are on it), nor for `browser_ignore_hosts` (sites and their subdomains the agent never needs to pass: `-browser-ignore intranet.example.com,wiki.example.com`). Detection is independent of `browser_assist`: with nobody to tell, the takeover still shows in the web and the agent's note says so.
 
+A sign-in that refuses automated browsers is not a takeover. Google answers *Couldn't sign you in · This browser or app may not be secure* (`accounts.google.com/…/rejected`) to any browser driven over DevTools. The agent's browser is driven that way, and so is the viewer you see it through, so nobody gets past that page. The detector reports it as refused instead of asking for a person. Running turns get a note, at most once per host every 10 minutes: don't retry, and use the site's own sign-in or its API or MCP server instead, with keys stored as the agent's secrets. The viewer shows the same advice over the page: *Google no deja iniciar sesión en este navegador*. See [Sites that refuse automated browsers](#sites-that-refuse-automated-browsers).
+
 ```sh
 seaport agents profile set surf -browser on -browser-detect on -browser-assist oncall
 seaport agents profile set surf -browser-ignore intranet.example.com
@@ -96,6 +98,29 @@ The egress proxy sees the browser's hosts like any other traffic: a site the env
 - Chromium only, headless, 1280×800. No extensions, no downloads to your machine.
 - The viewer streams JPEG frames over a WebSocket; on a slow link it lags but stays usable for a sign-in.
 - Local agents (`seaport connect`) get no browser yet.
+- Some identity providers refuse automated browsers outright; see below.
+
+## Sites that refuse automated browsers
+
+The agent's Chromium is driven over the DevTools protocol, and some sign-ins refuse any browser driven that way. The best-known case is *Sign in with Google*, which answers *This browser or app may not be secure*. Seaport doesn't disguise the browser: that goes against those providers' terms, they detect it and break it often, and the account at stake is yours. Use one of these instead:
+
+- **The service's API or MCP server.** For tools the agent consults (monitoring, trackers, CRMs), an API key is steadier than a browser session and never expires mid-task. Store the keys as the agent's secrets and add the server to its profile, with headers that name them. For example, Datadog's MCP server takes `DD_API_KEY` and `DD_APPLICATION_KEY` headers:
+
+  ```json
+  "mcp_servers": [
+    {
+      "name": "datadog",
+      "url": "https://mcp.datadoghq.com/v1/mcp",
+      "headers": [
+        {"name": "DD_API_KEY", "value": "${DD_API_KEY}"},
+        {"name": "DD_APPLICATION_KEY", "value": "${DD_APPLICATION_KEY}"}
+      ]
+    }
+  ]
+  ```
+
+  Prefer keys of a service account with read-only scopes. The environment's egress must allow the server's host.
+- **The site's own sign-in.** An email-and-password account of the site itself (not *Sign in with Google*) works in the viewer like any other sign-in, 2FA included.
 
 ## Related
 

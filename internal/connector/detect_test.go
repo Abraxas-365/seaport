@@ -305,6 +305,72 @@ func TestDetectorHitAsksAndTellsTheTurns(t *testing.T) {
 	}
 }
 
+func TestDetectorRefusedSignInTellsWithoutATakeover(t *testing.T) {
+	kit := &agent.Kit{Browser: true, BrowserDetect: true, BrowserIgnoreHosts: []string{"intranet.example.com"}}
+	refused := pageHit{Host: "accounts.google.com", Path: "/v3/signin/rejected", Refused: true}
+	jobs := newJobTable()
+	j := newJob(delivery(identity.NewConversationID()))
+	jobs.add(j, time.Now())
+	posts := 0
+	d := newDetector(Config{}, kit, jobs)
+	d.post = func(context.Context, crew.TakeoverRequest) (crew.TakeoverAnswer, error) {
+		posts++
+		return crew.TakeoverAnswer{}, nil
+	}
+	d.hit(context.Background(), refused)
+	if posts != 0 {
+		t.Fatalf("a refused sign-in is not a takeover: %d posts", posts)
+	}
+	select {
+	case n := <-j.notes:
+		for _, want := range []string{"accounts.google.com/v3/signin/rejected", "automated browser", "Don't retry", "API or MCP server"} {
+			if !strings.Contains(n, want) {
+				t.Fatalf("note %q lacks %q", n, want)
+			}
+		}
+	default:
+		t.Fatal("the running turn was not told")
+	}
+	// Once per host per DetectEvery.
+	d.hit(context.Background(), refused)
+	select {
+	case n := <-j.notes:
+		t.Fatalf("told again too soon: %q", n)
+	default:
+	}
+
+	now := time.Now()
+	t.Run("not while a person is in the viewer, nor idle, nor ignored", func(t *testing.T) {
+		busy := newJobTable()
+		busy.add(newJob(delivery(identity.NewConversationID())), now)
+		busy.viewer(true)
+		if got := busy.refusal(refused, kit, now); len(got) != 0 {
+			t.Fatal("told while the viewer is on")
+		}
+		if got := newJobTable().refusal(refused, kit, now); len(got) != 0 {
+			t.Fatal("told with no turn running")
+		}
+		other := newJobTable()
+		other.add(newJob(delivery(identity.NewConversationID())), now)
+		if got := other.refusal(pageHit{Host: "sso.intranet.example.com", Path: "/rejected", Refused: true}, kit, now); len(got) != 0 {
+			t.Fatal("told on an ignored host")
+		}
+		if got := other.refusal(refused, nil, now); len(got) != 0 {
+			t.Fatal("told without a kit")
+		}
+	})
+	t.Run("a refusal doesn't silence a takeover of the same host", func(t *testing.T) {
+		tbl := newJobTable()
+		tbl.add(newJob(delivery(identity.NewConversationID())), now)
+		if got := tbl.refusal(refused, kit, now); len(got) != 1 {
+			t.Fatal("not told")
+		}
+		if ask, _, _ := tbl.detected(pageHit{Host: "accounts.google.com", Path: "/", Kind: agent.KindLogin}, kit, now); !ask {
+			t.Fatal("the takeover of the host must still be asked")
+		}
+	})
+}
+
 func TestCallTakeoversPostsAsTheAgent(t *testing.T) {
 	var gotAuth, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { LibraryAgent, Takeover } from "@/lib/types"
 import { renderAt, seededClient, stubNetwork } from "@/test/render"
 import { apiData } from "@/test/wire"
-import { Takeovers } from "./browser-viewer"
+import { RefusedSignIn, Takeovers } from "./browser-viewer"
 
 const takeover = (over: Partial<Takeover>): Takeover => ({ host: "app.example.com", kind: "login", note: "", at: new Date().toISOString(), ...over })
 
@@ -62,5 +62,16 @@ describe("Takeovers", () => {
     await userEvent.click(screen.getByRole("button", { name: /Abrir/ }))
     expect(onOpen).toHaveBeenCalledWith("app.example.com")
     expect(screen.getByRole("button", { name: "Listo" })).toBeEnabled()
+  })
+})
+
+describe("RefusedSignIn", () => {
+  it("says the refusal can't be passed here and what to use instead", () => {
+    stubNetwork()
+    renderAt(<RefusedSignIn />, seededClient())
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("Google no deja iniciar sesión en este navegador")
+    expect(alert).toHaveTextContent("reintentar no sirve")
+    expect(alert).toHaveTextContent("API del servicio")
   })
 })

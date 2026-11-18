@@ -9,11 +9,12 @@ import {
   Lock,
   Plus,
   RotateCw,
+  ShieldAlert,
   Trash2,
   X,
 } from "lucide-react"
 
-import { CDPClient, groupCookies, pickPage, keyParams, modifiers, mouseButtons, type Cookie, type CookieSite, type PageTarget } from "@/lib/cdp"
+import { CDPClient, groupCookies, pickPage, keyParams, modifiers, mouseButtons, refusedSignIn, type Cookie, type CookieSite, type PageTarget } from "@/lib/cdp"
 import { api } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
 import { useCrew, useEndTakeover, useNow } from "@/lib/hooks"
@@ -304,6 +305,8 @@ export function BrowserViewer({
         </div>
       )}
 
+      {phase === "live" && refusedSignIn(url) && <RefusedSignIn />}
+
       <div className="flex min-h-0">
         <div
           ref={canvasRef}
@@ -400,6 +403,27 @@ function SessionsPanel({
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * Shown over a sign-in page that refuses automated browsers (Google's
+ * "Couldn't sign you in"): the agent's browser is driven over DevTools,
+ * so neither the agent nor a person in the viewer gets past it.
+ */
+export function RefusedSignIn() {
+  return (
+    <div role="alert" className="flex gap-2 border-b border-warning/40 bg-warning/5 px-3 py-2 text-sm">
+      <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+      <div className="min-w-0">
+        <p className="font-medium">Google no deja iniciar sesión en este navegador</p>
+        <p className="text-muted-foreground">
+          Bloquea los navegadores automatizados como el del agente, también cuando entras tú desde aquí; reintentar no
+          sirve. Usa el inicio de sesión propio del sitio (correo y contraseña) o conecta el agente a la API del servicio
+          con claves guardadas como secretos del agente.
+        </p>
+      </div>
     </div>
   )
 }

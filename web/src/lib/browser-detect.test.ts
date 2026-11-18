@@ -11,9 +11,11 @@ import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { refusedSignIn } from "./cdp"
+
 const source = readFileSync(resolve(__dirname, "../../../internal/connector/detect.js"), "utf8")
 
-type Detect = (doc: Document, loc: { hostname: string; pathname: string; protocol: string }) => { host: string; path: string; kind: string }
+type Detect = (doc: Document, loc: { hostname: string; pathname: string; protocol: string }) => { host: string; path: string; kind: string; refused: boolean }
 
 function load(): Detect {
   // The script returns its result when a document exists (the CDP case) and
@@ -39,7 +41,7 @@ describe("detect.js", () => {
 
   it("flags a sign-in form by its password field", () => {
     const r = page("<form><input type='email' name='u'><input type='password' name='p'><button>Sign in</button></form>", { pathname: "/login" })
-    expect(r).toEqual({ host: "app.example.com", path: "/login", kind: "login" })
+    expect(r).toEqual({ host: "app.example.com", path: "/login", kind: "login", refused: false })
   })
 
   it("ignores a hidden password field", () => {
@@ -86,5 +88,29 @@ describe("detect.js", () => {
 
   it("lowercases the host", () => {
     expect(page("<input type='password'>", { hostname: "App.Example.COM" }).host).toBe("app.example.com")
+  })
+
+  it("reports a sign-in that refuses automated browsers, not a takeover", () => {
+    const html = "<h1>Couldn't sign you in</h1><p>This browser or app may not be secure.</p><button>Try again</button>"
+    const r = page(html, { hostname: "accounts.google.com", pathname: "/v3/signin/rejected" })
+    expect(r).toEqual({ host: "accounts.google.com", path: "/v3/signin/rejected", kind: "", refused: true })
+    // Google's ordinary sign-in pages stay a login takeover.
+    expect(page("<input type='email'>", { hostname: "accounts.google.com", pathname: "/v3/signin/identifier" })).toMatchObject({ kind: "login", refused: false })
+    // The marker counts only on the provider's host.
+    expect(page("<div/>", { hostname: "app.example.com", pathname: "/rejected" })).toMatchObject({ kind: "", refused: false })
+  })
+
+  it("agrees with the viewer's refusedSignIn", () => {
+    for (const url of [
+      "https://accounts.google.com/v3/signin/rejected?access_type=online",
+      "https://accounts.google.com/v3/signin/identifier",
+      "https://app.example.com/rejected",
+      "https://eu.accounts.google.com/signin/rejected",
+      "https://notaccounts.google.com/rejected",
+    ]) {
+      const u = new URL(url)
+      const r = page("<div/>", { hostname: u.hostname, pathname: u.pathname, protocol: u.protocol })
+      expect(r.refused, url).toBe(refusedSignIn(url))
+    }
   })
 })

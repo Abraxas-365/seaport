@@ -16,16 +16,18 @@ import (
 )
 
 // detectScript is the page detector (detect.js): evaluated on a page it
-// answers {host, path, kind} with kind login | captcha | 2fa | "".
+// answers {host, path, kind, refused} with kind login | captcha | 2fa | "".
 //
 //go:embed detect.js
 var detectScript string
 
-// pageHit is a page the detector says needs a person.
+// pageHit is a page the detector says needs a person, or (Refused) a
+// sign-in page that refuses automated browsers outright.
 type pageHit struct {
-	Host string             `json:"host"`
-	Path string             `json:"path"`
-	Kind agent.TakeoverKind `json:"kind"`
+	Host    string             `json:"host"`
+	Path    string             `json:"path"`
+	Kind    agent.TakeoverKind `json:"kind"`
+	Refused bool               `json:"refused"`
 }
 
 // Detector timing: a page is read shortly after it loads and once more
@@ -206,7 +208,7 @@ func (w *pageWatcher) evaluate(session string) {
 		return
 	}
 	h := res.Result.Value
-	if h.Kind == "" || h.Host == "" {
+	if (h.Kind == "" && !h.Refused) || h.Host == "" {
 		return
 	}
 	h.Host = strings.ToLower(h.Host)

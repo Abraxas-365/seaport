@@ -118,6 +118,25 @@ export function pickPage(pages: PageTarget[]): PageTarget | undefined {
   return pages.find((p) => /^https?:\/\//i.test(p.url)) ?? pages[0]
 }
 
+/**
+ * Whether an address is a sign-in page that refuses automated browsers
+ * (Google's "Couldn't sign you in · This browser or app may not be
+ * secure"): nobody passes it in the agent's browser, the viewer included.
+ * The same rule as REFUSED_PAGES in internal/connector/detect.js
+ * (browser-detect.test.ts checks they agree).
+ */
+export function refusedSignIn(url: string): boolean {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return false
+  }
+  const host = u.hostname.toLowerCase()
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false
+  return (host === "accounts.google.com" || host.endsWith(".accounts.google.com")) && u.pathname.includes("rejected")
+}
+
 /** A cookie as Storage.getCookies lists it (what a sign-in leaves). */
 export interface Cookie {
   name: string
