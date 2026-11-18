@@ -32,6 +32,12 @@ const (
 	// MaxBrowserMessage bounds one CDP message either way (a screencast
 	// frame is a base64 JPEG; a full-page screenshot a few MB).
 	MaxBrowserMessage = 32 << 20
+	// ViewerBeat is how often the process relaying an open viewer marks
+	// the slot viewed (agent_slots.viewer_at); the supervisor reads a mark
+	// younger than ViewerStale as work (Supervised.Viewing), so a slot
+	// isn't stopped or restarted under the person in its browser.
+	ViewerBeat  = 20 * time.Second
+	ViewerStale = 3 * ViewerBeat
 )
 
 // BrowserConn is an open viewer: CDP messages (JSON, one each) in both

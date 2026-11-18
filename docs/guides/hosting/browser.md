@@ -19,7 +19,7 @@ Two switches, one per side:
        - "*.example.com"
    ```
 
-   The next build of the environment installs Chromium, Node and the browser MCP server ([chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)) in the image. The sites the browser visits go through the egress proxy like everything else, so list them in `network.egress`.
+   The next build of the environment installs Chromium, Xvfb (a virtual display), Node and the browser MCP server ([chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)) in the image. The sites the browser visits go through the egress proxy like everything else, so list them in `network.egress`.
 
 2. **The agent uses it** (usage). On the agent's page, under **Perfil**, turn on **Navegador**, or:
 
@@ -27,7 +27,9 @@ Two switches, one per side:
    seaport profile set nav -browser on
    ```
 
-With both on, every slot of the agent starts Chromium at start (headless, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `ask_takeover`.
+With both on, every slot of the agent starts Chromium at start (headed on a virtual display, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `ask_takeover`.
+
+Chromium runs headed, not headless, because sites refuse a headless browser far more often: Google's sign-in refuses a headless Chromium at the first step and lets a headed one through. An image built by an older Seaport has no Xvfb; its slots run Chromium headless and log a warning until you rebuild the environment (`seaport env build <env> -force`, then restart the slots).
 
 An agent with the switch on but hosted on an environment without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.
 
@@ -67,7 +69,7 @@ A model doesn't always notice it is on a sign-in page, and one that does may try
 
 The script reads the DOM and writes nothing; the page's content never leaves the slot. A hit records the takeover (`POST /crew/takeovers`, `by: detector`, with the page's path and never its query) on the conversation of the newest turn running, tells a person as `browser_assist` says, and steers a note into every running turn: the page needs a person, whether one was told, never guess credentials or codes, go on with what doesn't need it or wait. The **Navegador** card shows *Seaport detectó que el navegador necesita que inicies sesión en sso.example.com/signin*. A host is asked at most once every 10 minutes while the page keeps needing someone; nothing is asked while a person is in the viewer (they are on it), nor for `browser_ignore_hosts` (sites and their subdomains the agent never needs to pass: `-browser-ignore intranet.example.com,wiki.example.com`). Detection is independent of `browser_assist`: with nobody to tell, the takeover still shows in the web and the agent's note says so.
 
-A sign-in that refuses automated browsers is not a takeover. Google answers *Couldn't sign you in · This browser or app may not be secure* (`accounts.google.com/…/rejected`) to any browser driven over DevTools. The agent's browser is driven that way, and so is the viewer you see it through, so nobody gets past that page. The detector reports it as refused instead of asking for a person. Running turns get a note, at most once per host every 10 minutes: don't retry, and use the site's own sign-in or its API or MCP server instead, with keys stored as the agent's secrets. The viewer shows the same advice over the page: *Google no deja iniciar sesión en este navegador*. See [Sites that refuse automated browsers](#sites-that-refuse-automated-browsers).
+A sign-in that refuses automated browsers is not a takeover. Google may answer *Couldn't sign you in · This browser or app may not be secure* (`accounts.google.com/…/rejected`) to a browser it takes for automated: always to a headless one, and sometimes to a headed one too. Nobody gets past that page, not even a person in the viewer, since the viewer drives the same browser. The detector reports it as refused instead of asking for a person. Running turns get a note, at most once per host every 10 minutes: don't retry, and use the site's own sign-in or its API or MCP server instead, with keys stored as the agent's secrets. The viewer shows the same advice over the page: *Google no deja iniciar sesión en este navegador*. See [Sites that refuse automated browsers](#sites-that-refuse-automated-browsers).
 
 ```sh
 seaport agents profile set surf -browser on -browser-detect on -browser-assist oncall
@@ -83,6 +85,7 @@ seaport agents profile set surf -browser-detect off
 - While the agent is in a turn, the viewer is read-only (*El agente trabaja*): you see what it does without moving its mouse. **Tomar el control** overrides that.
 - The agent knows you are there: when the viewer opens, the slot's connector tells the running turn that a person is using the browser and it should wait (or work on what doesn't need it), and when it closes, that the browser is its own again and it should check the page. A turn that starts while you are in the viewer gets the same note. It is a hint to the model, not a lock: the agent's browser tools keep working.
 - One viewer per slot at a time; a second opener gets `409`. A viewer ends after 10 minutes without a message or 2 hours in all.
+- An open viewer keeps the slot busy: `idle_stop` doesn't stop it and a new environment version doesn't restart it while you are in it. The port marks the slot every 20 s; a mark older than a minute (the port that relayed the viewer went away) no longer counts.
 - The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Alojamiento** section.
 
 Opening and closing a viewer publish `slot.browser` (`opened`/`closed`, with who did it); the stream itself is never stored. The permission is `seaport:browser:use` (Admin and Operator in iam mode); see [Permissions](../../reference/permissions.md).
@@ -95,14 +98,14 @@ The egress proxy sees the browser's hosts like any other traffic: a site the env
 
 ## Limits
 
-- Chromium only, headless, 1280×800. No extensions, no downloads to your machine.
+- Chromium only, headed on a 1280×944 virtual screen (pages get about 1280×800). No extensions, no downloads to your machine.
 - The viewer streams JPEG frames over a WebSocket; on a slow link it lags but stays usable for a sign-in.
 - Local agents (`seaport connect`) get no browser yet.
 - Some identity providers refuse automated browsers outright; see below.
 
 ## Sites that refuse automated browsers
 
-The agent's Chromium is driven over the DevTools protocol, and some sign-ins refuse any browser driven that way. The best-known case is *Sign in with Google*, which answers *This browser or app may not be secure*. Seaport doesn't disguise the browser: that goes against those providers' terms, they detect it and break it often, and the account at stake is yours. Use one of these instead:
+The agent's Chromium is driven over the DevTools protocol, and some sign-ins refuse a browser they take for automated. The best-known case is *Sign in with Google*, which answers *This browser or app may not be secure*. Running Chromium headed avoids the most common trigger, but Google can still refuse it. Seaport doesn't disguise the browser any further: that goes against those providers' terms, they detect it and break it often, and the account at stake is yours. When a sign-in refuses it, use one of these instead:
 
 - **The service's API or MCP server.** For tools the agent consults (monitoring, trackers, CRMs), an API key is steadier than a browser session and never expires mid-task. Store the keys as the agent's secrets and add the server to its profile, with headers that name them. For example, Datadog's MCP server takes `DD_API_KEY` and `DD_APPLICATION_KEY` headers:
 

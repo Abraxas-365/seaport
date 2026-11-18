@@ -275,8 +275,29 @@ func TestIdleAndOutdatedSlots(t *testing.T) {
 		t.Fatalf("a slot being signed in was stopped: %s (%s)", s.State, s.Detail)
 	}
 
-	// Idle past idle_stop: stopped.
+	// Idle past idle_stop with a person in its browser viewer (a fresh
+	// mark): kept running too; a stale mark (the relaying process died)
+	// doesn't count.
 	if _, err := db.Exec(`UPDATE slot_logins SET state = 'failed'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE agent_slots SET viewer_at = now(), active_at = now() - interval '2 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "kept active while viewed", func() bool {
+		var recent bool
+		if err := db.QueryRow(`SELECT active_at > now() - interval '1 minute' FROM agent_slots WHERE agent_id = $1 AND idx = 1`, pm.ID).Scan(&recent); err != nil {
+			t.Fatal(err)
+		}
+		return recent
+	})
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotRunning {
+		t.Fatalf("a slot being viewed was stopped: %s (%s)", s.State, s.Detail)
+	}
+
+	// Idle past idle_stop: stopped.
+	if _, err := db.Exec(`UPDATE agent_slots SET viewer_at = now() - make_interval(secs => $1::float8) - interval '1 second'`,
+		hosting.ViewerStale.Seconds()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`UPDATE agent_slots SET active_at = now() - interval '2 minutes'`); err != nil {

@@ -263,6 +263,10 @@ Environment fields are described in [Environment spec](environment-spec.md).
 | Takeover path length | 200 characters | `agent.MaxTakeoverPath` | No |
 | Hosts the browser detector ignores, per profile | 32 | `agent.MaxIgnoreHosts` | No |
 | Detector asks the same host again after | 10 min | `agent.DetectEvery` | No |
+| Browser viewer ends with no message after | 10 min | `hosting.BrowserIdle` | No |
+| Browser viewer ends after, however busy | 2 h | `hosting.BrowserMax` | No |
+| An open viewer marks its slot busy every | 20 s | `hosting.ViewerBeat` | No |
+| A viewer mark stops counting after | 1 min | `hosting.ViewerStale` | No |
 
 `0` for the two `SEAPORT_HOST_MAX_*` values means no limit.
 

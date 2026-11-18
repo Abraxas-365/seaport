@@ -126,7 +126,8 @@ func Dockerfile(spec Spec, base string) string {
 	return b.String()
 }
 
-// Browser stage: Debian's chromium (the base is bookworm-slim), fonts, a
+// Browser stage: Debian's chromium (the base is bookworm-slim), Xvfb (the
+// virtual display it runs headed on: connector.startDisplay), fonts, a
 // pinned Node (the browser MCP is a Node program; the tarball's SHA-256 is
 // checked, per architecture) and chrome-devtools-mcp installed under
 // /opt/seaport/browser (connector.BrowserMCP wraps it). The versions are
@@ -142,7 +143,7 @@ func writeBrowserSteps(b *strings.Builder) {
 	b.WriteString("# browser chromium\n")
 	b.WriteString("USER root\n")
 	b.WriteString("RUN apt-get update \\\n && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends" +
-		" chromium fonts-liberation fonts-noto-color-emoji ca-certificates xz-utils \\\n && rm -rf /var/lib/apt/lists/*\n")
+		" chromium xvfb fonts-liberation fonts-noto-color-emoji ca-certificates xz-utils \\\n && rm -rf /var/lib/apt/lists/*\n")
 	b.WriteString("RUN set -eu; arch=\"$(dpkg --print-architecture)\"; case \"$arch\" in" +
 		" amd64) node=linux-x64; sum=" + BrowserNodeX64 + ";;" +
 		" arm64) node=linux-arm64; sum=" + BrowserNodeA64 + ";;" +

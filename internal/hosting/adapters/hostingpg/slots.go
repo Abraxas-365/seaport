@@ -29,7 +29,7 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 	// starting and claims nothing.
 	err = tx.GetContext(ctx, &row, `WITH cur AS (
 			SELECT token_id FROM agent_slots WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 FOR UPDATE)
-		UPDATE agent_slots s SET state = 'starting', detail = 'starting', run = $4, token_id = NULL, updated_at = now()
+		UPDATE agent_slots s SET state = 'starting', detail = 'starting', run = $4, token_id = NULL, viewer_at = NULL, updated_at = now()
 		FROM cur, agent_hosting h, agents a
 		WHERE s.organization_id = $1 AND s.agent_id = $2 AND s.idx = $3
 		  AND h.organization_id = s.organization_id AND h.agent_id = s.agent_id
@@ -156,15 +156,18 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 	}
 	defer func() { _ = tx.Rollback() }()
 	// Agents with work keep their running slots active, and so does a
-	// sign-in under way on the slot's run: idle_stop must not stop a slot
-	// while someone signs it in (it takes no work until signed in).
+	// sign-in under way on the slot's run (it takes no work until signed
+	// in) or a person in the slot's browser viewer: idle_stop must not stop
+	// a slot under either.
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_slots s SET active_at = now()
 		WHERE s.state = 'running' AND (EXISTS (SELECT 1 FROM ships sh WHERE sh.organization_id = s.organization_id
 		  AND sh.agent_id = s.agent_id AND sh.status IN ('queued', 'claimed'))
 		  OR EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
 		  AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
 		  AND l.state IN ('starting', 'waiting', 'verifying')
-		  AND l.updated_at > now() - make_interval(secs => $1::float8)))`, hosting.LoginStale.Seconds()); err != nil {
+		  AND l.updated_at > now() - make_interval(secs => $1::float8))
+		  OR s.viewer_at > now() - make_interval(secs => $2::float8))`,
+		hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "touch active slots")
 	}
 	out := []hosting.Supervised{}
@@ -180,17 +183,26 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		  (s.state = 'running' AND EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
 		    AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
 		    AND l.state IN ('starting', 'waiting', 'verifying')
-		    AND l.updated_at > now() - make_interval(secs => $1::float8))) AS signing
+		    AND l.updated_at > now() - make_interval(secs => $1::float8))) AS signing,
+		  (s.state = 'running' AND s.viewer_at IS NOT NULL
+		    AND s.viewer_at > now() - make_interval(secs => $2::float8)) AS viewing
 		FROM agent_slots s
 		JOIN agent_hosting h ON h.organization_id = s.organization_id AND h.agent_id = s.agent_id
 		JOIN agents a ON a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
 		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
 		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
 		LEFT JOIN work w ON w.organization_id = s.organization_id AND w.agent_id = s.agent_id
-		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds()); err != nil {
+		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "list slots to supervise")
 	}
 	return out, pgerr.Map(tx.Commit(), "commit supervise")
+}
+
+func (r *Repository) MarkViewer(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, slot int, open bool) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE agent_slots SET viewer_at = CASE WHEN $4::bool THEN now() END
+		WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 AND (state = 'running' OR NOT $4::bool)`,
+		org, agentID, slot, open)
+	return pgerr.Map(err, "mark slot viewer")
 }
 
 func (r *Repository) PortID(ctx context.Context) (string, error) {

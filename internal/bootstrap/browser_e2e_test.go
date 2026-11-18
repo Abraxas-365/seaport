@@ -120,6 +120,16 @@ func TestBrowserViewer(t *testing.T) {
 	if f := slotConn.read(); f.Type != crew.FrameBrowser || f.Viewer != crew.ViewerOn {
 		t.Fatalf("slot connection on viewer open: %+v", f)
 	}
+	// The person in it keeps the slot busy (the supervisor reads the mark).
+	db := testDB(t)
+	viewed := func() bool {
+		var on bool
+		if err := db.QueryRow(`SELECT viewer_at IS NOT NULL FROM agent_slots WHERE agent_id = $1 AND idx = 1`, ag.ID).Scan(&on); err != nil {
+			t.Fatal(err)
+		}
+		return on
+	}
+	eventually(t, "slot marked viewed", viewed)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"id":7,"method":"Target.getTargets"}`)); err != nil {
@@ -151,6 +161,9 @@ func TestBrowserViewer(t *testing.T) {
 	})
 	if f := slotConn.read(); f.Type != crew.FrameBrowser || f.Viewer != crew.ViewerOff {
 		t.Fatalf("slot connection on viewer close: %+v", f)
+	}
+	if viewed() {
+		t.Fatal("the viewer mark outlived the viewer")
 	}
 	personConn.quiet(300 * time.Millisecond)
 	// Closed: another may open.

@@ -180,6 +180,9 @@ type Supervised struct {
 	// Signing: a sign-in is under way on the slot's run (live, reported
 	// within LoginStale). The slot is busy: neither stopped nor restarted.
 	Signing bool `db:"signing"`
+	// Viewing: a person has the slot's browser viewer open (marked within
+	// ViewerStale). Busy too, like Signing.
+	Viewing bool `db:"viewing"`
 }
 
 // Ref is the slot's reference.

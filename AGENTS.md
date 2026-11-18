@@ -643,7 +643,10 @@ net/http mux; only `/healthz` answers 405.
   after 5 min; one at a time per agent), fails a running slot whose
   container is gone or exited, restarts an idle outdated one, stops one
   idle past `idle_stop` (a live sign-in on the slot's run counts as work:
-  `Supervised.Signing`, and it touches `active_at`), ends stale starts/stops, and removes runtime
+  `Supervised.Signing`, and so does an open browser viewer: `Supervised.Viewing`,
+  `agent_slots.viewer_at` beaten every `hosting.ViewerBeat` by the process
+  relaying it, fresh within `ViewerStale`, migration 00044; both touch
+  `active_at`), ends stale starts/stops, and removes runtime
   slots with no row after two rounds; each step is a conditional
   transition (`BeginStop(run)` only stops that run). Inside, `seaport
   agent-run` (`connector.Hosted`) reads `GET /crew/workspace` (slot tokens
@@ -735,7 +738,10 @@ net/http mux; only `/healthz` answers 405.
   changes the tag); the agent profile's `browser: true` (`Kit.Browser`,
   `Workspace.Browser`; `seaport agents profile set -browser on`) makes the
   slot use it. `connector.browserFor` starts the engine (`StartBrowser`:
-  headless, CDP on loopback `hosting.BrowserPort`, profile in the state
+  headed on Xvfb (`browser_display.go`: `-displayfd`, no TCP, abstract
+  socket only, so the read-only root needs no `/tmp/.X11-unix`; sites such
+  as Google's sign-in refuse headless Chromium), headless with a warning on
+  an image without Xvfb, CDP on loopback `hosting.BrowserPort`, profile in the state
   volume under `hosting.BrowserDir`, egress through a loopback bridge that
   adds the slot's proxy credentials, since Chromium takes none in
   `--proxy-server`) only when the kit asks and `Config.Browser` is set (a
@@ -752,7 +758,8 @@ net/http mux; only `/healthz` answers 405.
   (`hosting.BrowserRelayCommand`; `connector.BrowserRelay`: newline-delimited
   CDP on stdio after `hosting.BrowserHello`) in the slot through
   `Runtime.Exec` and pipes messages (≤ `MaxBrowserMessage`, idle
-  `BrowserIdle`, at most `BrowserMax`), keeping nothing; open and close
+  `BrowserIdle`, at most `BrowserMax`), keeping nothing, and beats
+  `Repository.MarkViewer` while open (cleared at the end); open and close
   publish `slot.browser` (`hosting.BrowserEvent`, an audit trail). A site
   asking for credentials, a captcha or a code is a person's job: the MCP
   tool `ask_takeover` (`crewmcp.addTakeover`, only with the profile's
