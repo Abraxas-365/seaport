@@ -177,6 +177,9 @@ type Supervised struct {
 	// Queued and Claimed count the agent's ships waiting and in work.
 	Queued  int `db:"queued"`
 	Claimed int `db:"claimed"`
+	// Signing: a sign-in is under way on the slot's run (live, reported
+	// within LoginStale). The slot is busy: neither stopped nor restarted.
+	Signing bool `db:"signing"`
 }
 
 // Ref is the slot's reference.

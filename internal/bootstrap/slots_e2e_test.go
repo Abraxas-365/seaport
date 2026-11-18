@@ -254,8 +254,31 @@ func TestIdleAndOutdatedSlots(t *testing.T) {
 		return s.State == hosting.SlotRunning && s.EnvironmentVersion == 2 && s.Image == "sha256:v2"
 	})
 
-	// Idle past idle_stop: stopped.
+	// Idle past idle_stop while someone signs it in: kept running (the
+	// sign-in keeps it active), then stopped once the sign-in ends.
 	db := testDB(t)
+	if _, err := db.Exec(`INSERT INTO slot_logins (organization_id, agent_id, idx, id, run, state)
+		SELECT organization_id, agent_id, idx, 'login-1', run, 'waiting' FROM agent_slots WHERE agent_id = $1 AND idx = 1`, pm.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE agent_slots SET active_at = now() - interval '2 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "kept active while signing in", func() bool {
+		var recent bool
+		if err := db.QueryRow(`SELECT active_at > now() - interval '1 minute' FROM agent_slots WHERE agent_id = $1 AND idx = 1`, pm.ID).Scan(&recent); err != nil {
+			t.Fatal(err)
+		}
+		return recent
+	})
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotRunning {
+		t.Fatalf("a slot being signed in was stopped: %s (%s)", s.State, s.Detail)
+	}
+
+	// Idle past idle_stop: stopped.
+	if _, err := db.Exec(`UPDATE slot_logins SET state = 'failed'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`UPDATE agent_slots SET active_at = now() - interval '2 minutes'`); err != nil {
 		t.Fatal(err)
 	}

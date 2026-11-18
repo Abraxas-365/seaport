@@ -23,7 +23,7 @@ var tenantPorts = map[string]bool{
 	"Commands": true, "Queries": true, "Messenger": true, "Repository": true,
 	"CustomsCommands": true, "CustomsQueries": true, "CustomsRepository": true,
 	"TokenCommands": true, "TokenQueries": true, "TokenRepository": true,
-	"Presence": true, "DockLocker": true, "ApprovalLocker": true, "Owners": true, "Relay": true, "Kits": true, "Gate": true, "Assistant": true,
+	"Presence": true, "DockLocker": true, "ApprovalLocker": true, "Owners": true, "Relay": true, "Kits": true, "Gate": true, "Assistant": true, "Releaser": true,
 	// auth's tenant administration (iam mode); its sign-in Commands are session-keyed (systemWide).
 	"MemberCommands": true, "MemberQueries": true, "Directory": true,
 }

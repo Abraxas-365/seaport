@@ -74,7 +74,7 @@ Seaport picks the agent **once, when a message arrives** (after [customs](custom
 A message routed to an agent is **queued** for it, and only that agent's connections can claim it. If the agent has no connection, the message waits, and so does the rest of that conversation, so messages are never handled out of order.
 
 > [!NOTE]
-> Routing is decided at arrival and not revisited. A message held because the dock had no team, or because nobody was called, stays held after you assign an agent or set a default. Only new messages use the new team. You can read held messages in the web app, and the agent can read them with the `history` tool.
+> Routing is decided at arrival. When you **assign an agent** to the dock (a new member, or a member made the default), the dock's messages held for routing go through routing again with the new team: those held because the dock had no team, because nobody was called, or because their agent left. Only messages from the **last 24 hours** go, in **allowed** chats, and only those the chat hasn't moved past: a message older than the chat's last routed message or reply stays held, so a new team never answers out of order or late. Taking an agent off a dock releases nothing. You can read held messages in the web app, and the agent can read them with the `history` tool.
 
 For a team with several agents, set a default if you want every unaddressed message to be handled. Without one, such messages are held until someone writes `@name`.
 

@@ -20,15 +20,15 @@ A signed-in rness slot works on Anthropic models (Claude Sonnet unless the agent
 
 ## Sign a slot in
 
-A slot of such an environment waits after it starts, taking no messages, until it is signed in. The slot must be running.
+A slot of such an environment waits after it starts, taking no messages, until it is signed in. The sign-in runs in the slot, so the slot must be running. While a sign-in is under way the slot counts as busy: `idle_stop` doesn't stop it and an environment update doesn't restart it.
 
 ### From the web app
 
-Open the agent's page. In **Alojamiento**, use **Conectar cuenta** on the slot's row. The harness's own login runs inside the slot:
+Open the agent's page. In **Alojamiento**, a slot that isn't signed in shows **Sin cuenta**. Use **Conectar cuenta** (the key) on its row. On a stopped slot, the same button starts it first ("Arrancando la instancia…") and the login begins once it runs. The harness's own login runs inside the slot:
 
 1. Open the link the dialog shows and sign in with the account the slot should use.
 2. The page shows a code. Paste it into the dialog.
-3. The dialog reports when the slot is signed in.
+3. The dialog reports when the slot is signed in. On a first sign-in the agent starts working with the account. When you change the account of a slot that was already working, it switches once its current turn ends.
 
 ### From the CLI
 

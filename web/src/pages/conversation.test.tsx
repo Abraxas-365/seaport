@@ -3,7 +3,20 @@ import { beforeEach, describe, expect, it } from "vitest"
 
 import { keys } from "@/lib/query"
 import { Perm } from "@/lib/permissions.gen"
-import type { Approval, Conversation, CrewStatus, Dock, Paginated, Ship, Turn } from "@/lib/types"
+import type {
+  AgentProfile,
+  Approval,
+  Conversation,
+  CrewStatus,
+  Dock,
+  Environment,
+  Hosted,
+  LibraryAgent,
+  Paginated,
+  Ship,
+  TeamMember,
+  Turn,
+} from "@/lib/types"
 import { infinite, page } from "@/test/query"
 import { renderAt, seededClient, stubNetwork } from "@/test/render"
 import { apiData } from "@/test/wire"
@@ -63,5 +76,110 @@ describe("the composer", () => {
     const dock = apiData<Dock>("dock")
     renderConversation(conversation({ dock_id: dock.id }), [dock], [Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead])
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+  })
+})
+
+describe("a message held for routing", () => {
+  const held = (over: Partial<Ship> = {}): Ship => ({
+    ...apiData<Ship>("ship_held"),
+    hold_reason: "no agent is assigned to this dock",
+    created_at: new Date().toISOString(),
+    ...over,
+  })
+  const agent = apiData<LibraryAgent>("agent")
+
+  function renderHeld(ships: Ship[], team: TeamMember[], perms = [Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead, Perm.AgentsWrite]) {
+    const dock = apiData<Dock>("dock")
+    const conv = conversation({ dock_id: dock.id })
+    const qc = seededClient(perms)
+    qc.setQueryData(keys.conversation(conv.id), conv)
+    qc.setQueryData(keys.thread(conv.id), [conv])
+    qc.setQueryData(keys.ships(conv.id), infinite<Ship>(ships))
+    qc.setQueryData(keys.turns(conv.id), page<Turn>([]))
+    qc.setQueryData(keys.approvals(conv.id), page<Approval>([]))
+    qc.setQueryData(keys.crew, { agents: [] } satisfies CrewStatus)
+    qc.setQueryData(keys.docks, page<Dock>([dock]))
+    qc.setQueryData(keys.team(dock.id), { agents: team })
+    qc.setQueryData(keys.agents, page<LibraryAgent>([{ ...agent, takeovers: [] }]))
+    return renderAt(<ConversationPage />, qc, { pattern: "/inbox/:conversationId", path: `/inbox/${conv.id}` })
+  }
+
+  it("says why and offers to assign an agent, without resending", () => {
+    renderHeld([held()], [])
+    expect(screen.getByText(/Ningún agente atiende/)).toBeInTheDocument()
+    expect(screen.getByText(/le llega lo retenido, sin reenviarlo/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Asignar" })).toBeDisabled()
+  })
+
+  it("asks for a default when the dock has a team but nobody was called", () => {
+    renderHeld([held({ hold_reason: "no agent was called (mention one with @name)" })], [{ agent_id: agent.id, name: agent.name, default: false }])
+    expect(screen.getByText(/no tiene uno por defecto/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Hacer por defecto" })).toBeInTheDocument()
+  })
+
+  it("tells to write again when the message is past the release window", () => {
+    renderHeld([held({ created_at: new Date(Date.now() - 2 * 86_400_000).toISOString() })], [])
+    expect(screen.getByText(/asignar un agente no lo entrega; escribe de nuevo/)).toBeInTheDocument()
+  })
+
+  it("links to the dock for who can't edit teams", () => {
+    renderHeld([held()], [], [Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead])
+    expect(screen.getByRole("link", { name: "Ver el muelle" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Asignar" })).not.toBeInTheDocument()
+  })
+
+  it("is gone once a newer message went through", () => {
+    renderHeld([apiData<Ship>("ship_out"), held()], [])
+    expect(screen.queryByText(/Ningún agente atiende/)).not.toBeInTheDocument()
+  })
+
+  it("is not shown for customs holds (the access banner covers those)", () => {
+    renderHeld([held({ hold_reason: "sender denied by a rule" })], [])
+    expect(screen.queryByText(/sin reenviarlo/)).not.toBeInTheDocument()
+  })
+})
+
+describe("browser takeovers", () => {
+  it("shows the agent's request for this conversation with its browser and Listo", () => {
+    const dock = apiData<Dock>("dock")
+    const agent = apiData<LibraryAgent>("agent")
+    const env = apiData<Environment>("environment")
+    const conv = conversation({ dock_id: dock.id, id: agent.takeovers[0].conversation_id! })
+    const qc = seededClient([Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead, Perm.EnvironmentsRead, Perm.BrowserUse])
+    qc.setQueryData(keys.conversation(conv.id), conv)
+    qc.setQueryData(keys.thread(conv.id), [conv])
+    qc.setQueryData(keys.ships(conv.id), infinite<Ship>([]))
+    qc.setQueryData(keys.turns(conv.id), page<Turn>([]))
+    qc.setQueryData(keys.approvals(conv.id), page<Approval>([]))
+    qc.setQueryData(keys.crew, { agents: [] } satisfies CrewStatus)
+    qc.setQueryData(keys.docks, page<Dock>([dock]))
+    qc.setQueryData(keys.team(dock.id), { agents: [{ agent_id: agent.id, name: agent.name, default: true }] })
+    qc.setQueryData(keys.agents, page<LibraryAgent>([agent]))
+    qc.setQueryData(keys.hosted(agent.id), { ...apiData<Hosted>("hosted"), environment_id: env.id })
+    qc.setQueryData(keys.environments, page<Environment>([env]))
+    qc.setQueryData(keys.profile(agent.id, 0), { agent_id: agent.id, version: 3, browser: true } as AgentProfile)
+    renderAt(<ConversationPage />, qc, { pattern: "/inbox/:conversationId", path: `/inbox/${conv.id}` })
+    expect(screen.getByText(/necesita que/)).toBeInTheDocument()
+    expect(screen.getByText("app.example.com")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Abrir navegador/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Listo" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: `Abrir el navegador de @${agent.name}` })).toBeInTheDocument()
+  })
+
+  it("is absent in other conversations", () => {
+    const dock = apiData<Dock>("dock")
+    const agent = apiData<LibraryAgent>("agent")
+    const conv = conversation({ dock_id: dock.id, id: "00000000-0000-4000-8000-0000000000ff" })
+    const qc = seededClient([Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead, Perm.BrowserUse])
+    qc.setQueryData(keys.conversation(conv.id), conv)
+    qc.setQueryData(keys.thread(conv.id), [conv])
+    qc.setQueryData(keys.ships(conv.id), infinite<Ship>([]))
+    qc.setQueryData(keys.turns(conv.id), page<Turn>([]))
+    qc.setQueryData(keys.approvals(conv.id), page<Approval>([]))
+    qc.setQueryData(keys.crew, { agents: [] } satisfies CrewStatus)
+    qc.setQueryData(keys.docks, page<Dock>([dock]))
+    qc.setQueryData(keys.agents, page<LibraryAgent>([agent]))
+    renderAt(<ConversationPage />, qc, { pattern: "/inbox/:conversationId", path: `/inbox/${conv.id}` })
+    expect(screen.queryByText(/necesita que/)).not.toBeInTheDocument()
   })
 })

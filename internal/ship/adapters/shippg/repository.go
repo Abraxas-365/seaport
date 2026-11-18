@@ -450,7 +450,7 @@ func (r *Repository) ReleaseSession(ctx context.Context, org identity.Organizati
 	return int(n), nil
 }
 
-func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationID, convID identity.ConversationID, since time.Time,
+func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationID, convID identity.ConversationID, rel ship.Release,
 	admit func(addressed bool, senders []string) string,
 	route func(team []agent.Member, text string, previous identity.AgentID) (identity.AgentID, string)) ([]ship.Ship, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -480,11 +480,18 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 		Addressed bool   `db:"addressed"`
 		Senders   []byte `db:"sender_handles"`
 	}{}
+	// Fresh: only what came after the thread's last message that was
+	// routed (queued, claimed, handled) or went out; what the chat moved
+	// past stays held, and a released ship never jumps ahead of a routed
+	// one.
 	if err := tx.SelectContext(ctx, &held, `SELECT `+columns+`, addressed, sender_handles FROM ships
 		WHERE organization_id = $1 AND conversation_id = $2 AND direction = 'in' AND status = 'held'
-		  AND hold_reason = $3 AND created_at >= $4
+		  AND hold_reason = ANY($3::text[]) AND created_at >= $4
+		  AND (NOT $6::boolean OR created_at > COALESCE((SELECT max(m.created_at) FROM ships m
+		       WHERE m.organization_id = $1 AND (m.direction = 'out' OR m.status IN ('queued', 'claimed', 'handled'))
+		         AND m.`+inThread("$1", "$2")+`), '-infinity'))
 		ORDER BY created_at DESC, id DESC LIMIT $5 FOR UPDATE`,
-		org, convID, conversation.HoldPending, since, ship.MaxRelease); err != nil {
+		org, convID, rel.Reasons, rel.Since, ship.MaxRelease, rel.Fresh); err != nil {
 		return nil, pgerr.Map(err, "held ships")
 	}
 	if len(held) == 0 {
@@ -520,6 +527,9 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 		}
 		var updated ship.Ship
 		if picked.IsZero() {
+			if reason == s.HoldReason {
+				continue // still held for the same reason: nothing changed
+			}
 			err = tx.GetContext(ctx, &updated, `UPDATE ships SET hold_reason = $3
 				WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, s.ID, reason)
 		} else {
@@ -537,6 +547,19 @@ func (r *Repository) ReleaseHeld(ctx context.Context, org identity.OrganizationI
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, pgerr.Map(err, "commit release held")
+	}
+	return out, nil
+}
+
+func (r *Repository) Rerouting(ctx context.Context, org identity.OrganizationID, dockID identity.DockID, reasons []string, since time.Time, limit int) ([]identity.ConversationID, error) {
+	out := []identity.ConversationID{}
+	err := r.db.SelectContext(ctx, &out, `SELECT s.conversation_id FROM ships s
+		JOIN conversations c ON c.organization_id = s.organization_id AND c.id = s.conversation_id
+		WHERE s.organization_id = $1 AND c.dock_id = $2 AND c.status = 'allowed'
+		  AND s.direction = 'in' AND s.status = 'held' AND s.hold_reason = ANY($3::text[]) AND s.created_at >= $4
+		GROUP BY s.conversation_id ORDER BY max(s.created_at) DESC LIMIT $5`, org, dockID, reasons, since, limit)
+	if err != nil {
+		return nil, pgerr.Map(err, "chats held for routing")
 	}
 	return out, nil
 }

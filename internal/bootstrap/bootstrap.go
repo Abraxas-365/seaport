@@ -290,7 +290,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	docks.BindMirror(ships.Service, convs.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
-	agents.Service.Bind(ships.Service.Takeovers())
+	agents.Service.Bind(ships.Service.Takeovers(), ships.Service)
 	vaults := vaultmodule.New(db, agents.Service, docks.Service, convs.Service, bus, cfg.MaxVaults)
 	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service, vaults.Service)
 	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)

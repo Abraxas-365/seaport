@@ -283,7 +283,7 @@ function Slots({
               actions={
                 <>
                   {signsIn && s.state === "running" && <SlotAccountBadge agent={agent} slot={s} />}
-                  {write && signsIn && s.state === "running" && runtime && <SignInDialog agent={agent} slot={s} />}
+                  {write && signsIn && runtime && s.state !== "stopping" && <SignInDialog agent={agent} slot={s} />}
                   {write && (
                   <>
                     <SlotLogDialog agent={agent} slot={s} />
@@ -320,37 +320,64 @@ function SlotAccountBadge({ agent, slot }: { agent: LibraryAgent; slot: Slot }) 
 const live = (state: string | undefined) => state === "starting" || state === "waiting" || state === "verifying"
 
 /**
- * Signs a running slot (Claude Code or rness) in to a Claude subscription
+ * Signs a slot (Claude Code or rness) in to a Claude subscription
  * (experimental): the harness's own login runs in the slot; the person
- * opens its URL, signs in and pastes the code the page shows.
+ * opens its URL, signs in and pastes the code the page shows. A slot that
+ * isn't running is started first (tokens live in its state volume), and
+ * the login begins once it runs.
  */
 function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
   const [open, setOpen] = React.useState(false)
   const [code, setCode] = React.useState("")
   const name = `${agent.name}-${slot.index}`
-  const login = useSlotLogin(agent.id, slot.index, open)
+  const running = slot.state === "running"
+  const login = useSlotLogin(agent.id, slot.index, open && running)
   const start = useStartLogin(agent.id, slot.index)
   const send = useLoginCode(agent.id, slot.index)
-  const account = useSlotAccount(agent.id, slot.index, true)
+  const action = useSlotAction(agent.id)
+  const account = useSlotAccount(agent.id, slot.index, running)
+  // Whether the slot had an account when the dialog opened: the harness
+  // reads its sign-in at start, so a first account starts the work and a
+  // change waits for the current turn to end (the connector restarts it).
+  const [before, setBefore] = React.useState<boolean | undefined>(undefined)
   const l = login.data
   const state = l?.state
   const refetchAccount = account.refetch
   React.useEffect(() => {
     if (state === "done") refetchAccount()
   }, [state, refetchAccount])
+  // Opened on a stopped slot: once it runs (slot.updated), begin the login.
+  const pending = React.useRef(false)
+  const begin = start.mutate
+  React.useEffect(() => {
+    if (open && running && pending.current && login.isFetched && !live(login.data?.state)) {
+      pending.current = false
+      begin()
+    }
+  }, [open, running, login.isFetched, login.data?.state, begin])
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
-        if (o) {
-          setCode("")
+        if (!o) return
+        setCode("")
+        setBefore(running ? account.data?.logged_in : false)
+        if (running) {
           if (!live(login.data?.state)) start.mutate()
+        } else {
+          pending.current = true
+          if (slot.state === "stopped" || slot.state === "failed") action.mutate({ slot: slot.index, action: "start" })
         }
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Conectar cuenta de ${name}`} title="Conectar cuenta">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`Conectar cuenta de ${name}`}
+          title={running ? "Conectar cuenta" : "Arrancar y conectar cuenta"}
+        >
           <KeyRound />
         </Button>
       </DialogTrigger>
@@ -362,7 +389,13 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
             tokens: quedan en el volumen de la instancia. También con <Mono>seaport agents login {name}</Mono>.
           </DialogDescription>
         </DialogHeader>
-        {start.isError ? (
+        {action.isError ? (
+          <ErrorState error={action.error} onRetry={() => action.mutate({ slot: slot.index, action: "start" })} />
+        ) : !running ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner /> Arrancando la instancia…
+          </p>
+        ) : start.isError ? (
           <ErrorState error={start.error} onRetry={() => start.mutate()} />
         ) : (!l || state === "starting" || start.isPending) ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -411,7 +444,11 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
             <Spinner /> Verificando el código…
           </p>
         ) : state === "done" ? (
-          <p className="text-sm">Conectada. El agente se reinicia con la cuenta en cuanto termine lo que esté haciendo.</p>
+          <p className="text-sm">
+            {before
+              ? "Conectada. El agente cambia a esta cuenta cuando termine lo que esté haciendo."
+              : "Conectada. El agente empieza a trabajar con esta cuenta."}
+          </p>
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-destructive">{l.detail || "No se pudo conectar."}</p>
