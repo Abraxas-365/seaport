@@ -79,7 +79,7 @@ seaport agents profile set surf -browser-detect off
 
 ## The viewer
 
-**Abrir navegador** in the agent's **Navegador** card opens the slot's browser in the page: a live screencast with an address bar, back, forward, reload, tabs, and your mouse and keyboard. Type the site's address, sign in as you would, and close the viewer. Nothing you typed leaves the browser: the password goes from your keyboard to the slot's Chromium over the port's WebSocket; the port relays bytes and keeps none.
+**Abrir navegador** in the agent's **Navegador** card opens the slot's browser in the page: a live screencast with an address bar, back, forward, reload, tabs, and your mouse and keyboard. Type the site's address, sign in as you would, and close the viewer. Keys you type in the page go only to the slot's browser, not to the web app's shortcuts. Accents typed with dead keys work, and Cmd/Ctrl+V pastes your own clipboard. Nothing you typed leaves the browser: the password goes from your keyboard to the slot's Chromium over the port's WebSocket; the port relays bytes and keeps none.
 
 - **Sesiones** lists the sites the browser holds cookies of, with their expiry, and forgets one on demand. That's how you sign the agent out of a site.
 - While the agent is in a turn, the viewer is read-only (*El agente trabaja*): you see what it does without moving its mouse. **Tomar el control** overrides that.

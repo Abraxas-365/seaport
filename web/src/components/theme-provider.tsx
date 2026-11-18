@@ -148,6 +148,11 @@ export function ThemeProvider({
         return
       }
 
+      // A key something else handled (the browser viewer's) is not a shortcut.
+      if (event.defaultPrevented) {
+        return
+      }
+
       if (isEditableTarget(event.target)) {
         return
       }
