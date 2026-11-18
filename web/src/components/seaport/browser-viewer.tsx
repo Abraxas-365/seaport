@@ -26,7 +26,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { Mono } from "./layout"
 import { StatusBadge } from "./status"
 
-/** The screencast's largest size (the browser's window is 1280×800). */
+/** The screencast's largest size (the page area of the browser's window is about 1280×800). */
 const width = 1280
 const height = 800
 

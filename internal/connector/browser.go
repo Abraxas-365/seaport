@@ -23,7 +23,8 @@ import (
 
 // The managed browser of a hosted slot (plan browser-login.md): the
 // environment's engine (Chromium) runs beside the harness with the
-// agent's profile in the state volume, speaks CDP on loopback
+// agent's profile in the state volume, headed on a virtual display
+// (browser_display.go), speaks CDP on loopback
 // (hosting.BrowserPort), and the agent reaches it through the browser MCP
 // (chrome-devtools-mcp, stdio) the connector adds to every session. The
 // port's viewer reaches the same CDP through `seaport browser-relay`
@@ -51,7 +52,9 @@ type Browser struct {
 	// bridge is the loopback proxy that adds the slot's credentials to
 	// each request (Chromium takes no credentials in --proxy-server).
 	bridge *http.Server
-	done   chan struct{}
+	// display is the Xvfb the engine draws on (nil: headless).
+	display *display
+	done    chan struct{}
 }
 
 // browserURL is the CDP base of a slot's browser.
@@ -74,17 +77,19 @@ func StartBrowser(ctx context.Context, engine, state string) (*Browser, error) {
 		return nil, errx.Wrap(err, "prepare the browser profile", errx.TypeInternal)
 	}
 	b := &Browser{Engine: engine, URL: browserURL(), done: make(chan struct{})}
-	args := []string{
-		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-		"--disable-crash-reporter", "--no-crashpad", "--no-first-run", "--no-default-browser-check",
-		"--disable-background-networking", "--disable-sync", "--disable-features=Translate",
-		"--remote-debugging-address=127.0.0.1", "--remote-debugging-port=" + strconv.Itoa(hosting.BrowserPort),
-		"--remote-allow-origins=*", "--user-data-dir=" + profile, "--window-size=1280,800",
-		"--lang=en-US", // sites render in a predictable language for the agent
+	disp, err := startDisplay(ctx)
+	if err != nil {
+		return nil, err
 	}
+	if disp == nil {
+		slog.Warn("the image has no Xvfb; the browser runs headless, which more sites refuse (rebuild the environment: seaport env build -force)")
+	}
+	b.display = disp
+	args := chromiumArgs(profile, hosting.BrowserPort, disp != nil)
 	if proxy := os.Getenv("HTTPS_PROXY"); proxy != "" {
 		addr, err := b.startBridge(proxy)
 		if err != nil {
+			disp.stop()
 			return nil, err
 		}
 		args = append(args, "--proxy-server=http://"+addr)
@@ -95,11 +100,15 @@ func StartBrowser(ctx context.Context, engine, state string) (*Browser, error) {
 	args = append(args, "about:blank")
 	cmd := exec.Command("chromium", args...)
 	cmd.Env = append(os.Environ(), "HOME="+os.Getenv("HOME"))
+	if disp != nil {
+		cmd.Env = append(cmd.Env, "DISPLAY="+disp.name)
+	}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &browserLog{} // dbus noise is dropped; the rest is logged
 	ownProcessGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		b.closeBridge()
+		disp.stop()
 		return nil, errx.Wrap(err, "start the browser", errx.TypeInternal)
 	}
 	b.cmd = cmd
@@ -111,15 +120,15 @@ func StartBrowser(ctx context.Context, engine, state string) (*Browser, error) {
 		b.Stop()
 		return nil, err
 	}
-	slog.Info("browser started", "engine", engine, "profile", profile)
+	slog.Info("browser started", "engine", engine, "profile", profile, "headed", disp != nil)
 	return b, nil
 }
 
 // Done closes when the engine exits.
 func (b *Browser) Done() <-chan struct{} { return b.done }
 
-// Stop ends the engine (and every renderer of its process group) and the
-// bridge.
+// Stop ends the engine (and every renderer of its process group), its
+// display and the bridge.
 func (b *Browser) Stop() {
 	if b == nil {
 		return
@@ -127,6 +136,7 @@ func (b *Browser) Stop() {
 	if b.cmd != nil && b.cmd.Process != nil {
 		endProcessGroup(b.cmd, b.done, 5*time.Second)
 	}
+	b.display.stop()
 	b.closeBridge()
 }
 

@@ -121,7 +121,7 @@ With a key set, the slots reach the provider through the port's model gateway (`
 | :--- | :--- | :--- | :--- | :--- |
 | `engine` | string | empty | `chromium` or empty | The browser the slots run. Empty: none. |
 
-With `chromium`, the build installs Chromium, Node and the browser MCP server in the image, and each slot of an agent whose profile has `browser: true` runs it beside the harness: headless, CDP on loopback, profile in the slot's state volume. The sites it visits go through the egress proxy, so list them in `network.egress`. See [Browser](../guides/hosting/browser.md).
+With `chromium`, the build installs Chromium, Xvfb, Node and the browser MCP server in the image, and each slot of an agent whose profile has `browser: true` runs it beside the harness: headed on a virtual display (Xvfb), CDP on loopback, profile in the slot's state volume. The sites it visits go through the egress proxy, so list them in `network.egress`. See [Browser](../guides/hosting/browser.md).
 
 ## Resources
 

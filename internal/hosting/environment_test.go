@@ -233,7 +233,7 @@ func TestBrowserInTheSpecAndTheImage(t *testing.T) {
 		t.Fatal("no engine is enabled")
 	}
 	with, without := hosting.Dockerfile(n, "base:1"), hosting.Dockerfile(hosting.Spec{Harness: hosting.HarnessRness}, "base:1")
-	if !strings.Contains(with, "chromium") || !strings.Contains(with, hosting.BrowserNode) || !strings.Contains(with, hosting.BrowserMCPPkg) {
+	if !strings.Contains(with, "chromium") || !strings.Contains(with, " xvfb ") || !strings.Contains(with, hosting.BrowserNode) || !strings.Contains(with, hosting.BrowserMCPPkg) {
 		t.Fatalf("browser stage missing:\n%s", with)
 	}
 	if strings.Contains(without, "chromium") {

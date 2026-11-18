@@ -105,6 +105,9 @@ func (s *Service) OpenBrowser(ctx context.Context, org identity.OrganizationID, 
 		c.Close()
 		return nil, errx.Business("the slot's browser is not reachable: " + text.Clean(string(first)))
 	}
+	// Open from here on: the background marks the slot viewed until the
+	// relay ends.
+	c.opened()
 	s.events.Publish(org, hosting.EventSlotBrowser, hosting.BrowserEvent{Agent: input.Agent, Slot: input.Index, State: hosting.BrowserOpened, By: by})
 	s.viewerChanged(org, input.Agent, input.Index, crew.ViewerOn)
 	return c, nil
@@ -125,7 +128,7 @@ func (s *Service) startViewer(ref hosting.SlotRef, by string) *viewer {
 	ctx, cancel := context.WithTimeout(context.Background(), hosting.BrowserMax)
 	stdin, feed := io.Pipe()
 	outR, outW := io.Pipe()
-	v := &viewer{cancel: cancel, feed: feed, msgs: make(chan []byte, 8),
+	v := &viewer{cancel: cancel, feed: feed, msgs: make(chan []byte, 8), open: make(chan struct{}),
 		idle: time.AfterFunc(hosting.BrowserIdle, cancel), failed: make(chan error, 1)}
 	go v.readLines(bufio.NewReaderSize(outR, 64<<10)) // ends with outW
 	s.background(func(sctx context.Context) {
@@ -138,6 +141,11 @@ func (s *Service) startViewer(ref hosting.SlotRef, by string) *viewer {
 			case <-ctx.Done():
 			}
 		}()
+		beats := make(chan struct{})
+		go func() { // once open, the person in it keeps the slot busy
+			defer close(beats)
+			s.beatViewer(ctx, ref, v.open)
+		}()
 		exit, err := s.runtime().Exec(ctx, ref, "", hosting.BrowserRelayCommand, stdin, &relayOut{w: outW, v: v})
 		switch {
 		case err != nil && ctx.Err() == nil:
@@ -148,6 +156,17 @@ func (s *Service) startViewer(ref hosting.SlotRef, by string) *viewer {
 			v.fail(io.EOF)
 		}
 		cancel()
+		<-beats
+		select {
+		case <-v.open:
+			// sctx may be closing: the mark is cleared all the same.
+			mctx, mcancel := context.WithTimeout(context.WithoutCancel(sctx), 5*time.Second)
+			if err := s.repo.MarkViewer(mctx, ref.Organization, ref.Agent, ref.Index, false); err != nil {
+				slog.Warn("clear the slot's viewer mark", "agent", ref.Agent, "slot", ref.Index, "err", err)
+			}
+			mcancel()
+		default:
+		}
 		s.events.Publish(ref.Organization, hosting.EventSlotBrowser, hosting.BrowserEvent{Agent: ref.Agent, Slot: ref.Index, State: hosting.BrowserClosed, By: by})
 		s.viewerChanged(ref.Organization, ref.Agent, ref.Index, crew.ViewerOff)
 		slog.Info("browser viewer closed", "agent", ref.Agent, "slot", ref.Index, "by", by)
@@ -155,18 +174,44 @@ func (s *Service) startViewer(ref hosting.SlotRef, by string) *viewer {
 	return v
 }
 
+// beatViewer marks the slot viewed once the viewer is open and every
+// ViewerBeat after, until ctx ends (hosting.ViewerStale).
+func (s *Service) beatViewer(ctx context.Context, ref hosting.SlotRef, open <-chan struct{}) {
+	select {
+	case <-open:
+	case <-ctx.Done():
+		return
+	}
+	t := time.NewTicker(hosting.ViewerBeat)
+	defer t.Stop()
+	for {
+		if err := s.repo.MarkViewer(ctx, ref.Organization, ref.Agent, ref.Index, true); err != nil && ctx.Err() == nil {
+			slog.Warn("mark the slot viewed", "agent", ref.Agent, "slot", ref.Index, "err", err)
+		}
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // viewer is a BrowserConn over the exec's stdin/stdout.
 type viewer struct {
 	cancel context.CancelFunc
 	feed   *io.PipeWriter
 	// msgs carries the relay's lines; closed when it ends.
-	msgs   chan []byte
+	msgs chan []byte
+	// open closes once the relay said hello and the viewer is handed out.
+	open   chan struct{}
 	idle   *time.Timer
 	failed chan error
 	mu     sync.Mutex
 	last   string
 	done   bool
 }
+
+func (v *viewer) opened() { close(v.open) }
 
 // readLines is the one reader of the relay's output.
 func (v *viewer) readLines(r *bufio.Reader) {

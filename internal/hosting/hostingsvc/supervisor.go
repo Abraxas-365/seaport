@@ -120,7 +120,7 @@ func (s *Service) superviseSlot(ctx context.Context, row hosting.Supervised, rs 
 				State: hosting.SlotFailed, Detail: detail})
 			return
 		}
-		idle := row.Queued == 0 && row.Claimed == 0 && !row.Signing
+		idle := row.Queued == 0 && row.Claimed == 0 && !row.Signing && !row.Viewing
 		if !idle {
 			return
 		}

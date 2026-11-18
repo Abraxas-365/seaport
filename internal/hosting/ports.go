@@ -260,6 +260,10 @@ type Repository interface {
 	// lists every slot of every organization with its agent's work
 	// (system: the supervisor).
 	Supervise(ctx context.Context) ([]Supervised, error)
+	// MarkViewer records that a person has the running slot's browser
+	// viewer open (open, refreshed every ViewerBeat) or left it (no error
+	// when the slot is gone or not running).
+	MarkViewer(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, open bool) error
 	// PortID is this deployment's id (system: LabelPort).
 	PortID(ctx context.Context) (string, error)
 
