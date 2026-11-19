@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
@@ -165,6 +166,61 @@ func (p *port) agentAs(token, name string) agent.Agent {
 
 // agent makes (or finds) an agent of the admin token's organization.
 func (p *port) agent(name string) agent.Agent { return p.agentAs(adminToken, name) }
+
+// configOf reads an agent's current config (Version 0: none).
+func (p *port) configOf(a identity.AgentID) agent.Profile {
+	p.t.Helper()
+	var c agent.Profile
+	if code := p.admin(http.MethodGet, "/api/v1/agents/"+a.String()+"/config", nil, &c); code != http.StatusOK {
+		p.t.Fatalf("config of %s: %d", a, code)
+	}
+	return c
+}
+
+// saveConfig saves the agent's config over its current version with
+// edit's changes (the body is the current config's fields; edit sets
+// "harness", "machine", "browser"…) and answers the status and config.
+func (p *port) saveConfig(a identity.AgentID, edit func(body map[string]any)) (int, agent.Profile) {
+	p.t.Helper()
+	c := p.configOf(a)
+	hosts := c.BrowserIgnoreHosts
+	if hosts == nil {
+		hosts = []string{}
+	}
+	var machine any
+	if len(c.Machine) > 0 {
+		machine = c.Machine
+	}
+	body := map[string]any{"base": c.Version, "instructions": c.Instructions, "skills": c.Skills,
+		"mcp_servers": c.MCPServers, "approve": c.Approve, "model": c.Model, "effort": c.Effort, "browser": c.Browser,
+		"browser_assist": c.BrowserAssist, "browser_detect": c.BrowserDetect, "browser_ignore_hosts": hosts,
+		"harness": c.Harness, "machine": machine}
+	edit(body)
+	var out agent.Profile
+	code := p.admin(http.MethodPut, "/api/v1/agents/"+a.String()+"/config", body, &out)
+	return code, out
+}
+
+// setMachine gives the agent a harness and machine (the test fails
+// unless it saves).
+func (p *port) setMachine(a identity.AgentID, harness string, machine map[string]any) agent.Profile {
+	p.t.Helper()
+	code, out := p.saveConfig(a, func(b map[string]any) { b["harness"], b["machine"] = harness, machine })
+	if code != http.StatusOK {
+		p.t.Fatalf("set machine of %s: %d", a, code)
+	}
+	return out
+}
+
+// machineOf decodes a config's machine.
+func machineOf(t *testing.T, c agent.Profile) hosting.Machine {
+	t.Helper()
+	var m hosting.Machine
+	if err := json.Unmarshal(c.Machine, &m); err != nil {
+		t.Fatalf("machine: %v (%s)", err, c.Machine)
+	}
+	return m
+}
 
 // assignAs puts an agent on a dock.
 func (p *port) assignAs(token string, d identity.DockID, a identity.AgentID, isDefault bool) {

@@ -10,11 +10,11 @@ import (
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/pgerr"
-	"github.com/jmoiron/sqlx"
 )
 
 // Homes: uploaded harness homes (hosting_homes, migration 00021). A home
-// is counted and inserted under hostingLock, like environments.
+// is counted and inserted under hostingLock; agent configs name them
+// (agent_profiles.home, FK).
 
 var homeMessages = pgerr.Messages{NotFound: "home not found"}
 
@@ -106,9 +106,9 @@ func (r *Repository) Home(ctx context.Context, org identity.OrganizationID, dige
 	return row.home()
 }
 
-// unnamed: no environment version names the home.
-const unnamed = `NOT EXISTS (SELECT 1 FROM environment_versions v
-	WHERE v.organization_id = hosting_homes.organization_id AND v.home = hosting_homes.digest)`
+// unnamed: no agent config version names the home.
+const unnamed = `NOT EXISTS (SELECT 1 FROM agent_profiles p
+	WHERE p.organization_id = hosting_homes.organization_id AND p.home = hosting_homes.digest)`
 
 func (r *Repository) StaleHomes(ctx context.Context, before time.Time, limit int) ([]hosting.Home, error) {
 	var rows []homeRow
@@ -145,20 +145,25 @@ func (r *Repository) DeleteHome(ctx context.Context, org identity.OrganizationID
 	return pgerr.Map(tx.Commit(), "commit delete home")
 }
 
-// nameHome touches the home a new version names (under hostingLock, so
-// the sweep doesn't delete it meanwhile): NotFound when the organization
-// has no such home.
-func nameHome(ctx context.Context, q sqlx.ExecerContext, org identity.OrganizationID, spec hosting.Spec) (*string, error) {
-	if spec.Home == "" {
-		return nil, nil
-	}
-	res, err := q.ExecContext(ctx, `UPDATE hosting_homes SET touched_at = now() WHERE organization_id = $1 AND digest = $2`,
-		org, spec.Home)
+// TouchHome touches a home a config is about to name, under hostingLock
+// (the sweep takes it too), so the sweep doesn't delete it meanwhile; the
+// FK on agent_profiles.home keeps a named one regardless.
+func (r *Repository) TouchHome(ctx context.Context, org identity.OrganizationID, digest string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return nil, pgerr.Map(err, "name home")
+		return pgerr.Map(err, "begin touch home")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := lock(ctx, tx, org); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE hosting_homes SET touched_at = now() WHERE organization_id = $1 AND digest = $2`,
+		org, digest)
+	if err != nil {
+		return pgerr.Map(err, "touch home")
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return nil, errx.InvalidField("home", "home "+spec.Home+" was never uploaded (seaport env home push)")
+		return errx.NotFound("home not found")
 	}
-	return &spec.Home, nil
+	return pgerr.Map(tx.Commit(), "commit touch home")
 }

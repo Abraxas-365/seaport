@@ -82,7 +82,7 @@ An agent of the dock can get a token of the App for a repository the App is inst
 In a [hosted slot](hosting/hosted-agents.md) it all works already:
 
 - `gh` is Seaport's shim around GitHub's CLI: it finds the repository the command is about (`-R owner/repo`, `GH_REPO`, `gh api repos/owner/repo/…`, or the `origin` remote of the current directory) and runs the real `gh` with the App's token in `GH_TOKEN`. A `GH_TOKEN` of your own wins.
-- git's credential helper answers with the App's token for `https://github.com/owner/repo` when the environment names no `credential` for that repository.
+- git's credential helper answers with the App's token for `https://github.com/owner/repo` when the agent's machine names no `credential` for that repository.
 - The agent's prompt names the repository and the issue or pull request, and says that `gh` and git act as the App.
 
 ```sh
@@ -96,7 +96,7 @@ git push origin HEAD:seaport/qa/12
 Outside a slot, an agent connected with `seaport connect` gets a token with `seaport github-token owner/repo` (with `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` set): `GH_TOKEN=$(seaport github-token acme/web) gh pr view 12 -R acme/web`.
 
 > [!NOTE]
-> A slot reaches only its environment's egress hosts. Add `api.github.com` to `network.egress` for `gh`, and list the repository under `repos` (or add `github.com`) for git. See [Network](hosting/network.md).
+> A slot reaches only its machine's egress hosts. Add `api.github.com` to `machine.network.egress` for `gh`, and list the repository under `machine.repos` (or add `github.com`) for git. See [Network](hosting/network.md).
 
 ## Trigger an agent from a workflow
 
@@ -156,7 +156,7 @@ The step's outputs are `ship-id` and `status`: `queued`, or `held` when customs 
 - **`gh` says "no GitHub App token".** The App isn't installed on that repository, the agent isn't on a GitHub dock, or the slot can't reach the port. `seaport github-token owner/repo` shows the port's answer.
 - **The workflow step fails with `401`.** The job needs `permissions: id-token: write`, and `port-url` must be exactly the port's `SEAPORT_PUBLIC_URL`. On a fork's pull request GitHub gives no OIDC token.
 - **The workflow step fails with `403`.** The dock's App isn't installed on that repository, or is suspended.
-- **`gh` can't connect.** Add `api.github.com` to the environment's `network.egress`.
+- **`gh` can't connect.** Add `api.github.com` to the machine's `network.egress`.
 - **A reply with files fails.** The App needs **Contents: read and write** to commit to the `seaport-files` branch; if someone lowered it in the App's settings, set it back, and an owner accepts the pending permission request in the installation's settings. A port without blob storage (`SEAPORT_BLOB_URL=off` or no secret key) refuses files (`this port keeps no files`); see [Files agents send](messages-and-images.md#files-agents-send).
 - **File links in a comment give `404`.** The reader has no access to the repository, or someone deleted or force-pushed the `seaport-files` branch. Links point at a commit, so deleting a folder in a later commit doesn't break them; a commit no branch reaches can disappear.
 

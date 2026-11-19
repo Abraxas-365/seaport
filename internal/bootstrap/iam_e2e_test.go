@@ -16,7 +16,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
-	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
@@ -454,11 +453,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 	}
 	crewB.quiet(300 * time.Millisecond)
 
-	var envA hosting.Environment
-	if code := p.call(http.MethodPost, "/api/v1/environments", adminA, map[string]any{"name": "a", "spec": map[string]string{"harness": "rness"}}, &envA); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
-	}
-	dk, cv, ag, env := d.ID.String(), conv, agentA.ID.String(), envA.ID.String()
+	dk, cv, ag := d.ID.String(), conv, agentA.ID.String()
 	var sched schedule.Schedule
 	if code := p.call(http.MethodPost, "/api/v1/schedules", adminA, map[string]any{"name": "a", "conversation_id": cv,
 		"cron": "0 9 * * 1-5", "timezone": "America/Lima", "text": "hola"}, &sched); code != http.StatusCreated {
@@ -474,7 +469,6 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		t.Fatalf("create entry: %d", code)
 	}
 	vl, ve := vlt.ID.String(), vent.ID.String()
-	envSpec := map[string]any{"base": 1, "spec": map[string]string{"harness": "rness"}}
 	home := "sha256:" + strings.Repeat("a", 64)
 	inject := map[string]any{"chat_id": "9", "message_id": "z", "sender_id": "9", "text": "hi"}
 	// An approval org A's agent asked (the approval routes name it).
@@ -542,47 +536,36 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag, "GET /api/v1/agents/{id}", nil, permission.AgentsRead},
 		{"PATCH", "/api/v1/agents/" + ag, "PATCH /api/v1/agents/{id}", map[string]string{"description": "x"}, permission.AgentsWrite},
 		{"DELETE", "/api/v1/agents/" + ag, "DELETE /api/v1/agents/{id}", nil, permission.AgentsWrite},
-		{"GET", "/api/v1/agents/" + ag + "/profile", "GET /api/v1/agents/{id}/profile", nil, permission.AgentsRead},
-		{"PUT", "/api/v1/agents/" + ag + "/profile", "PUT /api/v1/agents/{id}/profile", map[string]int{"base": 0}, permission.AgentsWrite},
-		{"GET", "/api/v1/agents/" + ag + "/profile/versions", "GET /api/v1/agents/{id}/profile/versions", nil, permission.AgentsRead},
-		{"GET", "/api/v1/agents/" + ag + "/profile/versions/1", "GET /api/v1/agents/{id}/profile/versions/{version}", nil, permission.AgentsRead},
+		{"GET", "/api/v1/agents/" + ag + "/config", "GET /api/v1/agents/{id}/config", nil, permission.AgentsRead},
+		{"PUT", "/api/v1/agents/" + ag + "/config", "PUT /api/v1/agents/{id}/config", map[string]int{"base": 0}, permission.AgentsWrite},
+		{"GET", "/api/v1/agents/" + ag + "/config/versions", "GET /api/v1/agents/{id}/config/versions", nil, permission.AgentsRead},
+		{"GET", "/api/v1/agents/" + ag + "/config/versions/1", "GET /api/v1/agents/{id}/config/versions/{version}", nil, permission.AgentsRead},
 		{"GET", "/api/v1/agents/" + ag + "/secrets", "GET /api/v1/agents/{id}/secrets", nil, permission.AgentsRead},
 		{"PUT", "/api/v1/agents/" + ag + "/secrets/TOKEN", "PUT /api/v1/agents/{id}/secrets/{name}", map[string]string{"value": "x"}, permission.AgentsWrite},
 		{"DELETE", "/api/v1/agents/" + ag + "/secrets/TOKEN", "DELETE /api/v1/agents/{id}/secrets/{name}", nil, permission.AgentsWrite},
 		{"GET", "/api/v1/docks/" + dk + "/agents", "GET /api/v1/docks/{dock}/agents", nil, permission.AgentsRead},
 		{"PUT", "/api/v1/docks/" + dk + "/agents/" + ag, "PUT /api/v1/docks/{dock}/agents/{id}", map[string]bool{"default": true}, permission.AgentsWrite},
 		{"DELETE", "/api/v1/docks/" + dk + "/agents/" + ag, "DELETE /api/v1/docks/{dock}/agents/{id}", nil, permission.AgentsWrite},
-		{"GET", "/api/v1/environments", "GET /api/v1/environments", nil, permission.EnvironmentsRead},
-		{"POST", "/api/v1/environments", "POST /api/v1/environments", map[string]any{"name": "x", "spec": map[string]string{"harness": "rness"}}, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/environments/" + env, "GET /api/v1/environments/{id}", nil, permission.EnvironmentsRead},
-		{"PUT", "/api/v1/environments/" + env, "PUT /api/v1/environments/{id}", envSpec, permission.EnvironmentsWrite},
-		{"DELETE", "/api/v1/environments/" + env, "DELETE /api/v1/environments/{id}", nil, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/environments/" + env + "/versions", "GET /api/v1/environments/{id}/versions", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/environments/" + env + "/versions/1", "GET /api/v1/environments/{id}/versions/{version}", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/environments/" + env + "/secrets", "GET /api/v1/environments/{id}/secrets", nil, permission.EnvironmentsRead},
-		{"PUT", "/api/v1/environments/" + env + "/secrets/MATRIX_KEY", "PUT /api/v1/environments/{id}/secrets/{name}", map[string]any{"value": "v"}, permission.EnvironmentsWrite},
-		{"DELETE", "/api/v1/environments/" + env + "/secrets/MATRIX_KEY", "DELETE /api/v1/environments/{id}/secrets/{name}", nil, permission.EnvironmentsWrite},
-		{"POST", "/api/v1/environments/" + env + "/build", "POST /api/v1/environments/{id}/build", nil, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/environments/" + env + "/build", "GET /api/v1/environments/{id}/build", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/environments/" + env + "/versions/1/build", "GET /api/v1/environments/{id}/versions/{version}/build", nil, permission.EnvironmentsRead},
-		{"POST", "/api/v1/homes?harness=rness", "POST /api/v1/homes", nil, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/homes/rules", "GET /api/v1/homes/rules", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/homes/" + home, "GET /api/v1/homes/{digest}", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/homes/" + home + "/archive", "GET /api/v1/homes/{digest}/archive", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/homes/" + home + "/files/init.lua", "GET /api/v1/homes/{digest}/files/*", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/hosting", "GET /api/v1/hosting", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsRead},
-		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]string{"environment": env}, permission.EnvironmentsWrite},
-		{"DELETE", "/api/v1/agents/" + ag + "/hosting", "DELETE /api/v1/agents/{id}/hosting", nil, permission.EnvironmentsWrite},
-		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/start", "POST /api/v1/agents/{id}/hosting/slots/{slot}/start", nil, permission.EnvironmentsWrite},
-		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/stop", "POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", nil, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/agents/" + ag + "/hosting/egress", "GET /api/v1/agents/{id}/hosting/egress", nil, permission.EnvironmentsRead},
-		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/logs", "GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", nil, permission.EnvironmentsWrite},
+		{"POST", "/api/v1/agents/" + ag + "/build", "POST /api/v1/agents/{id}/build", nil, permission.HostingWrite},
+		{"GET", "/api/v1/agents/" + ag + "/build", "GET /api/v1/agents/{id}/build", nil, permission.HostingRead},
+		{"POST", "/api/v1/homes?harness=rness", "POST /api/v1/homes", nil, permission.AgentsWrite},
+		{"GET", "/api/v1/homes/rules", "GET /api/v1/homes/rules", nil, permission.AgentsRead},
+		{"GET", "/api/v1/homes/" + home, "GET /api/v1/homes/{digest}", nil, permission.AgentsRead},
+		{"GET", "/api/v1/homes/" + home + "/archive", "GET /api/v1/homes/{digest}/archive", nil, permission.AgentsRead},
+		{"GET", "/api/v1/homes/" + home + "/files/init.lua", "GET /api/v1/homes/{digest}/files/*", nil, permission.AgentsRead},
+		{"GET", "/api/v1/hosting", "GET /api/v1/hosting", nil, permission.HostingRead},
+		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.HostingRead},
+		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]int{"slots": 1}, permission.HostingWrite},
+		{"DELETE", "/api/v1/agents/" + ag + "/hosting", "DELETE /api/v1/agents/{id}/hosting", nil, permission.HostingWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/start", "POST /api/v1/agents/{id}/hosting/slots/{slot}/start", nil, permission.HostingWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/stop", "POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", nil, permission.HostingWrite},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/egress", "GET /api/v1/agents/{id}/hosting/egress", nil, permission.HostingRead},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/logs", "GET /api/v1/agents/{id}/hosting/slots/{slot}/logs", nil, permission.HostingWrite},
 		{"GET", "/api/v1/agents/" + ag + "/usage", "GET /api/v1/agents/{id}/usage", nil, permission.AgentsRead},
-		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "GET /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.EnvironmentsWrite},
-		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login/code", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", map[string]string{"code": "x"}, permission.EnvironmentsWrite},
-		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/account", "GET /api/v1/agents/{id}/hosting/slots/{slot}/account", nil, permission.EnvironmentsRead},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.HostingWrite},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/login", "GET /api/v1/agents/{id}/hosting/slots/{slot}/login", nil, permission.HostingWrite},
+		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/login/code", "POST /api/v1/agents/{id}/hosting/slots/{slot}/login/code", map[string]string{"code": "x"}, permission.HostingWrite},
+		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/account", "GET /api/v1/agents/{id}/hosting/slots/{slot}/account", nil, permission.HostingRead},
 		{"DELETE", "/api/v1/agents/" + ag + "/takeovers/app.example.com", "DELETE /api/v1/agents/{id}/takeovers/{host}", nil, permission.BrowserUse},
 		{"GET", "/api/v1/agents/" + ag + "/hosting/slots/1/browser", "GET /api/v1/agents/{id}/hosting/slots/{slot}/browser", nil, permission.BrowserUse},
 		{"GET", "/api/v1/schedules", "GET /api/v1/schedules", nil, permission.SchedulesRead},

@@ -5,21 +5,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/text"
 )
 
-// Limits of an environment's variables and secrets.
+// Limits of a machine's plain variables (Machine.Env).
 const (
-	// MaxEnv bounds Spec.Env; MaxEnvValue one value.
 	MaxEnv      = 50
 	MaxEnvValue = 4096
-	// MaxSecrets bounds an environment's secrets (like agent.MaxSecrets).
-	MaxSecrets = 50
 )
+
+// Subscription is a Machine.Models value: the provider is reached by
+// signing the slot's harness in to the person's subscription (Anthropic
+// only; SignsIn), not with a key.
+const Subscription = "subscription"
 
 // Protocol a provider speaks (Provider.Protocol): what the gateway
 // forwards and how it meters.
@@ -35,7 +36,7 @@ const (
 
 // Provider is a model provider the gateway serves (Providers).
 type Provider struct {
-	// Name is the key of Spec.Models and the gateway's path segment.
+	// Name is the key of Machine.Models and the gateway's path segment.
 	Name     string
 	Protocol string
 	// Upstream is the provider's API (the default; config overrides it).
@@ -46,7 +47,7 @@ type Provider struct {
 	KeyEnv, BaseEnv string
 }
 
-// Providers the gateway serves (Spec.Models' keys). ProviderAnthropic is
+// Providers the gateway serves (Machine.Models' keys). ProviderAnthropic is
 // the one Claude Code uses; the others speak the OpenAI protocol and are
 // the ones rness's default flavor declares with an env key.
 var Providers = map[string]Provider{
@@ -90,7 +91,7 @@ func SlotSet() []string {
 	return out
 }
 
-// ValidEnv checks Spec.Env: at most MaxEnv variables named like a secret
+// ValidEnv checks Machine.Env: at most MaxEnv variables named like a secret
 // (agent.ValidSecretName: A-Z, 0-9, _; not SEAPORT_), none of the slot's
 // own (SlotSet), values one line of at most MaxEnvValue bytes that don't
 // look like a credential (text.Secrets: those are secrets).
@@ -111,49 +112,9 @@ func ValidEnv(env map[string]string) error {
 		}
 		for _, s := range text.Secrets {
 			if s.Re.MatchString(v) {
-				return errx.InvalidField("env", "env "+k+" looks like "+s.What+": variables are stored in clear with the spec; make it a secret (seaport env secrets set)")
+				return errx.InvalidField("env", "env "+k+" looks like "+s.What+": variables are stored in clear with the config; make it a secret of the agent (seaport agents secrets set … -env)")
 			}
 		}
-	}
-	return nil
-}
-
-// EnvironmentSecret is what the admin sees of an environment's secret:
-// never its value. A secret is a repo credential or model key the spec
-// names (${NAME}), or with Env an environment variable of every slot.
-type EnvironmentSecret struct {
-	Name string `db:"name" json:"name"`
-	// Env: also given to the slots' harness as an environment variable.
-	Env       bool      `db:"env" json:"env"`
-	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
-}
-
-// EnvironmentSecretValue is a secret opened for a slot
-// (Repository.OpenEnvironmentSecrets).
-type EnvironmentSecretValue struct {
-	Name  string
-	Value string
-	Env   bool
-}
-
-// SetEnvironmentSecret creates or replaces an environment's secret.
-type SetEnvironmentSecret struct {
-	Name  string
-	Value string
-	Env   bool
-}
-
-func (s SetEnvironmentSecret) Validate() error {
-	if err := agent.ValidSecretName(s.Name); err != nil {
-		return err
-	}
-	if s.Value == "" || len(s.Value) > agent.MaxSecretValue || strings.ContainsRune(s.Value, 0) {
-		return errx.InvalidField("value", "value must be 1-"+strconv.Itoa(agent.MaxSecretValue)+" bytes without NUL")
-	}
-	// The slot's network variables are the port's: the connector would
-	// drop such a variable anyway (Config.Protect), so refuse it here.
-	if s.Env && slices.Contains(SlotSet(), s.Name) {
-		return errx.InvalidField("name", s.Name+" is set by the port for the slot's network; it can't be an environment variable")
 	}
 	return nil
 }

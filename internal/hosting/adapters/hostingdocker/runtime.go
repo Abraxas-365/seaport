@@ -1,5 +1,5 @@
 // Package hostingdocker is the Docker runtime of hosted agents: it builds
-// environment images and runs slots (slots.go), through the Docker Engine API at
+// agent images and runs slots (slots.go), through the Docker Engine API at
 // DOCKER_HOST (in production a docker-socket proxy that allows only what
 // Seaport needs). The Docker SDK stays in this package.
 package hostingdocker
@@ -89,7 +89,7 @@ func (r *Runtime) Build(ctx context.Context, req hosting.BuildRequest, log io.Wr
 		return "", err
 	}
 	if len(req.Spec.Packages) == 0 && req.Spec.Setup == "" && req.Spec.Home == "" {
-		fmt.Fprintf(log, "no packages or setup: the environment runs on %s\n", req.Base)
+		fmt.Fprintf(log, "no packages or setup: the agent runs on %s\n", req.Base)
 	}
 	ctxTar, err := buildContext(req)
 	if err != nil {
@@ -102,8 +102,7 @@ func (r *Runtime) Build(ctx context.Context, req hosting.BuildRequest, log io.Wr
 		Version: build.BuilderV1,
 		Labels: map[string]string{
 			hosting.LabelOrganization: req.Organization.String(),
-			hosting.LabelEnvironment:  req.Environment.String(),
-			hosting.LabelVersion:      fmt.Sprint(req.Version),
+			hosting.LabelDigest:       req.Digest(),
 		},
 	})
 	if err != nil {

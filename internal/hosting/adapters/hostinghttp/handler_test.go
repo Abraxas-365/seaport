@@ -24,42 +24,19 @@ type fake struct {
 	hosting.Commands
 	hosting.Queries
 	upload   hosting.UploadHome
-	build    hosting.BuildEnvironment
-	built    identity.EnvironmentID
+	build    hosting.BuildAgent
+	built    identity.AgentID
 	slot     hosting.SlotAction
-	created  hosting.CreateEnvironment
+	host     hosting.Host
+	hostOf   identity.AgentID
 	home     []byte
 	homePath string
 	days     int
-	byName   string
-	saved    hosting.SaveEnvironment
-	secrets  []hosting.EnvironmentSecret
-	set      hosting.SetEnvironmentSecret
-	deleted  string
 }
 
-func (f *fake) SaveEnvironment(_ context.Context, _ identity.OrganizationID, id identity.EnvironmentID, in hosting.SaveEnvironment) (hosting.Environment, error) {
-	f.saved = in
-	return hosting.Environment{ID: id, Version: in.Base + 1, Spec: in.Spec}, nil
-}
-
-func (f *fake) Secrets(context.Context, identity.OrganizationID, identity.EnvironmentID) ([]hosting.EnvironmentSecret, error) {
-	return f.secrets, nil
-}
-
-func (f *fake) SetSecret(_ context.Context, _ identity.OrganizationID, _ identity.EnvironmentID, in hosting.SetEnvironmentSecret) (hosting.EnvironmentSecret, error) {
-	f.set = in
-	return hosting.EnvironmentSecret{Name: in.Name, Env: in.Env}, nil
-}
-
-func (f *fake) DeleteSecret(_ context.Context, _ identity.OrganizationID, _ identity.EnvironmentID, name string) error {
-	f.deleted = name
-	return nil
-}
-
-func (f *fake) CreateEnvironment(_ context.Context, _ identity.OrganizationID, in hosting.CreateEnvironment) (hosting.Environment, error) {
-	f.created = in
-	return hosting.Environment{ID: identity.NewEnvironmentID(), Name: in.Name}, nil
+func (f *fake) Host(_ context.Context, _ identity.OrganizationID, id identity.AgentID, in hosting.Host) (hosting.Hosted, error) {
+	f.hostOf, f.host = id, in
+	return hosting.Hosted{Agent: id}, nil
 }
 
 func (f *fake) UploadHome(_ context.Context, _ identity.OrganizationID, in hosting.UploadHome) (hosting.Home, error) {
@@ -67,9 +44,16 @@ func (f *fake) UploadHome(_ context.Context, _ identity.OrganizationID, in hosti
 	return hosting.Home{Digest: "sha256:abc", Harness: in.Harness}, nil
 }
 
-func (f *fake) StartBuild(_ context.Context, _ identity.OrganizationID, id identity.EnvironmentID, in hosting.BuildEnvironment) (hosting.Build, error) {
+func (f *fake) StartBuild(_ context.Context, _ identity.OrganizationID, id identity.AgentID, in hosting.BuildAgent) (hosting.Build, error) {
 	f.built, f.build = id, in
 	return hosting.Build{}, nil
+}
+
+func (f *fake) Build(_ context.Context, _ identity.OrganizationID, id identity.AgentID) (hosting.Build, error) {
+	if id != f.built {
+		return hosting.Build{}, errx.NotFound("build not found")
+	}
+	return hosting.Build{Digest: "d"}, nil
 }
 
 func (f *fake) StartSlot(_ context.Context, _ identity.OrganizationID, in hosting.SlotAction) (hosting.Hosted, error) {
@@ -79,18 +63,6 @@ func (f *fake) StartSlot(_ context.Context, _ identity.OrganizationID, in hostin
 
 func (f *fake) OpenWorkspace(_ context.Context, _ identity.OrganizationID, _ identity.AgentID, slot int) (hosting.Workspace, error) {
 	return hosting.Workspace{}, nil
-}
-
-func (f *fake) EnvironmentByName(_ context.Context, _ identity.OrganizationID, name string) (hosting.Environment, error) {
-	f.byName = name
-	if name != "prod" {
-		return hosting.Environment{}, errx.NotFound("environment not found")
-	}
-	return hosting.Environment{ID: identity.NewEnvironmentID(), Name: name}, nil
-}
-
-func (f *fake) Environment(_ context.Context, _ identity.OrganizationID, id identity.EnvironmentID, v int) (hosting.Environment, error) {
-	return hosting.Environment{ID: id}, nil
 }
 
 func (f *fake) Home(_ context.Context, _ identity.OrganizationID, digest string) (hosting.Home, error) {
@@ -191,21 +163,42 @@ func TestHomeRoutes(t *testing.T) {
 	}
 }
 
-func TestEnvironmentByIDOrName(t *testing.T) {
+// The agent's build: POST starts it (body optional), GET reads it.
+func TestAgentBuild(t *testing.T) {
 	f := &fake{}
 	app := newApp(f, admin(permission.All...))
-	if resp, _ := call(t, app, "POST", "/api/v1/environments/prod/build", ""); resp.StatusCode != 202 || f.byName != "prod" || f.built.IsZero() {
-		t.Fatalf("build by name: %d", resp.StatusCode)
+	id := identity.NewAgentID()
+	if resp, _ := call(t, app, "POST", "/api/v1/agents/"+id.String()+"/build", ""); resp.StatusCode != 202 || f.built != id || f.build.Force {
+		t.Fatalf("build: %d %+v", resp.StatusCode, f.build)
 	}
-	id := identity.NewEnvironmentID()
-	if resp, _ := call(t, app, "POST", "/api/v1/environments/"+id.String()+"/build", `{"version":2,"force":true}`); resp.StatusCode != 202 || f.built != id || f.build.Version != 2 || !f.build.Force {
-		t.Fatalf("build by id: %d %+v", resp.StatusCode, f.build)
+	if resp, _ := call(t, app, "POST", "/api/v1/agents/"+id.String()+"/build", `{"force":true}`); resp.StatusCode != 202 || !f.build.Force {
+		t.Fatalf("force: %d %+v", resp.StatusCode, f.build)
 	}
-	if resp, _ := call(t, app, "POST", "/api/v1/environments/nope/build", ""); resp.StatusCode != 404 {
-		t.Fatalf("unknown: %d", resp.StatusCode)
+	if resp, body := call(t, app, "GET", "/api/v1/agents/"+id.String()+"/build", ""); resp.StatusCode != 200 || !strings.Contains(body, `"d"`) {
+		t.Fatalf("read: %d %s", resp.StatusCode, body)
 	}
-	if resp, _ := call(t, app, "GET", "/api/v1/environments/"+id.String()+"/versions/0", ""); resp.StatusCode != 400 {
-		t.Fatalf("bad version: %d", resp.StatusCode)
+	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+identity.NewAgentID().String()+"/build", ""); resp.StatusCode != 404 {
+		t.Fatalf("never built: %d", resp.StatusCode)
+	}
+	if resp, _ := call(t, app, "POST", "/api/v1/agents/nope/build", ""); resp.StatusCode != 400 {
+		t.Fatalf("bad id: %d", resp.StatusCode)
+	}
+}
+
+// Hosting takes only a slot count (the machine is the agent's config);
+// the body is optional.
+func TestHost(t *testing.T) {
+	f := &fake{}
+	app := newApp(f, admin(permission.All...))
+	id := identity.NewAgentID()
+	if resp, _ := call(t, app, "PUT", "/api/v1/agents/"+id.String()+"/hosting", `{"slots":2}`); resp.StatusCode != 200 || f.hostOf != id || f.host.Slots != 2 || f.host.By != "t" {
+		t.Fatalf("host: %d %+v", resp.StatusCode, f.host)
+	}
+	if resp, _ := call(t, app, "PUT", "/api/v1/agents/"+id.String()+"/hosting", ""); resp.StatusCode != 200 || f.host.Slots != 0 {
+		t.Fatalf("host without body: %d %+v", resp.StatusCode, f.host)
+	}
+	if resp, _ := call(t, app, "PUT", "/api/v1/agents/"+id.String()+"/hosting", `{"environment":"prod"}`); resp.StatusCode != 400 {
+		t.Fatalf("an environment is no longer taken: %d", resp.StatusCode)
 	}
 }
 
@@ -227,53 +220,6 @@ func TestSlotsAndUsage(t *testing.T) {
 	}
 }
 
-// A spec naming a secret the environment lacks directs the hosted agents'
-// secrets: that needs agents:write. One the environment has is the
-// environment's own business (environments:write).
-func TestSpecSecretsNeedAgentsWrite(t *testing.T) {
-	id := identity.NewEnvironmentID().String()
-	body := `{"base":1,"spec":{"harness":"claude-code","models":{"anthropic":"${KEY}"}}}`
-	f := &fake{}
-	app := newApp(f, admin(permission.EnvironmentsWrite))
-	resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body)
-	if resp.StatusCode != 403 || !strings.Contains(rb, permission.AgentsWrite) || !strings.Contains(rb, "KEY") {
-		t.Fatalf("without agents:write: %d %s", resp.StatusCode, rb)
-	}
-	f.secrets = []hosting.EnvironmentSecret{{Name: "KEY"}}
-	if resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body); resp.StatusCode != 200 || f.saved.Base != 1 {
-		t.Fatalf("the environment's own secret: %d %s", resp.StatusCode, rb)
-	}
-	f.secrets = nil
-	app = newApp(f, admin(permission.EnvironmentsWrite, permission.AgentsWrite))
-	if resp, rb := call(t, app, "PUT", "/api/v1/environments/"+id, body); resp.StatusCode != 200 {
-		t.Fatalf("with agents:write: %d %s", resp.StatusCode, rb)
-	}
-	// creating names no secret yet (none can exist): no agents:write needed
-	app = newApp(f, admin(permission.EnvironmentsWrite))
-	if resp, rb := call(t, app, "POST", "/api/v1/environments", `{"name":"e","spec":{"harness":"claude-code","models":{"anthropic":"${KEY}"}}}`); resp.StatusCode != 201 || f.created.CreatedBy != "t" {
-		t.Fatalf("create: %d %s", resp.StatusCode, rb)
-	}
-}
-
-func TestEnvironmentSecrets(t *testing.T) {
-	f := &fake{secrets: []hosting.EnvironmentSecret{{Name: "OPENAI"}, {Name: "DATABASE_URL", Env: true}}}
-	app := newApp(f, admin(permission.All...))
-	if resp, body := call(t, app, "GET", "/api/v1/environments/prod/secrets", ""); resp.StatusCode != 200 || !strings.Contains(body, `"DATABASE_URL"`) || strings.Contains(body, "value") {
-		t.Fatalf("list: %d %s", resp.StatusCode, body)
-	}
-	if resp, body := call(t, app, "PUT", "/api/v1/environments/prod/secrets/OPENAI", `{"value":"v","env":true}`); resp.StatusCode != 200 ||
-		f.set.Name != "OPENAI" || f.set.Value != "v" || !f.set.Env || strings.Contains(body, `"v"`) {
-		t.Fatalf("set: %d %s %+v", resp.StatusCode, body, f.set)
-	}
-	if resp, _ := call(t, app, "DELETE", "/api/v1/environments/prod/secrets/OPENAI", ""); resp.StatusCode != 204 || f.deleted != "OPENAI" {
-		t.Fatalf("delete: %d %q", resp.StatusCode, f.deleted)
-	}
-	app = newApp(f, admin(permission.EnvironmentsRead))
-	if resp, _ := call(t, app, "PUT", "/api/v1/environments/prod/secrets/OPENAI", `{"value":"v"}`); resp.StatusCode != 403 {
-		t.Fatalf("read-only set: %d", resp.StatusCode)
-	}
-}
-
 func TestWorkspaceIsForSlotTokens(t *testing.T) {
 	f := &fake{}
 	crewP := httpx.Principal{Organization: org, Role: httpx.RoleCrew, Agent: identity.NewAgentID()}
@@ -287,13 +233,16 @@ func TestWorkspaceIsForSlotTokens(t *testing.T) {
 }
 
 func TestPermissions(t *testing.T) {
-	app := newApp(&fake{}, admin(permission.EnvironmentsRead))
+	app := newApp(&fake{}, admin(permission.HostingRead))
 	agent := identity.NewAgentID().String()
 	for _, c := range [][2]string{
 		{"POST", "/api/v1/homes"},
+		{"PUT", "/api/v1/agents/" + agent + "/hosting"},
+		{"POST", "/api/v1/agents/" + agent + "/build"},
 		{"POST", "/api/v1/agents/" + agent + "/hosting/slots/1/start"},
 		{"GET", "/api/v1/agents/" + agent + "/hosting/slots/1/logs"},
 		{"GET", "/api/v1/agents/" + agent + "/usage"},
+		{"GET", "/api/v1/homes/rules"},
 	} {
 		if resp, _ := call(t, app, c[0], c[1], ""); resp.StatusCode != 403 {
 			t.Fatalf("%s %s: %d", c[0], c[1], resp.StatusCode)

@@ -17,46 +17,63 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 )
 
-// envHome is `seaport env home push|show|pull ...`: an environment's
-// harness home (its ~/.claude or ~/.rness config, baked into the image).
-func envHome(ctx context.Context, a *admin, args []string) error {
+// agentHome is `seaport agents home push|show|pull <agent> ...`: the
+// harness home of the agent's machine (its ~/.claude or ~/.rness config,
+// baked into the image).
+func agentHome(ctx context.Context, a *admin, args []string) error {
 	if len(args) < 2 {
-		return errx.Validation("usage: seaport env home push|show|pull <env> ...")
+		return errx.Validation("usage: seaport agents home push|show|pull <agent> ...")
 	}
 	sub, name, rest := args[0], args[1], args[2:]
-	e, err := getEnv(ctx, a, name)
+	ag, err := findAgent(ctx, a, name)
 	if err != nil {
 		return err
 	}
+	var p agent.Profile
+	if err := a.do(ctx, http.MethodGet, configPath(ag), nil, &p); err != nil {
+		return err
+	}
+	c, err := configOf(p)
+	if err != nil {
+		return err
+	}
+	digest := ""
+	if c.Machine != nil {
+		digest = c.Machine.Home
+	}
 	switch sub {
 	case "push":
-		fs := flag.NewFlagSet("env home push", flag.ContinueOnError)
+		if c.Harness == "" || c.Machine == nil {
+			return errx.Validation(ag.Name + " has no harness and machine yet: seaport agents config apply " + ag.Name + " -f agent.yaml")
+		}
+		fs := flag.NewFlagSet("agents home push", flag.ContinueOnError)
 		dry := fs.Bool("dry-run", false, "list what would be uploaded, upload nothing")
-		dir, err := oneDir(fs, rest, "~/"+hosting.HomeRoot(e.Spec.Harness))
+		dir, err := oneDir(fs, rest, "~/"+hosting.HomeRoot(c.Harness))
 		if err != nil {
 			return err
 		}
-		h, err := pushHome(ctx, a, e.Spec.Harness, dir, *dry, stdout)
+		h, err := pushHome(ctx, a, c.Harness, dir, *dry, stdout)
 		if err != nil || *dry {
 			return err
 		}
-		f := envFile{Name: e.Name, Spec: e.Spec}
-		f.Home = h.Digest
-		return applyEnv(ctx, a, f)
+		c.Machine.Home = h.Digest
+		_, err = saveConfig(ctx, a, ag, p.Version, c)
+		return err
 	case "show":
-		if e.Spec.Home == "" {
-			fmt.Fprintf(stdout, "%s v%d has no home (seaport env home push %s [dir])\n", e.Name, e.Version, e.Name)
+		if digest == "" {
+			fmt.Fprintf(stdout, "%s v%d has no home (seaport agents home push %s [dir])\n", ag.Name, p.Version, ag.Name)
 			return nil
 		}
 		var h hosting.Home
-		if err := a.do(ctx, http.MethodGet, "/api/v1/homes/"+url.PathEscape(e.Spec.Home), nil, &h); err != nil {
+		if err := a.do(ctx, http.MethodGet, "/api/v1/homes/"+url.PathEscape(digest), nil, &h); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "# %s v%d: %s home %s, %d files, %s, by %s\n", e.Name, e.Version, h.Harness, h.Digest, len(h.Files),
+		fmt.Fprintf(stdout, "# %s v%d: %s home %s, %d files, %s, by %s\n", ag.Name, p.Version, h.Harness, h.Digest, len(h.Files),
 			bytesize(h.Size), h.CreatedBy)
 		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
 		for _, f := range h.Files {
@@ -68,35 +85,29 @@ func envHome(ctx context.Context, a *admin, args []string) error {
 		}
 		return w.Flush()
 	case "pull":
-		fs := flag.NewFlagSet("env home pull", flag.ContinueOnError)
+		fs := flag.NewFlagSet("agents home pull", flag.ContinueOnError)
 		dir, err := oneDir(fs, rest, "")
 		if err != nil {
 			return err
 		}
 		if dir == "" {
-			return errx.Validation("usage: seaport env home pull <env> <dir> (a new or empty dir)")
+			return errx.Validation("usage: seaport agents home pull <agent> <dir> (a new or empty dir)")
 		}
-		if e.Spec.Home == "" {
-			return errx.Validation(e.Name + " has no home")
+		if digest == "" {
+			return errx.Validation(ag.Name + " has no home")
 		}
-		raw, err := a.send(ctx, http.MethodGet, "/api/v1/homes/"+url.PathEscape(e.Spec.Home)+"/archive", "", nil)
+		raw, err := a.send(ctx, http.MethodGet, "/api/v1/homes/"+url.PathEscape(digest)+"/archive", "", nil)
 		if err != nil {
 			return err
 		}
-		n, err := extractHome(raw, e.Spec.Harness, dir)
+		n, err := extractHome(raw, c.Harness, dir)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "%d files of %s's home in %s\n", n, e.Name, dir)
+		fmt.Fprintf(stdout, "%d files of %s's home in %s\n", n, ag.Name, dir)
 		return nil
 	}
-	return errx.Validation("unknown env home command " + sub + " (push, show, pull)")
-}
-
-func getEnv(ctx context.Context, a *admin, name string) (hosting.Environment, error) {
-	var e hosting.Environment
-	err := a.do(ctx, http.MethodGet, "/api/v1/environments/"+url.PathEscape(name), nil, &e)
-	return e, err
+	return errx.Validation("unknown agents home command " + sub + " (push, show, pull)")
 }
 
 // oneDir parses flags and an optional dir argument (def when missing),

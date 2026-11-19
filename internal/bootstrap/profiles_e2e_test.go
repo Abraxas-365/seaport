@@ -22,7 +22,7 @@ const secretValue = "sk-e2e-never-leaves-7f3a91"
 func (p *port) saveProfile(id identity.AgentID, body map[string]any) (agent.Profile, int) {
 	p.t.Helper()
 	var out agent.Profile
-	code := p.admin(http.MethodPut, "/api/v1/agents/"+id.String()+"/profile", body, &out)
+	code := p.admin(http.MethodPut, "/api/v1/agents/"+id.String()+"/config", body, &out)
 	return out, code
 }
 
@@ -69,7 +69,7 @@ func TestAgentProfiles(t *testing.T) {
 
 	// No profile yet: version 0, and an empty kit.
 	var none agent.Profile
-	if code := p.admin(http.MethodGet, base+"/profile", nil, &none); code != http.StatusOK || none.Version != 0 {
+	if code := p.admin(http.MethodGet, base+"/config", nil, &none); code != http.StatusOK || none.Version != 0 {
 		t.Fatalf("empty profile: %d %+v", code, none)
 	}
 	if k, code := p.kit(pmTok.Value); code != http.StatusOK || k.Version != 0 || k.Name != "pm" || k.Revision == "" {
@@ -132,11 +132,11 @@ func TestAgentProfiles(t *testing.T) {
 	var versions struct {
 		Versions []agent.Version `json:"versions"`
 	}
-	if code := p.admin(http.MethodGet, base+"/profile/versions", nil, &versions); code != http.StatusOK || len(versions.Versions) != 2 || versions.Versions[0].Version != 2 {
+	if code := p.admin(http.MethodGet, base+"/config/versions", nil, &versions); code != http.StatusOK || len(versions.Versions) != 2 || versions.Versions[0].Version != 2 {
 		t.Fatalf("versions: %d %+v", code, versions)
 	}
 	var old agent.Profile
-	if code := p.admin(http.MethodGet, base+"/profile/versions/1", nil, &old); code != http.StatusOK || old.Instructions != "Eres el PM." {
+	if code := p.admin(http.MethodGet, base+"/config/versions/1", nil, &old); code != http.StatusOK || old.Instructions != "Eres el PM." {
 		t.Fatalf("version 1: %d %+v", code, old)
 	}
 
@@ -159,7 +159,7 @@ func TestAgentProfiles(t *testing.T) {
 	}
 
 	// The value never comes back to the admin side.
-	for _, path := range []string{base + "/secrets", base + "/profile", base + "/profile/versions/2", base, "/api/v1/crew"} {
+	for _, path := range []string{base + "/secrets", base + "/config", base + "/config/versions/2", base, "/api/v1/crew"} {
 		var raw json.RawMessage
 		p.admin(http.MethodGet, path, nil, &raw)
 		if strings.Contains(string(raw), secretValue) {

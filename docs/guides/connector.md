@@ -21,6 +21,9 @@ SEAPORT_URL=https://port.example.com SEAPORT_CREW_TOKEN=sp_crew_… \
 
 Everything after `--` is the harness command. Run the connector from the directory the agent should work in (or pass `-cwd`).
 
+> [!NOTE]
+> `seaport connect` is for agents that run on your machines. An agent the port [hosts](hosting/hosted-agents.md) runs its own connector inside its slots, and the two modes are exclusive: minting a crew token for a hosted agent is refused, and so is hosting an agent that has live tokens. Stop hosting an agent (`seaport agents unhost`) to connect it yourself, or revoke its tokens to host it. The agent's [config](../reference/agent-config.md) (its `harness` says which program it is) is the same either way; only its `machine` is used by hosting.
+
 On start, the connector:
 
 1. fetches the agent's [profile](profiles.md) and secrets, then starts the harness with `SEAPORT_URL` and `SEAPORT_CREW_TOKEN` when they aren't set already (so the agent's shell can run `seaport reply -file` and `seaport github-token`). The agent's `env` secrets reach the harness only with `-env`: on your machine the environment is yours to set (your own model key, for one); a hosted slot always gets them;

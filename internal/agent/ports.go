@@ -72,6 +72,17 @@ type Releaser interface {
 	ReleaseRouted(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (int, error)
 }
 
+// MachineCheck validates and normalizes an agent config's harness and
+// machine (the hosting service; the agent domain keeps the machine
+// opaque; bound late, like Assistant). It refuses what the agent can't
+// run: an unknown harness, an invalid machine, a machine without a
+// harness, a home that wasn't uploaded or is another harness's, the
+// browser on in a hosted agent whose machine has no engine. A named home
+// is touched (the sweep keeps it).
+type MachineCheck interface {
+	CheckMachine(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input MachineInput) (CheckedMachine, error)
+}
+
 type Queries interface {
 	// Profile is a version of the agent's profile (0: the current one; an
 	// agent with none has an empty version 0).
@@ -126,13 +137,15 @@ type Repository interface {
 
 	// SaveProfile inserts version input.Base+1 and points the agent at it,
 	// atomically; Conflict when the current version is not input.Base, or
-	// when a ${NAME} the profile uses is not a secret of the agent.
+	// when a ${NAME} the profile uses (MCP headers, input.Checked.Secrets)
+	// is not a secret of the agent.
 	SaveProfile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SaveProfile) (Profile, error)
 	Profile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, version int) (Profile, error)
 	Versions(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Version, error)
 	// SetSecret seals and upserts a secret, at most limit per agent.
 	SetSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SetSecret, limit int) (Secret, error)
-	// DeleteSecret removes one; Conflict while the current profile uses it.
+	// DeleteSecret removes one; Conflict while the current profile uses it
+	// (an MCP header or its machine's secrets).
 	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
 	Secrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Secret, error)
 	// OpenSecrets are the agent's secrets with their values.

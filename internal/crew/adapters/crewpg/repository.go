@@ -62,6 +62,20 @@ func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id
 	if err != nil {
 		return t, pgerr.Map(err, "find agent")
 	}
+	// Modes are exclusive: a hosted agent works only through its slots, so
+	// a person's token for it is refused. hostingpg.Host locks the agent
+	// row FOR UPDATE and refuses while the agent has people's tokens, so
+	// the two never cross.
+	if in.Slot == 0 {
+		var hosted bool
+		if err := tx.GetContext(ctx, &hosted, `SELECT EXISTS (SELECT 1 FROM agent_hosting
+			WHERE organization_id = $1 AND agent_id = $2)`, org, in.Agent); err != nil {
+			return t, pgerr.Map(err, "check hosting")
+		}
+		if hosted {
+			return t, errx.Conflict("the agent is hosted: it works through its slots, not from people's machines; stop hosting it first")
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO crew_tokens (id, organization_id, name, agent_id, token_hash, hint, created_by, expires_at, slot)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, id, org, in.Name, in.Agent, hash, hint, in.CreatedBy, in.ExpiresAt, in.Slot); err != nil {
 		return t, pgerr.MapWith(err, "create crew token", messages)

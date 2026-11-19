@@ -19,10 +19,10 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:crew:read` | View connected agents (Tripulación). Read `crew.changed` events. |
 | `seaport:crew-tokens:read` | View crew tokens (Tokens de agentes). Never their values. |
 | `seaport:crew-tokens:write` | Create and revoke crew tokens. |
-| `seaport:agents:read` | View agents, the docks they work on, their profiles and secret names, and their model usage. Read `agent.updated`, `agent.deleted` and `agent.takeover` events. |
-| `seaport:agents:write` | Create, change and delete agents, assign them to docks, save profiles, and set or delete secrets. Also required to name secrets in an environment (repo credentials, model keys). |
-| `seaport:environments:read` | View environments, builds, harness homes, and the agents the port hosts with their slots. Read `environment.updated`, `environment.deleted`, `environment.build` and `slot.updated` events. |
-| `seaport:environments:write` | Create, change and delete environments, start builds, upload homes, host and unhost agents, and start, stop and sign in slots. Read slot logs. |
+| `seaport:agents:read` | View agents, the docks they work on, their configs (profile, harness and machine) and secret names, and their model usage. View harness homes. Read `agent.updated`, `agent.deleted` and `agent.takeover` events. |
+| `seaport:agents:write` | Create, change and delete agents, assign them to docks, save configs (the profile, harness and machine, including the secrets the machine names), upload harness homes, and set or delete secrets. |
+| `seaport:hosting:read` | View builds, the agents the port hosts, their slots and egress denials. Read `agent.build` and `slot.updated` events. |
+| `seaport:hosting:write` | Start builds, host and unhost agents, and start, stop and sign in slots. Read slot logs. |
 | `seaport:schedules:read` | View schedules (prompts posted into conversations at set times) and preview cron expressions. Read `schedule.*` events. |
 | `seaport:schedules:write` | Create, change, run and delete schedules. |
 | `seaport:vaults:read` | View vaults (shared memory of agents), their entries, versions and who they are granted to. Read `vault.*` events. |
@@ -53,8 +53,8 @@ The three roles ship in `iam/permissions.json`. `scripts/iamkit-provision.sh` cr
 | `seaport:crew-tokens:write` | yes | | |
 | `seaport:agents:read` | yes | yes | yes |
 | `seaport:agents:write` | yes | | |
-| `seaport:environments:read` | yes | yes | yes |
-| `seaport:environments:write` | yes | | |
+| `seaport:hosting:read` | yes | yes | yes |
+| `seaport:hosting:write` | yes | | |
 | `seaport:schedules:read` | yes | yes | yes |
 | `seaport:schedules:write` | yes | yes | |
 | `seaport:vaults:read` | yes | yes | yes |
@@ -64,8 +64,8 @@ The three roles ship in `iam/permissions.json`. `scripts/iamkit-provision.sh` cr
 In short:
 
 - **Admin** holds all 20 permissions.
-- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules and vaults and may open a hosted agent's browser. It can't change docks, customs, agents, tokens or environments.
-- **Viewer** reads docks, conversations, history, customs, the crew, agents, environments, schedules and vaults. It can't change anything and can't see crew tokens.
+- **Operator** reads everything except crew tokens, and works conversations: it allows and denies chats and sends messages. It also manages schedules and vaults and may open a hosted agent's browser. It can't change docks, customs, agents, tokens or hosting.
+- **Viewer** reads docks, conversations, history, customs, the crew, agents, hosting, schedules and vaults. It can't change anything and can't see crew tokens.
 
 You can also grant single permissions or build your own roles in IAMKit; the catalog is what counts.
 

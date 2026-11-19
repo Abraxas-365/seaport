@@ -218,38 +218,42 @@ func buildState(state string) func(json.RawMessage) bool {
 	}
 }
 
-// An environment version is built once into an image (in the background,
-// environment.build events, the log's tail stored); a build in progress
-// or done is answered as it is, a failed one is built again, force
-// rebuilds a ready one; with the runtime off building is refused.
-func TestEnvironmentBuilds(t *testing.T) {
+// An agent's machine is built once into an image (in the background,
+// agent.build events, the log's tail stored), keyed by what goes into it,
+// so agents with the same machine share it; a build in progress or done
+// is answered as it is, a failed one is built again, force rebuilds a
+// ready one; an instructions edit needs no build; with the runtime off
+// building is refused.
+func TestAgentBuilds(t *testing.T) {
 	rt := &fakeRuntime{results: make(chan string)}
 	p := startPortWith(t, func(c *config.Server) {
 		c.ImageClaudeCode = "registry.test/seaport-claude-code:1"
 	}, bootstrap.Options{Runtime: rt})
 	events := p.openEvents("")
-	spec := map[string]any{"harness": "claude-code", "packages": []string{"jq"}, "setup": "echo hi"}
-	var e hosting.Environment
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, &e); code != http.StatusCreated {
-		t.Fatalf("create: %d", code)
+	web, twin := p.agent("web"), p.agent("twin")
+	buildPath := "/api/v1/agents/" + web.ID.String() + "/build"
+	if code := p.admin(http.MethodPost, buildPath, nil, nil); code != http.StatusUnprocessableEntity {
+		t.Fatalf("build without a machine: %d", code)
 	}
-	buildPath := "/api/v1/environments/web/build"
+	machine := map[string]any{"packages": []string{"jq"}, "setup": "echo hi"}
+	p.setMachine(web.ID, "claude-code", machine)
 	if code := p.admin(http.MethodGet, buildPath, nil, nil); code != http.StatusNotFound {
 		t.Fatalf("never built: %d", code)
 	}
 
 	var b hosting.Build
 	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted || b.State != hosting.BuildBuilding ||
-		b.Version != 1 || b.Base != "registry.test/seaport-claude-code:1" {
+		b.Agent != web.ID || b.Base != "registry.test/seaport-claude-code:1" || b.Digest == "" {
 		t.Fatalf("start: %d %+v", code, b)
 	}
-	next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildBuilding))
+	digest := b.Digest
+	next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildBuilding))
 	// Asking again while it builds answers the same build (no second one).
-	if code := p.admin(http.MethodPost, buildPath, map[string]any{"version": 1}, &b); code != http.StatusAccepted || b.State != hosting.BuildBuilding {
+	if code := p.admin(http.MethodPost, buildPath, map[string]any{}, &b); code != http.StatusAccepted || b.State != hosting.BuildBuilding {
 		t.Fatalf("again while building: %d %+v", code, b)
 	}
 	rt.results <- "fail:apt: no package jq"
-	ev := next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildFailed))
+	ev := next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildFailed))
 	if strings.Contains(string(ev.Data), `"log"`) {
 		t.Fatalf("events carry no log: %s", ev.Data)
 	}
@@ -265,56 +269,59 @@ func TestEnvironmentBuilds(t *testing.T) {
 		t.Fatalf("retry: %d %+v", code, retry)
 	}
 	rt.results <- "sha256:aaa"
-	next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildReady))
-	if code := p.admin(http.MethodGet, "/api/v1/environments/web/versions/1/build", nil, &b); code != http.StatusOK ||
-		b.State != hosting.BuildReady || b.Image != "sha256:aaa" {
-		t.Fatalf("ready: %d %+v", code, b)
-	}
-	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted || b.State != hosting.BuildReady {
+	next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildReady))
+	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted || b.State != hosting.BuildReady || b.Image != "sha256:aaa" {
 		t.Fatalf("again when ready: %d %+v", code, b)
 	}
-	if req := rt.last(); strings.TrimSpace(req.Spec.Setup) != "echo hi" || req.Force || req.Version != 1 ||
-		!strings.HasPrefix(req.Tag(), "seaport-env-"+e.ID.String()+":v1-") {
+	if req := rt.last(); strings.TrimSpace(req.Spec.Setup) != "echo hi" || req.Force || !strings.HasPrefix(req.Tag(), "seaport-build-") {
 		t.Fatalf("request: %+v %s", req, req.Tag())
+	}
+	// Another agent with the same machine shares the image.
+	p.setMachine(twin.ID, "claude-code", machine)
+	if code := p.admin(http.MethodGet, "/api/v1/agents/"+twin.ID.String()+"/build", nil, &b); code != http.StatusOK ||
+		b.Digest != digest || b.Image != "sha256:aaa" {
+		t.Fatalf("twin's build: %d %+v", code, b)
+	}
+	// An instructions edit keeps the build.
+	p.saveConfig(web.ID, func(body map[string]any) { body["instructions"] = "Be brief." })
+	if code := p.admin(http.MethodGet, buildPath, nil, &b); code != http.StatusOK || b.Digest != digest {
+		t.Fatalf("build after an instructions edit: %d %+v", code, b)
 	}
 	if code := p.admin(http.MethodPost, buildPath, map[string]any{"force": true}, &b); code != http.StatusAccepted || b.State != hosting.BuildBuilding {
 		t.Fatalf("force: %d %+v", code, b)
 	}
 	rt.results <- "sha256:bbb"
-	next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildReady))
+	next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildReady))
 	if req := rt.last(); !req.Force {
 		t.Fatalf("forced request: %+v", req)
 	}
 
-	// A new version builds on its own; versions that don't exist don't.
-	spec["image"] = "registry.test/custom:2"
-	if code := p.admin(http.MethodPut, "/api/v1/environments/web", map[string]any{"base": 1, "spec": spec}, nil); code != http.StatusOK {
-		t.Fatalf("v2: %d", code)
-	}
+	// A machine edit needs a build of its own.
+	machine["image"] = "registry.test/custom:2"
+	p.setMachine(web.ID, "claude-code", machine)
 	if code := p.admin(http.MethodGet, buildPath, nil, nil); code != http.StatusNotFound {
-		t.Fatalf("v2 not built yet: %d", code)
+		t.Fatalf("new machine not built yet: %d", code)
 	}
-	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted || b.Version != 2 || b.Base != "registry.test/custom:2" {
-		t.Fatalf("v2 build: %d %+v", code, b)
+	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted || b.Digest == digest || b.Base != "registry.test/custom:2" {
+		t.Fatalf("new machine build: %d %+v", code, b)
 	}
 	rt.results <- "sha256:ccc"
-	next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildReady))
-	if code := p.admin(http.MethodPost, buildPath, map[string]any{"version": 9}, nil); code != http.StatusNotFound {
-		t.Fatalf("missing version: %d", code)
-	}
-	if code := p.admin(http.MethodGet, "/api/v1/environments/web/versions/1/build", nil, &b); code != http.StatusOK || b.Image != "sha256:bbb" {
-		t.Fatalf("v1 keeps its image: %d %+v", code, b)
+	next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildReady))
+	if code := p.admin(http.MethodGet, "/api/v1/agents/"+twin.ID.String()+"/build", nil, &b); code != http.StatusOK || b.Image != "sha256:bbb" {
+		t.Fatalf("the twin keeps its image: %d %+v", code, b)
 	}
 
 	// Closing the port while a build runs records it as failed.
-	if code := p.admin(http.MethodPost, buildPath, map[string]any{"version": 1, "force": true}, nil); code != http.StatusAccepted {
+	twinBuild := "/api/v1/agents/" + twin.ID.String() + "/build"
+	if code := p.admin(http.MethodPost, twinBuild, map[string]any{"force": true}, nil); code != http.StatusAccepted {
 		t.Fatalf("build before close: %d", code)
 	}
-	next(t, events, hosting.EventEnvironmentBuild, buildState(hosting.BuildBuilding))
+	next(t, events, hosting.EventAgentBuild, buildState(hosting.BuildBuilding))
 	p.stop()
-	off := joinPort(t, func(*config.Server) {}, bootstrap.Options{})
+	// The same base image as before, so the machine names the same build.
+	off := joinPort(t, func(c *config.Server) { c.ImageClaudeCode = "registry.test/seaport-claude-code:1" }, bootstrap.Options{})
 	var interrupted hosting.Build
-	if code := off.admin(http.MethodGet, "/api/v1/environments/web/versions/1/build", nil, &interrupted); code != http.StatusOK ||
+	if code := off.admin(http.MethodGet, twinBuild, nil, &interrupted); code != http.StatusOK ||
 		interrupted.State != hosting.BuildFailed || !strings.Contains(interrupted.Detail, "stopped") {
 		t.Fatalf("interrupted: %d %+v", code, interrupted)
 	}

@@ -28,12 +28,13 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/docks/:dock/agents", httpx.RequireFunc(permission.AgentsRead, h.team))
 	r.Put("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.assign))
 	r.Delete("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.unassign))
-	// Profiles and secrets: writing either can direct the agent's secrets
-	// (an MCP header naming one), so both need agents:write.
-	r.Get("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsRead, h.profile))
-	r.Put("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
-	r.Get("/api/v1/agents/:id/profile/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
-	r.Get("/api/v1/agents/:id/profile/versions/:version", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	// The config (profile + harness + machine) and secrets: writing either
+	// can direct the agent's secrets (an MCP header, a model key or a repo
+	// credential naming one), so both need agents:write.
+	r.Get("/api/v1/agents/:id/config", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	r.Put("/api/v1/agents/:id/config", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
+	r.Get("/api/v1/agents/:id/config/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
+	r.Get("/api/v1/agents/:id/config/versions/:version", httpx.RequireFunc(permission.AgentsRead, h.profile))
 	r.Get("/api/v1/agents/:id/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
 	r.Put("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
 	r.Delete("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))

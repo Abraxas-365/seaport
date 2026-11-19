@@ -19,7 +19,7 @@ The manifest defines three roles:
 | Role | What it can do |
 | :--- | :--- |
 | `Admin` | Everything. |
-| `Operator` | Works the inbox: allows chats and sends replies. Sees docks, customs, agents, environments and the crew, without changing them or any tokens. |
+| `Operator` | Works the inbox: allows chats and sends replies. Sees docks, customs, agents, hosting and the crew, without changing them or any tokens. |
 | `Viewer` | Read-only. |
 
 ## Settings
@@ -71,6 +71,16 @@ seaport serve
 ```
 
 With the compose file, paste the `.iamkit.env` values into `deploy/.env` instead, leave the admin token empty, and set `SEAPORT_SECRET_KEY`. See [Deploy](deploy.md).
+
+### Upgrading from environments to hosting
+
+The permissions `seaport:environments:read` and `seaport:environments:write` became `seaport:hosting:read` and `seaport:hosting:write`, and the agent config (including a hosted agent's machine) is saved with `seaport:agents:write`. After upgrading Seaport:
+
+1. Run `scripts/iamkit-provision.sh` again. It adds the two new permissions and gives them to the `Admin`, `Operator` and `Viewer` roles as [Permissions](../../reference/permissions.md#roles) lists, and to the organization API keys it manages.
+2. Grant `seaport:hosting:read` and `seaport:hosting:write` to any custom role or API key of your own that held the old permissions, since the script only manages the roles and keys it created.
+3. Once nothing relies on the old ones, run the script with `--prune` to drop them (see below).
+
+Until you do, people and keys that only held the old permissions get `403` on hosting routes.
 
 ### Removing a permission
 

@@ -2,7 +2,7 @@
 
 Upload your `~/.claude` or `~/.rness` so hosted agents run with your instructions, settings, skills and hooks.
 
-A hosted agent starts from a clean image, so it doesn't know how you like to work. A **harness home** is the configuration you already have on your machine, uploaded once and baked into the environment's image. Every slot of that environment then starts with it.
+A hosted agent starts from a clean image, so it doesn't know how you like to work. A **harness home** is the configuration you already have on your machine, uploaded once and baked into the image of the agent's machine. Every slot of the agent then starts with it.
 
 ## What goes in
 
@@ -22,7 +22,7 @@ Rules for every upload:
 
 ### Secret scanning
 
-A home is baked into an image and readable by anyone with `environments:read`, so it must not hold secrets. Seaport refuses text files containing strings with the shape of:
+A home is baked into an image and readable by anyone with `agents:read`, so it must not hold secrets. Seaport refuses text files containing strings with the shape of:
 
 - Anthropic, OpenAI, Google, GitHub, GitLab and Slack tokens,
 - AWS access keys,
@@ -36,43 +36,41 @@ The error names the file and line. Give the secret to the agent instead (`seapor
 ### From the CLI
 
 ```sh
-seaport env home push backend              # ~/.rness or ~/.claude, by the environment's harness
-seaport env home push backend ~/dotfiles/claude
-seaport env home push backend -dry-run     # list what would go in, upload nothing
+seaport agents home push pm              # ~/.rness or ~/.claude, by the agent's harness
+seaport agents home push pm ~/dotfiles/claude
+seaport agents home push pm -dry-run     # list what would go in, upload nothing
 ```
 
-`push` follows symlinks (dotfiles often link skills in), leaves out everything that isn't an allowed path and lists what it skipped. It uploads the home and saves a new version of the environment that names it.
+`push` follows symlinks (dotfiles often link skills in), leaves out everything that isn't an allowed path and lists what it skipped. It uploads the home and saves a new config version whose machine names it. The agent's config needs a harness and a machine first (`seaport agents config apply`).
 
 Read it back with:
 
 ```sh
-seaport env home show backend              # files, sizes and who uploaded it
-seaport env home pull backend ./home-copy  # download into a new or empty directory
+seaport agents home show pm              # the files of its home and their sizes
+seaport agents home pull pm ./home-copy  # download into a new or empty directory
 ```
 
-### In the spec
+### In the config file
 
-`home:` also takes a directory, relative to the spec file. `seaport env apply` uploads it first:
+`machine.home` also takes a directory, relative to the file. `seaport agents config apply` uploads it first:
 
 ```yaml
-name: backend
 harness: rness
-home: ./rness-home
+machine:
+  home: ./rness-home
 ```
 
-After the upload, the saved spec names the home by its digest (`home: sha256:…`).
+After the upload, the saved config names the home by its digest (`home: sha256:…`). The home must be one for the config's harness.
 
 ### From the web app
 
-On an environment's page, the **Configuración del harness** section takes a dropped folder (a home directory holding `.claude/` works), a `.zip` or a `.tar.gz`. The browser checks the files with the server's own rules, shows what goes in and what it left out, and uploads. You can open, edit and delete files, and compare them with the previous version before saving. Edits re-upload the whole home.
-
-![An environment's harness config in the web app](../../assets/screenshots/environment.png)
+On the agent's page, the harness configuration is set with the machine, under **Dónde corre**. It takes a dropped folder (a home directory holding `.claude/` works), a `.zip` or a `.tar.gz`. The browser checks the files with the server's own rules, shows what goes in and what it left out, and uploads. Edits re-upload the whole home.
 
 ## The digest
 
-Seaport normalizes a home before storing it: sorted files, fixed owner (uid and gid 1000), fixed permissions and no timestamps. The digest is a SHA-256 of the harness and that archive, so the same files always give the same digest, and re-uploading an unchanged home changes nothing (an unchanged spec makes no version).
+Seaport normalizes a home before storing it: sorted files, fixed owner (uid and gid 1000), fixed permissions and no timestamps. The digest is a SHA-256 of the harness and that archive, so the same files always give the same digest, and re-uploading an unchanged home changes nothing (an unchanged config makes no version).
 
-The archive is stored sealed in the blob store, which needs a secret key. Without one (or without a blob store), uploads are refused. Homes that no environment version names are deleted after a day, and a port keeps up to 500.
+The archive is stored sealed in the blob store, which needs a secret key. Without one (or without a blob store), uploads are refused. Homes that no config version names are deleted after a day, and a port keeps up to 500.
 
 ## How it is applied
 
@@ -90,4 +88,4 @@ The archive is stored sealed in the blob store, which needs a secret key. Withou
 
 - [Run agents on the port](hosted-agents.md)
 - [Network](network.md): the hosts a plugin build or install needs.
-- [Environment spec](../../reference/environment-spec.md)
+- [Agent config](../../reference/agent-config.md#home)

@@ -71,12 +71,18 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
                                         the default takes messages that call nobody (else they are held)
   seaport agents unassign <agent> <dock-id>
   seaport agents delete <agent> -yes    revoke its tokens, disconnect it, hold what waits for it
+  seaport agents config [show] <agent> [-version N]   its whole config as YAML: harness, instructions,
+                                        skills, MCP servers, model, browser and the machine it runs on when hosted
+  seaport agents config apply <agent> -f agent.yaml   save it (the format of show; - = stdin; an unchanged
+                                        file makes no version; machine.home: ./dir uploads that dir first)
+  seaport agents config versions <agent>
   seaport agents profile [show] <agent> [-version N] [-json]   what its harness is told and given
   seaport agents profile set <agent> [-f profile.json] [-instructions-file F] [-skills-dir D]
          [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E] [-browser on|off]
   seaport agents profile versions <agent>
   seaport agents secrets [list] <agent>
-  seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers use it as ${NAME}
+  seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers and the machine
+                                        (model keys, repo credentials) name it as ${NAME}
   seaport agents secrets rm <agent> NAME
   seaport schedules [list [conversation-id]]   prompts the port posts into conversations at set times
   seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..." [-timezone America/Lima] [-agent A] [-disabled]
@@ -93,21 +99,13 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport vault put <vault> <name> (-file F|"text")   rm <vault> <name>   versions <vault> <name>   revert <vault> <name> <version>
   seaport vault pull <vault> <dir>      one <name>.md per entry
   seaport vault push <vault> <dir> [-prune]   create/update entries from <name>.md files
-  seaport env [list]                    environments: where hosted agents run (harness, image, repos, network)
-  seaport env apply -f env.yaml         create it, or save a new version (an unchanged file makes none)
-  seaport env export <env> [-version N] print it as YAML (the format of apply)
-  seaport env versions <env>
-  seaport env build <env> [-force]      build its image (needs SEAPORT_RUNTIME=docker); follows the log
-  seaport env home push <env> [dir] [-dry-run]   upload a harness home (default ~/.claude or ~/.rness:
+  seaport agents build <agent> [-force] build its machine's image (needs SEAPORT_RUNTIME=docker); follows the log
+  seaport agents home push <agent> [dir] [-dry-run]   upload a harness home (default ~/.claude or ~/.rness:
                                         instructions, settings, agents, skills, hooks; never sessions,
-                                        sign-in or memory) and save a version naming it
-  seaport env home show <env>           the files of its home
-  seaport env home pull <env> <dir>     download its home
-  seaport env secrets [list] <env>      its secrets: model keys, repo credentials (the spec names them as ${NAME})
-  seaport env secrets set <env> NAME [-env]   value from stdin; -env: a variable of every slot's harness
-  seaport env secrets rm <env> NAME
-  seaport env delete <env> -yes         only when no agent runs on it
-  seaport agents host <agent> <env> [-slots N]   run the agent on the port, in that environment
+                                        sign-in or memory) and save a config version naming it
+  seaport agents home show <agent>      the files of its home
+  seaport agents home pull <agent> <dir>   download its home
+  seaport agents host <agent> [-slots N]   run the agent on the port, on its config's machine
   seaport agents unhost <agent>
   seaport agents slots [<agent>]        hosted agents and the state of their slots
   seaport agents start|stop <agent>[-<n>]   start or stop a hosted slot (1 by default;
@@ -220,7 +218,7 @@ func run(ctx context.Context, args []string) error {
 		// how a hosted slot's harness is signed in (JSON; the port asks).
 		return connector.AccountStatus(ctx, stdout)
 	case "home-setup":
-		// finishes an environment's harness home while its image is built
+		// finishes an agent machine's harness home while its image is built
 		// (hosting.Dockerfile): Seaport's lines kept, plugins installed.
 		return connector.HomeSetup(ctx, os.Getenv(hosting.EnvHarness), os.Getenv("HOME"), stdout)
 	case "git-credential":
@@ -282,8 +280,6 @@ func run(ctx context.Context, args []string) error {
 			return dockDelete(ctx, rest[1:])
 		}
 		return errx.Validation("unknown dock command " + rest[0])
-	case "env", "envs", "environments":
-		return env(ctx, rest)
 	case "schedules", "schedule", "cron":
 		return schedules(ctx, rest)
 	case "vault", "vaults":

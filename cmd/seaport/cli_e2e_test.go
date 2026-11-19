@@ -125,6 +125,16 @@ func (p *cliPort) fails(args ...string) string {
 	return errorMessage(err)
 }
 
+// failsIn is fails with in as stdin.
+func (p *cliPort) failsIn(in string, args ...string) string {
+	p.t.Helper()
+	out, _, err := p.cli(in, args...)
+	if err == nil {
+		p.t.Fatalf("seaport %s succeeded: %q", strings.Join(args, " "), out)
+	}
+	return errorMessage(err)
+}
+
 // api calls the HTTP API as the admin.
 func (p *cliPort) api(method, path string, body, out any) int {
 	p.t.Helper()
@@ -869,99 +879,94 @@ func TestCLISchedules(t *testing.T) {
 	}
 }
 
-// Environments: apply from a file (YAML and stdin), list, export, versions,
-// a home directory pushed, shown and pulled, delete; builds are refused
-// without a runtime.
-func TestCLIEnvironments(t *testing.T) {
+// Agent config: apply from a file (YAML and stdin), show, versions, the
+// machine's secrets, a home directory pushed, shown and pulled, hosting;
+// builds are refused without a runtime.
+func TestCLIAgentConfig(t *testing.T) {
 	p := startCLIPort(t)
 	dir := t.TempDir()
+	p.ok("agents", "add", "web")
 
-	mustContain(t, "no environments", p.ok("env"), "no environments yet")
+	mustContain(t, "no config", p.ok("agents", "config", "web"), "has no config yet")
+	mustContain(t, "no versions", p.ok("agents", "config", "versions", "web"), "has no config yet")
 	file := filepath.Join(dir, "web.yaml")
-	if err := os.WriteFile(file, []byte("name: web\ndescription: the web app\nharness: claude-code\npackages: [jq]\nresources: {size: M}\nidle_stop: 2h\n"), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte("harness: claude-code\ninstructions: Be brief.\nmachine:\n  packages: [jq]\n  resources: {size: M}\n  idle_stop: 2h\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "apply", p.ok("env", "apply", "-f", file), "created environment web v1")
-	mustContain(t, "apply again", p.ok("envs", "apply", "-f", file), "environment web unchanged (v1)")
-
-	list := p.ok("environments", "list")
-	mustContain(t, "list", list, "NAME", "web", "v1", "claude-code", "the web app")
+	mustContain(t, "apply", p.ok("agents", "config", "apply", "web", "-f", file), "agent web config v1 saved")
+	mustContain(t, "apply again", p.ok("agents", "config", "apply", "web", "-f", file), "agent web config unchanged (v1)")
 
 	// a change makes a version; stdin works too
 	changed := strings.Replace(mustRead(t, file), "packages: [jq]", "packages: [jq, ripgrep]", 1)
-	out, _, err := p.cli(changed, "env", "apply", "-f", "-")
+	out, _, err := p.cli(changed, "agents", "config", "apply", "web", "-f", "-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "apply from stdin", out, "environment web v2")
-	exp := p.ok("env", "export", "web")
-	mustContain(t, "export", exp, "# web v2, by ", "name: web", "harness: claude-code", "- ripgrep", "idle_stop: 2h")
-	old := p.ok("env", "show", "web", "-version", "1")
-	mustContain(t, "export v1", old, "# web v1")
+	mustContain(t, "apply from stdin", out, "agent web config v2 saved")
+	exp := p.ok("agents", "config", "show", "web")
+	mustContain(t, "show", exp, "# web v2, by ", "harness: claude-code", "instructions: Be brief.", "- ripgrep", "idle_stop: 2h", "size: M")
+	old := p.ok("agents", "config", "web", "-version", "1")
+	mustContain(t, "show v1", old, "# web v1")
 	if strings.Contains(old, "ripgrep") {
 		t.Error("version 1 has the package of version 2")
 	}
-	// what export prints applies back unchanged
+	// what show prints applies back unchanged
 	back := filepath.Join(dir, "back.yaml")
 	if err := os.WriteFile(back, []byte(exp[strings.Index(exp, "\n")+1:]), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "export applies back", p.ok("env", "apply", "-f", back), "unchanged (v2)")
-	mustContain(t, "versions", p.ok("env", "versions", "web"), "VERSION", "v1", "v2")
+	mustContain(t, "show applies back", p.ok("agents", "config", "apply", "web", "-f", back), "unchanged (v2)")
+	mustContain(t, "versions", p.ok("agents", "config", "versions", "web"), "VERSION", "v2 (current)", "v1")
+	// a profile edit keeps the machine
+	mustContain(t, "profile set", p.ok("agents", "profile", "set", "web", "-model", "sonnet"), "profile v3 saved")
+	mustContain(t, "machine kept", p.ok("agents", "config", "web"), "model: sonnet", "- ripgrep", "harness: claude-code")
 
-	// secrets: values come from stdin and are never shown; the spec names them
-	mustContain(t, "no env secrets", p.ok("env", "secrets", "web"), "has no secrets")
-	out, _, err = p.cli("sk-model-key-0001\n", "env", "secrets", "set", "web", "OPENAI_KEY")
+	// the machine names the agent's own secrets
+	withKey := strings.Replace(exp[strings.Index(exp, "\n")+1:], "    anthropic: subscription\n", "    anthropic: subscription\n    openai: ${OPENAI_KEY}\n", 1)
+	withKey = strings.Replace(withKey, "  idle_stop: 2h", "  idle_stop: 2h\n  env:\n    TZ: UTC\n", 1)
+	if !strings.Contains(withKey, "openai:") {
+		t.Fatalf("show has no models.anthropic: subscription:\n%s", exp)
+	}
+	if msg := p.failsIn(withKey, "agents", "config", "apply", "web", "-f", "-"); !strings.Contains(msg, "OPENAI_KEY") {
+		t.Errorf("a machine naming a missing secret: %q", msg)
+	}
+	out, _, err = p.cli("sk-model-key-0001\n", "agents", "secrets", "set", "web", "OPENAI_KEY")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, "env secrets set", out, "secret OPENAI_KEY of environment web saved", "${OPENAI_KEY}")
-	out, _, err = p.cli("flag-value\n", "env", "secrets", "set", "web", "FEATURE_TOKEN", "-env")
+	mustContain(t, "secret set", out, "secret OPENAI_KEY of agent web saved", "${OPENAI_KEY}")
+	out, _, err = p.cli(withKey, "agents", "config", "apply", "web", "-f", "-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sl := p.ok("env", "secrets", "list", "web")
-	mustContain(t, "env secrets list", sl, "NAME", "ENV", "OPENAI_KEY", "false", "FEATURE_TOKEN", "true")
-	if strings.Contains(sl, "sk-model-key-0001") || strings.Contains(sl, "flag-value") {
-		t.Error("env secrets list shows a value")
-	}
-	withKey := strings.Replace(exp[strings.Index(exp, "\n")+1:], "idle_stop: 2h", "idle_stop: 2h\nmodels:\n  openai: ${OPENAI_KEY}\nenv:\n  TZ: UTC\n", 1)
-	out, _, err = p.cli(withKey, "env", "apply", "-f", "-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustContain(t, "apply with models and env", out, "environment web v3")
-	mustContain(t, "export models and env", p.ok("env", "export", "web"), "openai: ${OPENAI_KEY}", "TZ: UTC")
-	if msg := p.fails("env", "secrets", "rm", "web", "OPENAI_KEY"); msg == "" {
-		t.Error("a secret the spec names was deleted")
-	}
-	mustContain(t, "env secrets rm", p.ok("env", "secrets", "rm", "web", "FEATURE_TOKEN"), "deleted")
-	if msg := p.fails("env", "secrets", "set", "web", "lower"); msg == "" {
-		t.Error("a bad secret name was accepted")
+	mustContain(t, "apply with models and env", out, "agent web config v4 saved")
+	mustContain(t, "show models and env", p.ok("agents", "config", "web"), "openai: ${OPENAI_KEY}", "TZ: UTC")
+	if msg := p.fails("agents", "secrets", "rm", "web", "OPENAI_KEY"); msg == "" {
+		t.Error("a secret the machine names was deleted")
 	}
 
 	// refusals
 	typo := filepath.Join(dir, "typo.yaml")
-	if err := os.WriteFile(typo, []byte("name: x\nharnes: claude-code\n"), 0o600); err != nil {
+	if err := os.WriteFile(typo, []byte("harnes: claude-code\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if msg := p.fails("env", "apply", "-f", typo); !strings.Contains(msg, "environment file:") {
+	if msg := p.fails("agents", "config", "apply", "web", "-f", typo); !strings.Contains(msg, "config file:") {
 		t.Errorf("typo in file: %q", msg)
 	}
-	if msg := p.fails("env", "apply"); !strings.Contains(msg, "usage: seaport env apply") {
+	if msg := p.fails("agents", "config", "apply", "web"); !strings.Contains(msg, "usage: seaport agents config apply") {
 		t.Errorf("apply usage: %q", msg)
 	}
 	bad := filepath.Join(dir, "bad.yaml")
-	if err := os.WriteFile(bad, []byte("name: bad\nharness: emacs\n"), 0o600); err != nil {
+	if err := os.WriteFile(bad, []byte("harness: emacs\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if msg := p.fails("env", "apply", "-f", bad); msg == "" {
+	if msg := p.fails("agents", "config", "apply", "web", "-f", bad); msg == "" {
 		t.Error("an unknown harness was accepted")
 	}
-	if msg := p.fails("env", "show", "ghost"); msg == "" {
-		t.Error("an unknown environment was shown")
+	if msg := p.fails("agents", "config", "ghost"); msg == "" {
+		t.Error("an unknown agent's config was shown")
 	}
-	if msg := p.fails("env", "build", "web"); msg == "" {
+	if msg := p.fails("agents", "build", "web"); msg == "" {
 		t.Error("a build ran without a runtime")
 	} else {
 		t.Logf("build without a runtime: %s", msg)
@@ -983,53 +988,64 @@ func TestCLIEnvironments(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mustContain(t, "no home", p.ok("env", "home", "show", "web"), "has no home")
-	dry := p.ok("env", "home", "push", "web", home, "-dry-run")
+	mustContain(t, "no home", p.ok("agents", "home", "show", "web"), "has no home")
+	dry := p.ok("agents", "home", "push", "web", home, "-dry-run")
 	mustContain(t, "dry run", dry, "left out (not claude-code config): projects/", "CLAUDE.md", "3 files", "dry run, nothing uploaded")
-	pushed := p.ok("env", "home", "push", "web", home)
-	mustContain(t, "push", pushed, "uploaded claude-code home from "+home, "3 files", "sha256:", "environment web v4")
-	show := p.ok("env", "home", "show", "web")
-	mustContain(t, "home show", show, "# web v4: claude-code home sha256:", "3 files", "CLAUDE.md", "settings.json", "skills/go/SKILL.md")
+	pushed := p.ok("agents", "home", "push", "web", home)
+	mustContain(t, "push", pushed, "uploaded claude-code home from "+home, "3 files", "sha256:", "agent web config v5 saved")
+	show := p.ok("agents", "home", "show", "web")
+	mustContain(t, "home show", show, "# web v5: claude-code home sha256:", "3 files", "CLAUDE.md", "settings.json", "skills/go/SKILL.md")
 
 	pull := filepath.Join(dir, "pulled")
-	mustContain(t, "pull", p.ok("env", "home", "pull", "web", pull), "3 files of web's home in "+pull)
+	mustContain(t, "pull", p.ok("agents", "home", "pull", "web", pull), "3 files of web's home in "+pull)
 	if got := mustRead(t, filepath.Join(pull, "skills", "go", "SKILL.md")); got != "---\nname: go\n---\nuse gofmt" {
 		t.Errorf("pulled skill = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(pull, "projects")); err == nil {
 		t.Error("a session file was pushed")
 	}
-	if msg := p.fails("env", "home", "pull", "web", pull); !strings.Contains(msg, "is not empty") {
+	if msg := p.fails("agents", "home", "pull", "web", pull); !strings.Contains(msg, "is not empty") {
 		t.Errorf("pull into a non-empty dir: %q", msg)
 	}
-	if msg := p.fails("env", "home", "pull", "web"); !strings.Contains(msg, "usage: seaport env home pull") {
+	if msg := p.fails("agents", "home", "pull", "web"); !strings.Contains(msg, "usage: seaport agents home pull") {
 		t.Errorf("pull usage: %q", msg)
 	}
-	if msg := p.fails("env", "home", "push", "web", filepath.Join(dir, "nope")); !strings.Contains(msg, "is not a directory") {
+	if msg := p.fails("agents", "home", "push", "web", filepath.Join(dir, "nope")); !strings.Contains(msg, "is not a directory") {
 		t.Errorf("push of a missing dir: %q", msg)
 	}
-	if msg := p.fails("env", "home"); !strings.Contains(msg, "usage: seaport env home") {
+	if msg := p.fails("agents", "home"); !strings.Contains(msg, "usage: seaport agents home") {
 		t.Errorf("home usage: %q", msg)
 	}
 
-	// home: ./dir in an environment file is pushed by apply, relative to the file
+	// machine.home: ./dir in a config file is pushed by apply, relative to the file
+	p.ok("agents", "add", "api")
+	if msg := p.fails("agents", "home", "push", "api", home); !strings.Contains(msg, "has no harness and machine") {
+		t.Errorf("home push without a machine: %q", msg)
+	}
 	withHome := filepath.Join(dir, "api.yaml")
-	if err := os.WriteFile(withHome, []byte("name: api\nharness: claude-code\nhome: ./claude\n"), 0o600); err != nil {
+	if err := os.WriteFile(withHome, []byte("harness: claude-code\nmachine:\n  home: ./claude\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out = p.ok("env", "apply", "-f", withHome)
-	mustContain(t, "apply with a home dir", out, "uploaded claude-code home", "created environment api v1")
-	if got := p.ok("env", "export", "api"); !strings.Contains(got, "home: sha256:") {
-		t.Errorf("export without the home digest:\n%s", got)
+	out = p.ok("agents", "config", "apply", "api", "-f", withHome)
+	mustContain(t, "apply with a home dir", out, "uploaded claude-code home", "agent api config v1 saved")
+	if got := p.ok("agents", "config", "api"); !strings.Contains(got, "home: sha256:") {
+		t.Errorf("show without the home digest:\n%s", got)
 	}
 
-	// delete needs -yes
-	if msg := p.fails("env", "delete", "api"); !strings.Contains(msg, "add -yes") {
-		t.Errorf("delete without -yes: %q", msg)
+	// hosting: the config's machine; slots listed with the config version
+	mustContain(t, "no hosted", p.ok("agents", "slots"), "no hosted agents")
+	mustContain(t, "host", p.ok("agents", "host", "api", "-slots", "2"), "agent api hosted with 2 slot(s)")
+	mustContain(t, "slots", p.ok("agents", "slots", "api"), "SLOT", "CONFIG", "api-1", "api-2", "stopped")
+	p.ok("agents", "add", "bare")
+	if msg := p.fails("agents", "host", "bare"); !strings.Contains(msg, "no harness and machine") {
+		t.Errorf("host without a machine: %q", msg)
 	}
-	mustContain(t, "delete", p.ok("env", "delete", "api", "-yes"), "deleted environment api")
-	if msg := p.fails("env", "frobnicate"); !strings.Contains(msg, "unknown env command") {
-		t.Errorf("unknown: %q", msg)
+	if msg := p.fails("agents", "config", "apply", "api", "-f", typo); msg == "" {
+		t.Error("typo accepted on a hosted agent")
+	}
+	mustContain(t, "unhost", p.ok("agents", "unhost", "api"), "is no longer hosted")
+	if msg := p.fails("env"); !strings.Contains(msg, "unknown command env") {
+		t.Errorf("env is gone: %q", msg)
 	}
 }
 

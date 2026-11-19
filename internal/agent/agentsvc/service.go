@@ -25,6 +25,9 @@ type Service struct {
 	// releaser routes again what a dock held for routing once an agent is
 	// assigned (bound late too; nil: nothing is released).
 	releaser agent.Releaser
+	// machines checks configs' machines (the hosting service, bound late;
+	// nil: configs carry no machine).
+	machines agent.MachineCheck
 	now      func() time.Time
 	// poll is how often a blocked ask_takeover looks for its end.
 	poll time.Duration
@@ -40,6 +43,10 @@ func New(repo agent.Repository, revoker agent.Revoker, events event.Publisher) *
 // Bind sets the assistant and the releaser (the ship service; either may
 // be nil).
 func (s *Service) Bind(a agent.Assistant, r agent.Releaser) { s.assistant, s.releaser = a, r }
+
+// BindMachines sets the machine checker (the hosting service, built after
+// this one; nil: configs carry no machine).
+func (s *Service) BindMachines(m agent.MachineCheck) { s.machines = m }
 
 const (
 	takeoverPoll = time.Second

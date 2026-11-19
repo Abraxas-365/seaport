@@ -30,7 +30,7 @@ type profileFile struct {
 	Approve      string            `json:"approve"`
 	Model        string            `json:"model"`
 	Effort       string            `json:"effort"`
-	// Browser: the agent uses its environment's managed browser.
+	// Browser: the agent uses its machine's managed browser (hosted).
 	Browser bool `json:"browser"`
 	// BrowserAssist: whom to tell about a takeover ("", conversation or a
 	// destination name).
@@ -54,7 +54,7 @@ func profileCmd(ctx context.Context, a *admin, args []string) error {
 	if err != nil {
 		return err
 	}
-	base := "/api/v1/agents/" + ag.ID.String() + "/profile"
+	base := configPath(ag)
 	switch sub {
 	case "show":
 		fs := flag.NewFlagSet("agents profile show", flag.ContinueOnError)
@@ -116,7 +116,7 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	approve := fs.String("approve", "", "permission requests: allow|reject|connector (the connector's -approve decides)")
 	model := fs.String("model", "", "model, among the harness's options (\"none\" clears)")
 	effort := fs.String("effort", "", "reasoning effort, among the harness's options (\"none\" clears)")
-	browser := fs.String("browser", "", "on|off: use the environment's managed browser (hosted agents)")
+	browser := fs.String("browser", "", "on|off: use the machine's managed browser (hosted agents)")
 	assist := fs.String("browser-assist", "", "whom to tell about a takeover: none|conversation|<destination name>")
 	detect := fs.String("browser-detect", "", "on|off: the connector detects sign-in, captcha and 2FA pages and asks the takeover itself")
 	ignore := fs.String("browser-ignore", "", "comma-separated sites the detector leaves alone (\"none\" clears)")
@@ -232,12 +232,15 @@ func setProfile(ctx context.Context, a *admin, ag agent.Agent, base string, args
 	if p.BrowserIgnoreHosts == nil {
 		p.BrowserIgnoreHosts = []string{}
 	}
-	body := map[string]any{"base": cur.Version, "instructions": p.Instructions, "skills": p.Skills,
-		"mcp_servers": p.MCPServers, "approve": p.Approve, "model": p.Model, "effort": p.Effort, "browser": p.Browser,
-		"browser_assist": p.BrowserAssist, "browser_detect": p.BrowserDetect, "browser_ignore_hosts": p.BrowserIgnoreHosts}
+	// the harness and machine stay as they are (config apply edits them)
+	body := configBody(cur.Version, cur.Harness, p, cur.Machine)
 	var out agent.Profile
 	if err := a.do(ctx, http.MethodPut, base, body, &out); err != nil {
 		return err
+	}
+	if out.Version == cur.Version {
+		fmt.Fprintf(stdout, "agent %s profile unchanged (v%d)\n", ag.Name, out.Version)
+		return nil
 	}
 	fmt.Fprintf(stdout, "agent %s profile v%d saved; connected harnesses restart with it once idle\n", ag.Name, out.Version)
 	return nil
@@ -291,7 +294,7 @@ func secretsCmd(ctx context.Context, a *admin, args []string) error {
 		if err := a.do(ctx, http.MethodPut, base+"/"+url.PathEscape(args[1]), map[string]any{"value": value, "env": *env}, nil); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "secret %s of agent %s saved; use it in an MCP header as ${%s}\n", args[1], ag.Name, args[1])
+		fmt.Fprintf(stdout, "secret %s of agent %s saved; name it as ${%s} in an MCP header or the machine (model keys, repo credentials)\n", args[1], ag.Name, args[1])
 		return nil
 	case "rm":
 		if len(args) != 2 {

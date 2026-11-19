@@ -14,7 +14,7 @@ import (
 // to a subscription from Seaport: the harness's login runs in its
 // container, its authorize URL shows, the pasted code goes to it, and the
 // account then reads signed in. A bad code fails the sign-in with the
-// harness's reason; a slot that isn't running or an environment with a
+// harness's reason; a slot that isn't running or a machine with a
 // model key can't sign in; its workspace tells agent-run to wait for a
 // sign-in.
 func TestSlotSignIn(t *testing.T) {
@@ -27,13 +27,9 @@ func TestSlotSignIn(t *testing.T) {
 	}, bootstrap.Options{Runtime: rt, SupervisePeriod: time.Hour})
 	events := p.openEvents("")
 	cc := p.agent("cc")
-	var env hosting.Environment
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "sub",
-		"spec": map[string]any{"harness": "claude-code"}}, &env); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
-	}
+	p.setMachine(cc.ID, "claude-code", map[string]any{})
 	hostPath := "/api/v1/agents/" + cc.ID.String() + "/hosting"
-	if code := p.admin(http.MethodPut, hostPath, map[string]any{"environment": "sub", "slots": 2}, nil); code != http.StatusOK {
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{"slots": 2}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
 	login := hostPath + "/slots/1/login"
@@ -109,30 +105,20 @@ func TestSlotSignIn(t *testing.T) {
 		t.Fatalf("account after: %d %+v", code, acc)
 	}
 
-	// An environment with a model key (it wins; for rness any key): no
+	// A machine with a model key (it wins; for rness any key): no
 	// sign-in. rness with none signs in like Claude Code.
 	if code := p.admin(http.MethodPut, "/api/v1/agents/"+cc.ID.String()+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-x"}, nil); code != http.StatusOK {
 		t.Fatalf("set secret: %d", code)
 	}
-	envPath := "/api/v1/environments/" + env.ID.String()
-	if code := p.admin(http.MethodPut, envPath, map[string]any{"base": env.Version,
-		"spec": map[string]any{"harness": "claude-code", "models": map[string]string{"anthropic": "${ANTHROPIC_KEY}"}}}, nil); code != http.StatusOK {
-		t.Fatalf("save environment: %d", code)
-	}
+	p.setMachine(cc.ID, "claude-code", map[string]any{"models": map[string]string{"anthropic": "${ANTHROPIC_KEY}"}})
 	if code := p.admin(http.MethodPost, login, nil, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("sign in with a model key: %d", code)
 	}
-	if code := p.admin(http.MethodPut, envPath, map[string]any{"base": env.Version + 1,
-		"spec": map[string]any{"harness": "rness", "models": map[string]string{"groq": "${ANTHROPIC_KEY}"}}}, nil); code != http.StatusOK {
-		t.Fatalf("save rness environment with a key: %d", code)
-	}
+	p.setMachine(cc.ID, "rness", map[string]any{"models": map[string]string{"groq": "${ANTHROPIC_KEY}"}})
 	if code := p.admin(http.MethodPost, login, nil, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("sign in rness with a model key: %d", code)
 	}
-	if code := p.admin(http.MethodPut, envPath, map[string]any{"base": env.Version + 2,
-		"spec": map[string]any{"harness": "rness"}}, nil); code != http.StatusOK {
-		t.Fatalf("save rness environment: %d", code)
-	}
+	p.setMachine(cc.ID, "rness", map[string]any{})
 	if code := p.admin(http.MethodPost, login, nil, &l); code != http.StatusAccepted {
 		t.Fatalf("sign in rness: %d %+v", code, l)
 	}

@@ -31,18 +31,18 @@ seaport agents assign pm <dock-id> -default
 
 # from the directory the agent should work in
 seaport connect -agent pm -- rness --acp`
-const env = `# env.yaml · seaport env apply -f env.yaml
-name: backend
+const env = `# agent.yaml · seaport agents config apply pm -f agent.yaml
 harness: rness                    # rness | claude-code
-repos:
-  - url: https://github.com/acme/api.git
-    credential: \${GITHUB_TOKEN}   # a secret of the hosted agent
-home: ./rness-home                # your own harness config
-models:
-  anthropic: \${ANTHROPIC_API_KEY} # through the port's gateway
-network:
-  egress: [registry.npmjs.org]
-idle_stop: 30m`
+machine:                          # where it runs when the port hosts it
+  repos:
+    - url: https://github.com/acme/api.git
+      credential: \${GITHUB_TOKEN}   # a secret of the agent
+  home: ./rness-home              # your own harness config
+  models:
+    anthropic: \${ANTHROPIC_API_KEY} # through the port's gateway
+  network:
+    egress: [registry.npmjs.org]
+  idle_stop: 30m`
 const features = [
   { number: '01', title: 'Docks', text: 'A Slack app, a GitHub App on your repositories, a Jira service account, a mailbox, a WhatsApp number or an api dock. People call an agent with @name where they already work.', tags: 'Slack · GitHub · Jira · Email · WhatsApp · HTTP', href: u('docs/explanation/concepts/') },
   { number: '02', title: 'Customs', text: 'Per-dock defaults and allow/deny rules decide who may wake an agent. What doesn’t pass is held: stored, visible, never delivered.', tags: 'Rules · Overrides · Groups', href: u('docs/guides/customs/') },

@@ -60,7 +60,7 @@ export const sidebar = [
     page('reference/events'),
     page('reference/mcp-tools'),
     page('reference/crew-protocol'),
-    page('reference/environment-spec'),
+    page('reference/agent-config'),
     page('reference/agent-profile'),
     page('reference/permissions'),
     page('reference/limits'),

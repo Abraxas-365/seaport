@@ -13,17 +13,18 @@ import (
 )
 
 func TestSpecValidate(t *testing.T) {
-	ok := hosting.Spec{Harness: hosting.HarnessClaudeCode, Image: "ghcr.io/acme/agent:1.2",
+	ok := hosting.Spec{Harness: hosting.HarnessClaudeCode, Machine: hosting.Machine{Image: "ghcr.io/acme/agent:1.2",
 		Packages: []string{"jq", "ripgrep=13.0.0-4"}, Setup: "npm i -g pnpm",
 		Repos: []hosting.Repo{{URL: "https://github.com/acme/app.git", Ref: "main", Credential: "${GITHUB_TOKEN}", OnStart: "pnpm i"},
 			{URL: "https://github.com/acme/docs", Path: "ref/docs"}},
 		Network:   hosting.Network{Egress: []string{"registry.npmjs.org", "*.atlassian.net"}},
-		Resources: hosting.Resources{Size: hosting.SizeM}, IdleStop: "2h"}
+		Resources: hosting.Resources{Size: hosting.SizeM}, IdleStop: "2h"}}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid spec: %v", err)
 	}
 	bad := map[string]func(*hosting.Spec){
 		"harness":        func(s *hosting.Spec) { s.Harness = "codex" },
+		"no harness":     func(s *hosting.Spec) { s.Harness = "" },
 		"image":          func(s *hosting.Spec) { s.Image = "Not An Image" },
 		"package":        func(s *hosting.Spec) { s.Packages = []string{"jq; rm -rf /"} },
 		"http repo":      func(s *hosting.Spec) { s.Repos = []hosting.Repo{{URL: "http://github.com/a/b"}} },
@@ -50,6 +51,7 @@ func TestSpecValidate(t *testing.T) {
 		"setup nul":       func(s *hosting.Spec) { s.Setup = "a\x00b" },
 		"model key":       func(s *hosting.Spec) { s.Models = hosting.Models{"anthropic": "sk-ant-literal"} },
 		"model provider":  func(s *hosting.Spec) { s.Models = hosting.Models{"mistral": "${KEY}"} },
+		"subscription":    func(s *hosting.Spec) { s.Models = hosting.Models{"groq": hosting.Subscription} },
 		"env name":        func(s *hosting.Spec) { s.Env = map[string]string{"lower": "x"} },
 		"env seaport":     func(s *hosting.Spec) { s.Env = map[string]string{"SEAPORT_URL": "x"} },
 		"env slot":        func(s *hosting.Spec) { s.Env = map[string]string{"OPENAI_API_KEY": "x"} },
@@ -73,40 +75,61 @@ func TestSpecValidate(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
+	if err := hosting.ValidHarness(""); err != nil {
+		t.Fatalf("an unset harness (remote agent): %v", err)
+	}
+	if err := hosting.ValidHarness("codex"); err == nil {
+		t.Fatal("unknown harness accepted")
+	}
 }
 
 func TestNormalize(t *testing.T) {
-	in := hosting.Spec{Harness: " rness ", Description: "  PM  ", Setup: "  echo hi \n",
+	in := hosting.Spec{Harness: " rness ", Machine: hosting.Machine{Setup: "  echo hi \n",
 		Packages: []string{"jq", " jq "},
 		Repos:    []hosting.Repo{{URL: "https://github.com/acme/app.git"}},
-		Network:  hosting.Network{Egress: []string{"Example.com", "example.com"}}}
+		Network:  hosting.Network{Egress: []string{"Example.com", "example.com"}}}}
 	got := hosting.Normalize(in)
-	want := hosting.Spec{Harness: "rness", Description: "PM", Setup: "echo hi\n", Packages: []string{"jq"},
-		Repos: []hosting.Repo{{URL: "https://github.com/acme/app.git", Path: "app"}}, Models: hosting.Models{}, Env: map[string]string{},
+	want := hosting.Spec{Harness: "rness", Machine: hosting.Machine{Setup: "echo hi\n", Packages: []string{"jq"},
+		Repos:  []hosting.Repo{{URL: "https://github.com/acme/app.git", Path: "app"}},
+		Models: hosting.Models{"anthropic": hosting.Subscription}, Env: map[string]string{},
 		RepoConfig: hosting.RepoConfigTrust, Workspace: hosting.WorkspacePersistent,
 		Network:   hosting.Network{Egress: []string{"example.com"}},
-		Resources: hosting.Resources{Size: "S", CPUs: 1, MemoryMB: 2048}, IdleStop: "30m"}
+		Resources: hosting.Resources{Size: "S", CPUs: 1, MemoryMB: 2048}, IdleStop: "30m"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalize:\n got %+v\nwant %+v", got, want)
 	}
 	if again := hosting.Normalize(got); !reflect.DeepEqual(again, got) {
 		t.Fatalf("normalize is not idempotent: %+v", again)
 	}
-	if n := hosting.Normalize(hosting.Spec{Harness: "rness", IdleStop: "90m"}); n.IdleStop != "1h30m" {
+	if got.Digest() != hosting.Normalize(in).Digest() || got.Digest() == hosting.Normalize(hosting.Spec{Harness: "claude-code", Machine: in.Machine}).Digest() {
+		t.Fatal("the digest must follow the normalized spec, harness included")
+	}
+	if n := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{IdleStop: "90m"}}); n.IdleStop != "1h30m" {
 		t.Fatalf("idle stop: %q", n.IdleStop)
 	}
-	if n := hosting.Normalize(hosting.Spec{Harness: "rness", IdleStop: "never"}); n.IdleStop != "0" {
+	if n := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{IdleStop: "never"}}); n.IdleStop != "0" {
 		t.Fatalf("never: %q", n.IdleStop)
 	}
-	n := hosting.Normalize(hosting.Spec{Models: hosting.Models{"OpenAI": " ${K} ", "groq": ""}, Env: map[string]string{" TZ ": "UTC"}})
+	n := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{Models: hosting.Models{"OpenAI": " ${K} ", "groq": ""},
+		Env: map[string]string{" TZ ": "UTC"}}})
 	if !reflect.DeepEqual(n.Models, hosting.Models{"openai": "${K}"}) || !reflect.DeepEqual(n.Env, map[string]string{"TZ": "UTC"}) {
 		t.Fatalf("models/env: %v %v", n.Models, n.Env)
 	}
 }
 
-func TestProvidersAndEnvironmentSecrets(t *testing.T) {
-	s := hosting.Spec{Harness: hosting.HarnessRness, Env: map[string]string{"TZ": "America/Lima", "NODE_ENV": "production", "EMPTY": ""},
-		Models: hosting.Models{"openai": "${OPENAI}", "anthropic": "${ANTHROPIC}", "groq": "${OPENAI}"}}
+func TestSpecOf(t *testing.T) {
+	if _, err := hosting.SpecOf("rness", nil); err == nil {
+		t.Fatal("a config with no machine can't be hosted")
+	}
+	s, err := hosting.SpecOf("rness", []byte(`{"packages":["jq"]}`))
+	if err != nil || s.Harness != "rness" || !slices.Equal(s.Packages, []string{"jq"}) {
+		t.Fatalf("spec of: %+v %v", s, err)
+	}
+}
+
+func TestProvidersAndSecrets(t *testing.T) {
+	s := hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{Env: map[string]string{"TZ": "America/Lima", "NODE_ENV": "production", "EMPTY": ""},
+		Models: hosting.Models{"openai": "${OPENAI}", "anthropic": "${ANTHROPIC}", "groq": "${OPENAI}"}}}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +139,7 @@ func TestProvidersAndEnvironmentSecrets(t *testing.T) {
 	if got := s.Secrets(); !reflect.DeepEqual(got, []string{"ANTHROPIC", "OPENAI"}) {
 		t.Fatalf("secrets: %v", got)
 	}
-	if s.SignsIn() {
+	if hosting.Normalize(s).SignsIn() {
 		t.Fatal("rness with model keys signs in")
 	}
 	for _, name := range hosting.ProviderNames() {
@@ -141,22 +164,10 @@ func TestProvidersAndEnvironmentSecrets(t *testing.T) {
 			t.Errorf("slot set lacks %s", v)
 		}
 	}
-	for name, in := range map[string]hosting.SetEnvironmentSecret{
-		"ok":      {Name: "OPENAI", Value: "sk-" + strings.Repeat("x", 40)},
-		"env":     {Name: "DATABASE_URL", Value: "postgres://x", Env: true},
-		"lower":   {Name: "openai", Value: "x"},
-		"seaport": {Name: "SEAPORT_TOKEN", Value: "x"},
-		"empty":   {Name: "OPENAI", Value: ""},
-		"nul":     {Name: "OPENAI", Value: "a\x00b"},
-		// A slot's network variable can't be an environment variable…
-		"slot env": {Name: "ANTHROPIC_BASE_URL", Value: "https://x.example.com", Env: true},
-		// …but a secret named like one, read only through ${NAME}, can.
-		"slot name": {Name: "ANTHROPIC_API_KEY", Value: "x"},
-	} {
-		err := in.Validate()
-		if want := name == "ok" || name == "env" || name == "slot name"; (err == nil) != want {
-			t.Errorf("%s: %v", name, err)
-		}
+	// A subscription names no secret.
+	sub := hosting.Normalize(hosting.Spec{Harness: hosting.HarnessClaudeCode})
+	if len(sub.Secrets()) != 0 || sub.Models.KeyName(hosting.ProviderAnthropic) != "" {
+		t.Fatalf("subscription secrets: %v", sub.Secrets())
 	}
 }
 
@@ -174,7 +185,7 @@ func TestIdleStopAndLimits(t *testing.T) {
 	if err := l.Check(hosting.Resources{CPUs: 2, MemoryMB: 4096}); err != nil {
 		t.Fatalf("at the maximum: %v", err)
 	}
-	s := hosting.Spec{Repos: []hosting.Repo{{URL: "https://a.com/x", Credential: "${A}"}, {URL: "https://a.com/y", Credential: "${A}"}, {URL: "https://a.com/z"}}}
+	s := hosting.Machine{Repos: []hosting.Repo{{URL: "https://a.com/x", Credential: "${A}"}, {URL: "https://a.com/y", Credential: "${A}"}, {URL: "https://a.com/z"}}}
 	if got := s.Secrets(); !reflect.DeepEqual(got, []string{"A"}) {
 		t.Fatalf("secrets: %v", got)
 	}
@@ -184,9 +195,9 @@ func TestIdleStopAndLimits(t *testing.T) {
 }
 
 func TestNetworkOfASpec(t *testing.T) {
-	s := hosting.Spec{Harness: hosting.HarnessRness, Repos: []hosting.Repo{{URL: "https://github.com/a/b", Credential: "${GH}"}},
+	s := hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{Repos: []hosting.Repo{{URL: "https://github.com/a/b", Credential: "${GH}"}},
 		Models:  hosting.Models{"anthropic": "${ANTHROPIC_KEY}"},
-		Network: hosting.Network{Egress: []string{"registry.npmjs.org", "github.com"}}}
+		Network: hosting.Network{Egress: []string{"registry.npmjs.org", "github.com"}}}}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +222,7 @@ func TestNetworkOfASpec(t *testing.T) {
 			t.Errorf("AnyHost refused %q", host)
 		}
 	}
-	open := hosting.Spec{Harness: hosting.HarnessRness, Network: hosting.Network{Egress: []string{" * "}}}
+	open := hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{Network: hosting.Network{Egress: []string{" * "}}}}
 	if err := open.Validate(); err != nil {
 		t.Fatalf("egress *: %v", err)
 	}
@@ -221,7 +232,7 @@ func TestNetworkOfASpec(t *testing.T) {
 }
 
 func TestBrowserInTheSpecAndTheImage(t *testing.T) {
-	s := hosting.Spec{Harness: hosting.HarnessRness, Browser: hosting.Browser{Engine: " chromium "}}
+	s := hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{Browser: hosting.Browser{Engine: " chromium "}}}
 	if err := s.Validate(); err != nil {
 		t.Fatalf("chromium: %v", err)
 	}
@@ -244,7 +255,11 @@ func TestBrowserInTheSpecAndTheImage(t *testing.T) {
 	}
 	a := hosting.BuildRequest{Spec: n, Base: "base:1"}
 	b := hosting.BuildRequest{Spec: hosting.Spec{Harness: hosting.HarnessRness}, Base: "base:1"}
-	if a.Tag() == b.Tag() {
-		t.Fatal("a browser must change the image tag")
+	if a.Tag() == b.Tag() || a.Digest() == b.Digest() {
+		t.Fatal("a browser must change the image's digest and tag")
+	}
+	c := hosting.BuildRequest{Spec: hosting.Spec{Harness: hosting.HarnessClaudeCode}, Base: "base:1"}
+	if c.Digest() == b.Digest() {
+		t.Fatal("the harness must change the build digest")
 	}
 }

@@ -109,15 +109,94 @@
       }
     },
     "build": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
       "base": "ghcr.io/example/seaport-claude-code:latest",
       "detail": "",
-      "environment_id": "00000000-0000-4000-8000-000000000007",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "finished_at": "2030-01-02T03:01:00Z",
       "image": "sha256:0123456789abcdef",
       "started_at": "2030-01-02T03:00:00Z",
       "state": "ready",
-      "updated_at": "2030-01-02T03:01:00Z",
-      "version": 2
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
+    "config": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "approve": "auto",
+      "browser": true,
+      "browser_assist": "conversation",
+      "browser_detect": false,
+      "browser_ignore_hosts": [],
+      "created_at": "2030-01-02T03:01:00Z",
+      "created_by": "admin",
+      "effort": "high",
+      "harness": "claude-code",
+      "instructions": "Answer support questions in Spanish.",
+      "machine": {
+        "browser": {
+          "engine": "chromium"
+        },
+        "env": {
+          "TZ": "UTC"
+        },
+        "home": "",
+        "idle_stop": "30m",
+        "image": "",
+        "models": {
+          "anthropic": "${ANTHROPIC_KEY}"
+        },
+        "network": {
+          "egress": [
+            "example.com",
+            "*.example.org"
+          ]
+        },
+        "packages": [
+          "git",
+          "make"
+        ],
+        "repo_config": "ignore",
+        "repos": [
+          {
+            "credential": "${GIT_TOKEN}",
+            "on_start": "make deps",
+            "path": "repo",
+            "ref": "main",
+            "url": "https://example.com/org/repo.git"
+          }
+        ],
+        "resources": {
+          "cpus": 2,
+          "memory_mb": 4096,
+          "size": "M"
+        },
+        "setup": "echo ready",
+        "workspace": "persistent"
+      },
+      "machine_digest": "e486983eb3715beb906270fa5563daa5bc4149bc0174b355a4e5393b657b7f26",
+      "machine_secrets": [
+        "ANTHROPIC_KEY",
+        "GIT_TOKEN"
+      ],
+      "mcp_servers": [
+        {
+          "headers": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ${DOCS_TOKEN}"
+            }
+          ],
+          "name": "docs",
+          "url": "https://mcp.example.com/mcp"
+        }
+      ],
+      "model": "opus",
+      "skills": [
+        {
+          "description": "Sort incoming tickets",
+          "name": "triage"
+        }
+      ],
+      "version": 3
     },
     "conversation": {
       "access": "auto",
@@ -402,129 +481,16 @@
         "total": 2
       }
     },
-    "environment": {
-      "agents": 1,
-      "created_at": "2030-01-02T03:00:00Z",
-      "created_by": "admin",
-      "id": "00000000-0000-4000-8000-000000000007",
-      "name": "default",
-      "spec": {
-        "browser": {
-          "engine": "chromium"
-        },
-        "description": "Go toolchain",
-        "env": {
-          "TZ": "UTC"
-        },
-        "harness": "claude-code",
-        "home": "",
-        "idle_stop": "30m",
-        "image": "",
-        "models": {
-          "anthropic": "${ANTHROPIC_KEY}"
-        },
-        "network": {
-          "egress": [
-            "example.com",
-            "*.example.org"
-          ]
-        },
-        "packages": [
-          "git",
-          "make"
-        ],
-        "repo_config": "ignore",
-        "repos": [
-          {
-            "credential": "${GIT_TOKEN}",
-            "on_start": "make deps",
-            "path": "repo",
-            "ref": "main",
-            "url": "https://example.com/org/repo.git"
-          }
-        ],
-        "resources": {
-          "cpus": 2,
-          "memory_mb": 4096,
-          "size": "M"
-        },
-        "setup": "echo ready",
-        "workspace": "persistent"
-      },
-      "updated_at": "2030-01-02T03:01:00Z",
-      "version": 2
-    },
-    "environments": {
-      "items": [
-        {
-          "agents": 1,
-          "created_at": "2030-01-02T03:00:00Z",
-          "created_by": "admin",
-          "id": "00000000-0000-4000-8000-000000000007",
-          "name": "default",
-          "spec": {
-            "browser": {
-              "engine": "chromium"
-            },
-            "description": "Go toolchain",
-            "env": {
-              "TZ": "UTC"
-            },
-            "harness": "claude-code",
-            "home": "",
-            "idle_stop": "30m",
-            "image": "",
-            "models": {
-              "anthropic": "${ANTHROPIC_KEY}"
-            },
-            "network": {
-              "egress": [
-                "example.com",
-                "*.example.org"
-              ]
-            },
-            "packages": [
-              "git",
-              "make"
-            ],
-            "repo_config": "ignore",
-            "repos": [
-              {
-                "credential": "${GIT_TOKEN}",
-                "on_start": "make deps",
-                "path": "repo",
-                "ref": "main",
-                "url": "https://example.com/org/repo.git"
-              }
-            ],
-            "resources": {
-              "cpus": 2,
-              "memory_mb": 4096,
-              "size": "M"
-            },
-            "setup": "echo ready",
-            "workspace": "persistent"
-          },
-          "updated_at": "2030-01-02T03:01:00Z",
-          "version": 2
-        }
-      ],
-      "page": {
-        "limit": 20,
-        "offset": 0,
-        "total": 1
-      }
-    },
     "hosted": {
       "agent_id": "00000000-0000-4000-8000-000000000005",
-      "environment_id": "00000000-0000-4000-8000-000000000007",
       "slots": [
         {
           "active_at": "2030-01-02T03:02:00Z",
+          "config_version": 3,
           "detail": "",
-          "environment_version": 2,
           "image": "sha256:0123456789abcdef",
           "index": 1,
+          "outdated": false,
           "started_at": "2030-01-02T03:00:00Z",
           "state": "running",
           "updated_at": "2030-01-02T03:02:00Z"
@@ -1008,6 +974,17 @@
     }
   },
   "events": {
+    "agent.build": {
+      "agent_id": "00000000-0000-4000-8000-000000000005",
+      "base": "ghcr.io/example/seaport-claude-code:latest",
+      "detail": "",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "finished_at": "2030-01-02T03:01:00Z",
+      "image": "sha256:0123456789abcdef",
+      "started_at": "2030-01-02T03:00:00Z",
+      "state": "ready",
+      "updated_at": "2030-01-02T03:01:00Z"
+    },
     "agent.deleted": {
       "id": "00000000-0000-4000-8000-000000000005"
     },
@@ -1157,72 +1134,6 @@
         "history": true
       },
       "updated_at": "2030-01-02T03:01:00Z"
-    },
-    "environment.build": {
-      "base": "ghcr.io/example/seaport-claude-code:latest",
-      "detail": "",
-      "environment_id": "00000000-0000-4000-8000-000000000007",
-      "finished_at": "2030-01-02T03:01:00Z",
-      "image": "sha256:0123456789abcdef",
-      "started_at": "2030-01-02T03:00:00Z",
-      "state": "ready",
-      "updated_at": "2030-01-02T03:01:00Z",
-      "version": 2
-    },
-    "environment.deleted": {
-      "id": "00000000-0000-4000-8000-000000000007"
-    },
-    "environment.updated": {
-      "agents": 1,
-      "created_at": "2030-01-02T03:00:00Z",
-      "created_by": "admin",
-      "id": "00000000-0000-4000-8000-000000000007",
-      "name": "default",
-      "spec": {
-        "browser": {
-          "engine": "chromium"
-        },
-        "description": "Go toolchain",
-        "env": {
-          "TZ": "UTC"
-        },
-        "harness": "claude-code",
-        "home": "",
-        "idle_stop": "30m",
-        "image": "",
-        "models": {
-          "anthropic": "${ANTHROPIC_KEY}"
-        },
-        "network": {
-          "egress": [
-            "example.com",
-            "*.example.org"
-          ]
-        },
-        "packages": [
-          "git",
-          "make"
-        ],
-        "repo_config": "ignore",
-        "repos": [
-          {
-            "credential": "${GIT_TOKEN}",
-            "on_start": "make deps",
-            "path": "repo",
-            "ref": "main",
-            "url": "https://example.com/org/repo.git"
-          }
-        ],
-        "resources": {
-          "cpus": 2,
-          "memory_mb": 4096,
-          "size": "M"
-        },
-        "setup": "echo ready",
-        "workspace": "persistent"
-      },
-      "updated_at": "2030-01-02T03:01:00Z",
-      "version": 2
     },
     "schedule.created": {
       "agent_id": "00000000-0000-4000-8000-000000000005",
@@ -1383,14 +1294,14 @@
     },
     "slot.updated": {
       "agent_id": "00000000-0000-4000-8000-000000000005",
-      "environment_id": "00000000-0000-4000-8000-000000000007",
       "slots": [
         {
           "active_at": "2030-01-02T03:02:00Z",
+          "config_version": 3,
           "detail": "",
-          "environment_version": 2,
           "image": "sha256:0123456789abcdef",
           "index": 1,
+          "outdated": false,
           "started_at": "2030-01-02T03:00:00Z",
           "state": "running",
           "updated_at": "2030-01-02T03:02:00Z"

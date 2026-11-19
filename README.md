@@ -233,24 +233,27 @@ For a complete one, see [`examples/github-reviewer`](examples/github-reviewer/):
 Don't want to keep a laptop open? The port can run the agent itself — **rness** or **Claude Code** in a hardened container per slot, started when messages arrive and stopped when idle.
 
 ```yaml
-# env.yaml — seaport env apply -f env.yaml (or the web app: Entornos)
-name: backend
-harness: rness                    # rness | claude-code
-repos:
-  - url: https://github.com/acme/api.git
-    credential: ${GITHUB_TOKEN}   # a secret of the environment
-home: ./rness-home                # your own harness config
-env: {TZ: America/Lima}           # plain variables of every slot
-models:
-  anthropic: ${ANTHROPIC_KEY}     # a secret of the environment, through the port's gateway
-network:
-  egress: [registry.npmjs.org]    # + the repos' hosts
-idle_stop: 30m
+# agent.yaml — seaport agents config apply pm -f agent.yaml (or the agent's page in the web app)
+harness: rness                      # rness | claude-code
+instructions: You work on the backend.
+machine:                            # where it runs when the port hosts it
+  repos:
+    - url: https://github.com/acme/api.git
+      credential: ${GITHUB_TOKEN}   # a secret of the agent
+  home: ./rness-home                # your own harness config
+  env: {TZ: America/Lima}           # plain variables of every slot
+  models:
+    anthropic: ${ANTHROPIC_KEY}     # a secret of the agent, through the port's gateway
+  network:
+    egress: [registry.npmjs.org]    # + the repos' hosts
+  idle_stop: 30m
 ```
 
+The agent is the whole configuration: there is no environment to create or share. Agents with the same machine share one built image.
+
 ```sh
-seaport env apply -f env.yaml
-seaport agents host pm backend -slots 2
+seaport agents config apply pm -f agent.yaml
+seaport agents host pm -slots 2
 seaport agents slots pm            # stopped → starting → running → stopping
 ```
 
@@ -302,7 +305,7 @@ seaport agents slots pm            # stopped → starting → running → stoppi
 | `internal/agent` | Agent library, routing, profiles and secrets |
 | `internal/vault` | Vaults: shared markdown memory granted to agents and docks, versions, secret scan |
 | `internal/crew` | Crew tokens, the WebSocket hub and the MCP tools |
-| `internal/hosting` | Environments, slots, image builds, model gateway, egress proxy, harness homes |
+| `internal/hosting` | Machines (the hosted part of an agent's config), slots, image builds, model gateway, egress proxy, harness homes |
 | `internal/connector` | The agent side: WebSocket + ACP client |
 | `internal/auth` | iam mode: IAMKit sign-in and sessions |
 | `web/` | React web app, embedded into the binary |

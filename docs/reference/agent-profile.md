@@ -2,13 +2,13 @@
 
 The schema of an agent's profile: the instructions, skills, MCP servers and options that the harness an agent runs in is told and given, with every limit and rule.
 
-A profile is versioned. Each save makes a new, immutable version, and the agent runs its current one. You edit a profile in the web app (Agentes), with `seaport agents profile`, or with the API.
+The profile is the part of an agent's [config](agent-config.md) that says what the harness is told and given. The config is versioned: each save makes a new, immutable version, and the agent runs its current one. You edit the profile in the web app (the agent's page, **Configuración**), with `seaport agents profile` or `seaport agents config`, or with the API. The config also holds the agent's `harness` and, for a hosted agent, its `machine`; those are in [Agent config](agent-config.md).
 
 ## How a profile is applied
 
 - The connector fetches the agent's kit from `GET /crew/profile` when it starts, on each `welcome`, and on each `profile` frame. See [Crew protocol](crew-protocol.md).
 - When the kit's `revision` is new, the connector sends `drain`, waits until its work is acked, and restarts the harness with the new kit. It resumes its sessions.
-- `hello.profile_version` says which version a connection runs. The crew status marks it `outdated` when it isn't the agent's current version.
+- `hello.profile_version` says which config version a connection runs. The crew status marks it `outdated` when it isn't the agent's current version.
 - Instructions go to the harness as the system prompt (appended) when the harness supports it, otherwise ahead of the first prompt of each session. A resumed session gets the instructions again with its next prompt when they changed.
 - Skills never touch the agent's machine: the port's [MCP `skill` tool](mcp-tools.md#skill) serves them on demand.
 
@@ -18,19 +18,19 @@ For how to write a good profile, read [Profiles](../guides/profiles.md).
 
 | Field | Type | Default | Limit | Meaning |
 | :--- | :--- | :--- | :--- | :--- |
-| `base` | integer | none | the current version | Only when saving: the version you edited from. `0` for an agent with no profile yet. |
+| `base` | integer | none | the current version | Only when saving: the version you edited from. `0` for an agent with no config yet. |
 | `instructions` | string | empty | 32768 characters | Text given to the harness as system-level instructions. |
 | `skills` | list of skill | empty | 50 skills | On-demand instructions. See [Skill](#skill). |
 | `mcp_servers` | list of MCP server | empty | 20 servers | Extra MCP servers for every session. See [MCP server](#mcp-server). |
 | `approve` | string | empty | `allow`, `reject` or empty | How the connector answers the harness's permission requests. Empty leaves it to the connector's own `-approve` flag, which rejects by default. |
 | `model` | string | empty | one word, at most 100 characters | The model, picked among the harness's session options. Empty leaves the harness default. |
 | `effort` | string | empty | one word, at most 100 characters | The reasoning effort, picked among the harness's session options. Empty leaves the harness default. |
-| `browser` | boolean | `false` | | The agent uses the managed browser of its environment and gets the `ask_takeover` tool. Only a hosted agent on an environment with `browser.engine` gets one. See [Browser](../guides/hosting/browser.md). |
+| `browser` | boolean | `false` | | The agent uses the managed browser of its machine and gets the `ask_takeover` tool. Only a hosted agent whose machine has a `browser.engine` gets one. See [Browser](../guides/hosting/browser.md). |
 | `browser_assist` | string | empty | empty, `conversation` or a destination name (1–64 lowercase letters, digits, `-` or `_`) | Whom Seaport tells when the agent asks for a takeover. Empty: nobody (the takeover shows only in the web). `conversation`: a message in the conversation the agent named in the call. A [destination](../guides/destinations.md) name: a new conversation opened at that destination of one of the agent's docks. Needs `browser` on. See [When a person must take over](../guides/hosting/browser.md#when-a-person-must-take-over). |
 | `browser_detect` | boolean | `false` | | The connector watches the pages the browser loads and, when one needs a person (a sign-in form or a known sign-in host, a captcha widget or wall, a one-time code), records the takeover itself and tells the running turn, whether or not the model noticed. Needs `browser` on. See [Seaport detects it](../guides/hosting/browser.md#seaport-detects-it). |
 | `browser_ignore_hosts` | list of string | empty | 32 hosts, each a site's DNS name, unique | Sites (and their subdomains) the detector never asks a takeover for: a page with a password field the agent never needs to pass. Lowercased. Needs `browser` on. |
 
-Secrets are not a field of the profile: they belong to the agent and are set apart. See [Secrets](#secrets).
+Secrets are not a field of the profile: they belong to the agent and are set apart. See [Secrets](#secrets). `harness` and `machine` are saved with the profile in the same config version, and `seaport agents profile set` leaves them as they are; see [Agent config](agent-config.md).
 
 All text is trimmed, must be valid UTF-8 and may not contain control characters other than newline, tab and carriage return. `model` and `effort` can't contain spaces or control characters.
 
@@ -64,7 +64,7 @@ A header is `{"name", "value"}`:
 
 ## Secrets
 
-Secrets belong to the agent, not to a profile version. They are stored sealed with the port's [secret key](configuration.md#secret-key), and the API answers names and flags only, never values.
+Secrets belong to the agent, not to a config version. They are the agent's only secret store: MCP header tokens, model keys, repo credentials and environment variables all live here. They are stored sealed with the port's [secret key](configuration.md#secret-key), and the API answers names and flags only, never values.
 
 | Item | Rule |
 | :--- | :--- |
@@ -73,20 +73,20 @@ Secrets belong to the agent, not to a profile version. They are stored sealed wi
 | `env` | `true` also gives the secret to the harness as an environment variable of that name. |
 | Count | At most 50 per agent. |
 | Use in headers | `${NAME}` in an MCP header value. |
-| Delete | Refused while an MCP header, a repo credential or a model key of the agent's environment uses it. |
+| Delete | Refused while an MCP header, or a repo credential or model key of the agent's machine, uses it. |
 
 Without a secret key on the port, setting a secret is refused. The kit that carries the resolved secrets reaches only the agent's own crew token (`GET /crew/profile`). No admin route, event or MCP tool returns a secret.
 
 Set a secret with `PUT /api/v1/agents/{id}/secrets/{name}` and the body `{"value": "…", "env": false}`; list names with `GET /api/v1/agents/{id}/secrets`; delete one with `DELETE /api/v1/agents/{id}/secrets/{name}`. Or use `seaport agents secrets`; see [CLI](cli.md#secrets).
 
-When a secret changes, the port tells the agent's connections to fetch their kit again, as it does for a saved profile.
+When a secret changes, the port tells the agent's connections to fetch their kit again, as it does for a saved profile. Saving or deleting secrets needs `seaport:agents:write`.
 
 ## Versions
 
-- A save needs `base` to be the current version. If another editor saved first, the save fails with `409 CONFLICT` (`the profile changed since it was loaded…`). Load the profile again and apply your changes.
+- A save needs `base` to be the current version. If another editor saved first, the save fails with `409 CONFLICT` (`the profile changed since it was loaded…`). Load the config again and apply your changes.
 - Every save makes version `current + 1` and points the agent at it. The history keeps every version.
-- `GET /api/v1/agents/{id}/profile` returns the current version, or an empty profile (version `0`, no content) when there is none. `…/profile/versions/{version}` returns a past one, and `…/profile/versions` lists them (`version`, `created_by`, `created_at`), newest first.
-- A saved profile is announced with the `agent.updated` event. See [Events](events.md).
+- `GET /api/v1/agents/{id}/config` returns the current version, or an empty config (version `0`, no content) when there is none. `…/config/versions/{version}` returns a past one, and `…/config/versions` lists them (`version`, `created_by`, `created_at`), newest first.
+- A saved config is announced with the `agent.updated` event. See [Events](events.md).
 
 ## Example
 
@@ -114,10 +114,10 @@ When a secret changes, the port tells the agent's connections to fetch their kit
 }
 ```
 
-Send it with:
+A save carries the whole config: `harness` and `machine` too, and a save that leaves them out clears them. When you only mean to change the profile, use `seaport agents profile set`, which keeps them. Send it with:
 
 ```bash
-curl -X PUT https://port.example.com/api/v1/agents/$AGENT_ID/profile \
+curl -X PUT https://port.example.com/api/v1/agents/$AGENT_ID/config \
   -H "Authorization: Bearer $SEAPORT_ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d @profile.json
@@ -127,7 +127,7 @@ The same document, without `base`, is what `seaport agents profile show -json` p
 
 ## Responses
 
-`GET /api/v1/agents/{id}/profile` and the save answer the profile:
+`GET /api/v1/agents/{id}/config` and the save answer the config (the profile, plus `harness`, `machine`, `machine_digest` and `machine_secrets` from [Agent config](agent-config.md)):
 
 ```json
 {
@@ -141,6 +141,10 @@ The same document, without `base`, is what `seaport agents profile show -json` p
   "effort": "medium",
   "browser": true,
   "browser_assist": "conversation",
+  "harness": "claude-code",
+  "machine": null,
+  "machine_digest": "",
+  "machine_secrets": [],
   "created_by": "admin",
   "created_at": "2025-01-15T10:30:00Z"
 }
@@ -155,4 +159,4 @@ The kit a connector gets from `GET /crew/profile` has `agent_id`, `version`, `in
 | `env` | The secrets marked `env`, as `{"NAME": "value"}`, for the harness process. |
 | `revision` | Changes whenever the profile or a secret does. A connector runs one revision and restarts its harness for another. |
 
-Permissions: reading a profile, its versions and the secret names needs `seaport:agents:read`; saving a profile and setting or deleting secrets needs `seaport:agents:write`. See [Permissions](permissions.md) and [HTTP API](http-api.md#agents).
+Permissions: reading a config, its versions and the secret names needs `seaport:agents:read`; saving a config and setting or deleting secrets needs `seaport:agents:write`. See [Permissions](permissions.md) and [HTTP API](http-api.md#agents).

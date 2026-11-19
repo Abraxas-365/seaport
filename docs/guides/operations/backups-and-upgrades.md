@@ -6,7 +6,7 @@ A Seaport port keeps its state in three places. Back up all three, or a restore 
 
 | What | Where | Why it matters |
 | :--- | :--- | :--- |
-| **Postgres** | The `postgres` service's database. | Docks, chats, messages, customs, agents, environments and sealed secrets. |
+| **Postgres** | The `postgres` service's database. | Docks, chats, messages, customs, agents (their configs, with the machines of hosted agents) and sealed secrets. |
 | **The secret key** | `SEAPORT_SECRET_KEY`, or `/data/secret.key` in the `seaport_data` volume when Seaport generated it. | Opens everything sealed in the database. |
 | **The blob store** | `/data/blobs` in `seaport_data` by default, or your `SEAPORT_BLOB_URL` bucket. | Message images and harness homes. Dumps don't hold them. |
 
@@ -63,14 +63,41 @@ docker compose up -d --build
 
 Migrations run at start, so there are no manual database steps. Take a backup first. With `--profile hosting`, include it in the command.
 
-Releases are tagged `v*`. Each publishes binaries to GitHub Releases and the base images for hosted agents (`ghcr.io/abraxas-365/seaport-rness` and `seaport-claude-code`), tagged with the version and `latest`. A port gets the base image of its own version by default, so after an upgrade, new builds of environments use the new base. An environment's image is rebuilt when its base changes, since the base is part of the image tag. Build ahead of time:
+Releases are tagged `v*`. Each publishes binaries to GitHub Releases and the base images for hosted agents (`ghcr.io/abraxas-365/seaport-rness` and `seaport-claude-code`), tagged with the version and `latest`. A port gets the base image of its own version by default, so after an upgrade, new builds of agents' machines use the new base. An agent's image is rebuilt when its base changes, since the base is part of the image key. Build ahead of time:
 
 ```sh
-seaport env build backend
+seaport agents build pm
 ```
 
 > [!NOTE]
 > Coming from a version older than the one that sealed the WhatsApp store (migration 00008), run the release that has it once first (up to commit `e807f94`). It moves linked WhatsApp devices out of clear-text tables, which migration 00012 then drops. 00012 refuses to run while a linked dock is still only in the old tables.
+
+### Upgrading to the agent-centric config
+
+This release removes environments: an agent's [config](../../reference/agent-config.md) now holds its harness and its machine, and the agent is the whole configuration. The upgrade is automatic when the new version starts, but read this first.
+
+**Before you upgrade**
+
+- Take a backup, as always.
+- Environments that no agent is hosted on are **dropped**. If you want to keep one, export it first with the *previous* release (`seaport env export`) and later bring it to an agent with `seaport agents config apply`. This release has no `seaport env` command.
+- If any environment has secrets, the new version needs `SEAPORT_SECRET_KEY` (or `SEAPORT_SECRET_KEY_FILE`), the same key that sealed them, and refuses to start without it.
+
+**What happens at start**
+
+1. Migration 00045 adds the config's machine and the shared build table.
+2. A one-off data step, in a single transaction and under a lock, so several processes starting together run it once, moves each **hosted** agent's environment into its config: a new config version is saved whose profile is the agent's current one plus the environment's harness and machine, created by `seaport upgrade`. Agents that weren't hosted keep their profile.
+3. The environment secrets move into the secrets of the agents hosted on them. When an agent already has a secret of that name, the environment's is kept as `<NAME>_ENV` (then `_ENV_2`…), with `-env` off, and the machine's references follow it, so nothing changes for the running agent. Rename or delete these as you like.
+4. Migration 00046 drops the environments tables. It refuses to run if environments still have rows and the step didn't mark itself done, so a partial upgrade stops instead of losing data.
+
+Hosted slots that were running are left alone, and restart once they are idle on the new config, which builds the image if it isn't already (the same machine means the same image, shared between agents). Build ahead of time with `seaport agents build <agent>`.
+
+**After you upgrade**
+
+- Check each hosted agent: `seaport agents config show <agent>` and `seaport agents slots`.
+- Update scripts and CI that used `seaport env …`: the equivalents are `seaport agents config apply <agent> -f agent.yaml`, `seaport agents build`, `seaport agents host <agent>` (no environment argument), and `seaport agents home …`.
+- In `iam` mode, grant the new `seaport:hosting:*` permissions: see [iam mode](iam-mode.md#upgrading-from-environments-to-hosting).
+- The `environment.updated`, `environment.deleted` and `environment.build` events are gone; `environment.build` is now `agent.build`.
+- A hosted agent works only through its slots, and an agent with live crew tokens can't be hosted. If an agent was connected from people's machines and you want to host it, revoke its tokens first.
 
 ### With several processes
 

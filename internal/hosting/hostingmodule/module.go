@@ -26,7 +26,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/httpx"
 	"github.com/Abraxas-365/seaport/internal/httpx/stdhttp"
 	"github.com/Abraxas-365/seaport/internal/identity"
-	"github.com/Abraxas-365/seaport/internal/seal"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -75,18 +74,13 @@ type Config struct {
 	EgressLookup          func(ctx context.Context, host string) ([]netip.Addr, error)
 	Tokens                httpx.CrewResolver
 	// Blobs and SecretKey keep harness homes sealed (either missing:
-	// uploads refused); SecretKey also seals environment secrets ("":
-	// refused).
+	// uploads refused).
 	Blobs     blob.Store
 	SecretKey string
 }
 
-// secretsInfo derives the environment secrets' key from the port's secret
-// key.
-const secretsInfo = "seaport environment secrets v1"
-
-// New builds the hosting module over the agent library (its secrets'
-// names).
+// New builds the hosting module over the agent library (its configs and
+// secrets).
 func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, events event.Publisher) (*Module, error) {
 	m := &Module{}
 	runtime := cfg.Runtime
@@ -97,18 +91,7 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 		}
 		m.docker, runtime = d, d
 	}
-	var sealer *seal.Sealer
-	if cfg.SecretKey != "" {
-		s, err := seal.New(cfg.SecretKey, secretsInfo)
-		if err != nil {
-			if m.docker != nil {
-				_ = m.docker.Close()
-			}
-			return nil, err
-		}
-		sealer = &s
-	}
-	svc, err := hostingsvc.New(hostingpg.New(db, sealer), agents, cfg.Limits, events,
+	svc, err := hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
 		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
 		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod, Viewers: cfg.Viewers},
 		hostingsvc.Homes{Blobs: cfg.Blobs, SecretKey: cfg.SecretKey})
@@ -155,8 +138,8 @@ func defaultEgressURL(agentURL string, addr net.Addr) string {
 	return "http://" + net.JoinHostPort(u.Hostname(), strconv.Itoa(ta.Port))
 }
 
-// Register mounts /api/v1/environments, /api/v1/hosting,
-// /api/v1/agents/{id}/hosting and /api/v1/agents/{id}/usage.
+// Register mounts /api/v1/hosting, /api/v1/homes, /api/v1/agents/{id}/
+// hosting|build and /api/v1/agents/{id}/usage.
 func (m *Module) Register(r httpx.Router) { m.http.Register(r) }
 
 // Workspace is GET /crew/workspace (mount behind crew auth).

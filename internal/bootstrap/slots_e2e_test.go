@@ -63,13 +63,11 @@ func TestHostedSlots(t *testing.T) {
 	if code := p.admin(http.MethodPut, "/api/v1/agents/"+pm.ID.String()+"/secrets/GITHUB_TOKEN", map[string]any{"value": "ghp_slot_secret"}, nil); code != http.StatusOK {
 		t.Fatalf("set secret: %d", code)
 	}
-	spec := map[string]any{"harness": "rness", "workspace": "persistent",
+	machine := map[string]any{"workspace": "persistent",
 		"repos": []map[string]string{{"url": "https://github.com/acme/app.git", "credential": "${GITHUB_TOKEN}", "on_start": "make deps"}}}
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, nil); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
-	}
+	p.setMachine(pm.ID, "rness", machine)
 	hostPath := "/api/v1/agents/" + pm.ID.String() + "/hosting"
-	if code := p.admin(http.MethodPut, hostPath, map[string]any{"environment": "web", "slots": 2}, nil); code != http.StatusOK {
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{"slots": 2}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
 
@@ -81,7 +79,7 @@ func TestHostedSlots(t *testing.T) {
 	}
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 	s1 := p.slot(pm.ID, 1)
-	if s1.Image != "sha256:img1" || s1.EnvironmentVersion != 1 || s1.StartedAt == nil {
+	if s1.Image != "sha256:img1" || s1.ConfigVersion != 1 || s1.Outdated || s1.StartedAt == nil {
 		t.Fatalf("running slot: %+v", s1)
 	}
 	st := rt.lastStart()
@@ -126,7 +124,8 @@ func TestHostedSlots(t *testing.T) {
 		ws.Repos[0].Path != "app" || ws.Repos[0].OnStart != "make deps" {
 		t.Fatalf("workspace: %d %+v", code, ws)
 	}
-	people := p.issueAs(adminToken, pm.ID, "laptop")
+	// (a hosted agent has no people's tokens: another agent's is refused too)
+	people := p.issueAs(adminToken, p.agent("other").ID, "laptop")
 	if code := p.call(http.MethodGet, "/crew/workspace", people.Value, nil, nil); code != http.StatusForbidden {
 		t.Fatalf("a person's token reads a workspace: %d", code)
 	}
@@ -220,8 +219,9 @@ func TestHostedSlots(t *testing.T) {
 
 var errNoEngine = errx.External("the Docker engine is unreachable")
 
-// An idle running slot on an outdated environment version restarts on the
-// new one; one idle past idle_stop is stopped.
+// An idle running slot whose machine is outdated restarts on the new one
+// (an instructions edit doesn't restart it); one idle past idle_stop is
+// stopped.
 func TestIdleAndOutdatedSlots(t *testing.T) {
 	rt := &fakeRuntime{results: make(chan string, 4)}
 	p := startPortWith(t, func(c *config.Server) {
@@ -229,12 +229,10 @@ func TestIdleAndOutdatedSlots(t *testing.T) {
 	}, bootstrap.Options{Runtime: rt, SupervisePeriod: 200 * time.Millisecond})
 	events := p.openEvents("")
 	pm := p.agent("pm")
-	spec := map[string]any{"harness": "rness", "idle_stop": "1m"}
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, nil); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
-	}
+	machine := map[string]any{"idle_stop": "1m"}
+	p.setMachine(pm.ID, "rness", machine)
 	hostPath := "/api/v1/agents/" + pm.ID.String() + "/hosting"
-	if code := p.admin(http.MethodPut, hostPath, map[string]any{"environment": "web"}, nil); code != http.StatusOK {
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
 	rt.results <- "sha256:v1"
@@ -243,15 +241,20 @@ func TestIdleAndOutdatedSlots(t *testing.T) {
 	}
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 
-	// A new version: the idle slot restarts on it (built first).
-	rt.results <- "sha256:v2"
-	spec["packages"] = []string{"jq"}
-	if code := p.admin(http.MethodPut, "/api/v1/environments/web", map[string]any{"base": 1, "spec": spec}, nil); code != http.StatusOK {
-		t.Fatalf("v2: %d", code)
+	// An instructions edit: the slot keeps running on its machine.
+	if code, v2 := p.saveConfig(pm.ID, func(b map[string]any) { b["instructions"] = "Be brief." }); code != http.StatusOK || v2.Version != 2 {
+		t.Fatalf("instructions edit: %d %+v", code, v2)
 	}
-	eventually(t, "restarted on v2", func() bool {
+	if s := p.slot(pm.ID, 1); s.Outdated || s.ConfigVersion != 1 || s.Image != "sha256:v1" {
+		t.Fatalf("instructions edit outdated the slot: %+v", s)
+	}
+	// A machine edit: the idle slot restarts on it (built first).
+	rt.results <- "sha256:v3"
+	machine["packages"] = []string{"jq"}
+	p.setMachine(pm.ID, "rness", machine)
+	eventually(t, "restarted on v3", func() bool {
 		s := p.slot(pm.ID, 1)
-		return s.State == hosting.SlotRunning && s.EnvironmentVersion == 2 && s.Image == "sha256:v2"
+		return s.State == hosting.SlotRunning && s.ConfigVersion == 3 && s.Image == "sha256:v3" && !s.Outdated
 	})
 
 	// Idle past idle_stop while someone signs it in: kept running (the

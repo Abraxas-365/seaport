@@ -92,12 +92,10 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `ship.approval` | `seaport:ships:read` | Approval | An approval was asked, answered, cancelled or expired. |
 | `crew.changed` | `seaport:crew:read` | Crew status (`{"agents":[…]}`) | An agent connected or disconnected, or its deliveries changed. Carries the whole crew. |
 | `crew.activity` | `seaport:ships:read` | [Agent activity](#agent-activity) | An agent thought, wrote or called a tool on a delivery. Live only: no `id`, never stored or replayed. |
-| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed, assigned to a dock or taken off one, or its `takeovers` changed. |
+| `agent.updated` | `seaport:agents:read` | Agent, with its docks | An agent was created, changed (its config or its secrets included), assigned to a dock or taken off one, or its `takeovers` changed. |
 | `agent.deleted` | `seaport:agents:read` | `{"id"}` | An agent left the library. |
 | `agent.takeover` | `seaport:agents:read` | `{"agent_id","host","kind","by","path","conversation_id","asked_at","state","ended_by"}` | A [browser takeover](../guides/hosting/browser.md#when-a-person-must-take-over) was asked (`state: asked`; `by` is `agent` or `detector`), ended by a person (`done`; `ended_by` names them) or expired unattended (`expired`). An audit trail: `agent.updated` carries the open ones. Never page content or a credential. |
-| `environment.updated` | `seaport:environments:read` | Environment | An environment was created or got a new version. |
-| `environment.deleted` | `seaport:environments:read` | `{"id"}` | An environment was deleted. |
-| `slot.updated` | `seaport:environments:read` | Hosted agent (`agent`, `slots`) | An agent was hosted, moved or unhosted, or one of its slots changed state. When the agent is no longer hosted the payload has no environment and no slots. |
+| `slot.updated` | `seaport:hosting:read` | Hosted agent (`agent_id`, `slots`) | An agent was hosted or unhosted, its slot count changed, or one of its slots changed state. When the agent is no longer hosted the payload has no slots. |
 | `slot.browser` | `seaport:browser:use` | `{"agent_id","slot","state","by"}` | Someone opened (`state: opened`) or closed (`closed`) a slot's [browser viewer](../guides/hosting/browser.md); `by` is who. An audit trail: nothing of the stream is kept. |
 | `schedule.created` | `seaport:schedules:read` | [Schedule](http-api.md#schedules) | A schedule was created. |
 | `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, or the agent it names is gone). |
@@ -107,7 +105,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `vault.updated` | `seaport:vaults:read` | Vault | A vault's title or description changed, or a grant to an agent or a dock was added, changed or removed. Refetch the vault for its grants. |
 | `vault.deleted` | `seaport:vaults:read` | Vault | A vault was deleted, as it was. |
 | `vault.entry` | `seaport:vaults:read` | `{"vault_id","entry_id","name","version","deleted","provenance"}` | An entry was saved (by a person or an agent), reverted or deleted; `deleted` is true when it is gone and `version` is its last. |
-| `environment.build` | `seaport:environments:read` | Build, without its log | An environment version's build started, finished or failed. |
+| `agent.build` | `seaport:hosting:read` | Build, without its log | The build of an agent's machine started, finished or failed. |
 
 Two more event names are part of the stream protocol itself and aren't in the permission table: `ready` and `reset`.
 
@@ -161,6 +159,6 @@ A delivery without tool calls stores no turn. A lease that expires (the sweeper 
 - `agent.updated` is not sent for the agent that stops being a dock's default when another one becomes it. Refetch the agent list when you see an agent become a default.
 - `crew.changed` is the whole list of connected agents (each with `session`, `agent_id`, `agent_name`, `name`, `concurrency`, `steer`, `profile_version`, `outdated`, `remote`, `connected_at` and `deliveries`), not a diff.
 - `vault.*` events never carry an entry's text: `vault.entry` names the entry, its version and who wrote it, and a client that needs the text reads the entry.
-- `environment.build` never carries the build log. Fetch it from the build route (see the [HTTP API](http-api.md)).
+- `agent.build` never carries the build log. Fetch it from the build route (see the [HTTP API](http-api.md)).
 
 For how events fit in the system, read [Architecture](../architecture.md).

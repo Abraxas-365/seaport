@@ -46,7 +46,7 @@ func (s *Service) Close() {
 	s.builds.wg.Wait()
 }
 
-// base is the image an environment builds FROM.
+// base is the image a spec builds FROM.
 func (s *Service) base(spec hosting.Spec) string {
 	if spec.Image != "" {
 		return spec.Image
@@ -54,34 +54,43 @@ func (s *Service) base(spec hosting.Spec) string {
 	return s.builds.cfg.Bases[spec.Harness]
 }
 
-func (s *Service) StartBuild(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID, input hosting.BuildEnvironment) (hosting.Build, error) {
-	if id.IsZero() {
-		return hosting.Build{}, errx.InvalidField("environment_id", "environment_id is required")
+// buildRequest is what building the agent's current config takes (its
+// Digest keys the build).
+func (s *Service) buildRequest(org identity.OrganizationID, spec hosting.Spec) (hosting.BuildRequest, error) {
+	base := s.base(spec)
+	if base == "" {
+		return hosting.BuildRequest{}, errx.Business("no base image is configured for harness " + spec.Harness)
+	}
+	return hosting.BuildRequest{Organization: org, Spec: spec, Base: base}, nil
+}
+
+func (s *Service) StartBuild(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, input hosting.BuildAgent) (hosting.Build, error) {
+	if agentID.IsZero() {
+		return hosting.Build{}, errx.InvalidField("agent_id", "agent_id is required")
 	}
 	if err := input.Validate(); err != nil {
 		return hosting.Build{}, err
 	}
-	env, err := s.repo.Environment(ctx, org, id, input.Version)
+	spec, err := s.spec(ctx, org, agentID)
 	if err != nil {
 		return hosting.Build{}, err
 	}
 	if s.builds.cfg.Runtime == nil {
 		return hosting.Build{}, errx.Business("hosted agents are off on this port (SEAPORT_RUNTIME=off)")
 	}
-	base := s.base(env.Spec)
-	if base == "" {
-		return hosting.Build{}, errx.Business("no base image is configured for harness " + env.Spec.Harness)
+	req, err := s.buildRequest(org, spec)
+	if err != nil {
+		return hosting.Build{}, err
 	}
-	b, claimed, err := s.repo.ClaimBuild(ctx, org, id, env.Version, base, input.Force)
+	req.Force = input.Force
+	b, claimed, err := s.repo.ClaimBuild(ctx, org, req.Digest(), agentID, req.Base, input.Force)
 	if err != nil {
 		return hosting.Build{}, errx.Wrap(err, "claim build", errx.TypeInternal)
 	}
 	if !claimed {
 		return b, nil
 	}
-	s.events.Publish(org, hosting.EventEnvironmentBuild, withoutLog(b))
-	req := hosting.BuildRequest{Organization: org, Environment: id, Version: env.Version, Spec: env.Spec, Base: base,
-		Force: input.Force}
+	s.events.Publish(org, hosting.EventAgentBuild, withoutLog(b))
 	s.builds.wg.Add(1)
 	go func() {
 		defer s.builds.wg.Done()
@@ -124,11 +133,12 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 	ctx, cancel := context.WithTimeout(s.builds.ctx, s.builds.cfg.Timeout)
 	defer cancel()
 	log := &buildLog{}
+	digest := req.Digest()
 	if req.Home == nil {
 		home, err := s.buildHome(ctx, req.Organization, req.Spec)
 		if err != nil {
-			slog.Warn("environment build: home", "environment", req.Environment, "version", req.Version, "err", err)
-			s.finishBuild(req, "", "the environment's home: "+buildFailure(ctx, err), log)
+			slog.Warn("agent build: home", "digest", digest, "err", err)
+			s.finishBuild(req, digest, "", "the machine's home: "+buildFailure(ctx, err), log)
 			return
 		}
 		req.Home = home
@@ -142,9 +152,9 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 			case <-done:
 				return
 			case <-t.C:
-				if err := s.repo.BuildProgress(ctx, req.Organization, req.Environment, req.Version, log.String()); err != nil &&
+				if err := s.repo.BuildProgress(ctx, req.Organization, digest, log.String()); err != nil &&
 					ctx.Err() == nil {
-					slog.Warn("store build progress", "environment", req.Environment, "version", req.Version, "err", err)
+					slog.Warn("store build progress", "digest", digest, "err", err)
 				}
 			}
 		}
@@ -155,22 +165,22 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 	if err != nil {
 		image = ""
 		detail = buildFailure(ctx, err)
-		slog.Warn("environment build failed", "environment", req.Environment, "version", req.Version, "err", err)
+		slog.Warn("agent build failed", "digest", digest, "err", err)
 	}
-	s.finishBuild(req, image, detail, log)
+	s.finishBuild(req, digest, image, detail, log)
 }
 
 // finishBuild records a build's end, even when shutting down (its own
 // short deadline).
-func (s *Service) finishBuild(req hosting.BuildRequest, image, detail string, log *buildLog) {
+func (s *Service) finishBuild(req hosting.BuildRequest, digest, image, detail string, log *buildLog) {
 	end, endCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer endCancel()
-	b, ferr := s.repo.FinishBuild(end, req.Organization, req.Environment, req.Version, image, detail, log.String())
+	b, ferr := s.repo.FinishBuild(end, req.Organization, digest, image, detail, log.String())
 	if ferr != nil {
-		slog.Error("record build end", "environment", req.Environment, "version", req.Version, "err", ferr)
+		slog.Error("record build end", "digest", digest, "err", ferr)
 		return
 	}
-	s.events.Publish(req.Organization, hosting.EventEnvironmentBuild, withoutLog(b))
+	s.events.Publish(req.Organization, hosting.EventAgentBuild, withoutLog(b))
 }
 
 // buildFailure is the detail a failed build shows.
@@ -188,12 +198,17 @@ func buildFailure(ctx context.Context, err error) string {
 	return "the build failed (see the log)"
 }
 
-func (s *Service) Build(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID, version int) (hosting.Build, error) {
-	if id.IsZero() {
-		return hosting.Build{}, errx.InvalidField("environment_id", "environment_id is required")
+func (s *Service) Build(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) (hosting.Build, error) {
+	if agentID.IsZero() {
+		return hosting.Build{}, errx.InvalidField("agent_id", "agent_id is required")
 	}
-	if version < 0 {
-		return hosting.Build{}, errx.InvalidField("version", "version must be positive (0: the current one)")
+	spec, err := s.spec(ctx, org, agentID)
+	if err != nil {
+		return hosting.Build{}, err
 	}
-	return s.repo.Build(ctx, org, id, version)
+	req, err := s.buildRequest(org, spec)
+	if err != nil {
+		return hosting.Build{}, err
+	}
+	return s.repo.Build(ctx, org, req.Digest())
 }

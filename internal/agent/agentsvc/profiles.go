@@ -40,12 +40,45 @@ func (s *Service) SaveProfile(ctx context.Context, org identity.OrganizationID, 
 			input.MCPServers[i].Headers = []agent.Header{}
 		}
 	}
+	input.Harness = strings.TrimSpace(input.Harness)
+	checked, err := s.checkMachine(ctx, org, id, input)
+	if err != nil {
+		return agent.Profile{}, err
+	}
+	input.Checked = checked
 	p, err := s.repo.SaveProfile(ctx, org, id, input)
 	if err != nil {
 		return agent.Profile{}, errx.Wrap(err, "save profile", errx.TypeInternal)
 	}
+	if p.Version == input.Base { // unchanged: no version, nothing to announce
+		return p, nil
+	}
 	s.kitChanged(ctx, org, id)
 	return p, nil
+}
+
+// checkMachine asks hosting (MachineCheck) to check and normalize the
+// config's harness and machine. Without a checker (no hosting wired) a
+// config may name a harness but carry no machine.
+func (s *Service) checkMachine(ctx context.Context, org identity.OrganizationID, id identity.AgentID, input agent.SaveProfile) (agent.CheckedMachine, error) {
+	in := agent.MachineInput{Harness: input.Harness, Browser: input.Browser}
+	if m := strings.TrimSpace(string(input.Machine)); m != "" && m != "null" {
+		in.Machine = input.Machine
+	}
+	if s.machines == nil {
+		if in.Machine != nil {
+			return agent.CheckedMachine{}, errx.Business("this port doesn't host agents: a config can't carry a machine")
+		}
+		return agent.CheckedMachine{Secrets: []string{}}, nil
+	}
+	c, err := s.machines.CheckMachine(ctx, org, id, in)
+	if err != nil {
+		return agent.CheckedMachine{}, err
+	}
+	if c.Secrets == nil {
+		c.Secrets = []string{}
+	}
+	return c, nil
 }
 
 func (s *Service) SetSecret(ctx context.Context, org identity.OrganizationID, id identity.AgentID, input agent.SetSecret) (agent.Secret, error) {

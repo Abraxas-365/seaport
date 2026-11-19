@@ -15,7 +15,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/query"
 )
 
-// agents is `seaport agents [list|add|edit|delete|assign|unassign|profile|secrets]`.
+// agents is `seaport agents [list|add|edit|delete|assign|unassign|config|profile|home|secrets|build|clone|host...]`.
 func agents(ctx context.Context, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
@@ -28,8 +28,27 @@ func agents(ctx context.Context, args []string) error {
 	switch sub {
 	case "profile":
 		return profileCmd(ctx, a, args)
+	case "config":
+		return configCmd(ctx, a, args)
+	case "home":
+		return agentHome(ctx, a, args)
 	case "secrets":
 		return secretsCmd(ctx, a, args)
+	case "build":
+		fs := flag.NewFlagSet("agents build", flag.ContinueOnError)
+		force := fs.Bool("force", false, "build again even when built (pulls the base anew)")
+		wait := fs.Bool("wait", true, "follow the build until it ends")
+		if len(args) == 0 {
+			return errx.Validation("usage: seaport agents build <agent> [-force] [-wait=false]")
+		}
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		ag, err := findAgent(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		return buildAgent(ctx, a, ag, *force, *wait)
 	case "list":
 		all, err := listAgents(ctx, a)
 		if err != nil {

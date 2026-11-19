@@ -52,9 +52,9 @@ An agent in the library is only a name and a profile. The thing that does the wo
 
 The **crew** is the set of live connections. An agent can have several (one per machine), and each connects with a **crew token** that belongs to that agent. If an agent has no connection, its ships wait. See [The connector](../guides/connector.md).
 
-## Environments and slots
+## Hosting and slots
 
-If you don't want to run harnesses yourself, the port can run them: an **environment** describes where a hosted agent runs (harness, image, tools, repositories, network, resources), and each hosted agent gets **slots**, the containers that run its connector. The port starts a slot when ships wait and stops it when it idles. Hosting is optional and needs Docker. See [Hosted agents](../guides/hosting/hosted-agents.md).
+If you don't want to run harnesses yourself, the port can run them: the agent's config says where it runs (its harness, and a **machine**: image, tools, repositories, network, resources), and each hosted agent gets **slots**, the containers that run its connector. The port starts a slot when ships wait and stops it when it idles. Hosting is optional and needs Docker. See [Hosted agents](../guides/hosting/hosted-agents.md).
 
 ## Organizations and modes
 

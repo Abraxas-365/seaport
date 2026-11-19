@@ -50,7 +50,7 @@ Read the code before documenting a contract, and trace behavior through the serv
 ## Examples
 
 - Never include real secrets. Pass secret values through stdin or environment variables in examples.
-- Say what each user-chosen name is (an agent, an environment, a dock).
+- Say what each user-chosen name is (an agent, a dock).
 - State external prerequisites, such as a running port or an installed harness.
 - Show commands you run (`sh`) separately from YAML specs, JSON bodies and wire frames.
 

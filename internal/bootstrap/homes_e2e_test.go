@@ -127,33 +127,34 @@ func TestHarnessHomes(t *testing.T) {
 		t.Fatalf("unknown home: %d", code)
 	}
 
-	// A spec names it; an unknown or other harness's home is refused.
-	spec := map[string]any{"harness": "claude-code", "home": "sha256:" + strings.Repeat("1", 64)}
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, nil); code != http.StatusBadRequest {
-		t.Fatalf("unknown home in spec: %d", code)
+	// A config names it; an unknown or other harness's home is refused.
+	ag := p.agent("web")
+	machine := map[string]any{"home": "sha256:" + strings.Repeat("1", 64)}
+	if code, _ := p.saveConfig(ag.ID, func(b map[string]any) { b["harness"], b["machine"] = "claude-code", machine }); code != http.StatusBadRequest {
+		t.Fatalf("unknown home in machine: %d", code)
 	}
 	var rh hosting.Home
 	if code := p.upload("rness", "application/x-tar", homeTar(t, map[string]string{"skills/go/SKILL.md": "go"}), &rh); code != http.StatusCreated {
 		t.Fatalf("rness home: %d", code)
 	}
-	spec["home"] = rh.Digest
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, nil); code != http.StatusBadRequest {
+	machine["home"] = rh.Digest
+	if code, _ := p.saveConfig(ag.ID, func(b map[string]any) { b["harness"], b["machine"] = "claude-code", machine }); code != http.StatusBadRequest {
 		t.Fatalf("rness home on claude-code: %d", code)
 	}
-	spec["home"] = h.Digest
-	var e hosting.Environment
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "web", "spec": spec}, &e); code != http.StatusCreated || e.Spec.Home != h.Digest {
-		t.Fatalf("create: %d %+v", code, e)
+	machine["home"] = h.Digest
+	if c := p.setMachine(ag.ID, "claude-code", machine); machineOf(t, c).Home != h.Digest {
+		t.Fatalf("config home: %+v", c)
 	}
 
 	// The build gets the home's tar and the Dockerfile copies it in.
 	var b hosting.Build
+	buildPath := "/api/v1/agents/" + ag.ID.String() + "/build"
 	rt.results <- "sha256:aaa"
-	if code := p.admin(http.MethodPost, "/api/v1/environments/web/build", nil, &b); code != http.StatusAccepted {
+	if code := p.admin(http.MethodPost, buildPath, nil, &b); code != http.StatusAccepted {
 		t.Fatalf("build: %d %+v", code, b)
 	}
 	waitFor(t, func() bool {
-		p.admin(http.MethodGet, "/api/v1/environments/web/build", nil, &b)
+		p.admin(http.MethodGet, buildPath, nil, &b)
 		return b.State == hosting.BuildReady
 	})
 	req := rt.last()
@@ -161,8 +162,8 @@ func TestHarnessHomes(t *testing.T) {
 		t.Fatalf("build request: home %d bytes", len(req.Home))
 	}
 
-	// Sweep: the rness home (named by nothing) goes once past the grace;
-	// the named one stays. Make both old.
+	// Sweep: the rness home (named by no config version) goes once past the
+	// grace; the named one stays (versions are history). Make both old.
 	db := testDB(t)
 	if _, err := db.ExecContext(context.Background(), `UPDATE hosting_homes SET touched_at = now() - interval '2 days'`); err != nil {
 		t.Fatal(err)
@@ -174,11 +175,6 @@ func TestHarnessHomes(t *testing.T) {
 	if code := p.admin(http.MethodGet, "/api/v1/homes/"+h.Digest, nil, nil); code != http.StatusOK {
 		t.Fatalf("named home swept: %d", code)
 	}
-	// Dropping the environment frees its home for the next sweep.
-	if code := p.admin(http.MethodDelete, "/api/v1/environments/web", nil, nil); code != http.StatusNoContent {
-		t.Fatalf("delete env: %d", code)
-	}
-	waitFor(t, func() bool { return len(blobFiles(t, dir)) == 0 })
 }
 
 func waitFor(t *testing.T, ok func() bool) {
