@@ -71,6 +71,9 @@ func (s *Service) StartSlot(ctx context.Context, org identity.OrganizationID, in
 	if s.slots.cfg.Credentials == nil || s.slots.cfg.URL == "" {
 		return hosting.Hosted{}, errx.Business("hosted agents need crew tokens (SEAPORT_AUTH=token or iam)")
 	}
+	if err := s.checkSecrets(ctx, org, input.Agent); err != nil {
+		return hosting.Hosted{}, err
+	}
 	start, claimed, err := s.repo.BeginStart(ctx, org, input.Agent, input.Index, false)
 	if err != nil {
 		return hosting.Hosted{}, errx.Wrap(err, "start slot", errx.TypeInternal)
@@ -188,6 +191,10 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		}
 	}
 	spec := start.Spec
+	if err := s.missingSecrets(ctx, org, agentID, spec); err != nil {
+		fail(failure(err, "the agent's secrets could not be read"), err, identity.CrewTokenID{})
+		return
+	}
 	image, err := s.imageFor(ctx, org, agentID, spec)
 	if err != nil {
 		fail(failure(err, "the agent's image could not be built"), err, identity.CrewTokenID{})
@@ -227,6 +234,46 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		return
 	}
 	s.events.Publish(org, hosting.EventSlotsUpdated, h)
+}
+
+// checkSecrets refuses (Business) a start while the agent's config names
+// a secret the agent doesn't have: a clone made without secrets, or one
+// deleted behind the config's back.
+func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) error {
+	spec, err := s.spec(ctx, org, agentID)
+	if err != nil {
+		return err
+	}
+	return s.missingSecrets(ctx, org, agentID, spec)
+}
+
+// missingSecrets is nil when every secret the machine names (model keys,
+// repo credentials) is one of the agent's; else a Business error naming
+// them (names only: never a value).
+func (s *Service) missingSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
+	names := spec.Secrets()
+	if len(names) == 0 {
+		return nil
+	}
+	have, err := s.agents.Secrets(ctx, org, agentID)
+	if err != nil {
+		return err
+	}
+	set := make(map[string]bool, len(have))
+	for _, h := range have {
+		set[h.Name] = true
+	}
+	var missing []string
+	for _, n := range names {
+		if !set[n] {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		return errx.Business("the agent's machine names secrets it doesn't have: " + strings.Join(missing, ", ") +
+			" (seaport agents secrets set <agent> NAME; a clone made without -secrets starts with none)")
+	}
+	return nil
 }
 
 // slotEnv is a slot container's environment, lowest precedence first:

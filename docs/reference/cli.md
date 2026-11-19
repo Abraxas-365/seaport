@@ -83,6 +83,7 @@ Patterns match the handles the channel reports: phone numbers (`34600000001`, `+
 | :--- | :--- |
 | `seaport agents [list]` | Table of agents: ID, name, profile version, docks (the default one marked), description. Alias: `seaport agent`. |
 | `seaport agents add <name> [-description D]` | Creates an agent. Its name is its `@mention` handle. |
+| `seaport agents clone <agent> <name> [-secrets] [-description D]` | Creates `<name>` as a copy of the agent's current [config](agent-config.md) (profile, harness, machine) as its version 1; a hosted agent's clone is hosted with the same slots, stopped. `-secrets` also copies the agent's secrets (resealed for the clone, never shown); without it the clone has none and whatever its config names fails, naming the secret, until you set it. Docks, vault grants, tokens, takeovers and usage are not copied. |
 | `seaport agents edit <agent> [-name N] [-description D]` | Changes the flags you give; at least one is required. |
 | `seaport agents assign <agent> <dock-id> [-default]` | Puts the agent on a dock's team. `-default` makes it the one that takes messages that call nobody. |
 | `seaport agents unassign <agent> <dock-id>` | Takes it off the team; what waited for it there is held. |

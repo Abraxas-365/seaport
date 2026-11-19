@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/agent/adapters/agenthttp"
 	"github.com/Abraxas-365/seaport/internal/auth"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
@@ -98,6 +99,7 @@ func Spec() wire.Spec {
 			"IssuedCrewToken": of[crew.Issued](),
 			// the agent library
 			"LibraryAgent":   of[agent.Agent](),
+			"CloneAgent":     of[agenthttp.CloneRequest](),
 			"AgentDeleted":   of[agent.Deleted](),
 			"Assignment":     of[agent.Assignment](),
 			"TeamMember":     of[agent.Member](),

@@ -96,6 +96,35 @@ func agents(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintf(stdout, "agent %s created (%s); put it on a dock: seaport agents assign %s <dock-id>\n", ag.Name, ag.ID, ag.Name)
 		return nil
+	case "clone":
+		if len(args) < 2 {
+			return errx.Validation("usage: seaport agents clone <agent> <name> [-secrets] [-description D]")
+		}
+		fs := flag.NewFlagSet("agents clone", flag.ContinueOnError)
+		secrets := fs.Bool("secrets", false, "also copy the agent's secrets (resealed for the clone; values are never shown)")
+		fs.String("description", "", "description of the clone (default: the source's)")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		body := map[string]any{"name": args[1], "secrets": *secrets}
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "description" {
+				body["description"] = f.Value.String()
+			}
+		})
+		src, err := findAgent(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var ag agent.Agent
+		if err := a.do(ctx, http.MethodPost, "/api/v1/agents/"+src.ID.String()+"/clone", body, &ag); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "agent %s cloned from %s (%s)\n", ag.Name, src.Name, ag.ID)
+		if !*secrets {
+			fmt.Fprintf(stdout, "its secrets were not copied: set what its config names with seaport agents secrets set %s NAME, or clone again with -secrets\n", ag.Name)
+		}
+		return nil
 	case "edit":
 		if len(args) == 0 {
 			return errx.Validation("usage: seaport agents edit <agent> [-name N] [-description D]")

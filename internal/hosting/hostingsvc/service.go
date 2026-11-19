@@ -43,7 +43,23 @@ var (
 	_ hosting.Commands   = (*Service)(nil)
 	_ hosting.Queries    = (*Service)(nil)
 	_ agent.MachineCheck = (*Service)(nil)
+	_ agent.HostingClone = (*Service)(nil)
 )
+
+// CloneHosting hosts a cloned agent like its source (agent.HostingClone):
+// the same number of slots, all stopped. A source that isn't hosted is
+// not an error.
+func (s *Service) CloneHosting(ctx context.Context, org identity.OrganizationID, source, clone identity.AgentID, by string) error {
+	h, err := s.repo.Hosted(ctx, org, source)
+	if errx.IsType(err, errx.TypeNotFound) {
+		return nil
+	}
+	if err != nil {
+		return errx.Wrap(err, "read the source's hosting", errx.TypeInternal)
+	}
+	_, err = s.Host(ctx, org, clone, hosting.Host{Slots: len(h.Slots), By: by})
+	return err
+}
 
 // CheckMachine checks and normalizes an agent config's harness and
 // machine (agent.MachineCheck): the spec's own rules, the port's resource

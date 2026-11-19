@@ -152,6 +152,10 @@ A hosted agent works only through its slots, and an agent that people connect fr
 
 On the web, the agent's **Dónde corre** tab has one row per slot: state, **Arrancar** and **Detener** buttons, **Registro** for the container's output, and **Conectar cuenta** for [Claude subscriptions](claude-subscriptions.md). With a [browser](browser.md) on, the **Navegador** tab opens the slot's browser.
 
+### Clone a hosted agent
+
+`seaport agents clone pm pm-2 [-secrets]` copies the config (harness and machine included) into a new agent and hosts it with the same number of slots, all stopped. Without `-secrets` the clone has none of the secrets its machine names (repo credentials, model keys), and starting its slots is refused (`422`) naming the missing ones until you set them. If hosting the clone fails (for example the organization's slot limit), the error is returned and no clone is kept. See [Clone an agent](../agents-and-routing.md#clone-an-agent).
+
 ### Slot states
 
 A slot moves through these states:

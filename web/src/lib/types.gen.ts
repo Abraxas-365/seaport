@@ -380,6 +380,19 @@ export interface Build {
   updated_at: string
 }
 
+/** CloneAgent is the body of POST /api/v1/agents/{id}/clone. */
+export interface CloneAgent {
+  /** Name of the new agent (same rules as creating one). */
+  name: string
+  /** Description of the new agent; absent: the source's. */
+  description?: string
+  /**
+   * Secrets also copies the source's secrets (resealed for the clone;
+   * never shown). Absent or false: the clone starts with none.
+   */
+  secrets: boolean
+}
+
 /**
  * Conversation is a chat on a dock. Only allowed conversations (Status)
  * wake the crew and accept replies; see customs.go.

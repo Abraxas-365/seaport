@@ -330,6 +330,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	}
 	notify.bind(hosted)
 	agents.Service.BindMachines(hosted.Service)
+	agents.Service.BindHosting(hosted.Service)
 	done := make(chan struct{})
 	var once sync.Once
 	auth := opts.Authenticator

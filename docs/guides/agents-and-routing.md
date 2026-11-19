@@ -10,6 +10,7 @@ An **agent** is a named member of your organization's library: `pm`, `reviewer`,
 seaport agents add pm -description "Turns requests into tickets"
 seaport agents                      # list: id, name, profile version, docks, description
 seaport agents edit pm -name product-manager -description "…"
+seaport agents clone pm pm-es -secrets   # a copy of its config, with its secrets
 seaport agents delete pm -yes
 ```
 
@@ -26,6 +27,14 @@ The name is also the agent's **`@mention` handle**: writing `@pm` in a message c
 Deleting an agent revokes its tokens, closes its connections, and holds the messages that were waiting for it (reason `its agent left the dock`). The history of its conversations stays.
 
 An agent also has a [profile](profiles.md): instructions, skills, MCP servers and secrets. The library entry only names it.
+
+### Clone an agent
+
+`seaport agents clone <agent> <name>` creates a new agent that starts as a copy of another's *current* [config](../reference/agent-config.md): the profile, the harness and the machine, saved as the clone's version 1. The name follows the rules above; the description is the source's unless you give `-description`. A [hosted](hosting/hosted-agents.md) agent's clone is hosted too, with the same number of slots, all stopped.
+
+**Secrets** are copied only if you ask (`-secrets`; `secrets: true` in the API). Each one is re-encrypted for the clone on the server, keeping its `env` flag; no value is ever shown. Without it the clone is still created, but it has no secrets, so whatever needs one its config names (an MCP header's `${NAME}`, a repo credential, a model key) fails with an error naming the missing secret until you set it with `seaport agents secrets set <clone> NAME`. Starting a hosted clone's slot is refused for the same reason.
+
+Never copied: docks and team membership, vault grants, crew tokens, browser takeovers, sessions, the browser profile and usage. Put the clone on a dock with `seaport agents assign`.
 
 ## Assign agents to docks
 
@@ -121,6 +130,7 @@ You can connect the same agent from several machines, or several times from one.
 | Command | Does |
 | :--- | :--- |
 | `seaport agents add <name> [-description D]` | creates an agent |
+| `seaport agents clone <agent> <name> [-secrets] [-description D]` | copies its config (and, with `-secrets`, its secrets) into a new agent |
 | `seaport agents edit <agent> [-name N] [-description D]` | renames or describes it |
 | `seaport agents delete <agent> -yes` | deletes it |
 | `seaport agents assign <agent> <dock-id> [-default]` | puts it on a dock, optionally as default |

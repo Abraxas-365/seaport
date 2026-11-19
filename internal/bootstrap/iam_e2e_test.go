@@ -536,6 +536,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/agents/" + ag, "GET /api/v1/agents/{id}", nil, permission.AgentsRead},
 		{"PATCH", "/api/v1/agents/" + ag, "PATCH /api/v1/agents/{id}", map[string]string{"description": "x"}, permission.AgentsWrite},
 		{"DELETE", "/api/v1/agents/" + ag, "DELETE /api/v1/agents/{id}", nil, permission.AgentsWrite},
+		{"POST", "/api/v1/agents/" + ag + "/clone", "POST /api/v1/agents/{id}/clone", map[string]any{"name": "x-copy"}, permission.AgentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/config", "GET /api/v1/agents/{id}/config", nil, permission.AgentsRead},
 		{"PUT", "/api/v1/agents/" + ag + "/config", "PUT /api/v1/agents/{id}/config", map[string]int{"base": 0}, permission.AgentsWrite},
 		{"GET", "/api/v1/agents/" + ag + "/config/versions", "GET /api/v1/agents/{id}/config/versions", nil, permission.AgentsRead},

@@ -491,6 +491,7 @@ A rule is `{"id","dock_id","effect","pattern","created_at"}`. A pattern has at m
 | `GET` | `/agents/{id}` | `agents:read` | The agent. |
 | `PATCH` | `/agents/{id}` | `agents:write` | Body with any of `name` and `description`. The agent. |
 | `DELETE` | `/agents/{id}` | `agents:write` | `204`. Revokes its tokens, disconnects it, holds what waits for it. |
+| `POST` | `/agents/{id}/clone` | `agents:write` | Body `{"name":"…","description":"…","secrets":false}` (`description` defaults to the source's). `201` with the new agent, which starts as a copy of the source's current config (version 1; none if the source has none); a hosted source makes a hosted clone with the same slots, all stopped. With `secrets: true` every secret is copied (resealed for the clone, `env` kept; no value is returned); without it the clone has none, and whatever resolves a secret its config names (the kit, repo credentials, model keys, starting a slot) answers `422 BUSINESS` naming it. Same rules as `POST /agents` (`409` for a taken name, the agent limit); `404` for an unknown source; `422` (and no clone) when hosting it fails, e.g. over the slot limit. Docks, vault grants, tokens, takeovers and usage are not copied. |
 | `GET` | `/docks/{dock}/agents` | `agents:read` | `{"agents":[{"agent_id","name","default"}]}`: the dock's team. |
 | `PUT` | `/docks/{dock}/agents/{id}` | `agents:write` | Optional body `{"default":true}`. Assigns the agent. The agent. |
 | `DELETE` | `/docks/{dock}/agents/{id}` | `agents:write` | Takes the agent off the dock. The agent. |

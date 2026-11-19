@@ -28,7 +28,10 @@ type Service struct {
 	// machines checks configs' machines (the hosting service, bound late;
 	// nil: configs carry no machine).
 	machines agent.MachineCheck
-	now      func() time.Time
+	// hosting hosts a clone like its source (bound late too; nil: clones
+	// are never hosted).
+	hosting agent.HostingClone
+	now     func() time.Time
 	// poll is how often a blocked ask_takeover looks for its end.
 	poll time.Duration
 }
@@ -47,6 +50,10 @@ func (s *Service) Bind(a agent.Assistant, r agent.Releaser) { s.assistant, s.rel
 // BindMachines sets the machine checker (the hosting service, built after
 // this one; nil: configs carry no machine).
 func (s *Service) BindMachines(m agent.MachineCheck) { s.machines = m }
+
+// BindHosting sets what hosts a clone like its source (the hosting
+// service, built after this one; nil: clones are never hosted).
+func (s *Service) BindHosting(h agent.HostingClone) { s.hosting = h }
 
 const (
 	takeoverPoll = time.Second
@@ -68,6 +75,35 @@ func (s *Service) Create(ctx context.Context, org identity.OrganizationID, input
 	a, err := s.repo.Create(ctx, org, identity.NewAgentID(), input, agent.MaxAgents)
 	if err != nil {
 		return agent.Agent{}, errx.Wrap(err, "create agent", errx.TypeInternal)
+	}
+	s.events.Publish(org, agent.EventUpdated, a)
+	return a, nil
+}
+
+func (s *Service) Clone(ctx context.Context, org identity.OrganizationID, source identity.AgentID, input agent.Clone) (agent.Agent, error) {
+	if source.IsZero() {
+		return agent.Agent{}, errx.InvalidField("agent_id", "agent_id is required")
+	}
+	if err := input.Validate(); err != nil {
+		return agent.Agent{}, err
+	}
+	if input.Description != nil {
+		d := text.Clean(*input.Description)
+		input.Description = &d
+	}
+	input.CreatedBy = text.Clean(input.CreatedBy)
+	a, err := s.repo.Clone(ctx, org, source, identity.NewAgentID(), input, agent.MaxAgents)
+	if err != nil {
+		return agent.Agent{}, errx.Wrap(err, "clone agent", errx.TypeInternal)
+	}
+	if s.hosting != nil {
+		if err := s.hosting.CloneHosting(ctx, org, source, a.ID, input.CreatedBy); err != nil {
+			// A clone that can't run like its source is not kept half-made.
+			if derr := s.repo.Delete(context.WithoutCancel(ctx), org, a.ID); derr != nil {
+				slog.Error("remove a clone that could not be hosted", "agent", a.ID, "err", derr)
+			}
+			return agent.Agent{}, err
+		}
 	}
 	s.events.Publish(org, agent.EventUpdated, a)
 	return a, nil

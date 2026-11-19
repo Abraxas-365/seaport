@@ -570,6 +570,28 @@ func TestCLIAgents(t *testing.T) {
 	if msg := p.fails("agents", "profile", "set", "triage", "-f", bad); msg == "" {
 		t.Error("a header naming a missing secret was accepted")
 	}
+	// clone: config copied; secrets only with -secrets, never printed
+	out = p.ok("agents", "clone", "triage", "triage-bare", "-description", "a copy")
+	mustContain(t, "clone", out, "agent triage-bare cloned from triage", "secrets were not copied")
+	mustContain(t, "clone config", p.ok("agents", "profile", "triage-bare"), "MCP servers (1)", "Authorization: Bearer ${API_TOKEN}")
+	mustContain(t, "clone has no secrets", p.ok("agents", "secrets", "triage-bare"), "has no secrets")
+	mustContain(t, "clone description", p.ok("agents"), "a copy")
+	out = p.ok("agents", "clone", "triage", "triage-full", "-secrets")
+	mustContain(t, "clone with secrets", out, "agent triage-full cloned from triage")
+	if strings.Contains(out, "not copied") || strings.Contains(out, "s3cr3t-value") {
+		t.Errorf("clone with secrets: %q", out)
+	}
+	mustContain(t, "clone secrets", p.ok("agents", "secrets", "list", "triage-full"), "API_TOKEN", "true")
+	if msg := p.fails("agents", "clone", "triage", "triage-full"); msg == "" {
+		t.Error("a clone named like an agent was accepted")
+	}
+	if msg := p.fails("agents", "clone", "ghost", "x"); !strings.Contains(msg, "no agent ghost") {
+		t.Errorf("clone of an unknown agent: %q", msg)
+	}
+	if msg := p.fails("agents", "clone", "triage"); !strings.Contains(msg, "usage") {
+		t.Errorf("clone without a name: %q", msg)
+	}
+
 	// an unknown key in the file is an error, not a silently dropped setting
 	typo := filepath.Join(dir, "typo.json")
 	if err := os.WriteFile(typo, []byte(`{"instruction":"x"}`), 0o600); err != nil {

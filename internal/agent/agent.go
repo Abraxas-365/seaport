@@ -357,6 +357,34 @@ func (c Create) Validate() error {
 	return text.Optional("created_by", c.CreatedBy, text.MaxName)
 }
 
+// Clone is the input of Commands.Clone: a new agent that starts as a copy
+// of another's current config.
+type Clone struct {
+	// Name is the new agent's (same rules as Create).
+	Name string
+	// Description of the new agent; nil: the source's.
+	Description *string
+	// Secrets copies the source's secrets too (resealed for the clone,
+	// never read back). Off, the clone starts with none: a config that
+	// names some (an MCP header's ${NAME}, a model key, a repo credential)
+	// fails where it is used until they are set.
+	Secrets bool
+	// CreatedBy is filled from the caller (not client input).
+	CreatedBy string
+}
+
+func (c Clone) Validate() error {
+	if err := ValidName(c.Name); err != nil {
+		return err
+	}
+	if c.Description != nil {
+		if err := text.Optional("description", *c.Description, MaxDescription); err != nil {
+			return err
+		}
+	}
+	return text.Optional("created_by", c.CreatedBy, text.MaxName)
+}
+
 // Update changes what is set.
 type Update struct {
 	Name        *string
