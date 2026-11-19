@@ -32,7 +32,7 @@ The website build depends on these:
 
 ### Vocabulary
 
-Use the product's terms: **port** (the Seaport server), **dock** (a channel account: a WhatsApp number, a GitHub App, a Jira service account, a Slack app, a webhook endpoint, a mailbox, or `api`), **ship** (a message), **crew** (connected agents), **customs** (who may wake an agent), **harness** (the coding agent program: rness, Claude Code). The web app is in Spanish, so name its screens as they appear: **Muelles** (Docks), **Aduana** (Customs), **Bandeja** (Inbox), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew), **Tokens de agentes** (Agent tokens).
+Use the product's terms: **port** (the Seaport server), **dock** (a channel account: a WhatsApp number, a GitHub App, a Jira service account, a Slack app, a webhook endpoint, a mailbox, or `api`), **ship** (a message), **crew** (connected agents), **customs** (who may wake an agent), **harness** (the coding agent program: rness, Claude Code). The web app is in Spanish, so name its screens as they appear: **Muelles** (Docks), **Aduana** (Customs), **Bandeja** (Inbox), **Agentes** (Agents) and an agent's tabs (**Configuración**, **Secretos**, **Dónde corre**).
 
 ## Public repository rules
 
@@ -50,7 +50,7 @@ Read the code before documenting a contract, and trace behavior through the serv
 ## Examples
 
 - Never include real secrets. Pass secret values through stdin or environment variables in examples.
-- Say what each user-chosen name is (an agent, an environment, a dock).
+- Say what each user-chosen name is (an agent, a dock).
 - State external prerequisites, such as a running port or an installed harness.
 - Show commands you run (`sh`) separately from YAML specs, JSON bodies and wire frames.
 

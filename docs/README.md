@@ -43,7 +43,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Run several Seaport processes | [Several processes](guides/operations/several-processes.md) |
 | Back up, restore and upgrade | [Backups and upgrades](guides/operations/backups-and-upgrades.md) |
 | Look up a setting, command, route or limit | [Configuration](reference/configuration.md), [CLI](reference/cli.md), [HTTP API](reference/http-api.md), [Limits](reference/limits.md) |
-| Build on the port: tools, events, wire protocol, formats | [MCP tools](reference/mcp-tools.md), [Events](reference/events.md), [Crew protocol](reference/crew-protocol.md), [Agent profile](reference/agent-profile.md), [Environment spec](reference/environment-spec.md), [Permissions](reference/permissions.md) |
+| Build on the port: tools, events, wire protocol, formats | [MCP tools](reference/mcp-tools.md), [Events](reference/events.md), [Crew protocol](reference/crew-protocol.md), [Agent profile](reference/agent-profile.md), [Agent config](reference/agent-config.md), [Permissions](reference/permissions.md) |
 | Know what is protected and how | [Security model](explanation/security-model.md) |
 | Contribute | [Contributing](contributing/README.md), [Architecture](architecture.md) |
 
@@ -59,7 +59,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 
 Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a Slack app, a GitHub App, a Jira service account, a mailbox, a WhatsApp number or an `api` dock. A **ship** is a message. **Customs** decides which conversations may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
 
-The web app is in Spanish. These docs name each page in Spanish with the English meaning in parentheses: **Bandeja** (Inbox), **Aduana** (Customs), **Muelles** (Docks), **Agentes** (Agents), **Entornos** (Environments), **Tripulación** (Crew).
+The web app is in Spanish. These docs name each page in Spanish with the English meaning in parentheses: **Bandeja** (Inbox), **Aduana** (Customs), **Muelles** (Docks), **Agentes** (Agents), **Bóvedas** (Vaults).
 
 ## Documentation scope
 

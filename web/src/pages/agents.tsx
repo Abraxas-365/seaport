@@ -1,21 +1,21 @@
 import * as React from "react"
 import { Link } from "react-router"
-import { Anchor, Bot, KeyRound, MoreHorizontal, Pencil, Plus, ScrollText, Star, Trash2, X } from "lucide-react"
+import { Anchor, Bot, Cloud, Copy, Laptop, MoreHorizontal, Pencil, ScrollText, Star, Trash2, X } from "lucide-react"
 
 import {
   useAgents,
   useAssignAgent,
   useCan,
-  useCreateAgent,
   useCrew,
-  useCrewTokens,
   useDeleteAgent,
   useDocks,
+  useHosting,
   useUnassignAgent,
   useUpdateAgent,
 } from "@/lib/hooks"
+import { agentNamePattern as namePattern } from "@/lib/machine"
 import { Perm } from "@/lib/permissions.gen"
-import type { Dock, LibraryAgent } from "@/lib/types"
+import type { Agent, Dock, Hosted, LibraryAgent } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -49,22 +49,25 @@ import {
   PageHeader,
   StatusBadge,
   StatusDot,
+  type Tone,
 } from "@/components/seaport"
+import { CloneDialog } from "./agent"
+import { NewAgentDialog } from "./new-agent"
 
-/** The agent name rule (agent.ValidName): also its @mention. */
-const namePattern = /^[a-z0-9][a-z0-9_-]{0,31}$/
-
-/** The organization's agent library: who works which docks. */
+/** The organization's agents: where each runs, what it's doing, its docks. */
 export function AgentsPage() {
   const agents = useAgents()
+  const hosting = useHosting()
   const can = useCan()
   const write = can(Perm.AgentsWrite)
+  const hostedOf = (id: string): Hosted | null | undefined =>
+    hosting.data ? (hosting.data.agents.find((h) => h.agent_id === id) ?? null) : undefined
   return (
     <div className="min-h-0 flex-1 scrollbar-thin overflow-y-auto">
       <PageHeader
         title="Agentes"
-        description="Tu biblioteca de agentes. Cada uno trabaja solo en los muelles a los que lo asignas; en un muelle con varios, se le llama con @nombre."
-        actions={write && <AgentDialog />}
+        description="Cada agente es su configuración completa: instrucciones, herramientas, secretos y dónde corre. Trabaja solo en los muelles a los que lo asignas; en un muelle con varios, se le llama con @nombre."
+        actions={write && <NewAgentDialog />}
       />
       <div className="mx-auto max-w-4xl p-6">
         {agents.isPending ? (
@@ -78,13 +81,13 @@ export function AgentsPage() {
           <EmptyState
             icon={Bot}
             title="Todavía no hay agentes"
-            description="Crea un agente, asígnalo a un muelle y dale un token para conectarse."
-            action={write && <AgentDialog />}
+            description="Crea un agente, dile dónde corre y asígnalo a un muelle."
+            action={write && <NewAgentDialog />}
           />
         ) : (
           <div className="grid gap-3">
             {agents.data.items.map((a) => (
-              <AgentRow key={a.id} agent={a} write={write} />
+              <AgentRow key={a.id} agent={a} write={write} hosted={hostedOf(a.id)} />
             ))}
           </div>
         )}
@@ -93,17 +96,25 @@ export function AgentsPage() {
   )
 }
 
-function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) {
+function AgentRow({
+  agent: a,
+  write,
+  hosted,
+}: {
+  agent: LibraryAgent
+  write: boolean
+  /** Its hosting; null: remote; undefined: unknown (no hosting:read or loading). */
+  hosted: Hosted | null | undefined
+}) {
   const can = useCan()
   const docks = useDocks()
   const crew = useCrew()
-  const tokens = useCrewTokens()
   const unassign = useUnassignAgent()
   const assign = useAssignAgent()
   const remove = useDeleteAgent()
   const byId = new Map((docks.data?.items ?? []).map((d) => [d.id, d]))
-  const connections = crew.data?.agents.filter((c) => c.agent_id === a.id).length
-  const tokenCount = tokens.data?.items.filter((t) => t.agent_id === a.id).length
+  const conns = crew.data?.agents.filter((c) => c.agent_id === a.id)
+  const status = conns && agentStatus(conns, hosted)
   const inactive = a.docks.length === 0
 
   return (
@@ -112,9 +123,9 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
         <div className="flex items-start gap-3">
           <span className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Bot className="size-5" />
-            {connections !== undefined && (
+            {status && (
               <span className="absolute -top-0.5 -right-0.5 rounded-full ring-2 ring-card">
-                <StatusDot tone={connections ? "success" : "neutral"} />
+                <StatusDot tone={status.tone} />
               </span>
             )}
           </span>
@@ -123,22 +134,21 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
               <Link to={`/agents/${a.id}`} className="truncate font-mono font-medium hover:underline">
                 @{a.name}
               </Link>
-              {a.profile_version > 0 ? (
-                <StatusBadge tone="brand" dot={false}>
-                  Perfil v{a.profile_version}
+              {hosted !== undefined && (
+                <StatusBadge tone={hosted ? "brand" : "neutral"} dot={false} title="Dónde corre">
+                  {hosted ? <Cloud className="size-3" /> : <Laptop className="size-3" />}
+                  {hosted
+                    ? `Alojado · ${hosted.slots.length} ${hosted.slots.length === 1 ? "instancia" : "instancias"}`
+                    : "Remoto"}
                 </StatusBadge>
-              ) : (
-                <StatusBadge dot={false}>Sin perfil</StatusBadge>
               )}
+              {status && (
+                <StatusBadge tone={status.tone} pulse={status.pulse} title="Estado">
+                  {status.label}
+                </StatusBadge>
+              )}
+              {a.profile_version === 0 && <StatusBadge dot={false}>Sin configuración</StatusBadge>}
               {inactive && <StatusBadge tone="warning">Inactivo</StatusBadge>}
-              {connections !== undefined &&
-                (connections ? (
-                  <StatusBadge tone="success">
-                    {connections === 1 ? "1 conexión" : `${connections} conexiones`}
-                  </StatusBadge>
-                ) : (
-                  <StatusBadge>Sin conexión</StatusBadge>
-                ))}
             </div>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {a.description || <span className="italic">Sin descripción</span>}
@@ -153,8 +163,8 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem asChild>
-                  <Link to={`/agents/${a.id}`}>
-                    <ScrollText /> Perfil y secretos
+                  <Link to={`/agents/${a.id}#configuracion`}>
+                    <ScrollText /> Configuración
                   </Link>
                 </DropdownMenuItem>
                 <AgentDialog
@@ -162,6 +172,14 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
                   trigger={
                     <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
                       <Pencil /> Editar
+                    </DropdownMenuItem>
+                  }
+                />
+                <CloneDialog
+                  agent={a}
+                  trigger={
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Copy /> Clonar
                     </DropdownMenuItem>
                   }
                 />
@@ -237,18 +255,28 @@ function AgentRow({ agent: a, write }: { agent: LibraryAgent; write: boolean }) 
           )}
           {inactive && !write && <span className="text-sm text-muted-foreground">No trabaja en ningún muelle.</span>}
         </div>
-
-        {tokenCount !== undefined && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <KeyRound className="size-3.5" />
-            <Link to="/tokens" className="hover:underline">
-              {tokenCount === 0 ? "Sin tokens: créale uno para conectarlo" : tokenCount === 1 ? "1 token" : `${tokenCount} tokens`}
-            </Link>
-          </div>
-        )}
       </CardContent>
     </Card>
   )
+}
+
+/**
+ * What the agent is doing now, from its connections and (hosted) its
+ * instances: working, free, starting, waiting (hosted: an instance starts
+ * when a message arrives), failing or disconnected (remote).
+ */
+export function agentStatus(
+  conns: Agent[],
+  hosted: Hosted | null | undefined,
+): { label: string; tone: Tone; pulse?: boolean } {
+  const working = conns.filter((c) => c.deliveries.length > 0).length
+  if (working > 0) return { label: working > 1 ? `Trabajando · ${working}` : "Trabajando", tone: "success", pulse: true }
+  if (conns.length > 0) return { label: "Libre", tone: "success" }
+  const slots = hosted?.slots ?? []
+  if (slots.some((s) => s.state === "starting")) return { label: "Iniciando", tone: "info", pulse: true }
+  if (slots.length > 0 && slots.every((s) => s.state === "failed")) return { label: "Con fallos", tone: "danger" }
+  if (hosted) return { label: "En espera", tone: "neutral" }
+  return { label: "Desconectado", tone: "neutral" }
 }
 
 /** Puts an agent on a dock it doesn't work yet. */
@@ -325,55 +353,41 @@ function AssignDialog({ agent, docks }: { agent: LibraryAgent; docks: Dock[] }) 
   )
 }
 
-/** Creates an agent, or edits one. */
-function AgentDialog({ agent, trigger }: { agent?: LibraryAgent; trigger?: React.ReactNode }) {
-  const create = useCreateAgent()
+/** Renames an agent or changes its description. */
+function AgentDialog({ agent, trigger }: { agent: LibraryAgent; trigger: React.ReactNode }) {
   const update = useUpdateAgent()
   const [open, setOpen] = React.useState(false)
-  const [name, setName] = React.useState(agent?.name ?? "")
-  const [description, setDescription] = React.useState(agent?.description ?? "")
+  const [name, setName] = React.useState(agent.name)
+  const [description, setDescription] = React.useState(agent.description)
   const n = name.trim().toLowerCase()
   const validName = namePattern.test(n)
-  const busy = create.isPending || update.isPending
+  const busy = update.isPending
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
         if (o) {
-          setName(agent?.name ?? "")
-          setDescription(agent?.description ?? "")
+          setName(agent.name)
+          setDescription(agent.description)
         }
       }}
     >
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button>
-            <Plus /> Nuevo agente
-          </Button>
-        )}
-      </DialogTrigger>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            const done = { onSuccess: () => setOpen(false) }
-            if (agent) {
-              const patch: { name?: string; description?: string } = {}
-              if (n !== agent.name) patch.name = n
-              if (description.trim() !== agent.description) patch.description = description.trim()
-              if (Object.keys(patch).length === 0) return setOpen(false)
-              update.mutate({ id: agent.id, ...patch }, done)
-            } else create.mutate({ name: n, description: description.trim() }, done)
+            const patch: { name?: string; description?: string } = {}
+            if (n !== agent.name) patch.name = n
+            if (description.trim() !== agent.description) patch.description = description.trim()
+            if (Object.keys(patch).length === 0) return setOpen(false)
+            update.mutate({ id: agent.id, ...patch }, { onSuccess: () => setOpen(false) })
           }}
         >
           <DialogHeader>
-            <DialogTitle>{agent ? `Editar @${agent.name}` : "Nuevo agente"}</DialogTitle>
-            <DialogDescription>
-              {agent
-                ? "Cambiar el nombre cambia cómo se le llama (@nombre) en sus muelles."
-                : "Un agente es una identidad: se conecta con sus tokens y trabaja en los muelles que le asignes."}
-            </DialogDescription>
+            <DialogTitle>Editar @{agent.name}</DialogTitle>
+            <DialogDescription>Cambiar el nombre cambia cómo se le llama (@nombre) en sus muelles.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
             <Field data-invalid={!!n && !validName}>
@@ -409,7 +423,7 @@ function AgentDialog({ agent, trigger }: { agent?: LibraryAgent; trigger?: React
               Cancelar
             </Button>
             <Button type="submit" disabled={!validName || busy}>
-              {busy && <Spinner />} {agent ? "Guardar" : "Crear agente"}
+              {busy && <Spinner />} Guardar
             </Button>
           </DialogFooter>
         </form>

@@ -2,15 +2,16 @@
 package hostingsvc
 
 import (
+	"bytes"
 	"context"
-	"reflect"
+	"encoding/json"
+	"errors"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/event"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
-	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/text"
 )
 
@@ -38,128 +39,119 @@ func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, e
 		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}, homes: h}, nil
 }
 
+var (
+	_ hosting.Commands   = (*Service)(nil)
+	_ hosting.Queries    = (*Service)(nil)
+	_ agent.MachineCheck = (*Service)(nil)
+	_ agent.HostingClone = (*Service)(nil)
+)
+
+// CloneHosting hosts a cloned agent like its source (agent.HostingClone):
+// the same number of slots, all stopped. A source that isn't hosted is
+// not an error.
+func (s *Service) CloneHosting(ctx context.Context, org identity.OrganizationID, source, clone identity.AgentID, by string) error {
+	h, err := s.repo.Hosted(ctx, org, source)
+	if errx.IsType(err, errx.TypeNotFound) {
+		return nil
+	}
+	if err != nil {
+		return errx.Wrap(err, "read the source's hosting", errx.TypeInternal)
+	}
+	_, err = s.Host(ctx, org, clone, hosting.Host{Slots: len(h.Slots), By: by})
+	return err
+}
+
+// CheckMachine checks and normalizes an agent config's harness and
+// machine (agent.MachineCheck): the spec's own rules, the port's resource
+// limits and its home (uploaded, for the same harness; touched so the
+// sweep keeps it). Whether a hosted agent may drop its machine or turn
+// the browser on is checked as the config is stored (under the agent's
+// row lock).
+func (s *Service) CheckMachine(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, input agent.MachineInput) (agent.CheckedMachine, error) {
+	if agentID.IsZero() {
+		return agent.CheckedMachine{}, errx.InvalidField("agent_id", "agent_id is required")
+	}
+	if err := hosting.ValidHarness(input.Harness); err != nil {
+		return agent.CheckedMachine{}, err
+	}
+	if len(input.Machine) == 0 {
+		return agent.CheckedMachine{Secrets: []string{}}, nil
+	}
+	if input.Harness == "" {
+		return agent.CheckedMachine{}, errx.InvalidField("harness", "a machine needs a harness (rness or claude-code)")
+	}
+	var m hosting.Machine
+	dec := json.NewDecoder(bytes.NewReader(input.Machine))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&m); err != nil {
+		return agent.CheckedMachine{}, errx.InvalidField("machine", "the machine is not valid: "+jsonProblem(err))
+	}
+	spec := hosting.Spec{Harness: input.Harness, Machine: m}
+	if err := spec.Validate(); err != nil {
+		return agent.CheckedMachine{}, err
+	}
+	spec = hosting.Normalize(spec)
+	if err := s.limits.Check(spec.Resources); err != nil {
+		return agent.CheckedMachine{}, err
+	}
+	if err := s.checkHome(ctx, org, spec); err != nil {
+		return agent.CheckedMachine{}, err
+	}
+	raw, err := json.Marshal(spec.Machine)
+	if err != nil {
+		return agent.CheckedMachine{}, errx.Wrap(err, "encode machine", errx.TypeInternal)
+	}
+	return agent.CheckedMachine{Machine: raw, Digest: spec.Digest(), Secrets: spec.Secrets(), Home: spec.Home,
+		Browser: spec.Browser.Enabled()}, nil
+}
+
+// jsonProblem is a decode error as people read it (no Go type names).
+func jsonProblem(err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		return typeErr.Field + " has the wrong type"
+	}
+	return err.Error()
+}
+
 // checkHome: the home a spec names must be the organization's, for its
-// harness (the repository re-checks it exists as it stores the version).
+// harness; it is touched (under the hosting lock) so the sweep keeps it
+// until the config naming it is stored (its FK keeps it from then on).
 func (s *Service) checkHome(ctx context.Context, org identity.OrganizationID, spec hosting.Spec) error {
 	if spec.Home == "" {
 		return nil
 	}
 	h, err := s.repo.Home(ctx, org, spec.Home)
 	if errx.IsType(err, errx.TypeNotFound) {
-		return errx.InvalidField("home", "home "+spec.Home+" was never uploaded (seaport env home push)")
+		return errx.InvalidField("home", "home "+spec.Home+" was never uploaded (seaport agents home push)")
 	}
 	if err != nil {
 		return errx.Wrap(err, "find home", errx.TypeInternal)
 	}
 	if h.Harness != spec.Harness {
-		return errx.InvalidField("home", "home "+spec.Home+" is a "+h.Harness+" home; the environment's harness is "+spec.Harness)
+		return errx.InvalidField("home", "home "+spec.Home+" is a "+h.Harness+" home; the agent's harness is "+spec.Harness)
 	}
-	return nil
-}
-
-var (
-	_ hosting.Commands = (*Service)(nil)
-	_ hosting.Queries  = (*Service)(nil)
-)
-
-func (s *Service) CreateEnvironment(ctx context.Context, org identity.OrganizationID, input hosting.CreateEnvironment) (hosting.Environment, error) {
-	if err := input.Validate(); err != nil {
-		return hosting.Environment{}, err
-	}
-	input.Spec = hosting.Normalize(input.Spec)
-	if err := s.limits.Check(input.Spec.Resources); err != nil {
-		return hosting.Environment{}, err
-	}
-	input.CreatedBy = text.Clean(input.CreatedBy)
-	if err := s.checkHome(ctx, org, input.Spec); err != nil {
-		return hosting.Environment{}, err
-	}
-	e, err := s.repo.CreateEnvironment(ctx, org, identity.NewEnvironmentID(), input, hosting.MaxEnvironments)
-	if err != nil {
-		return hosting.Environment{}, errx.Wrap(err, "create environment", errx.TypeInternal)
-	}
-	s.events.Publish(org, hosting.EventEnvironmentUpdated, e)
-	return e, nil
-}
-
-func (s *Service) SaveEnvironment(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID, input hosting.SaveEnvironment) (hosting.Environment, error) {
-	if id.IsZero() {
-		return hosting.Environment{}, errx.InvalidField("environment_id", "environment_id is required")
-	}
-	if err := input.Validate(); err != nil {
-		return hosting.Environment{}, err
-	}
-	input.Spec = hosting.Normalize(input.Spec)
-	if err := s.limits.Check(input.Spec.Resources); err != nil {
-		return hosting.Environment{}, err
-	}
-	input.CreatedBy = text.Clean(input.CreatedBy)
-	current, err := s.repo.Environment(ctx, org, id, 0)
-	if err != nil {
-		return hosting.Environment{}, err
-	}
-	if current.Version == input.Base && reflect.DeepEqual(current.Spec, input.Spec) {
-		return current, nil // nothing changed: no new version
-	}
-	if err := s.checkHome(ctx, org, input.Spec); err != nil {
-		return hosting.Environment{}, err
-	}
-	// The agents already on it must have the secrets it now names.
-	hosted, err := s.repo.HostedAgents(ctx, org)
-	if err != nil {
-		return hosting.Environment{}, errx.Wrap(err, "list hosted agents", errx.TypeInternal)
-	}
-	for _, h := range hosted {
-		if h.Environment == id {
-			if err := s.checkSecrets(ctx, org, id, h.Agent, input.Spec); err != nil {
-				return hosting.Environment{}, err
-			}
-			if err := s.checkBrowser(ctx, org, h.Agent, input.Spec); err != nil {
-				return hosting.Environment{}, err
-			}
+	if err := s.repo.TouchHome(ctx, org, spec.Home); err != nil {
+		if errx.IsType(err, errx.TypeNotFound) {
+			return errx.InvalidField("home", "home "+spec.Home+" was never uploaded (seaport agents home push)")
 		}
+		return errx.Wrap(err, "touch home", errx.TypeInternal)
 	}
-	e, err := s.repo.SaveEnvironment(ctx, org, id, input)
-	if err != nil {
-		return hosting.Environment{}, errx.Wrap(err, "save environment", errx.TypeInternal)
-	}
-	s.events.Publish(org, hosting.EventEnvironmentUpdated, e)
-	return e, nil
-}
-
-func (s *Service) DeleteEnvironment(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID) error {
-	if id.IsZero() {
-		return errx.InvalidField("environment_id", "environment_id is required")
-	}
-	if err := s.repo.DeleteEnvironment(ctx, org, id); err != nil {
-		return errx.Wrap(err, "delete environment", errx.TypeInternal)
-	}
-	s.events.Publish(org, hosting.EventEnvironmentDeleted, hosting.EnvironmentDeleted{ID: id})
 	return nil
 }
 
-// checkBrowser refuses a spec without a browser for an agent whose
-// profile has its browser on (agentpg refuses the other direction: turning
-// it on while hosted on an environment without one).
-func (s *Service) checkBrowser(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
-	if spec.Browser.Enabled() {
-		return nil
-	}
+// spec is the agent's current config's harness and machine, normalized
+// (Business when it has none: the agent can't be hosted yet).
+func (s *Service) spec(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) (hosting.Spec, error) {
 	p, err := s.agents.Profile(ctx, org, agentID, 0)
 	if err != nil {
-		if errx.IsType(err, errx.TypeNotFound) {
-			return nil // no profile yet
-		}
-		return err
+		return hosting.Spec{}, err
 	}
-	if !p.Browser {
-		return nil
-	}
-	a, err := s.agents.Find(ctx, org, agentID)
+	spec, err := hosting.SpecOf(p.Harness, p.Machine)
 	if err != nil {
-		return err
+		return hosting.Spec{}, err
 	}
-	return errx.Business("agent " + a.Name + " uses the browser, and the environment has none: turn the environment's browser on (browser.engine) or the agent's off")
+	return hosting.Normalize(spec), nil
 }
 
 func (s *Service) Host(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, input hosting.Host) (hosting.Hosted, error) {
@@ -170,16 +162,6 @@ func (s *Service) Host(ctx context.Context, org identity.OrganizationID, agentID
 		return hosting.Hosted{}, err
 	}
 	input.By = text.Clean(input.By)
-	env, err := s.repo.Environment(ctx, org, input.Environment, 0)
-	if err != nil {
-		return hosting.Hosted{}, err
-	}
-	if err := s.checkSecrets(ctx, org, env.ID, agentID, env.Spec); err != nil {
-		return hosting.Hosted{}, err
-	}
-	if err := s.checkBrowser(ctx, org, agentID, env.Spec); err != nil {
-		return hosting.Hosted{}, err
-	}
 	h, err := s.repo.Host(ctx, org, agentID, input, s.limits.MaxSlots)
 	if err != nil {
 		return hosting.Hosted{}, errx.Wrap(err, "host agent", errx.TypeInternal)
@@ -197,34 +179,6 @@ func (s *Service) Unhost(ctx context.Context, org identity.OrganizationID, agent
 	}
 	s.events.Publish(org, hosting.EventSlotsUpdated, hosting.Hosted{Agent: agentID, Slots: []hosting.Slot{}})
 	return nil
-}
-
-func (s *Service) Environment(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID, version int) (hosting.Environment, error) {
-	if id.IsZero() {
-		return hosting.Environment{}, errx.InvalidField("environment_id", "environment_id is required")
-	}
-	if version < 0 {
-		return hosting.Environment{}, errx.InvalidField("version", "version must be positive (0: the current one)")
-	}
-	return s.repo.Environment(ctx, org, id, version)
-}
-
-func (s *Service) EnvironmentByName(ctx context.Context, org identity.OrganizationID, name string) (hosting.Environment, error) {
-	if err := hosting.ValidName(name); err != nil {
-		return hosting.Environment{}, err
-	}
-	return s.repo.EnvironmentByName(ctx, org, name)
-}
-
-func (s *Service) Environments(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[hosting.Environment], error) {
-	return s.repo.Environments(ctx, org, page.Normalize())
-}
-
-func (s *Service) Versions(ctx context.Context, org identity.OrganizationID, id identity.EnvironmentID) ([]hosting.Version, error) {
-	if id.IsZero() {
-		return nil, errx.InvalidField("environment_id", "environment_id is required")
-	}
-	return s.repo.Versions(ctx, org, id)
 }
 
 func (s *Service) Hosted(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) (hosting.Hosted, error) {

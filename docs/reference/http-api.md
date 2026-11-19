@@ -81,7 +81,7 @@ Codes with a status of their own:
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Wrong `Content-Type` or `Content-Encoding`. |
 | `DOCK_MOVED` | 409 | A dock changed process while a request was routed to it. The port retries on its own first; if you still get it, try again. |
 
-Quota names: `docks`, `crew_connections`, `crew_tokens`, `agents`, `agent_secrets`, `environments`, `slots` and `homes`. The values are in [Limits](limits.md) and [Configuration](configuration.md#quotas).
+Quota names: `docks`, `crew_connections`, `crew_tokens`, `agents`, `agent_secrets`, `slots` and `homes`. The values are in [Limits](limits.md) and [Configuration](configuration.md#quotas).
 
 **Rate limits.** Two rates exist:
 
@@ -491,16 +491,17 @@ A rule is `{"id","dock_id","effect","pattern","created_at"}`. A pattern has at m
 | `GET` | `/agents/{id}` | `agents:read` | The agent. |
 | `PATCH` | `/agents/{id}` | `agents:write` | Body with any of `name` and `description`. The agent. |
 | `DELETE` | `/agents/{id}` | `agents:write` | `204`. Revokes its tokens, disconnects it, holds what waits for it. |
+| `POST` | `/agents/{id}/clone` | `agents:write` | Body `{"name":"…","description":"…","secrets":false}` (`description` defaults to the source's). `201` with the new agent, which starts as a copy of the source's current config (version 1; none if the source has none); a hosted source makes a hosted clone with the same slots, all stopped. With `secrets: true` every secret is copied (resealed for the clone, `env` kept; no value is returned); without it the clone has none, and whatever resolves a secret its config names (the kit, repo credentials, model keys, starting a slot) answers `422 BUSINESS` naming it. Same rules as `POST /agents` (`409` for a taken name, the agent limit); `404` for an unknown source; `422` (and no clone) when hosting it fails, e.g. over the slot limit. Docks, vault grants, tokens, takeovers and usage are not copied. |
 | `GET` | `/docks/{dock}/agents` | `agents:read` | `{"agents":[{"agent_id","name","default"}]}`: the dock's team. |
 | `PUT` | `/docks/{dock}/agents/{id}` | `agents:write` | Optional body `{"default":true}`. Assigns the agent. The agent. |
 | `DELETE` | `/docks/{dock}/agents/{id}` | `agents:write` | Takes the agent off the dock. The agent. |
-| `GET` | `/agents/{id}/profile` | `agents:read` | The current [profile](agent-profile.md). |
-| `PUT` | `/agents/{id}/profile` | `agents:write` | Body: profile fields plus `base`. Saves a new version. The profile. |
-| `GET` | `/agents/{id}/profile/versions` | `agents:read` | `{"versions":[{"version","created_by","created_at"}]}`. |
-| `GET` | `/agents/{id}/profile/versions/{version}` | `agents:read` | A past profile version. |
+| `GET` | `/agents/{id}/config` | `agents:read` | The current [config](agent-config.md): the [profile](agent-profile.md) plus `harness`, `machine`, `machine_digest` and `machine_secrets`. Version `0` and no content when there is none. |
+| `PUT` | `/agents/{id}/config` | `agents:write` | Body: the whole config plus `base`. Saves a new version (none if nothing changed). The config. `409 CONFLICT` on a stale `base`; `422 BUSINESS` for a machine on a port with hosting off, a hosted agent's config with no harness or machine, or a machine that names a secret or home the agent doesn't have. |
+| `GET` | `/agents/{id}/config/versions` | `agents:read` | `{"versions":[{"version","created_by","created_at"}]}`. |
+| `GET` | `/agents/{id}/config/versions/{version}` | `agents:read` | A past config version. |
 | `GET` | `/agents/{id}/secrets` | `agents:read` | `{"secrets":[{"name","env","updated_at"}]}`. Never values. |
 | `PUT` | `/agents/{id}/secrets/{name}` | `agents:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
-| `DELETE` | `/agents/{id}/secrets/{name}` | `agents:write` | `204`. |
+| `DELETE` | `/agents/{id}/secrets/{name}` | `agents:write` | `204`. Refused while an MCP header, or the machine's model keys or repo credentials, name it. |
 | `DELETE` | `/agents/{id}/takeovers/{host}` | `browser:use` | Ends the agent's browser takeover at `host` (`takeovers` of the agent, made by the `ask_takeover` tool or the connector's page detector): a person did what the site asked. The agent. |
 | `GET` | `/agents/{id}/usage` | `agents:read` | Query `days` (default 30, at most 366). `{"days":[{"day","provider","model","requests","input_tokens","output_tokens","cache_write_tokens","cache_read_tokens","web_search_requests","web_fetch_requests"}]}` (the last two: Anthropic server tool calls, billed per call). |
 
@@ -527,7 +528,7 @@ A name has 1 to 32 lowercase letters, digits, `-` or `_`, starting with a letter
 | :--- | :--- | :--- | :--- |
 | `GET` | `/crew` | `crew:read` | `{"agents":[…]}`: every connected connector, in every process. |
 | `GET` | `/crew/tokens` | `crew-tokens:read` | Paginated tokens. Filter `agent_id`. |
-| `POST` | `/crew/tokens` | `crew-tokens:write` | Body `{"name":"…","agent_id":"…","expires_at":"2026-01-01T00:00:00Z"}`. `201` with the token and its value, **once**. |
+| `POST` | `/crew/tokens` | `crew-tokens:write` | Body `{"name":"…","agent_id":"…","expires_at":"2026-01-01T00:00:00Z"}`. `201` with the token and its value, **once**. `409 CONFLICT` when the agent is hosted: a hosted agent works only through its slots. |
 | `DELETE` | `/crew/tokens/{id}` | `crew-tokens:write` | `204`. Closes the token's live connections. |
 
 A crew token:
@@ -553,43 +554,34 @@ A crew status agent: `session`, `agent_id`, `agent_name`, `name`, `concurrency`,
 
 ### Hosting
 
-Environments, their secrets, builds, homes and hosted agents. Permissions are `environments:read` and `environments:write`. Saving a spec, or hosting an agent on one, whose repo credentials or model keys name a secret the environment doesn't have also needs `agents:write` (it would be the hosted agents' secret).
+Builds, homes and hosted agents. What a hosted agent runs is its [config](agent-config.md) (`harness` and `machine`), saved with `PUT /agents/{id}/config`. Permissions: `hosting:read` and `hosting:write` for builds, hosting, slots, logs and sign-in; the homes routes use `agents:read` and `agents:write`, because a home is part of an agent's config.
 
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/environments` | `environments:read` | Paginated environments. |
-| `POST` | `/environments` | `environments:write` | Body `{"name","spec"}`. `201` with the environment. `422 QUOTA_EXCEEDED` (`environments`). |
-| `GET` | `/environments/{id}` | `environments:read` | The environment. `{id}` is an id or a name. |
-| `PUT` | `/environments/{id}` | `environments:write` | Body `{"base","spec"}`. Saves a new version. The environment. |
-| `DELETE` | `/environments/{id}` | `environments:write` | `204`. Refused while agents are hosted on it. |
-| `GET` | `/environments/{id}/versions` | `environments:read` | `{"versions":[{"version","created_by","created_at"}]}`. |
-| `GET` | `/environments/{id}/versions/{version}` | `environments:read` | A past version. |
-| `GET` | `/environments/{id}/secrets` | `environments:read` | `{"secrets":[{"name","env","updated_at"}]}`. The environment's own secrets (model keys, repo credentials; with `env`, a variable of every slot). Never values. |
-| `PUT` | `/environments/{id}/secrets/{name}` | `environments:write` | Body `{"value":"…","env":false}`. The secret's name and flags. |
-| `DELETE` | `/environments/{id}/secrets/{name}` | `environments:write` | `204`. Refused while the spec names it. |
-| `POST` | `/environments/{id}/build` | `environments:write` | Optional body `{"version":0,"force":false}`. `202` with the build. |
-| `GET` | `/environments/{id}/build` | `environments:read` | The build of the current version. |
-| `GET` | `/environments/{id}/versions/{version}/build` | `environments:read` | The build of that version. |
-| `POST` | `/homes?harness=rness\|claude-code` | `environments:write` | Raw `application/x-tar` or `application/gzip` body, at most 25 MiB. `201` with the home. |
-| `GET` | `/homes/rules` | `environments:read` | What each harness's home may hold. |
-| `GET` | `/homes/{digest}` | `environments:read` | The home's digest, harness, files and size. |
-| `GET` | `/homes/{digest}/archive` | `environments:read` | The home as a tar. |
-| `GET` | `/homes/{digest}/files/{path…}` | `environments:read` | One file of the home. |
-| `GET` | `/hosting` | `environments:read` | `{"agents":[…],"runtime":"off"\|"docker"}`: every hosted agent. |
-| `GET` | `/agents/{id}/hosting` | `environments:read` | The agent's hosting: `agent_id`, `environment_id`, `slots`, `updated_by`, `updated_at`. |
-| `PUT` | `/agents/{id}/hosting` | `environments:write` | Body `{"environment":"<id or name>","slots":1}`. Hosts or moves the agent. |
-| `DELETE` | `/agents/{id}/hosting` | `environments:write` | `204`. Running slots must be stopped first. |
-| `GET` | `/agents/{id}/hosting/egress` | `environments:read` | `{"denials":[{"slot","host","count","last_seen"}]}`. |
-| `POST` | `/agents/{id}/hosting/slots/{slot}/start` | `environments:write` | `202` with the slot. |
-| `POST` | `/agents/{id}/hosting/slots/{slot}/stop` | `environments:write` | `202` with the slot. |
-| `GET` | `/agents/{id}/hosting/slots/{slot}/logs` | `environments:write` | Query `lines` (default 300, at most 2000). `{"slot","log"}`. |
-| `GET` | `/agents/{id}/hosting/slots/{slot}/account` | `environments:read` | `{"slot","supported","logged_in","method","subscription"}`. |
-| `POST` | `/agents/{id}/hosting/slots/{slot}/login` | `environments:write` | Starts a subscription sign-in. `202`. Experimental. |
-| `GET` | `/agents/{id}/hosting/slots/{slot}/login` | `environments:write` | The sign-in's state: `id`, `slot`, `state`, `url`, `detail`. |
-| `POST` | `/agents/{id}/hosting/slots/{slot}/login/code` | `environments:write` | Body `{"code":"…"}`. `202`. |
-| `GET` | `/agents/{id}/hosting/slots/{slot}/browser` | `browser:use` | WebSocket: the slot's browser over CDP (the web app's [viewer](../guides/hosting/browser.md)). Same-origin only. One viewer per slot (`409 CONFLICT` for a second); `422 BUSINESS` when the environment has no browser, the agent's profile has it off, or the slot isn't running. Ends after 10 minutes without a message or 2 hours in all. |
+| `POST` | `/agents/{id}/build` | `hosting:write` | Optional body `{"force":false}`. `202` with the build of the agent's current machine. Builds are keyed by content: agents whose machines build the same image share one. |
+| `GET` | `/agents/{id}/build` | `hosting:read` | The build of the agent's current machine. |
+| `POST` | `/homes?harness=rness\|claude-code` | `agents:write` | Raw `application/x-tar` or `application/gzip` body, at most 25 MiB. `201` with the home. |
+| `GET` | `/homes/rules` | `agents:read` | What each harness's home may hold. |
+| `GET` | `/homes/{digest}` | `agents:read` | The home's digest, harness, files and size. |
+| `GET` | `/homes/{digest}/archive` | `agents:read` | The home as a tar. |
+| `GET` | `/homes/{digest}/files/{path…}` | `agents:read` | One file of the home. |
+| `GET` | `/hosting` | `hosting:read` | `{"agents":[…],"runtime":"off"\|"docker"}`: every hosted agent. |
+| `GET` | `/agents/{id}/hosting` | `hosting:read` | The agent's hosting: `agent_id`, `slots`, `updated_by`, `updated_at`. |
+| `PUT` | `/agents/{id}/hosting` | `hosting:write` | Body `{"slots":1}`. Hosts the agent on its config's machine, or changes its slots. `422 BUSINESS` when its config has no harness and machine; `409 CONFLICT` while the agent has live crew tokens for people's machines (revoke them first). |
+| `DELETE` | `/agents/{id}/hosting` | `hosting:write` | `204`. Running slots must be stopped first. |
+| `GET` | `/agents/{id}/hosting/egress` | `hosting:read` | `{"denials":[{"slot","host","count","last_seen"}]}`. |
+| `POST` | `/agents/{id}/hosting/slots/{slot}/start` | `hosting:write` | `202` with the agent's hosting. |
+| `POST` | `/agents/{id}/hosting/slots/{slot}/stop` | `hosting:write` | `202` with the agent's hosting. |
+| `GET` | `/agents/{id}/hosting/slots/{slot}/logs` | `hosting:write` | Query `lines` (default 300, at most 2000). `{"slot","log"}`. |
+| `GET` | `/agents/{id}/hosting/slots/{slot}/account` | `hosting:read` | `{"slot","supported","logged_in","method","subscription"}`. |
+| `POST` | `/agents/{id}/hosting/slots/{slot}/login` | `hosting:write` | Starts a subscription sign-in. `202`. Experimental. |
+| `GET` | `/agents/{id}/hosting/slots/{slot}/login` | `hosting:write` | The sign-in's state: `id`, `slot`, `state`, `url`, `detail`. |
+| `POST` | `/agents/{id}/hosting/slots/{slot}/login/code` | `hosting:write` | Body `{"code":"…"}`. `202`. |
+| `GET` | `/agents/{id}/hosting/slots/{slot}/browser` | `browser:use` | WebSocket: the slot's browser over CDP (the web app's [viewer](../guides/hosting/browser.md)). Same-origin only. One viewer per slot (`409 CONFLICT` for a second); `422 BUSINESS` when the agent's machine has no browser, its profile has it off, or the slot isn't running. Ends after 10 minutes without a message or 2 hours in all. |
 
-An environment: `id`, `name`, `version`, `spec`, `created_by`, `created_at`, `updated_at` and `agents` (how many are hosted on it). The spec's fields are in [Environment spec](environment-spec.md). A slot: `index`, `state` (`stopped`, `starting`, `running`, `stopping`, `failed`), `detail`, `image`, `environment_version`, `started_at`, `active_at`, `updated_at`. A build: `environment_id`, `version`, `state` (`building`, `ready`, `failed`), `base`, `image`, `detail`, `log` (the tail, on the build route only), `started_at`, `finished_at`, `updated_at`.
+Modes are exclusive: `POST /crew/tokens` for a hosted agent is `409 CONFLICT` (stop hosting it first), as is hosting an agent that has live tokens.
+
+A slot: `index`, `state` (`stopped`, `starting`, `running`, `stopping`, `failed`), `detail`, `image`, `config_version` (the config version it started on), `outdated` (its machine is no longer the agent's current one; it is restarted once idle), `started_at`, `active_at`, `updated_at`. A build: `digest`, `agent_id` (the agent that asked for it last), `state` (`building`, `ready`, `failed`), `base`, `image`, `detail`, `log` (the tail, on the build route only), `started_at`, `finished_at`, `updated_at`.
 
 Builds, slots and hosted runs need `SEAPORT_RUNTIME=docker`; with it `off` they are refused. See [Hosted agents](../guides/hosting/hosted-agents.md) and [Harness homes](../guides/hosting/harness-homes.md).
 
@@ -677,7 +669,7 @@ These routes are for agents, not for people. They authenticate with a **crew tok
 | `POST` | `/crew/github/token` | A GitHub App token for one repository. Body `{"repository":"owner/repo","host":"github.com"}` (`host` optional: another host than the port's GitHub is `404`). `200` `{"token","expires_at","repository","host","api_url","app"}`, `Cache-Control: no-store`. Only an agent's crew token, and only for a repository where the App of one of its GitHub docks is installed and active; else `404` (`403` without an agent: `none` mode). See [GitHub](../guides/github.md#act-on-github-as-the-app). |
 | `*` | `/gateway/{provider}/…` | The model gateway for hosted slots: `anthropic`, `openai`, `openrouter`, `groq`, `deepseek`. |
 
-The gateway is for hosted slots only: it takes the slot token as the bearer or as `x-api-key`, drops the caller's own `Authorization`, adds the real provider key (the environment's secret, else the agent's) and forwards:
+The gateway is for hosted slots only: it takes the slot token as the bearer or as `x-api-key`, drops the caller's own `Authorization`, adds the real provider key (the agent's secret that its machine's `models` names) and forwards:
 
 - `anthropic` (Anthropic's protocol, `x-api-key`): `/v1/messages` and `/v1/messages/count_tokens`, `/v1/models` and what is under it, `/v1/files` and what is under it;
 - `openai`, `openrouter`, `groq`, `deepseek` (the OpenAI protocol, `Authorization: Bearer`; the slot's `<PROVIDER>_BASE_URL` already ends in the gateway path, so these come bare): `/chat/completions`, `/responses` and what is under it, `/embeddings`, `/models` and what is under it.

@@ -11,38 +11,38 @@ import (
 	"github.com/Abraxas-365/seaport/internal/text"
 )
 
-// slotEnvironment is the current environment of a caller's slot
+// slotSpec is the current config's spec of a caller's slot's agent
 // (NotFound when the agent isn't hosted or has no such slot).
-func (s *Service) slotEnvironment(ctx context.Context, org identity.OrganizationID, c hosting.SlotCaller) (hosting.Environment, error) {
+func (s *Service) slotSpec(ctx context.Context, org identity.OrganizationID, c hosting.SlotCaller) (hosting.Spec, error) {
 	h, err := s.repo.Hosted(ctx, org, c.Agent)
 	if err != nil {
-		return hosting.Environment{}, err
+		return hosting.Spec{}, err
 	}
 	if !hasSlot(h, c.Slot) {
-		return hosting.Environment{}, errx.NotFound("slot not found")
+		return hosting.Spec{}, errx.NotFound("slot not found")
 	}
-	return s.repo.Environment(ctx, org, h.Environment, 0)
+	return s.spec(ctx, org, c.Agent)
 }
 
 func (s *Service) ModelKey(ctx context.Context, org identity.OrganizationID, input hosting.KeyRequest) (hosting.ModelKey, error) {
 	if err := input.Validate(); err != nil {
 		return hosting.ModelKey{}, err
 	}
-	env, err := s.slotEnvironment(ctx, org, input.Caller)
+	spec, err := s.slotSpec(ctx, org, input.Caller)
 	if err != nil {
 		return hosting.ModelKey{}, err
 	}
-	name := env.Spec.Models.KeyName(input.Provider)
+	name := spec.Models.KeyName(input.Provider)
 	if name == "" {
-		return hosting.ModelKey{}, errx.NotFound("environment " + env.Name + " names no " + input.Provider + " key (models." + input.Provider + ")")
+		return hosting.ModelKey{}, errx.NotFound("the agent's machine names no " + input.Provider + " key (models." + input.Provider + ")")
 	}
-	secrets, err := s.reveal(ctx, org, env.ID, input.Caller.Agent, []string{name})
+	secrets, err := s.reveal(ctx, org, input.Caller.Agent, []string{name})
 	if err != nil {
 		return hosting.ModelKey{}, err
 	}
 	key, ok := secrets[name]
 	if !ok || key == "" {
-		return hosting.ModelKey{}, errx.Business("neither environment " + env.Name + " nor the agent has secret " + name + " (models." + input.Provider + ")")
+		return hosting.ModelKey{}, errx.Business("the agent has no secret " + name + " (models." + input.Provider + ")")
 	}
 	return hosting.ModelKey{Provider: input.Provider, Key: key}, nil
 }
@@ -65,11 +65,11 @@ func (s *Service) Egress(ctx context.Context, org identity.OrganizationID, calle
 	if err := caller.Validate(); err != nil {
 		return nil, err
 	}
-	env, err := s.slotEnvironment(ctx, org, caller)
+	spec, err := s.slotSpec(ctx, org, caller)
 	if err != nil {
 		return nil, err
 	}
-	return env.Spec.EgressHosts(), nil
+	return spec.EgressHosts(), nil
 }
 
 func (s *Service) RecordDenial(ctx context.Context, org identity.OrganizationID, input hosting.Denied) error {

@@ -158,7 +158,7 @@ func (a SlotAction) Validate() error {
 }
 
 // Supervised is a slot as the supervisor sees it (every organization):
-// its state, its agent's work, and its environment's idle stop.
+// its state, its agent's work, and its machine's idle stop.
 type Supervised struct {
 	Organization identity.OrganizationID `db:"organization_id"`
 	Agent        identity.AgentID        `db:"agent_id"`
@@ -169,10 +169,10 @@ type Supervised struct {
 	UpdatedAt time.Time  `db:"updated_at"`
 	ActiveAt  *time.Time `db:"active_at"`
 	StartedAt *time.Time `db:"started_at"`
-	// IdleStop is the environment's idle_stop ("0": never).
+	// IdleStop is the agent's machine's idle_stop ("0": never).
 	IdleStop string `db:"idle_stop"`
-	// Outdated: the slot runs another environment or version than its
-	// agent's current one (restarted when idle).
+	// Outdated: the slot runs another machine than its agent's current
+	// config (MachineDigest; restarted when idle).
 	Outdated bool `db:"outdated"`
 	// Queued and Claimed count the agent's ships waiting and in work.
 	Queued  int `db:"queued"`
@@ -191,13 +191,18 @@ func (s Supervised) Ref() SlotRef {
 }
 
 // SlotStart is what Repository.BeginStart hands the starter: the slot's
-// agent and environment (current version).
+// agent and its current config's harness and machine.
 type SlotStart struct {
 	// Run identifies this start: the starter's later writes match it, so
 	// a starter that lost the slot (stopped meanwhile) changes nothing.
-	Run         string
-	AgentName   string
-	Environment Environment
+	Run       string
+	AgentName string
+	// Spec is the agent's current config's harness and machine
+	// (normalized), ConfigVersion that config's version and Digest its
+	// machine digest (MachineDigest).
+	Spec          Spec
+	ConfigVersion int
+	Digest        string
 	// OldToken is the token of a run that died while starting (revoke it).
 	OldToken identity.CrewTokenID
 }
@@ -212,11 +217,11 @@ type Workspace struct {
 	RepoConfig string          `json:"repo_config"`
 	Persistent bool            `json:"persistent"`
 	Repos      []WorkspaceRepo `json:"repos"`
-	// SignIn: the harness signs in to a subscription (Spec.SignsIn), so
+	// SignIn: the harness signs in to a subscription (Machine.SignsIn), so
 	// the slot waits for a sign-in before it takes work.
 	SignIn bool `json:"sign_in"`
 	// Browser is the engine of the slot's managed browser ("": the
-	// environment has none). The slot starts it with the agent's profile
+	// machine has none). The slot starts it with the agent's profile
 	// (BrowserDir in the state volume) when the agent's kit asks for one.
 	Browser string `json:"browser,omitempty"`
 }
@@ -242,9 +247,10 @@ type EndRun struct {
 	StaleFor time.Duration
 }
 
-// SlotRun is what a slot runs once started.
+// SlotRun is what a slot runs once started: the image, the config version
+// and the machine digest (Slot.Outdated compares it).
 type SlotRun struct {
-	Image       string
-	Environment identity.EnvironmentID
-	Version     int
+	Image         string
+	ConfigVersion int
+	Digest        string
 }

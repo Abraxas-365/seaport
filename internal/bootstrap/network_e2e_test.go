@@ -63,61 +63,47 @@ func TestHostedNetwork(t *testing.T) {
 	pm := p.agent("pm")
 	agentPath := "/api/v1/agents/" + pm.ID.String()
 
-	spec := map[string]any{"harness": "rness", "models": map[string]string{"anthropic": "${ANTHROPIC_KEY}", "groq": "${GROQ_KEY}"},
+	machine := map[string]any{"models": map[string]string{"anthropic": "${ANTHROPIC_KEY}", "groq": "${GROQ_KEY}"},
 		"env":     map[string]string{"TZ": "America/Lima", "FEATURE_FLAGS": "beta"},
 		"network": map[string]any{"egress": []string{"registry.example.com"}}}
-	// The keys must be secrets of the environment, or of the agent, before
-	// it's hosted on the spec.
-	var env hosting.Environment
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "net", "spec": spec}, &env); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
+	// The keys must be secrets of the agent before its config names them.
+	if code, _ := p.saveConfig(pm.ID, func(b map[string]any) { b["harness"], b["machine"] = "rness", machine }); code != http.StatusBadRequest {
+		t.Fatalf("machine without the key secrets: %d", code)
 	}
-	envPath := "/api/v1/environments/" + env.ID.String()
-	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusUnprocessableEntity && code != http.StatusBadRequest {
-		t.Fatalf("host without the key secrets: %d", code)
+	// An env secret reaches every slot.
+	if code := p.admin(http.MethodPut, agentPath+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-e2e-real"}, nil); code != http.StatusOK {
+		t.Fatalf("set secret: %d", code)
 	}
-	// The Anthropic key is the environment's (where it belongs); the Groq
-	// key the agent's (transitional). An env secret reaches every slot.
-	if code := p.admin(http.MethodPut, envPath+"/secrets/ANTHROPIC_KEY", map[string]any{"value": "sk-ant-e2e-real"}, nil); code != http.StatusOK {
-		t.Fatalf("set environment secret: %d", code)
-	}
-	if code := p.admin(http.MethodPut, envPath+"/secrets/DATABASE_URL", map[string]any{"value": "postgres://app:pw@db.example.com/app", "env": true}, nil); code != http.StatusOK {
-		t.Fatalf("set environment env secret: %d", code)
+	if code := p.admin(http.MethodPut, agentPath+"/secrets/DATABASE_URL", map[string]any{"value": "postgres://app:pw@db.example.com/app", "env": true}, nil); code != http.StatusOK {
+		t.Fatalf("set env secret: %d", code)
 	}
 	for name, body := range map[string]map[string]any{
 		"lower": {"value": "x"}, "empty": {"value": ""}, "SEAPORT_URL": {"value": "x", "env": true},
 	} {
-		if code := p.admin(http.MethodPut, envPath+"/secrets/"+name, body, nil); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
+		if code := p.admin(http.MethodPut, agentPath+"/secrets/"+name, body, nil); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
 			t.Fatalf("bad secret %s: %d", name, code)
 		}
 	}
-	var secrets struct{ Secrets []hosting.EnvironmentSecret }
-	if code := p.admin(http.MethodGet, envPath+"/secrets", nil, &secrets); code != http.StatusOK || len(secrets.Secrets) != 2 ||
-		secrets.Secrets[0].Name != "ANTHROPIC_KEY" || secrets.Secrets[0].Env || secrets.Secrets[1].Name != "DATABASE_URL" || !secrets.Secrets[1].Env {
-		t.Fatalf("secrets: %d %+v", code, secrets.Secrets)
-	}
-	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusUnprocessableEntity && code != http.StatusBadRequest {
-		t.Fatalf("host without the groq key: %d", code)
+	if code, _ := p.saveConfig(pm.ID, func(b map[string]any) { b["harness"], b["machine"] = "rness", machine }); code != http.StatusBadRequest {
+		t.Fatalf("machine without the groq key: %d", code)
 	}
 	if code := p.admin(http.MethodPut, agentPath+"/secrets/GROQ_KEY", map[string]any{"value": "gsk-e2e-real"}, nil); code != http.StatusOK {
-		t.Fatalf("set agent secret: %d", code)
+		t.Fatalf("set secret: %d", code)
 	}
-	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"environment": "net", "slots": 1}, nil); code != http.StatusOK {
+	p.setMachine(pm.ID, "rness", machine)
+	if code := p.admin(http.MethodPut, agentPath+"/hosting", map[string]any{"slots": 1}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
-	if code := p.admin(http.MethodDelete, envPath+"/secrets/ANTHROPIC_KEY", nil, nil); code != http.StatusConflict {
-		t.Fatalf("delete the environment's model key in use: %d", code)
+	if code := p.admin(http.MethodDelete, agentPath+"/secrets/ANTHROPIC_KEY", nil, nil); code != http.StatusConflict {
+		t.Fatalf("delete a model key in use: %d", code)
 	}
-	if code := p.admin(http.MethodDelete, agentPath+"/secrets/GROQ_KEY", nil, nil); code != http.StatusConflict {
-		t.Fatalf("delete the agent's model key in use: %d", code)
-	}
-	// A spec can't name a plain variable the slot sets, nor a value that
+	// A machine can't name a plain variable the slot sets, nor a value that
 	// looks like a credential.
 	for name, env := range map[string]map[string]string{
 		"slot": {"ANTHROPIC_API_KEY": "x"}, "secret": {"TOKEN": "ghp_" + strings.Repeat("a", 36)},
 	} {
-		bad := map[string]any{"harness": "rness", "env": env}
-		if code := p.admin(http.MethodPut, envPath, map[string]any{"base": 1, "spec": bad}, nil); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
+		bad := map[string]any{"env": env}
+		if code, _ := p.saveConfig(pm.ID, func(b map[string]any) { b["machine"] = bad }); code != http.StatusBadRequest && code != http.StatusUnprocessableEntity {
 			t.Fatalf("bad env %s: %d", name, code)
 		}
 	}
@@ -134,8 +120,16 @@ func TestHostedNetwork(t *testing.T) {
 		st.Env["GROQ_BASE_URL"] != "http://port.test:8740/gateway/groq" || st.Env["GROQ_API_KEY"] != token {
 		t.Fatalf("gateway env: %v", st.Env)
 	}
-	if st.Env["TZ"] != "America/Lima" || st.Env["FEATURE_FLAGS"] != "beta" || st.Env["DATABASE_URL"] != "postgres://app:pw@db.example.com/app" {
-		t.Fatalf("spec env and env secrets: %v", st.Env)
+	if st.Env["TZ"] != "America/Lima" || st.Env["FEATURE_FLAGS"] != "beta" {
+		t.Fatalf("machine env: %v", st.Env)
+	}
+	// The agent's env secrets reach the slot through its kit (never the
+	// container's environment, which the runtime may show).
+	if _, ok := st.Env["DATABASE_URL"]; ok {
+		t.Fatalf("env secret in the container env: %v", st.Env)
+	}
+	if k, code := p.kit(token); code != http.StatusOK || k.Env["DATABASE_URL"] != "postgres://app:pw@db.example.com/app" {
+		t.Fatalf("slot kit env: %d %v", code, k.Env)
 	}
 	proxyURL, err := url.Parse(st.Env["HTTPS_PROXY"])
 	if err != nil || proxyURL.Hostname() != "port.test" || proxyURL.User.Username() != "pm-1" ||
@@ -186,7 +180,7 @@ func TestHostedNetwork(t *testing.T) {
 		t.Fatalf("groq saw %q", seenBearer)
 	}
 	mu.Unlock()
-	people := p.issueAs(adminToken, pm.ID, "laptop")
+	people := p.issueAs(adminToken, p.agent("other").ID, "laptop")
 	if code, _ := gw(people.Value); code != http.StatusForbidden {
 		t.Fatalf("a person's token on the gateway: %d", code)
 	}

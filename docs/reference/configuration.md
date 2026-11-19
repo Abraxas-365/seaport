@@ -64,7 +64,7 @@ Only read with `SEAPORT_AUTH=iam`. `scripts/iamkit-provision.sh` writes them to 
 Things to know:
 
 - **Back it up apart from the database.** A dump without the key is useless (which is also why a stolen dump is). Losing the key means linking every WhatsApp dock again, creating every GitHub dock's App again, connecting every Jira and Slack dock again, generating every webhook dock's secret again, connecting every email dock again, setting every agent secret again and losing every stored attachment and harness home; in `iam` mode it also signs everyone out.
-- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `environment_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` , `webhook_docks` or `email_accounts` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
+- **No new key over sealed data.** Seaport never generates a key while `wa_devices`, `agent_secrets`, `ship_attachments`, `hosting_homes`, `github_apps`, `jira_sites`, `slack_apps` , `webhook_docks` or `email_accounts` have rows: a new key could not open them, so the start fails and asks you to restore the file or set `SEAPORT_SECRET_KEY`.
 - **With several processes, set it explicitly** (same value everywhere) instead of letting each generate its own file. See [Several processes](../guides/operations/several-processes.md).
 - **Changing it** makes sealed values unreadable. The start checks one WhatsApp device first, so a changed key stops the start instead of failing every dock.
 - In the image, `/data` holds the generated key: mount a volume.
@@ -78,7 +78,7 @@ Message attachments (images and files) and harness homes go to a blob store, sea
 | `SEAPORT_BLOB_URL` | `blobs/` next to the key file (`/data/blobs` in the image) | `file:///dir` (one server), `s3://bucket?region=…` (AWS credentials from the usual `AWS_*` variables), an S3-compatible store with `s3://bucket?region=…&endpoint=http://host:9000&use_path_style=true`, or `off`. `mem://` also parses but keeps data in memory only (tests). With `off`, or with no key file path and no URL, no attachments are kept: inbound files arrive as a note in the message text. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, … | none | Credentials for `s3://` URLs, read by the S3 client from the standard AWS environment. |
 
-Several Seaport processes need one shared store (S3 or compatible); with local directories each process sees only the attachments it received. Hosted-agent environments with a harness home (`home:`) need the blob store too.
+Several Seaport processes need one shared store (S3 or compatible); with local directories each process sees only the attachments it received. Hosted agents with a harness home (`machine.home`) need the blob store too.
 
 ## WhatsApp
 
@@ -161,16 +161,16 @@ A token bucket per caller on `/api/`, `/crew/ws` and `/mcp` (public routes aren'
 
 ## Hosting
 
-Settings for [hosted agents](../guides/hosting/hosted-agents.md). The environment's own fields are in [Environment spec](environment-spec.md).
+Settings for [hosted agents](../guides/hosting/hosted-agents.md). The machine's own fields are in [Agent config](agent-config.md).
 
 | Variable | Default | Meaning |
 | :--- | :--- | :--- |
-| `SEAPORT_RUNTIME` | `off` | `off` builds and runs nothing (environment builds are refused). `docker` runs hosted agents on the Docker engine; needs `token` or `iam` mode. Any other value stops the start. |
+| `SEAPORT_RUNTIME` | `off` | `off` builds and runs nothing (builds are refused). `docker` runs hosted agents on the Docker engine; needs `token` or `iam` mode. Any other value stops the start. |
 | `DOCKER_HOST` (and `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH`, `DOCKER_API_VERSION`) | the local socket | The engine, read by the Docker client. In production use a socket proxy that allows only containers, exec, images/build, volumes and networks (see `deploy/`). The start fails if the engine doesn't answer. |
 | `SEAPORT_AGENT_URL` | `SEAPORT_PUBLIC_URL` | How slot containers reach the port (for example `http://seaport:8740` on a shared network, or `http://host.docker.internal:8740` for a port on the host). |
 | `SEAPORT_RUNTIME_NETWORK` | `bridge` | The Docker network of slots. Make it `--internal` when you use the egress proxy; otherwise slots can reach the internet around it and the port warns at start. |
 | `SEAPORT_RUNTIME_HOST_GATEWAY` | `true` | Maps `host.docker.internal` to the host in slots (Linux engines don't by themselves). Only the exact value `false` turns it off. |
-| `SEAPORT_IMAGE_RNESS` | `ghcr.io/abraxas-365/seaport-rness:<tag>` | Base image for `rness` environments without `image:`. `<tag>` is the release's version (for example `0.7.0`), or `latest` for development builds. |
+| `SEAPORT_IMAGE_RNESS` | `ghcr.io/abraxas-365/seaport-rness:<tag>` | Base image for `rness` agents whose machine has no `image`. `<tag>` is the release's version (for example `0.7.0`), or `latest` for development builds. |
 | `SEAPORT_IMAGE_CLAUDE_CODE` | `ghcr.io/abraxas-365/seaport-claude-code:<tag>` | The same for `claude-code`. |
 | `SEAPORT_HOST_MAX_CPUS` | `4` | Most CPUs one slot may ask for (`0` = no limit). |
 | `SEAPORT_HOST_MAX_MEMORY_MB` | `8192` | Most memory (MB) one slot may ask for (`0` = no limit). |
@@ -199,5 +199,5 @@ Read by the `seaport` binary when it is not serving (see [CLI](cli.md)).
 | `SEAPORT_ADDR` | `127.0.0.1:8740` | `seaport healthcheck` | The local address it asks for `/healthz` (a wildcard host becomes `127.0.0.1`). |
 | `SEAPORT_SLOT` | none | `agent-run` | The slot's name (`<agent>-<n>`). Set by the port in a hosted slot. |
 | `SEAPORT_HARNESS` | none | `agent-run`, `home-setup` | The slot's harness (`rness` or `claude-code`). Set by the port in a hosted slot. |
-| `SEAPORT_GATEWAY` | none | `agent-run` | The model gateway's base URL, set in a slot whose environment names a model key. When it is set, the connector keeps the kit's `env` from replacing the slot's model variables. |
+| `SEAPORT_GATEWAY` | none | `agent-run` | The model gateway's base URL, set in a slot whose machine names a model key. When it is set, the connector keeps the kit's `env` from replacing the slot's model variables. |
 | `SEAPORT_GH` | none | `gh` | Path of the real GitHub CLI for Seaport's `gh` shim. Without it the shim tries `/usr/local/bin/gh`, then the next `gh` on `PATH`. |

@@ -23,8 +23,8 @@ const (
 	CrewTokensWrite    = "seaport:crew-tokens:write"   // Create and revoke crew tokens
 	AgentsRead         = "seaport:agents:read"         // View agents and the docks they work on
 	AgentsWrite        = "seaport:agents:write"        // Create, change and delete agents and assign them to docks
-	EnvironmentsRead   = "seaport:environments:read"   // View environments and the agents the port hosts
-	EnvironmentsWrite  = "seaport:environments:write"  // Create, change and delete environments, host agents and start or stop them
+	HostingRead        = "seaport:hosting:read"        // View the agents the port hosts, their slots, builds and usage
+	HostingWrite       = "seaport:hosting:write"       // Host agents, build their images and start or stop their slots
 	SchedulesRead      = "seaport:schedules:read"      // View schedules (prompts posted into conversations at set times)
 	SchedulesWrite     = "seaport:schedules:write"     // Create, change, run and delete schedules
 	VaultsRead         = "seaport:vaults:read"         // View vaults (shared memory of agents), their entries and grants
@@ -47,8 +47,8 @@ var All = []string{
 	CrewTokensWrite,
 	AgentsRead,
 	AgentsWrite,
-	EnvironmentsRead,
-	EnvironmentsWrite,
+	HostingRead,
+	HostingWrite,
 	SchedulesRead,
 	SchedulesWrite,
 	VaultsRead,
@@ -71,8 +71,8 @@ var Labels = map[string]string{
 	CrewTokensWrite:    "Create and revoke crew tokens",
 	AgentsRead:         "View agents and the docks they work on",
 	AgentsWrite:        "Create, change and delete agents and assign them to docks",
-	EnvironmentsRead:   "View environments and the agents the port hosts",
-	EnvironmentsWrite:  "Create, change and delete environments, host agents and start or stop them",
+	HostingRead:        "View the agents the port hosts, their slots, builds and usage",
+	HostingWrite:       "Host agents, build their images and start or stop their slots",
 	SchedulesRead:      "View schedules (prompts posted into conversations at set times)",
 	SchedulesWrite:     "Create, change, run and delete schedules",
 	VaultsRead:         "View vaults (shared memory of agents), their entries and grants",
@@ -82,7 +82,7 @@ var Labels = map[string]string{
 
 // Roles on the resource, in manifest order.
 var Roles = []Role{
-	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite, EnvironmentsRead, EnvironmentsWrite, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
-	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
-	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead, EnvironmentsRead, SchedulesRead, VaultsRead}},
+	{Name: "Admin", Permissions: []string{DocksRead, DocksWrite, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CustomsWrite, CrewRead, CrewTokensRead, CrewTokensWrite, AgentsRead, AgentsWrite, HostingRead, HostingWrite, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
+	{Name: "Operator", Permissions: []string{DocksRead, ConversationsRead, ConversationsWrite, ShipsRead, ShipsWrite, CustomsRead, CrewRead, AgentsRead, HostingRead, SchedulesRead, SchedulesWrite, VaultsRead, VaultsWrite, BrowserUse}},
+	{Name: "Viewer", Permissions: []string{DocksRead, ConversationsRead, ShipsRead, CustomsRead, CrewRead, AgentsRead, HostingRead, SchedulesRead, VaultsRead}},
 }

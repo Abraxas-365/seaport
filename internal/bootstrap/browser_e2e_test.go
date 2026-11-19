@@ -20,9 +20,9 @@ import (
 )
 
 // TestBrowserViewer: the viewer WebSocket relays CDP to the slot's browser
-// (the fake runtime echoes), with its guards: the environment's switch,
-// the profile's switch, a running slot, one viewer at a time, same
-// origin, the audit events.
+// (the fake runtime echoes), with its guards: the machine's engine, the
+// config's switch, a running slot, one viewer at a time, same origin, the
+// audit events.
 func TestBrowserViewer(t *testing.T) {
 	rt := &fakeRuntime{results: make(chan string, 4)}
 	p := startPortWith(t, func(c *config.Server) {
@@ -32,13 +32,9 @@ func TestBrowserViewer(t *testing.T) {
 	}, bootstrap.Options{Runtime: rt, SupervisePeriod: time.Hour})
 	events := p.openEvents("")
 	ag := p.agent("surf")
-	var env hosting.Environment
-	if code := p.admin(http.MethodPost, "/api/v1/environments", map[string]any{"name": "plain",
-		"spec": map[string]any{"harness": "rness"}}, &env); code != http.StatusCreated {
-		t.Fatalf("create environment: %d", code)
-	}
+	p.setMachine(ag.ID, "rness", map[string]any{})
 	hostPath := "/api/v1/agents/" + ag.ID.String() + "/hosting"
-	if code := p.admin(http.MethodPut, hostPath, map[string]any{"environment": "plain", "slots": 1}, nil); code != http.StatusOK {
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{"slots": 2}, nil); code != http.StatusOK {
 		t.Fatalf("host: %d", code)
 	}
 	viewer := hostPath + "/slots/1/browser"
@@ -57,20 +53,21 @@ func TestBrowserViewer(t *testing.T) {
 		return ws, code, err
 	}
 
-	// No browser in the environment: refused (422) before any upgrade.
+	// No browser on the machine: refused (422) before any upgrade; a hosted
+	// agent can't turn its browser on without one.
 	if _, code, err := dial(""); err == nil || code != http.StatusUnprocessableEntity {
 		t.Fatalf("viewer without a browser: %d %v", code, err)
 	}
-	if code := p.admin(http.MethodPut, "/api/v1/environments/"+env.ID.String(), map[string]any{"base": env.Version,
-		"spec": map[string]any{"harness": "rness", "browser": map[string]any{"engine": "chromium"}}}, &env); code != http.StatusOK {
-		t.Fatalf("save environment with a browser: %d", code)
+	if code, _ := p.saveConfig(ag.ID, func(b map[string]any) { b["browser"] = true }); code != http.StatusUnprocessableEntity {
+		t.Fatalf("browser on, machine without an engine: %d", code)
 	}
-	// The profile's switch is off.
+	p.setMachine(ag.ID, "rness", map[string]any{"browser": map[string]any{"engine": "chromium"}})
+	// The config's switch is off.
 	if _, code, _ := dial(""); code != http.StatusUnprocessableEntity {
-		t.Fatalf("viewer with the profile's browser off: %d", code)
+		t.Fatalf("viewer with the config's browser off: %d", code)
 	}
-	if _, code := p.saveProfile(ag.ID, map[string]any{"base": 0, "browser": true}); code != http.StatusOK {
-		t.Fatalf("profile browser on: %d", code)
+	if code, _ := p.saveConfig(ag.ID, func(b map[string]any) { b["browser"] = true }); code != http.StatusOK {
+		t.Fatalf("config browser on: %d", code)
 	}
 	// The slot is stopped.
 	if _, code, _ := dial(""); code != http.StatusUnprocessableEntity {
@@ -103,10 +100,16 @@ func TestBrowserViewer(t *testing.T) {
 	rt.noBrowser = false
 	rt.mu.Unlock()
 
-	// The slot's connector and a person's connector, both as the agent: the
-	// viewer's state goes to the slot's connection only.
+	// The slot's connector and another slot's, both as the agent (a hosted
+	// agent takes no people's tokens): the viewer's state goes to the
+	// viewed slot's connection only.
+	if code := p.admin(http.MethodPost, hostPath+"/slots/2/start", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("start slot 2: %d", code)
+	}
+	next(t, events, hosting.EventSlotsUpdated, slotState(2, hosting.SlotRunning))
+	other := rt.lastStart()
 	slotConn := p.dialCrewAs(st.Env[hosting.EnvToken], crew.Frame{Type: crew.FrameHello, Agent: "slot"})
-	personConn := p.dialCrewAs(p.issueAs(adminToken, ag.ID, "laptop").Value, crew.Frame{Type: crew.FrameHello, Agent: "laptop"})
+	otherConn := p.dialCrewAs(other.Env[hosting.EnvToken], crew.Frame{Type: crew.FrameHello, Agent: "slot-2"})
 
 	// Open: CDP goes through, same origin accepted.
 	conn, code, err := dial(p.srv.URL)
@@ -165,7 +168,7 @@ func TestBrowserViewer(t *testing.T) {
 	if viewed() {
 		t.Fatal("the viewer mark outlived the viewer")
 	}
-	personConn.quiet(300 * time.Millisecond)
+	otherConn.quiet(300 * time.Millisecond)
 	// Closed: another may open.
 	conn2, code, err := dial("")
 	if err != nil {
@@ -194,7 +197,7 @@ func TestAskTakeover(t *testing.T) {
 		t.Fatalf("profile browser on: %d", code)
 	}
 	var prof agent.Profile
-	if code := p.admin(http.MethodGet, "/api/v1/agents/"+ag.ID.String()+"/profile", nil, &prof); code != http.StatusOK || !prof.Browser {
+	if code := p.admin(http.MethodGet, "/api/v1/agents/"+ag.ID.String()+"/config", nil, &prof); code != http.StatusOK || !prof.Browser {
 		t.Fatalf("profile: %d %+v", code, prof)
 	}
 	s := mcpSession(t, p, tok.Value)

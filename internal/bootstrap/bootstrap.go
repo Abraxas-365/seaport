@@ -185,6 +185,26 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The secret key seals the WhatsApp store and agent secrets. Without
+	// WhatsApp (tests) it is loaded only when given; agent secrets are
+	// then refused. It is loaded between the migrations: the environments
+	// data step (upgradeEnvironments) reseals their secrets with it before
+	// 00046 drops them.
+	if err := MigrateTo(ctx, db.DB, beforeEnvironmentsDrop); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	var secretKey string
+	if !opts.DisableWhatsApp || cfg.SecretKey != "" {
+		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
+	}
+	if err := upgradeEnvironments(ctx, db, secretKey); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := Migrate(ctx, db.DB); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -224,17 +244,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	convs := conversationmodule.New(db, lockDB.DB, bus)
-	// The secret key seals the WhatsApp store and agent secrets. Without
-	// WhatsApp (tests) it is loaded only when given; agent secrets are
-	// then refused.
-	var secretKey string
-	if !opts.DisableWhatsApp || cfg.SecretKey != "" {
-		if secretKey, err = SecretKey(ctx, cfg, db); err != nil {
-			bus.Close()
-			closeDBs()
-			return nil, err
-		}
-	}
 	docks, err := dockmodule.New(ctx, dockmodule.Deps{DB: db, SecretKey: secretKey, WhatsApp: !opts.DisableWhatsApp, Events: bus,
 		MaxDocks: cfg.MaxDocks, Process: process, DockLease: dockLease, Gateways: opts.Gateways,
 		GitHub:  dockgithub.Config{PublicURL: cfg.PublicURL, WebURL: cfg.GitHubURL, APIURL: cfg.GitHubAPIURL, OIDCURL: cfg.GitHubOIDCURL},
@@ -320,7 +329,8 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	notify.bind(hosted)
-
+	agents.Service.BindMachines(hosted.Service)
+	agents.Service.BindHosting(hosted.Service)
 	done := make(chan struct{})
 	var once sync.Once
 	auth := opts.Authenticator

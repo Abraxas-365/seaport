@@ -165,8 +165,13 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
         : { items: [a, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
     })
   },
+  // A fetch in flight may answer a status older than this event (it read the
+  // presence before the change) and would overwrite it: refetch instead.
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)
+    if (qc.isFetching({ queryKey: keys.crew, exact: true }) > 0) {
+      void qc.invalidateQueries({ queryKey: keys.crew, exact: true })
+    }
   },
   // Live only, outside the query cache (src/lib/activity.ts).
   "crew.activity": (_qc, ev) => applyActivity(ev),
@@ -177,6 +182,8 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
     qc.invalidateQueries({ queryKey: keys.agents })
     qc.invalidateQueries({ queryKey: keys.profileAll }) // a saved profile or secret
     qc.invalidateQueries({ queryKey: ["secrets"] })
+    qc.invalidateQueries({ queryKey: keys.buildAll }) // a new machine has another build
+    qc.invalidateQueries({ queryKey: keys.hosting }) // and outdates the slots
     qc.invalidateQueries({ queryKey: keys.teamAll })
     qc.invalidateQueries({ queryKey: keys.crewTokens })
     qc.invalidateQueries({ queryKey: ["ships"] })
@@ -189,34 +196,24 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
     qc.invalidateQueries({ queryKey: ["ships"] })
     qc.invalidateQueries({ queryKey: keys.inboxAll })
     qc.invalidateQueries({ queryKey: keys.hosting }) // its hosting went with it
-    qc.invalidateQueries({ queryKey: keys.environments })
   },
   // A schedule changed (or fired, which moves its next time and posts a ship).
   "schedule.created": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
   "schedule.updated": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
   "schedule.deleted": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
   "schedule.fired": (qc, s) => qc.invalidateQueries({ queryKey: keys.schedules(s.conversation_id) }),
-  "environment.updated": (qc, env) => {
-    qc.setQueryData(keys.environment(env.id), env)
-    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
-    qc.invalidateQueries({ queryKey: keys.environmentVersions(env.id) })
-    qc.invalidateQueries({ queryKey: keys.environmentSecrets(env.id) }) // a saved or deleted secret
+  // Events carry no log: a running build's query refetches for it. The
+  // build is the agent's current config's only while the digest matches.
+  "agent.build": (qc, b) => {
+    qc.setQueryData<Build | null>(keys.build(b.agent_id), (old) =>
+      !old || old.digest === b.digest ? { ...b, log: old?.log } : old,
+    )
+    qc.invalidateQueries({ queryKey: keys.build(b.agent_id) })
   },
-  "environment.deleted": (qc, { id }) => {
-    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
-    qc.removeQueries({ queryKey: ["environments", id] })
-    qc.removeQueries({ queryKey: ["build", id] })
-  },
-  // Events carry no log: a running build's query refetches for it.
-  "environment.build": (qc, b) => {
-    qc.setQueryData<Build | null>(keys.build(b.environment_id, b.version), (old) => ({ ...b, log: old?.log }))
-    qc.invalidateQueries({ queryKey: keys.build(b.environment_id, b.version) })
-  },
-  // Unhosting sends the agent with no environment and no slots.
+  // Unhosting sends the agent with no slots.
   "slot.updated": (qc, h) => {
-    qc.setQueryData(keys.hosted(h.agent_id), h.environment_id ? h : null)
+    qc.setQueryData(keys.hosted(h.agent_id), h.slots.length ? h : null)
     qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
-    qc.invalidateQueries({ queryKey: keys.environments, exact: true })
   },
   // A vault changed or a grant did (vault.updated also covers grants): the
   // detail, the list and every agent's/dock's grants refetch. Entry events

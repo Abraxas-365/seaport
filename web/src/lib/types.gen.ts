@@ -266,6 +266,29 @@ export interface AgentProfile {
    * never asks a takeover for: a password field the agent never needs.
    */
   browser_ignore_hosts: string[]
+  /**
+   * Harness is the agent program (rness | claude-code; "" = not set):
+   * a hosted agent's base image, a remote one's suggested command (the
+   * connector warns when hello.agent doesn't match).
+   */
+  harness: Harness | ""
+  /**
+   * Machine is where and how the agent runs when hosted (hosting.Machine,
+   * normalized; null = none yet): opaque here, checked by MachineCheck.
+   */
+  machine: Machine | null
+  /**
+   * MachineDigest names what its slots run (harness + machine): a
+   * running slot started on another digest is outdated. "" without a
+   * machine.
+   */
+  machine_digest: string
+  /**
+   * MachineSecrets are the secrets the machine names (model keys, repo
+   * credentials): they must be the agent's and can't be deleted while
+   * named.
+   */
+  machine_secrets: string[]
   created_by: string
   created_at: string
 }
@@ -334,13 +357,15 @@ export interface Attachment {
 }
 
 /**
- * Build is the image of an environment version: Seaport builds it from the
- * spec (FROM the image or the harness's base, packages, setup) and runs
- * every slot of that version on it.
+ * Build is an image Seaport built for hosted agents, keyed by its content
+ * (BuildRequest.Digest: harness, base, Dockerfile, setup): agents whose
+ * machines build the same share it, and an edit that leaves the image
+ * alone builds nothing.
  */
 export interface Build {
-  environment_id: ID
-  version: number
+  digest: string
+  /** Agent is the agent whose start or build asked for it last. */
+  agent_id: ID
   state: BuildState
   /** Base is the image it was built FROM. */
   base: string
@@ -353,6 +378,19 @@ export interface Build {
   started_at: string
   finished_at: string | null
   updated_at: string
+}
+
+/** CloneAgent is the body of POST /api/v1/agents/{id}/clone. */
+export interface CloneAgent {
+  /** Name of the new agent (same rules as creating one). */
+  name: string
+  /** Description of the new agent; absent: the source's. */
+  description?: string
+  /**
+   * Secrets also copies the source's secrets (resealed for the clone;
+   * never shown). Absent or false: the clone starts with none.
+   */
+  secrets: boolean
 }
 
 /**
@@ -618,169 +656,6 @@ export interface EmailLink {
   folder: string
 }
 
-/**
- * EnvBrowser is the managed browser of an environment's slots: a CDP engine
- * (BrowserChromium) run by the slot with the agent's profile
- * (cookies, storage) in its state volume. The sites it visits go through
- * the egress proxy like everything else (Network.Egress).
- */
-export interface EnvBrowser {
-  /** Engine is the browser program: "" for none, else BrowserChromium. */
-  engine: BrowserEngine
-}
-
-/**
- * EnvModels name the secrets holding model API keys, by provider
- * (Providers): provider → ${NAME}. With one set, the slots reach that
- * provider through the port's model gateway with their own token: the key
- * never enters the container. The secret is the environment's (the key is
- * infrastructure its slots share), else the hosted agent's (transitional:
- * specs from before environment secrets).
- */
-export type EnvModels = Record<string, string>
-
-/** EnvNetwork is what a slot may reach besides the port. */
-export interface EnvNetwork {
-  /**
-   * Egress are the hosts reachable through the egress proxy
-   * ("example.com", "*.example.com"); the repos' hosts are added.
-   */
-  egress: string[]
-}
-
-/** EnvRepo is a git repository cloned into the workspace at start. */
-export interface EnvRepo {
-  /** URL is an https git URL. */
-  url: string
-  /** Ref is a branch or tag ("": the default branch). */
-  ref: string
-  /** Path is where it goes, relative to /workspace ("": its name). */
-  path: string
-  /**
-   * Credential names the secret holding a token for the URL's host:
-   * ${NAME} ("": public). The environment's secret, else the hosted
-   * agent's.
-   */
-  credential: string
-  /** OnStart runs in the repo after each clone or fetch (shell). */
-  on_start: string
-}
-
-/** EnvResources bound a slot: a preset size, or CPUs and memory. */
-export interface EnvResources {
-  size?: ResourceSize
-  cpus: number
-  memory_mb: number
-}
-
-/**
- * EnvSecret is what the admin sees of an environment's secret:
- * never its value. A secret is a repo credential or model key the spec
- * names (${NAME}), or with Env an environment variable of every slot.
- */
-export interface EnvSecret {
-  name: string
-  /** Env: also given to the slots' harness as an environment variable. */
-  env: boolean
-  updated_at: string
-}
-
-/**
- * EnvSpec is one version of an environment. No secret values: repo
- * credentials and model keys name a secret as ${NAME} (the environment's,
- * else the hosted agent's: Secrets), and Env holds plain variables only.
- */
-export interface EnvSpec {
-  description: string
-  /**
-   * Harness is the agent program: rness or claude-code (Seaport's base
-   * image for it).
-   */
-  harness: Harness
-  /**
-   * Image replaces the base image; it must be built FROM Seaport's base
-   * image of the harness (the user, home and entrypoint are its).
-   */
-  image: string
-  /** Packages are Debian packages installed into a derived image. */
-  packages: string[]
-  /**
-   * Setup is a shell script run while building the derived image, as
-   * root (HOME=/home/agent, handed back to uid 1000 afterwards): tools,
-   * baseline config. It is stored and baked into the image: no secrets.
-   */
-  setup: string
-  repos: EnvRepo[]
-  /**
-   * RepoConfig: trust (the harness reads the repos' own AGENTS.md,
-   * CLAUDE.md, .claude/ settings) or ignore (connector.harnessFor: rness
-   * without instruction files, Claude Code with user settings only).
-   */
-  repo_config: RepoConfig
-  /**
-   * Home names the harness config baked into the image (its ~/.claude or
-   * ~/.rness: instructions, settings, agents, skills, plugins): a home
-   * uploaded to this environment, as sha256:<digest> ("": none).
-   */
-  home: string
-  /**
-   * Models are the model keys the port's gateway uses for the slots:
-   * provider (Providers) → ${NAME} of a secret.
-   */
-  models: EnvModels
-  /**
-   * Env are plain variables every slot's harness gets (TZ, NODE_ENV, a
-   * flag): name → value, never a credential (ValidEnv refuses what looks
-   * like one: those are secrets). The agent's env secrets win over them.
-   */
-  env: Record<string, string>
-  network: EnvNetwork
-  /**
-   * Browser gives the slots a managed browser (Browser.Enabled): the
-   * image gets the engine and the agent's tooling; an agent whose profile
-   * turns its browser on needs an environment with one.
-   */
-  browser: EnvBrowser
-  resources: EnvResources
-  /** Workspace: persistent (kept across restarts) or ephemeral. */
-  workspace: WorkspaceKind
-  /**
-   * IdleStop stops a slot after this long without work ("30m", "2h";
-   * "0": never).
-   */
-  idle_stop: string
-}
-
-/** EnvVersion is an environment version in the history (no spec). */
-export interface EnvVersion {
-  version: number
-  created_by: string
-  created_at: string
-}
-
-/**
- * Environment is where an organization's hosted agents run. Its spec is
- * versioned (Version is the current one); agents hosted on it run the
- * current version.
- */
-export interface Environment {
-  id: ID
-  /** Name is unique in the organization (`seaport env apply` keys on it). */
-  name: string
-  version: number
-  spec: EnvSpec
-  created_by: string
-  created_at: string
-  updated_at: string
-  /** Agents is how many agents are hosted on it. */
-  agents: number
-}
-
-/** EnvironmentDeleted is the payload of EventEnvironmentDeleted. */
-export interface EnvironmentDeleted {
-  id: ID
-}
-
 /** GitHubApp is a GitHub dock's App as the admin API shows it (no secret). */
 export interface GitHubApp {
   app_id: number
@@ -877,12 +752,11 @@ export interface HomeRules {
 }
 
 /**
- * Hosted is an agent the port runs: on which environment, in how many
- * slots.
+ * Hosted is an agent the port runs, in how many slots. What they run is
+ * the agent's config (its harness and machine).
  */
 export interface Hosted {
   agent_id: ID
-  environment_id: ID
   slots: Slot[]
   updated_by: string
   updated_at: string
@@ -1025,6 +899,122 @@ export interface LibraryAgent {
    * its browser (MCP tool ask_takeover), newest first.
    */
   takeovers: Takeover[]
+}
+
+/**
+ * Machine is where and how a hosted agent runs, part of its versioned
+ * config (agent.Profile.Machine; hosting checks and normalizes it:
+ * agent.MachineCheck). No secret values: repo credentials and model keys
+ * name one of the agent's secrets as ${NAME} (Secrets), and Env holds
+ * plain variables only.
+ */
+export interface Machine {
+  /**
+   * Image replaces the base image; it must be built FROM Seaport's base
+   * image of the harness (the user, home and entrypoint are its).
+   */
+  image: string
+  /** Packages are Debian packages installed into a derived image. */
+  packages: string[]
+  /**
+   * Setup is a shell script run while building the derived image, as
+   * root (HOME=/home/agent, handed back to uid 1000 afterwards): tools,
+   * baseline config. It is stored and baked into the image: no secrets.
+   */
+  setup: string
+  repos: MachineRepo[]
+  /**
+   * RepoConfig: trust (the harness reads the repos' own AGENTS.md,
+   * CLAUDE.md, .claude/ settings) or ignore (connector.harnessFor: rness
+   * without instruction files, Claude Code with user settings only).
+   */
+  repo_config: RepoConfig
+  /**
+   * Home names the harness config baked into the image (its ~/.claude or
+   * ~/.rness: instructions, settings, agents, skills, plugins): a home
+   * uploaded to the organization, as sha256:<digest> ("": none).
+   */
+  home: string
+  /**
+   * Models say how the slots reach each provider (Providers): ${NAME} of
+   * one of the agent's secrets holding the API key (the port's gateway
+   * uses it; the key never enters the container), or Subscription
+   * (Anthropic only: the slot signs in to the person's Claude account).
+   */
+  models: MachineModels
+  /**
+   * Env are plain variables every slot's harness gets (TZ, NODE_ENV, a
+   * flag): name → value, never a credential (ValidEnv refuses what looks
+   * like one: those are secrets). The agent's env secrets win over them.
+   */
+  env: Record<string, string>
+  network: MachineNetwork
+  /**
+   * Browser gives the slots a managed browser (Browser.Enabled): the
+   * image gets the engine and the agent's tooling; the config's browser
+   * switch (agent.Profile.Browser) needs it.
+   */
+  browser: MachineBrowser
+  resources: MachineResources
+  /** Workspace: persistent (kept across restarts) or ephemeral. */
+  workspace: WorkspaceKind
+  /**
+   * IdleStop stops a slot after this long without work ("30m", "2h";
+   * "0": never).
+   */
+  idle_stop: string
+}
+
+/**
+ * MachineBrowser is the managed browser of an agent's slots: a CDP engine
+ * (BrowserChromium) run by the slot with the agent's profile
+ * (cookies, storage) in its state volume. The sites it visits go through
+ * the egress proxy like everything else (Network.Egress).
+ */
+export interface MachineBrowser {
+  /** Engine is the browser program: "" for none, else BrowserChromium. */
+  engine: BrowserEngine
+}
+
+/**
+ * MachineModels say how the slots reach each model provider (Providers):
+ * provider → ${NAME} of the agent's secret holding its API key (the slots
+ * reach it through the port's model gateway with their own token: the key
+ * never enters the container) or Subscription (the slot signs in).
+ */
+export type MachineModels = Record<string, string>
+
+/** MachineNetwork is what a slot may reach besides the port. */
+export interface MachineNetwork {
+  /**
+   * Egress are the hosts reachable through the egress proxy
+   * ("example.com", "*.example.com"); the repos' hosts are added.
+   */
+  egress: string[]
+}
+
+/** MachineRepo is a git repository cloned into the workspace at start. */
+export interface MachineRepo {
+  /** URL is an https git URL. */
+  url: string
+  /** Ref is a branch or tag ("": the default branch). */
+  ref: string
+  /** Path is where it goes, relative to /workspace ("": its name). */
+  path: string
+  /**
+   * Credential names the agent's secret holding a token for the URL's
+   * host: ${NAME} ("": public).
+   */
+  credential: string
+  /** OnStart runs in the repo after each clone or fetch (shell). */
+  on_start: string
+}
+
+/** MachineResources bound a slot: a preset size, or CPUs and memory. */
+export interface MachineResources {
+  size?: ResourceSize
+  cpus: number
+  memory_mb: number
 }
 
 export interface McpHeader {
@@ -1277,10 +1267,17 @@ export interface Slot {
   /** Image is the image digest it runs (or last ran). */
   image: string
   /**
-   * EnvironmentVersion is the environment version it runs (0: never
+   * ConfigVersion is the agent config version it started on (0: never
    * started).
    */
-  environment_version: number
+  config_version: number
+  /**
+   * Outdated: it runs and its machine is not the agent's current one
+   * (the config's machine changed): the supervisor restarts it once
+   * idle. An instructions edit doesn't make it outdated (the harness
+   * picks the new kit up in place).
+   */
+  outdated: boolean
   started_at: string | null
   active_at: string | null
   updated_at: string
@@ -1630,6 +1627,7 @@ export interface WebhookTemplate {
 
 /** The payload of every live event type (GET /api/v1/events), by type. */
 export interface WireEvents {
+  "agent.build": Build
   "agent.deleted": AgentDeleted
   "agent.takeover": TakeoverEvent
   "agent.updated": LibraryAgent
@@ -1640,9 +1638,6 @@ export interface WireEvents {
   "delivery.changed": DeliveryEvent
   "dock.deleted": DockDeleted
   "dock.updated": Dock
-  "environment.build": Build
-  "environment.deleted": EnvironmentDeleted
-  "environment.updated": Environment
   "schedule.created": Schedule
   "schedule.deleted": Schedule
   "schedule.fired": Schedule

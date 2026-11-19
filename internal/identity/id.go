@@ -106,7 +106,6 @@ type (
 	ruleTag         struct{}
 	crewTokenTag    struct{}
 	agentTag        struct{}
-	environmentTag  struct{}
 	attachmentTag   struct{}
 	threadTag       struct{}
 	scheduleTag     struct{}
@@ -135,8 +134,6 @@ func tagName[T any]() string {
 		return "crew_token_id"
 	case agentTag:
 		return "agent_id"
-	case environmentTag:
-		return "environment_id"
 	case attachmentTag:
 		return "attachment_id"
 	case threadTag:
@@ -224,15 +221,6 @@ type AgentID = ID[agentTag]
 
 func NewAgentID() AgentID                      { return NewID[agentTag]() }
 func ParseAgentID(raw string) (AgentID, error) { return ParseID[agentTag](raw) }
-
-// EnvironmentID identifies an organization's environment: where its hosted
-// agents run (image, tools, repos, network, resources).
-type EnvironmentID = ID[environmentTag]
-
-func NewEnvironmentID() EnvironmentID { return NewID[environmentTag]() }
-func ParseEnvironmentID(raw string) (EnvironmentID, error) {
-	return ParseID[environmentTag](raw)
-}
 
 // AttachmentID identifies a file that came with a ship (an image...).
 type AttachmentID = ID[attachmentTag]

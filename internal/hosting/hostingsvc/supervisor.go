@@ -10,7 +10,7 @@ import (
 )
 
 // failedRetry: wake starts a failed slot again only this long after it
-// failed (a broken environment doesn't restart every tick).
+// failed (a broken machine doesn't restart every tick).
 const failedRetry = 5 * time.Minute
 
 // Wake asks the supervisor to look now: the agent has new work (the ships'
@@ -153,7 +153,7 @@ func (s *Service) superviseSlot(ctx context.Context, row hosting.Supervised, rs 
 }
 
 // stopRun stops a running slot's run (idle or outdated); restart starts
-// it again once stopped (on the agent's current environment version).
+// it again once stopped (on the agent's current machine).
 func (s *Service) stopRun(ctx context.Context, row hosting.Supervised, restart bool) {
 	h, claimed, err := s.repo.BeginStop(ctx, row.Organization, row.Agent, row.Index, row.Run)
 	if err != nil || !claimed {
@@ -162,7 +162,7 @@ func (s *Service) stopRun(ctx context.Context, row hosting.Supervised, restart b
 	s.events.Publish(row.Organization, hosting.EventSlotsUpdated, h)
 	detail := "stopped after idle_stop without work"
 	if restart {
-		detail = "restarting on the environment's new version"
+		detail = "restarting on the agent's new machine"
 	}
 	slog.Info("stopping slot", "agent", row.Agent, "slot", row.Index, "reason", detail)
 	s.background(func(ctx context.Context) {

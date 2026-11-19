@@ -21,14 +21,13 @@ const (
 	SlotFailed   = "failed"
 )
 
-// Hosted is an agent the port runs: on which environment, in how many
-// slots.
+// Hosted is an agent the port runs, in how many slots. What they run is
+// the agent's config (its harness and machine).
 type Hosted struct {
-	Agent       identity.AgentID       `json:"agent_id"`
-	Environment identity.EnvironmentID `json:"environment_id"`
-	Slots       []Slot                 `json:"slots"`
-	UpdatedBy   string                 `json:"updated_by"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	Agent     identity.AgentID `json:"agent_id"`
+	Slots     []Slot           `json:"slots"`
+	UpdatedBy string           `json:"updated_by"`
+	UpdatedAt time.Time        `json:"updated_at"`
 }
 
 // Slot is one stable instance of a hosted agent (<agent>-<index>): its
@@ -40,21 +39,25 @@ type Slot struct {
 	Detail string `db:"detail" json:"detail"`
 	// Image is the image digest it runs (or last ran).
 	Image string `db:"image" json:"image"`
-	// EnvironmentVersion is the environment version it runs (0: never
+	// ConfigVersion is the agent config version it started on (0: never
 	// started).
-	EnvironmentVersion int        `db:"environment_version" json:"environment_version"`
-	StartedAt          *time.Time `db:"started_at" json:"started_at"`
-	ActiveAt           *time.Time `db:"active_at" json:"active_at"`
-	UpdatedAt          time.Time  `db:"updated_at" json:"updated_at"`
+	ConfigVersion int `db:"config_version" json:"config_version"`
+	// Outdated: it runs and its machine is not the agent's current one
+	// (the config's machine changed): the supervisor restarts it once
+	// idle. An instructions edit doesn't make it outdated (the harness
+	// picks the new kit up in place).
+	Outdated  bool       `db:"outdated" json:"outdated"`
+	StartedAt *time.Time `db:"started_at" json:"started_at"`
+	ActiveAt  *time.Time `db:"active_at" json:"active_at"`
+	UpdatedAt time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 // SlotName is a slot's stable name: <agent>-<index>.
 func SlotName(agentName string, index int) string { return agentName + "-" + strconv.Itoa(index) }
 
-// Host hosts an agent on an environment (or moves it, or changes its
-// slots).
+// Host hosts an agent (or changes its slots). Its config must have a
+// harness and a machine.
 type Host struct {
-	Environment identity.EnvironmentID
 	// Slots is how many instances (default 1).
 	Slots int
 	// By is filled from the caller (not client input).
@@ -62,9 +65,6 @@ type Host struct {
 }
 
 func (h Host) Validate() error {
-	if h.Environment.IsZero() {
-		return errx.InvalidField("environment_id", "environment_id is required")
-	}
 	if h.Slots < 0 || h.Slots > MaxSlotsPerAgent {
 		return errx.InvalidField("slots", "slots must be between 1 and "+strconv.Itoa(MaxSlotsPerAgent))
 	}

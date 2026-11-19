@@ -68,20 +68,20 @@ func remove(r *Runtime, ref string) {
 }
 
 // Derived images: setup runs as root with the agent's home handed back,
-// the result is tagged per version and content and labeled; an existing
+// the result is tagged by content and labeled; an existing
 // tag isn't built again; a base that isn't Seaport's (or is another
 // harness's) is refused; a failing setup fails with its output.
 func TestBuild(t *testing.T) {
 	r := dockerRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	suffix := strings.ReplaceAll(identity.NewEnvironmentID().String()[:8], "-", "")
+	suffix := strings.ReplaceAll(identity.NewAgentID().String()[:8], "-", "")
 	base := "seaport-test-base-" + suffix + ":rness"
 	fakeBase(t, r, base, `io.seaport.base="1" io.seaport.harness="rness"`)
 
-	req := hosting.BuildRequest{Organization: identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001"), Environment: identity.NewEnvironmentID(),
-		Version: 1, Base: base, Spec: hosting.Spec{Harness: hosting.HarnessRness,
-			Setup: "id -u > /opt/setup-uid\necho \"$HOME\" > /home/agent/made-by-setup\n"}}
+	req := hosting.BuildRequest{Organization: identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001"),
+		Base: base, Spec: hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{
+			Setup: "id -u > /opt/setup-uid\necho \"$HOME\" > /home/agent/made-by-setup\n"}}}
 	t.Cleanup(func() { remove(r, req.Tag()) })
 	var log bytes.Buffer
 	id, err := r.Build(ctx, req, &log)
@@ -93,7 +93,7 @@ func TestBuild(t *testing.T) {
 		t.Fatalf("inspect: %v %s", err, img.ID)
 	}
 	labels := img.Config.Labels
-	if labels[hosting.LabelEnvironment] != req.Environment.String() || labels[hosting.LabelVersion] != "1" ||
+	if labels[hosting.LabelDigest] != req.Digest() || labels[hosting.LabelOrganization] != req.Organization.String() ||
 		labels[hosting.LabelHarness] != "rness" || img.Config.User != "1000:1000" {
 		t.Fatalf("labels/user: %+v %q", labels, img.Config.User)
 	}
@@ -120,7 +120,6 @@ func TestBuild(t *testing.T) {
 	}
 
 	broken := req
-	broken.Version = 2
 	broken.Spec.Setup = "echo about to fail\nexit 3\n"
 	t.Cleanup(func() { remove(r, broken.Tag()) })
 	log.Reset()

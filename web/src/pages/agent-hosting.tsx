@@ -1,46 +1,66 @@
 import * as React from "react"
-import { Link, useLocation } from "react-router"
+import { useLocation } from "react-router"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Activity,
   AppWindow,
+  Check,
+  Copy,
   ExternalLink,
+  Hammer,
   KeyRound,
+  Laptop,
   Play,
+  Plus,
+  RefreshCw,
   Server,
   ShieldAlert,
   Square,
   TerminalSquare,
+  Trash2,
   Unplug,
 } from "lucide-react"
+import { toast } from "sonner"
 
+import { api } from "@/lib/api"
 import {
+  useBuild,
   useCan,
+  useCreateCrewToken,
+  useCrewTokens,
   useEgress,
-  useEnvironmentSecrets,
-  useEnvironments,
   useHost,
   useHosted,
   useHosting,
   useLoginCode,
   useNow,
-  useProfile,
-  useSecrets,
+  useRevokeCrewToken,
   useSlotAccount,
   useSlotAction,
   useSlotLog,
   useSlotLogin,
+  useStartBuild,
   useStartLogin,
   useUnhost,
   useUsage,
 } from "@/lib/hooks"
-import { formatRelative } from "@/lib/format"
-import { signsIn as specSignsIn, specSecrets } from "@/pages/environment-secrets"
+import { formatFull, formatRelative } from "@/lib/format"
+import { harnessLabel, signsIn } from "@/lib/machine"
+import { keys } from "@/lib/query"
 import { Perm } from "@/lib/permissions.gen"
-import type { Environment, Hosted, LibraryAgent, Slot } from "@/lib/types"
+import type { AgentProfile, CrewToken, Hosted, IssuedCrewToken, LibraryAgent, Slot } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -48,199 +68,164 @@ import { Spinner } from "@/components/ui/spinner"
 import {
   AccountBadge,
   BrowserViewer,
+  BuildBadge,
   ConfirmAction,
+  EmptyState,
   ErrorState,
-  Takeovers,
   LogView,
   Mono,
+  SegmentedChoice,
   SlotRow,
   StatusBadge,
+  Takeovers,
   UsageChart,
+  type ChoiceOption,
 } from "@/components/seaport"
 
-/** The agent's hosting: where the port runs it, its slots and their logs. */
-export function HostingCard({ agent }: { agent: LibraryAgent }) {
+/** Whether a slot holds resources (must be stopped before it goes). */
+const up = (s: Slot) => s.state !== "stopped" && s.state !== "failed"
+
+/**
+ * Where the agent runs, one of two: hosted (the port runs its instances
+ * from the config's machine) or remote (someone runs `seaport connect`
+ * with one of its tokens). Switching asks for what the other mode holds:
+ * live tokens are revoked before hosting, instances stopped before
+ * leaving.
+ */
+export function WhereTab({
+  agent,
+  profile,
+  onConfigure,
+}: {
+  agent: LibraryAgent
+  profile: AgentProfile | undefined
+  /** Opens the Configuración tab (to give the config a machine). */
+  onConfigure: () => void
+}) {
   const can = useCan()
   const hosted = useHosted(agent.id)
-  const status = useHosting()
-  const envs = useEnvironments()
-  const write = can(Perm.EnvironmentsWrite)
-  if (!can(Perm.EnvironmentsRead)) return null
+  if (!can(Perm.HostingRead)) return <RemotePanel agent={agent} profile={profile} onConfigure={onConfigure} />
   if (hosted.isError) return <ErrorState error={hosted.error} onRetry={() => hosted.refetch()} />
-  if (hosted.isPending || envs.isPending) return <Skeleton className="h-40 rounded-xl" />
-  const items = envs.data?.items ?? []
-  const env = hosted.data ? items.find((e) => e.id === hosted.data?.environment_id) : undefined
-  const runtime = status.data?.runtime ?? true
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2">
-              <Server className="size-4" /> Alojamiento
-            </CardTitle>
-            <CardDescription>
-              {hosted.data ? (
-                <>
-                  El puerto lo corre en{" "}
-                  {env ? (
-                    <Link to={`/environments/${env.id}`} className="font-mono text-foreground underline-offset-4 hover:underline">
-                      {env.name}
-                    </Link>
-                  ) : (
-                    "su entorno"
-                  )}
-                  : arranca una instancia cuando le llegan mensajes y la detiene sin trabajo.
-                </>
-              ) : (
-                <>
-                  Sin alojar: trabaja donde alguien corre <Mono>seaport connect</Mono>. Alójalo en un entorno y el puerto
-                  lo corre por ti.
-                </>
-              )}
-            </CardDescription>
-          </div>
-          {hosted.data && write && (
-            <UnhostButton agent={agent} hosted={hosted.data} />
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!runtime && (
-          <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
-            Este puerto no corre agentes (<Mono>SEAPORT_RUNTIME=off</Mono>): las instancias no arrancan.
-          </p>
-        )}
-        {write && <HostForm agent={agent} hosted={hosted.data} envs={items} />}
-        {hosted.data && env && <LentSecrets agent={agent} env={env} />}
-        {hosted.data && (
-          <Slots agent={agent} hosted={hosted.data} env={env} write={write} runtime={runtime} />
-        )}
-        {hosted.data && <Denials agent={agent} />}
-        {!write && !hosted.data && items.length === 0 && (
-          <p className="text-sm text-muted-foreground">Todavía no hay entornos.</p>
-        )}
-      </CardContent>
-    </Card>
+  if (hosted.isPending || !profile) return <Skeleton className="h-48 rounded-xl" />
+  return hosted.data ? (
+    <HostedPanel agent={agent} hosted={hosted.data} profile={profile} />
+  ) : (
+    <RemotePanel agent={agent} profile={profile} onConfigure={onConfigure} />
   )
 }
 
-/** A notice when the environment's spec names secrets the environment lacks
- * and this agent lends (specs from before environment secrets). */
-function LentSecrets({ agent, env }: { agent: LibraryAgent; env: Environment }) {
-  const theirs = useEnvironmentSecrets(env.id)
-  const mine = useSecrets(agent.id)
-  if (!theirs.data || !mine.data) return null
-  const have = new Set(theirs.data.secrets.map((s) => s.name))
-  const own = new Set(mine.data.secrets.map((s) => s.name))
-  const lent = [...specSecrets(env.spec).keys()].filter((n) => !have.has(n) && own.has(n))
-  if (lent.length === 0) return null
+function RuntimeOff() {
   return (
     <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
-      {lent.map((n, i) => [i > 0 && ", ", <Mono key={n}>{n}</Mono>])} {lent.length === 1 ? "sale" : "salen"} de los
-      secretos de este agente: la especificación de <Mono>{env.name}</Mono> lo nombra y el entorno no lo tiene.{" "}
-      <Link to={`/environments/${env.id}`} className="text-foreground underline-offset-4 hover:underline">
-        Créalo en el entorno
-      </Link>{" "}
-      para que lo compartan todos sus agentes.
+      Este puerto no corre agentes (<Mono>SEAPORT_RUNTIME=off</Mono>): las instancias no arrancan ni se construyen
+      imágenes.
     </p>
   )
 }
 
-/** Picks the environment and how many slots (hosts or moves the agent). */
-function HostForm({ agent, hosted, envs }: { agent: LibraryAgent; hosted: Hosted | null; envs: Environment[] }) {
+/** A hosted agent: its instances, image and what the proxy refused. */
+function HostedPanel({ agent, hosted, profile }: { agent: LibraryAgent; hosted: Hosted; profile: AgentProfile }) {
+  const can = useCan()
+  const status = useHosting()
+  const write = can(Perm.HostingWrite)
+  const runtime = status.data?.runtime ?? true
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2">
+                <Server className="size-4" /> Alojado en el puerto
+              </CardTitle>
+              <CardDescription>
+                El puerto corre {profile.harness ? harnessLabel[profile.harness] : "su harness"} con la máquina de su
+                configuración: arranca una instancia cuando le llegan mensajes y la detiene sin trabajo.
+              </CardDescription>
+            </div>
+            {write && <UnhostButton agent={agent} hosted={hosted} />}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!runtime && <RuntimeOff />}
+          {write && <SlotsForm agent={agent} hosted={hosted} />}
+          <Slots agent={agent} hosted={hosted} profile={profile} write={write} runtime={runtime} />
+          <Denials agent={agent} />
+        </CardContent>
+      </Card>
+      <BuildCard agent={agent} write={write} runtime={runtime} />
+    </div>
+  )
+}
+
+/** How many instances the agent has. */
+function SlotsForm({ agent, hosted }: { agent: LibraryAgent; hosted: Hosted }) {
   const host = useHost(agent.id)
-  const [env, setEnv] = React.useState(hosted?.environment_id ?? "")
-  const [slots, setSlots] = React.useState(hosted?.slots.length ?? 1)
+  const [slots, setSlots] = React.useState(hosted.slots.length)
   const [seen, setSeen] = React.useState(hosted)
   if (seen !== hosted) {
     // Someone (or a save of ours) changed it: show what is stored.
     setSeen(hosted)
-    setEnv(hosted?.environment_id ?? "")
-    setSlots(hosted?.slots.length ?? 1)
+    setSlots(hosted.slots.length)
   }
-  if (envs.length === 0)
-    return (
-      <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-        Para alojarlo, primero <Link to="/environments" className="text-foreground underline underline-offset-4">crea un entorno</Link>.
-      </p>
-    )
-  const changed = !hosted || env !== hosted.environment_id || slots !== hosted.slots.length
-  const dropping = hosted?.slots.slice(slots).some((s) => s.state !== "stopped" && s.state !== "failed")
+  const changed = slots !== hosted.slots.length
+  const dropping = hosted.slots.slice(slots).some(up)
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <Field className="w-64">
-        <FieldLabel>Entorno</FieldLabel>
-        <Select value={env} onValueChange={setEnv}>
-          <SelectTrigger aria-label="Entorno" className="font-mono">
-            <SelectValue placeholder="Elige un entorno" />
-          </SelectTrigger>
-          <SelectContent>
-            {envs.map((e) => (
-              <SelectItem key={e.id} value={e.id} className="font-mono">
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
       <Field className="w-36">
         <FieldLabel>Instancias</FieldLabel>
-        <Select value={String(slots)} onValueChange={(v) => setSlots(Number(v))}>
-          <SelectTrigger aria-label="Instancias">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                {n}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SlotCount value={slots} onChange={setSlots} />
       </Field>
-      <Button
-        disabled={!env || !changed || host.isPending || dropping}
-        title={dropping ? "Detén primero las instancias que sobran" : undefined}
-        onClick={() => host.mutate({ environment: env, slots })}
-      >
-        {host.isPending && <Spinner />} {hosted ? "Aplicar" : "Alojar"}
-      </Button>
-      {hosted && changed && (
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setEnv(hosted.environment_id)
-            setSlots(hosted.slots.length)
-          }}
-        >
-          Descartar
-        </Button>
+      {changed && (
+        <>
+          <Button
+            disabled={host.isPending || dropping}
+            title={dropping ? "Detén primero las instancias que sobran" : undefined}
+            onClick={() => host.mutate({ slots })}
+          >
+            {host.isPending && <Spinner />} Aplicar
+          </Button>
+          <Button variant="ghost" onClick={() => setSlots(hosted.slots.length)}>
+            Descartar
+          </Button>
+        </>
       )}
     </div>
   )
 }
 
+export function SlotCount({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger aria-label="Instancias">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+          <SelectItem key={n} value={String(n)}>
+            {n}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function UnhostButton({ agent, hosted }: { agent: LibraryAgent; hosted: Hosted }) {
   const unhost = useUnhost(agent.id)
-  const up = hosted.slots.some((s) => s.state !== "stopped" && s.state !== "failed")
+  const running = hosted.slots.some(up)
   return (
     <ConfirmAction
       trigger={
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={up}
-          title={up ? "Detén sus instancias primero" : undefined}
-        >
-          <Unplug /> Dejar de alojar
+        <Button variant="outline" size="sm" disabled={running} title={running ? "Detén sus instancias primero" : undefined}>
+          <Unplug /> Pasar a remoto
         </Button>
       }
       title={`¿Dejar de alojar a @${agent.name}?`}
       description={
         <p>
-          Se borran sus instancias y sus volúmenes de trabajo. El agente sigue en la biblioteca y puede trabajar con{" "}
-          <Mono>seaport connect</Mono>.
+          Se borran sus instancias y sus volúmenes de trabajo. Su configuración (y su máquina) se queda; después trabaja
+          donde alguien corra <Mono>seaport connect</Mono> con uno de sus tokens.
         </p>
       }
       destructive
@@ -253,53 +238,51 @@ function UnhostButton({ agent, hosted }: { agent: LibraryAgent; hosted: Hosted }
 function Slots({
   agent,
   hosted,
-  env,
+  profile,
   write,
   runtime,
 }: {
   agent: LibraryAgent
   hosted: Hosted
-  env?: Environment
+  profile: AgentProfile
   write: boolean
   runtime: boolean
 }) {
   const now = useNow(10_000)
   const action = useSlotAction(agent.id)
   const busy = (s: Slot) => action.isPending && action.variables?.slot === s.index
-  // No model key (Claude Code: no Anthropic key): each slot signs in to a
-  // Claude subscription.
-  const signsIn = !!env && specSignsIn(env.spec)
+  // A Claude account instead of a key: each slot signs in.
+  const account = signsIn(profile.harness, profile.machine?.models)
   return (
-    <ul className="divide-y rounded-lg border">
+    <ul className="divide-y rounded-lg border" aria-label="Instancias">
       {hosted.slots.map((s) => {
-        const up = s.state === "running" || s.state === "starting"
+        const on = s.state === "running" || s.state === "starting"
         return (
           <li key={s.index}>
             <SlotRow
               name={`${agent.name}-${s.index}`}
               slot={s}
-              current={env?.version}
               now={now}
               actions={
                 <>
-                  {signsIn && s.state === "running" && <SlotAccountBadge agent={agent} slot={s} />}
-                  {write && signsIn && runtime && s.state !== "stopping" && <SignInDialog agent={agent} slot={s} />}
+                  {account && s.state === "running" && <SlotAccountBadge agent={agent} slot={s} />}
+                  {write && account && runtime && s.state !== "stopping" && <SignInDialog agent={agent} slot={s} />}
                   {write && (
-                  <>
-                    <SlotLogDialog agent={agent} slot={s} />
-                    {runtime && (
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={up ? `Detener ${agent.name}-${s.index}` : `Arrancar ${agent.name}-${s.index}`}
-                        title={up ? "Detener" : "Arrancar"}
-                        disabled={busy(s) || s.state === "stopping"}
-                        onClick={() => action.mutate({ slot: s.index, action: up ? "stop" : "start" })}
-                      >
-                        {busy(s) ? <Spinner /> : up ? <Square /> : <Play />}
-                      </Button>
-                    )}
-                  </>
+                    <>
+                      <SlotLogDialog agent={agent} slot={s} />
+                      {runtime && (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={on ? `Detener ${agent.name}-${s.index}` : `Arrancar ${agent.name}-${s.index}`}
+                          title={on ? "Detener" : "Arrancar"}
+                          disabled={busy(s) || s.state === "stopping"}
+                          onClick={() => action.mutate({ slot: s.index, action: on ? "stop" : "start" })}
+                        >
+                          {busy(s) ? <Spinner /> : on ? <Square /> : <Play />}
+                        </Button>
+                      )}
+                    </>
                   )}
                 </>
               }
@@ -397,7 +380,7 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
           </p>
         ) : start.isError ? (
           <ErrorState error={start.error} onRetry={() => start.mutate()} />
-        ) : (!l || state === "starting" || start.isPending) ? (
+        ) : !l || state === "starting" || start.isPending ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Spinner /> Iniciando el login en la instancia…
           </p>
@@ -463,7 +446,7 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
 }
 
 /** The slot's recent output (harness, git, connector); may show secrets
- * the harness echoes, hence environments:write. */
+ * the harness echoes, hence hosting:write. */
 function SlotLogDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
   const [open, setOpen] = React.useState(false)
   const log = useSlotLog(agent.id, slot.index, open)
@@ -508,7 +491,7 @@ function Denials({ agent }: { agent: LibraryAgent }) {
         <ShieldAlert className="size-4 text-warning" /> Salidas bloqueadas
       </h3>
       <p className="text-sm text-muted-foreground">
-        Hosts que sus instancias intentaron y el proxy rechazó. Si los necesita, agrégalos a la red del entorno.
+        Hosts que sus instancias intentaron y el proxy rechazó. Si los necesita, agrégalos en Configuración → Salida.
       </p>
       <ul className="divide-y rounded-lg border text-sm">
         {denials.map((d) => (
@@ -525,6 +508,428 @@ function Denials({ agent }: { agent: LibraryAgent }) {
         ))}
       </ul>
     </div>
+  )
+}
+
+/** The image of the agent's current machine: built once per content. */
+function BuildCard({ agent, write, runtime }: { agent: LibraryAgent; write: boolean; runtime: boolean }) {
+  const build = useBuild(agent.id)
+  const start = useStartBuild(agent.id)
+  const [showLog, setShowLog] = React.useState(false)
+  const b = build.data
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              <Hammer className="size-4" /> Imagen
+              {!build.isPending && <BuildBadge build={b} />}
+            </CardTitle>
+            <CardDescription>
+              Se construye sola al arrancar una instancia con una máquina nueva; agentes con la misma máquina comparten
+              imagen.
+            </CardDescription>
+          </div>
+          {write && runtime && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={start.isPending || b?.state === "building"}
+              onClick={() => start.mutate(b?.state === "ready" || b?.state === "failed")}
+            >
+              {start.isPending ? <Spinner /> : <RefreshCw />} {b ? "Reconstruir" : "Construir"}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {build.isError ? (
+          <ErrorState error={build.error} onRetry={() => build.refetch()} />
+        ) : b ? (
+          <>
+            <p className="text-sm text-muted-foreground">
+              <Mono>{b.image || b.digest.slice(0, 12)}</Mono>
+              {" · "}
+              {b.finished_at ? `terminó ${formatFull(b.finished_at)}` : `empezó ${formatFull(b.started_at)}`}
+            </p>
+            {b.state === "failed" && b.detail && <p className="text-sm text-destructive">{b.detail}</p>}
+            {b.log && (
+              <Button variant="ghost" size="sm" onClick={() => setShowLog(!showLog)}>
+                <TerminalSquare /> {showLog ? "Ocultar registro" : "Ver registro"}
+              </Button>
+            )}
+            {(showLog || b.state === "building") && b.log && <LogView text={b.log} className="max-h-80" />}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">Todavía no se construyó la imagen de esta máquina.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * A remote agent: it works wherever someone runs `seaport connect` with one
+ * of its tokens. From here it can also move into the port (hosting needs
+ * a harness and a machine in its config).
+ */
+function RemotePanel({
+  agent,
+  profile,
+  onConfigure,
+}: {
+  agent: LibraryAgent
+  profile: AgentProfile | undefined
+  onConfigure: () => void
+}) {
+  const can = useCan()
+  return (
+    <div className="space-y-6">
+      {can(Perm.CrewTokensRead) && <TokensCard agent={agent} />}
+      <ConnectCard agent={agent} profile={profile} />
+      {can(Perm.HostingWrite) && profile && <HostCard agent={agent} profile={profile} onConfigure={onConfigure} />}
+    </div>
+  )
+}
+
+/** The agent's tokens (people's; a slot's own never show). */
+function TokensCard({ agent }: { agent: LibraryAgent }) {
+  const tokens = useCrewTokens()
+  const can = useCan()
+  const now = useNow()
+  const write = can(Perm.CrewTokensWrite)
+  const mine = (tokens.data?.items ?? []).filter((t) => t.agent_id === agent.id)
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="size-4" /> Tokens
+            </CardTitle>
+            <CardDescription>
+              Con uno de estos, <Mono>seaport connect</Mono> trabaja como @{agent.name}. Uno por máquina, para revocarlos
+              por separado.
+            </CardDescription>
+          </div>
+          {write && <NewTokenDialog agent={agent} />}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {tokens.isPending ? (
+          <Skeleton className="h-14 rounded-lg" />
+        ) : tokens.isError ? (
+          <ErrorState error={tokens.error} onRetry={() => tokens.refetch()} />
+        ) : mine.length === 0 ? (
+          <EmptyState icon={KeyRound} title="Sin tokens" description="Crea uno para la máquina donde correrá el agente." />
+        ) : (
+          <ul className="divide-y rounded-lg border" aria-label="Tokens">
+            {mine.map((t) => (
+              <TokenRow key={t.id} token={t} agent={agent} now={now} canRevoke={write} />
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TokenRow({
+  token: t,
+  agent,
+  now,
+  canRevoke,
+}: {
+  token: CrewToken
+  agent: LibraryAgent
+  now: number
+  canRevoke: boolean
+}) {
+  const revoke = useRevokeCrewToken()
+  const expired = !!t.expires_at && new Date(t.expires_at).getTime() <= now
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium">{t.name}</span>
+          <Mono className="text-xs text-muted-foreground">{t.hint}…</Mono>
+          {expired && <StatusBadge tone="danger">Vencido</StatusBadge>}
+        </div>
+        <div className="truncate text-xs text-muted-foreground">
+          <span title={formatFull(t.created_at)}>Creado {formatRelative(t.created_at, now)}</span>
+          {t.created_by && <> por {t.created_by}</>}
+          {" · "}
+          {t.last_used_at ? (
+            <span title={formatFull(t.last_used_at)}>usado {formatRelative(t.last_used_at, now)}</span>
+          ) : (
+            "nunca usado"
+          )}
+          {" · "}
+          {t.expires_at ? (
+            <span title={formatFull(t.expires_at)}>
+              {expired ? "venció" : "vence"} {formatRelative(t.expires_at, now)}
+            </span>
+          ) : (
+            "sin vencimiento"
+          )}
+        </div>
+      </div>
+      {canRevoke && (
+        <ConfirmAction
+          destructive
+          title={`¿Revocar «${t.name}» de @${agent.name}?`}
+          description={<p>Quien esté conectado con este token se desconecta ahora y no podrá volver a entrar con él.</p>}
+          actionLabel="Revocar"
+          onConfirm={() => revoke.mutateAsync(t.id)}
+          trigger={
+            <Button variant="ghost" size="sm" className="text-destructive">
+              <Trash2 /> Revocar
+            </Button>
+          }
+        />
+      )}
+    </li>
+  )
+}
+
+type Lifetime = "30" | "90" | "365" | "never"
+
+const lifetimeOptions: ChoiceOption<Lifetime>[] = [
+  { value: "30", label: "30 días" },
+  { value: "90", label: "90 días" },
+  { value: "365", label: "1 año" },
+  { value: "never", label: "Sin vencimiento" },
+]
+
+function NewTokenDialog({ agent }: { agent: LibraryAgent }) {
+  const create = useCreateCrewToken()
+  const [open, setOpen] = React.useState(false)
+  const [name, setName] = React.useState("")
+  const [lifetime, setLifetime] = React.useState<Lifetime>("90")
+  const [issued, setIssued] = React.useState<IssuedCrewToken>()
+  const close = (o: boolean) => {
+    setOpen(o)
+    if (!o) {
+      // The value is gone once the dialog closes; it is never shown again.
+      setName("")
+      setIssued(undefined)
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Plus /> Nuevo token
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        {issued ? (
+          <IssuedToken token={issued} onDone={() => close(false)} />
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const expires_at =
+                lifetime === "never" ? undefined : new Date(Date.now() + Number(lifetime) * 86_400_000).toISOString()
+              create.mutate({ agent_id: agent.id, name: name.trim(), expires_at }, { onSuccess: setIssued })
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Nuevo token para @{agent.name}</DialogTitle>
+              <DialogDescription>Quien se conecte con él trabaja como este agente.</DialogDescription>
+            </DialogHeader>
+            <FieldGroup className="py-5">
+              <Field>
+                <FieldLabel htmlFor="token-name">Nombre</FieldLabel>
+                <Input
+                  id="token-name"
+                  value={name}
+                  placeholder="rness en mi laptop"
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                />
+                <FieldDescription>Para reconocerlo en la lista y en los registros.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Vigencia</FieldLabel>
+                <SegmentedChoice
+                  aria-label="Vigencia"
+                  size="sm"
+                  value={lifetime}
+                  options={lifetimeOptions}
+                  onChange={setLifetime}
+                  className="w-full sm:w-full"
+                />
+              </Field>
+            </FieldGroup>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => close(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={!name.trim() || create.isPending}>
+                {create.isPending && <Spinner />} Crear token
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** The value, shown once, with the command to connect. */
+function IssuedToken({ token, onDone }: { token: IssuedCrewToken; onDone: () => void }) {
+  const [copied, setCopied] = React.useState(false)
+  const copy = async () => {
+    await navigator.clipboard.writeText(token.value)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Token de @{token.agent_name}</DialogTitle>
+        <DialogDescription>Cópialo ahora: no se vuelve a mostrar. Seaport solo guarda su huella.</DialogDescription>
+      </DialogHeader>
+      <div className="min-w-0 space-y-3 py-5">
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2">
+          <Mono className="min-w-0 flex-1 px-1 text-sm break-all select-all" data-testid="issued-token">
+            {token.value}
+          </Mono>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={copy}>
+            {copied ? <Check /> : <Copy />} {copied ? "Copiado" : "Copiar"}
+          </Button>
+        </div>
+        <p className="text-xs break-words text-muted-foreground">
+          En la máquina del agente: <code>SEAPORT_CREW_TOKEN=&lt;token&gt; seaport connect -- rness --acp</code>
+        </p>
+      </div>
+      <DialogFooter>
+        <Button onClick={onDone}>Listo</Button>
+      </DialogFooter>
+    </>
+  )
+}
+
+/** The command that connects the agent from a machine. */
+function ConnectCard({ agent, profile }: { agent: LibraryAgent; profile: AgentProfile | undefined }) {
+  const config = useQuery({ queryKey: keys.config, queryFn: api.config, staleTime: Infinity })
+  const harness = profile?.harness === "claude-code" ? "claude-agent-acp" : "rness --acp"
+  // Open mode has no tokens: the connector names its agent.
+  const cmd =
+    config.data?.auth === "none"
+      ? `seaport connect -server ${window.location.origin} -agent ${agent.name} -- ${harness}`
+      : `SEAPORT_CREW_TOKEN=… seaport connect -server ${window.location.origin} -- ${harness}`
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Laptop className="size-4" /> Conectar desde una máquina
+        </CardTitle>
+        <CardDescription>
+          Corre esto donde vive el agente: se conecta hacia afuera (no abre puertos), toma su configuración y se despierta
+          con cada mensaje de sus muelles.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="relative">
+          <pre className="scrollbar-thin overflow-x-auto rounded-lg bg-muted p-3 pr-12 font-mono text-xs">{cmd}</pre>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-2 right-2"
+            aria-label="Copiar"
+            onClick={() => navigator.clipboard.writeText(cmd).then(() => toast.success("Copiado"))}
+          >
+            <Copy />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Moves a remote agent into the port. Its config must have a harness and a
+ * machine; people's live tokens are revoked first (the modes exclude each
+ * other, and the port refuses otherwise).
+ */
+function HostCard({
+  agent,
+  profile,
+  onConfigure,
+}: {
+  agent: LibraryAgent
+  profile: AgentProfile
+  onConfigure: () => void
+}) {
+  const host = useHost(agent.id)
+  const tokens = useCrewTokens()
+  const status = useHosting()
+  const qc = useQueryClient()
+  const now = useNow()
+  const [slots, setSlots] = React.useState(1)
+  const ready = !!profile.harness && !!profile.machine
+  const liveTokens = (tokens.data?.items ?? []).filter(
+    (t) => t.agent_id === agent.id && (!t.expires_at || new Date(t.expires_at).getTime() > now),
+  )
+  const doHost = async () => {
+    for (const t of liveTokens) await api.revokeCrewToken(t.id)
+    if (liveTokens.length) qc.invalidateQueries({ queryKey: keys.crewTokens })
+    await host.mutateAsync({ slots })
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Server className="size-4" /> Alojar en el puerto
+        </CardTitle>
+        <CardDescription>
+          El puerto corre sus instancias con la máquina de su configuración: nadie tiene que dejar una terminal abierta.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {status.data && !status.data.runtime && <RuntimeOff />}
+        {!ready ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-3 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Su configuración no tiene {profile.harness ? "máquina" : "harness ni máquina"}: elige harness, modelo y lo
+              que necesita en Configuración.
+            </span>
+            <Button variant="outline" size="sm" onClick={onConfigure}>
+              Ir a Configuración
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            <Field className="w-36">
+              <FieldLabel>Instancias</FieldLabel>
+              <SlotCount value={slots} onChange={setSlots} />
+            </Field>
+            {liveTokens.length > 0 ? (
+              <ConfirmAction
+                trigger={<Button disabled={host.isPending}>{host.isPending && <Spinner />} Alojar</Button>}
+                title={`¿Alojar a @${agent.name}?`}
+                description={
+                  <p>
+                    Un agente alojado no se conecta con tokens: se {liveTokens.length === 1 ? "revoca su token" : `revocan sus ${liveTokens.length} tokens`}{" "}
+                    y quien esté conectado con {liveTokens.length === 1 ? "él" : "ellos"} se desconecta.
+                  </p>
+                }
+                actionLabel="Revocar y alojar"
+                destructive
+                onConfirm={doHost}
+              />
+            ) : (
+              <Button disabled={host.isPending} onClick={() => doHost().catch(() => {})}>
+                {host.isPending && <Spinner />} Alojar
+              </Button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -548,20 +953,22 @@ export function UsageCard({ agent }: { agent: LibraryAgent }) {
   )
 }
 
+/** Whether the agent's Navegador tab has anything to show. */
+export function hasBrowserTab(agent: LibraryAgent, profile: AgentProfile | undefined): boolean {
+  return !!profile?.machine?.browser?.engine || (agent.takeovers ?? []).length > 0
+}
+
 /**
- * The agent's managed browser: when its environment runs one and its
- * profile uses it, a person opens a running slot's browser here to sign in
- * take over at the sites the agent asked for (ask_takeover) or any other.
+ * The agent's managed browser: when its machine runs one and its profile
+ * uses it, a person opens a running slot's browser here to sign in or take
+ * over at the sites the agent asked for (ask_takeover) or any other.
  */
-export function BrowserCard({ agent }: { agent: LibraryAgent }) {
+export function BrowserCard({ agent, profile }: { agent: LibraryAgent; profile: AgentProfile | undefined }) {
   const can = useCan()
   const hosted = useHosted(agent.id)
-  const envs = useEnvironments()
-  const profile = useProfile(agent.id)
   const [open, setOpen] = React.useState<{ slot: number; url?: string } | null>(null)
   const use = can(Perm.BrowserUse)
-  // Takeover notices link `/agents/{id}#navegador`: scroll here once, when
-  // the card first shows (it loads after the page).
+  // Takeover notices link `/agents/{id}#navegador`: scroll here once.
   const { hash } = useLocation()
   const scrolled = React.useRef(false)
   const anchor = React.useCallback(
@@ -570,16 +977,13 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
       scrolled.current = true
       el.scrollIntoView({ block: "start" })
     },
-    [hash]
+    [hash],
   )
-  if (!can(Perm.EnvironmentsRead) || !hosted.data) return null
-  const env = envs.data?.items.find((e) => e.id === hosted.data?.environment_id)
-  const hasBrowser = !!env?.spec.browser?.engine
-  const takeovers = agent.takeovers ?? []
-  if (!hasBrowser && takeovers.length === 0) return null
-  const running = hosted.data.slots.filter((s) => s.state === "running")
-  const profileOn = profile.data?.browser ?? false
-  const slot = open ? hosted.data.slots.find((s) => s.index === open.slot) : undefined
+  const hasBrowser = !!profile?.machine?.browser?.engine
+  const slots = hosted.data?.slots ?? []
+  const running = slots.filter((s) => s.state === "running")
+  const profileOn = profile?.browser ?? false
+  const slot = open ? slots.find((s) => s.index === open.slot) : undefined
   const openOn = (url?: string) => running[0] && setOpen({ slot: running[0].index, url })
   return (
     <Card id="navegador" ref={anchor} className="scroll-mt-4">
@@ -591,13 +995,15 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
             </CardTitle>
             <CardDescription>
               {!hasBrowser
-                ? "El entorno no tiene navegador: el agente pidió que alguien tome el control, pero no hay dónde."
-                : !profileOn
-                  ? "El entorno da un navegador a cada instancia; actívalo en el perfil del agente para que lo use."
-                  : "Cada instancia corre un Chromium con perfil persistente que el agente y tú compartís: lo que inicies sesión aquí, el agente lo usa."}
+                ? "Su máquina no tiene navegador: el agente pidió que alguien tome el control, pero no hay dónde."
+                : !hosted.data
+                  ? "El navegador corre en sus instancias: alójalo para usarlo."
+                  : !profileOn
+                    ? "Su máquina tiene navegador; enciende «Navegador» en su configuración para que el agente lo use."
+                    : "Cada instancia corre un Chromium con perfil persistente que el agente y tú compartís: lo que inicies sesión aquí, el agente lo usa."}
             </CardDescription>
           </div>
-          {use && hasBrowser && !open && (
+          {use && hasBrowser && hosted.data && !open && (
             <Button
               size="sm"
               disabled={running.length === 0}
@@ -610,9 +1016,19 @@ export function BrowserCard({ agent }: { agent: LibraryAgent }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Takeovers agent={agent} canClear={use} onOpen={use && hasBrowser && running.length > 0 ? (host) => openOn(`https://${host}`) : undefined} />
+        <Takeovers
+          agent={agent}
+          canClear={use}
+          onOpen={use && hasBrowser && running.length > 0 ? (host) => openOn(`https://${host}`) : undefined}
+        />
         {open && slot && slot.state === "running" ? (
-          <BrowserViewer key={`${slot.index}-${open.url ?? ""}`} agent={agent} slot={slot} startUrl={open.url} onClose={() => setOpen(null)} />
+          <BrowserViewer
+            key={`${slot.index}-${open.url ?? ""}`}
+            agent={agent}
+            slot={slot}
+            startUrl={open.url}
+            onClose={() => setOpen(null)}
+          />
         ) : open ? (
           <p className="text-sm text-muted-foreground">La instancia se detuvo.</p>
         ) : null}

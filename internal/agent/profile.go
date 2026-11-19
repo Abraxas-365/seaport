@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -26,6 +27,9 @@ const (
 	maxSkillDescribe = 1024
 	// MaxIgnoreHosts bounds a profile's browser_ignore_hosts.
 	MaxIgnoreHosts = 32
+	// MaxMachine bounds a config's machine as JSON (its setup script is
+	// the big part: hosting.MaxSetup).
+	MaxMachine = 256 << 10
 )
 
 // Approve policies: how the connector answers the harness's permission
@@ -80,9 +84,24 @@ type Profile struct {
 	BrowserDetect bool `json:"browser_detect"`
 	// BrowserIgnoreHosts are sites (and their subdomains) the detector
 	// never asks a takeover for: a password field the agent never needs.
-	BrowserIgnoreHosts []string  `json:"browser_ignore_hosts"`
-	CreatedBy          string    `json:"created_by"`
-	CreatedAt          time.Time `json:"created_at"`
+	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
+	// Harness is the agent program (rness | claude-code; "" = not set):
+	// a hosted agent's base image, a remote one's suggested command (the
+	// connector warns when hello.agent doesn't match).
+	Harness string `json:"harness"`
+	// Machine is where and how the agent runs when hosted (hosting.Machine,
+	// normalized; null = none yet): opaque here, checked by MachineCheck.
+	Machine json.RawMessage `json:"machine"`
+	// MachineDigest names what its slots run (harness + machine): a
+	// running slot started on another digest is outdated. "" without a
+	// machine.
+	MachineDigest string `json:"machine_digest"`
+	// MachineSecrets are the secrets the machine names (model keys, repo
+	// credentials): they must be the agent's and can't be deleted while
+	// named.
+	MachineSecrets []string  `json:"machine_secrets"`
+	CreatedBy      string    `json:"created_by"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // AssistConversation is BrowserAssist's "the conversation the agent is
@@ -148,8 +167,36 @@ type SaveProfile struct {
 	// lowercased and must be unique.
 	BrowserDetect      bool
 	BrowserIgnoreHosts []string
+	// Harness is "" (not set), rness or claude-code.
+	Harness string
+	// Machine is the hosting.Machine as JSON (nil: none; needs Harness).
+	// The service hands it to MachineCheck and stores what it answers.
+	Machine json.RawMessage
+	// Checked is filled by the service from MachineCheck (not client
+	// input): the normalized machine replaces Machine.
+	Checked CheckedMachine
 	// CreatedBy is filled from the caller (not client input).
 	CreatedBy string
+}
+
+// MachineInput is what MachineCheck checks: the config's harness, its
+// machine and the profile's browser switch.
+type MachineInput struct {
+	Harness string
+	Machine json.RawMessage
+	// Browser is the profile's browser switch.
+	Browser bool
+}
+
+// CheckedMachine is MachineCheck's answer: the normalized machine, its
+// digest (what slots run), the secrets it names, the home it bakes in
+// ("" = none) and whether it has a browser engine.
+type CheckedMachine struct {
+	Machine json.RawMessage
+	Digest  string
+	Secrets []string
+	Home    string
+	Browser bool
 }
 
 func (p SaveProfile) Validate() error {
@@ -214,6 +261,21 @@ func (p SaveProfile) Validate() error {
 	}
 	if len(p.BrowserIgnoreHosts) > MaxIgnoreHosts {
 		return errx.InvalidField("browser_ignore_hosts", "at most "+strconv.Itoa(MaxIgnoreHosts)+" hosts can be ignored")
+	}
+	if err := optionValue("harness", p.Harness); err != nil {
+		return err
+	}
+	if len(p.Machine) > MaxMachine {
+		return errx.InvalidField("machine", "the machine is larger than "+strconv.Itoa(MaxMachine)+" bytes")
+	}
+	if m := strings.TrimSpace(string(p.Machine)); m != "" && m != "null" {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(p.Machine, &obj); err != nil {
+			return errx.InvalidField("machine", "machine must be an object")
+		}
+		if p.Harness == "" {
+			return errx.InvalidField("harness", "a machine needs a harness (rness or claude-code)")
+		}
 	}
 	clear(seen)
 	for _, h := range p.BrowserIgnoreHosts {

@@ -27,10 +27,7 @@ A sidebar lists the sections you may use. A section you have no permission for i
 | **Bandeja** (Inbox) | every conversation, and the chat panel |
 | **Aduana** (Customs) | chats waiting for a decision, and each dock's rules. A badge counts the pending ones. |
 | **Muelles** (Docks) | your channels. The docks are listed under it, each with a status dot. |
-| **Agentes** (Agents) | the agent library |
-| **Entornos** (Environments) | where [hosted agents](hosting/hosted-agents.md) run |
-| **Tripulación** (Crew) | connected agents. A badge counts them. |
-| **Tokens de agentes** (Agent tokens) | credentials agents connect with |
+| **Agentes** (Agents) | the agent library: where each runs and what it is doing. A badge counts the connections working. |
 | **Miembros** (Members) | `iam` mode with the members settings, for organization administrators: [people, invitations and API keys](members.md) |
 
 The footer shows the [live indicator](#live-updates) and a summary of the crew: "N en curso" (agents working), "N libre(s)" (idle) or "sin agentes". The account menu shows who you are (**Administrador**, **Local**, or your name and organization in `iam` mode), the version, the theme, and **Cerrar sesión** (sign out). In `iam` mode it also has **Cambiar de organización** (switch organization). On a phone, the sidebar opens from a header button.
@@ -118,33 +115,23 @@ A dock's page shows:
 
 ![The agent library](../assets/screenshots/agents.png)
 
-Each agent is a row with its name (`@name`), its profile version, and the docks it works on (a star marks where it is the default). **Nuevo agente** creates one; the row menu edits or deletes it. **Asignar a muelle** puts it on a dock. Removing an agent from a dock, or deleting it, holds the messages that waited for it; deleting also revokes its tokens and closes its connections.
+Each agent is a card with its name (`@name`), where it runs (**Alojado · N instancias** when the port hosts it, **Remoto** when people connect it), its state (**Trabajando**, **Libre**, **Desconectado**…) and the docks it works on (a star marks where it is the default). The card menu opens its configuration, edits, **Clonar** (clone) or deletes it. **Asignar a muelle** puts it on a dock. Removing an agent from a dock, or deleting it, holds the messages that waited for it; deleting also revokes its tokens and closes its connections.
 
-Open an agent to edit its profile:
+**Nuevo agente** asks, step by step, for the name, where it runs (**En el puerto** or **Donde alguien lo conecte**), the harness and, for a hosted agent, how it reaches its models: **Cuenta de Claude** (each slot signs in to a subscription) or **Clave de API** (stored as the agent's secret, used only by the port's gateway). A hosted agent is created with a machine and hosted in one go; the rest of its machine (repositories, packages, files) is set later in **Configuración**. **Clonar** makes a new agent with the same config, and with its secrets when **Copiar sus secretos** is on; it is never hosted until you host it.
 
-![An agent's profile](../assets/screenshots/agent-profile.png)
+Open an agent to edit it. The agent's page is the one place for everything about it, in tabs:
 
-The page has instructions, model, reasoning effort, harness permissions, **skills**, **MCP servers** and **secrets**. Every save is a new version (**Guardar vN**). Connections still running an older version show a badge ("N conexión desactualizada"). Details are in [Agent profiles](profiles.md).
+![An agent's page](../assets/screenshots/agent-profile.png)
 
-## Entornos (Environments)
+| Tab | What it is |
+| :--- | :--- |
+| **Resumen** | Its connections (slots or machines), each with what it is working on, model usage and vaults. |
+| **Configuración** | The whole [config](../reference/agent-config.md): the harness, the [profile](profiles.md) (instructions, model, reasoning effort, harness permissions, **skills** and **MCP servers**, browser) and, for an agent the port hosts, its machine: models and access, repositories, packages, harness files and, under **Avanzado**, egress hosts, variables, resources and base image. **Ver como YAML** shows what `seaport agents config show` prints. |
+| **Secretos** | The agent's [secrets](hosting/secrets.md): names and flags, never values, and what in the config uses each (a secret in use can't be deleted). |
+| **Dónde corre** | Hosted: its slots, image build, logs and Claude sign-in, **Pasar a remoto**. Remote: its tokens (**Nuevo token** shows the value once; Seaport keeps only its hash), the `seaport connect` command, and **Alojar en el puerto**. |
+| **Navegador** | The agent's [managed browser](hosting/browser.md) and the takeovers it asks for (shown when its config has a browser). |
 
-An environment says where a [hosted agent](hosting/hosted-agents.md) runs: harness, image, tools, repositories, network and resources. Every change is a new version.
-
-![An environment](../assets/screenshots/environment.png)
-
-**Entorno** creates one in two steps: name, harness and a starting template (Node, Python, Go, MCP only, blank); then the model key — pick the provider, paste the key and **Crear con clave** stores it as an environment secret and names it under `models` in one go, or **Luego** creates the environment without it. The list shows each environment's next step (**Falta la clave del modelo**, **Falta el secreto X**, **Sin agentes**, the image's state) until it runs agents.
-
-The page opens with **Para empezar**, a checklist of what is left before an agent can run there, each step with its action: **Añadir clave de Anthropic** stores the key as an environment secret and names it in the spec in one step, **Alojar agente** hosts one of the library's agents here. Below it, the **Configuración** card has the sections **Harness**, **Modelos y secretos** (per model provider, the environment secret holding the key, picked from a list; the environment's secrets are listed next to it, names only, never values; see [Variables and secrets](hosting/secrets.md)), **Repos**, **Paquetes del sistema** (apt packages typed one at a time as chips, plus the setup script) and **Configuración del harness** (the harness's own settings, such as `CLAUDE.md` or skills, uploaded from a folder or archive; see [Harness homes](hosting/harness-homes.md)). Everything most environments never touch is folded under **Avanzado** — **Hosts permitidos (salida)**, **Navegador**, **Recursos** (size, workspace, idle stop), **Variables** (plain variables every instance gets) and **Imagen base** — and opens by itself when any of them is off its default. Each section shows its key in the environment's YAML (`packages`, `network.egress`, …), so the page and `seaport env apply` speak the same language. While there are unsaved changes a bar with **Guardar vN** stays in view at the bottom. If you only connect agents from your own machines, you can ignore this section.
-
-## Tripulación (Crew)
-
-![The crew page](../assets/screenshots/crew.png)
-
-Connected agents, grouped by `@name`, one card per connection, with what each is working on right now. The **Conectar un agente** card at the bottom has the `seaport connect` command for this port. See [The connector](connector.md).
-
-## Tokens de agentes (Agent tokens)
-
-The list shows each token's name, agent, the start of its value, when it was created, last used and when it expires. **Revocar** revokes it, which also closes its live connections. **Nuevo token** asks for the agent, a name and a lifetime (30 days, 90 days, 1 year or **Sin vencimiento**), then shows the value once. Copy it then: Seaport keeps only its hash. See [Crew tokens](agents-and-routing.md#crew-tokens).
+Every save is a new version of the agent's config (**Guardar vN**). Connections still running an older version show a badge ("N desactualizada"). The two modes are exclusive: hosting an agent revokes its tokens (the page asks first), and a hosted agent mints none. The tabs and their controls may change between releases; `seaport agents config show` and [Agent config](../reference/agent-config.md) are the exact description.
 
 ## Live updates
 

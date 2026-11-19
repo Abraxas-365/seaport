@@ -13,6 +13,17 @@ import (
 type Commands interface {
 	Create(ctx context.Context, organization identity.OrganizationID, input Create) (Agent, error)
 	Update(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Update) (Agent, error)
+	// Clone creates an agent from the source's current config (profile,
+	// harness, machine and its home) as the new agent's version 1, and,
+	// with input.Secrets, the source's secrets resealed for it. A hosted
+	// source makes a hosted clone with the same number of slots, all
+	// stopped (HostingClone); if that fails the clone is removed and the
+	// error answered. Never copied: docks and team membership, vault
+	// grants, crew tokens, takeovers, sessions, the browser's profile or
+	// usage. A config that names secrets the clone lacks is copied as it
+	// is: Equip and the hosting paths answer a Business error naming the
+	// missing secret.
+	Clone(ctx context.Context, organization identity.OrganizationID, source identity.AgentID, input Clone) (Agent, error)
 	// Delete removes the agent from the library: its crew tokens are
 	// revoked (live connections closed), it leaves every dock, and the
 	// ships waiting for it are held. Tokens and ships keep naming it.
@@ -72,6 +83,24 @@ type Releaser interface {
 	ReleaseRouted(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) (int, error)
 }
 
+// MachineCheck validates and normalizes an agent config's harness and
+// machine (the hosting service; the agent domain keeps the machine
+// opaque; bound late, like Assistant). It refuses what the agent can't
+// run: an unknown harness, an invalid machine, a machine without a
+// harness, a home that wasn't uploaded or is another harness's, the
+// browser on in a hosted agent whose machine has no engine. A named home
+// is touched (the sweep keeps it).
+type MachineCheck interface {
+	CheckMachine(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input MachineInput) (CheckedMachine, error)
+}
+
+// HostingClone hosts a cloned agent like its source (the hosting service;
+// bound late, like MachineCheck: hosting imports this domain). A source
+// that is not hosted is not an error: nothing is done.
+type HostingClone interface {
+	CloneHosting(ctx context.Context, organization identity.OrganizationID, source, clone identity.AgentID, by string) error
+}
+
 type Queries interface {
 	// Profile is a version of the agent's profile (0: the current one; an
 	// agent with none has an empty version 0).
@@ -115,6 +144,13 @@ type Repository interface {
 	FindByName(ctx context.Context, organization identity.OrganizationID, name string) (Agent, error)
 	List(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Agent], error)
 	Update(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Update) (Agent, error)
+	// Clone stores agent id as a copy of the source (same organization):
+	// its current config as version 1 (an explicit copy: the secrets the
+	// config names are not required to exist, unlike SaveProfile) and, when
+	// secrets, every secret resealed under id's purpose, in one
+	// transaction, under Create's limit and lock. The source is NotFound
+	// when not live.
+	Clone(ctx context.Context, organization identity.OrganizationID, source, agent identity.AgentID, input Clone, limit int) (Agent, error)
 	// Delete marks the agent deleted, drops its assignments, revokes its
 	// crew tokens and holds its waiting ships, in one transaction.
 	Delete(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
@@ -126,13 +162,15 @@ type Repository interface {
 
 	// SaveProfile inserts version input.Base+1 and points the agent at it,
 	// atomically; Conflict when the current version is not input.Base, or
-	// when a ${NAME} the profile uses is not a secret of the agent.
+	// when a ${NAME} the profile uses (MCP headers, input.Checked.Secrets)
+	// is not a secret of the agent.
 	SaveProfile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SaveProfile) (Profile, error)
 	Profile(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, version int) (Profile, error)
 	Versions(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Version, error)
 	// SetSecret seals and upserts a secret, at most limit per agent.
 	SetSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input SetSecret, limit int) (Secret, error)
-	// DeleteSecret removes one; Conflict while the current profile uses it.
+	// DeleteSecret removes one; Conflict while the current profile uses it
+	// (an MCP header or its machine's secrets).
 	DeleteSecret(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, name string) error
 	Secrets(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) ([]Secret, error)
 	// OpenSecrets are the agent's secrets with their values.

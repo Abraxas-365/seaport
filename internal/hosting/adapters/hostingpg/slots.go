@@ -21,23 +21,29 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 	defer func() { _ = tx.Rollback() }()
 	run := identity.NewCrewTokenID().String() // any random id
 	var row struct {
-		OldToken    *identity.CrewTokenID  `db:"old_token"`
-		Environment identity.EnvironmentID `db:"environment_id"`
-		AgentName   string                 `db:"name"`
+		OldToken  *identity.CrewTokenID `db:"old_token"`
+		AgentName string                `db:"name"`
+		Version   int                   `db:"version"`
+		Harness   string                `db:"harness"`
+		Machine   []byte                `db:"machine"`
+		Digest    string                `db:"machine_digest"`
 	}
 	// cur locks the row first: a concurrent start waits, then sees it
-	// starting and claims nothing.
+	// starting and claims nothing. What it runs is the agent's current
+	// config (a hosted agent's config always has a machine: Host refuses
+	// one without, and saving a config can't drop it while hosted).
 	err = tx.GetContext(ctx, &row, `WITH cur AS (
 			SELECT token_id FROM agent_slots WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 FOR UPDATE)
 		UPDATE agent_slots s SET state = 'starting', detail = 'starting', run = $4, token_id = NULL, viewer_at = NULL, updated_at = now()
-		FROM cur, agent_hosting h, agents a
+		FROM cur, agent_hosting h, agents a, agent_profiles p
 		WHERE s.organization_id = $1 AND s.agent_id = $2 AND s.idx = $3
 		  AND h.organization_id = s.organization_id AND h.agent_id = s.agent_id
 		  AND a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
+		  AND p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
 		  AND (s.state IN ('stopped', 'failed') OR (s.state = 'starting' AND s.updated_at < now() - make_interval(secs => $5::float8)))
 		  AND (NOT $6::bool OR NOT EXISTS (SELECT 1 FROM agent_slots o WHERE o.organization_id = s.organization_id
 		        AND o.agent_id = s.agent_id AND o.idx <> s.idx AND o.state IN ('starting', 'running')))
-		RETURNING cur.token_id AS old_token, h.environment_id, a.name`,
+		RETURNING cur.token_id AS old_token, a.name, p.version, p.harness, p.machine, p.machine_digest`,
 		org, agentID, slot, run, hosting.StartStale.Seconds(), wake)
 	if pgerr.IsNoRows(err) {
 		h, herr := hosted(ctx, tx, org, agentID)
@@ -54,11 +60,12 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 	if err != nil {
 		return hosting.SlotStart{}, false, pgerr.Map(err, "start slot")
 	}
-	env, err := environment(ctx, tx, org, row.Environment, 0)
+	spec, err := hosting.SpecOf(row.Harness, row.Machine)
 	if err != nil {
 		return hosting.SlotStart{}, false, err
 	}
-	out := hosting.SlotStart{Run: run, AgentName: row.AgentName, Environment: env}
+	out := hosting.SlotStart{Run: run, AgentName: row.AgentName, Spec: hosting.Normalize(spec),
+		ConfigVersion: row.Version, Digest: row.Digest}
 	if row.OldToken != nil {
 		out.OldToken = *row.OldToken
 	}
@@ -84,9 +91,9 @@ func (r *Repository) StartProgress(ctx context.Context, org identity.Organizatio
 
 func (r *Repository) StartDone(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, slot int, run string, started hosting.SlotRun) (hosting.Hosted, error) {
 	res, err := r.db.ExecContext(ctx, `UPDATE agent_slots SET state = 'running', detail = '', image = $5,
-		environment_id = $6, environment_version = $7, started_at = now(), active_at = now(), updated_at = now()
+		machine_digest = $6, config_version = $7, started_at = now(), active_at = now(), updated_at = now()
 		WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 AND state = 'starting' AND run = $4`,
-		org, agentID, slot, run, started.Image, started.Environment, started.Version)
+		org, agentID, slot, run, started.Image, started.Digest, started.ConfigVersion)
 	if err != nil {
 		return hosting.Hosted{}, pgerr.Map(err, "slot started")
 	}
@@ -177,8 +184,8 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 			  count(*) FILTER (WHERE status = 'claimed') AS claimed
 			FROM ships WHERE status IN ('queued', 'claimed') AND agent_id IS NOT NULL GROUP BY organization_id, agent_id)
 		SELECT s.organization_id, s.agent_id, s.idx, s.state, s.run, s.updated_at, s.active_at, s.started_at,
-		  COALESCE(v.spec->>'idle_stop', '') AS idle_stop,
-		  (s.state = 'running' AND (s.environment_id IS DISTINCT FROM h.environment_id OR s.environment_version <> e.version)) AS outdated,
+		  COALESCE(p.machine->>'idle_stop', '') AS idle_stop,
+		  (s.state = 'running' AND s.machine_digest IS DISTINCT FROM COALESCE(p.machine_digest, '')) AS outdated,
 		  COALESCE(w.queued, 0) AS queued, COALESCE(w.claimed, 0) AS claimed,
 		  (s.state = 'running' AND EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
 		    AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
@@ -189,8 +196,7 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		FROM agent_slots s
 		JOIN agent_hosting h ON h.organization_id = s.organization_id AND h.agent_id = s.agent_id
 		JOIN agents a ON a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
-		JOIN environments e ON e.organization_id = h.organization_id AND e.id = h.environment_id
-		JOIN environment_versions v ON v.organization_id = e.organization_id AND v.environment_id = e.id AND v.version = e.version
+		LEFT JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
 		LEFT JOIN work w ON w.organization_id = s.organization_id AND w.agent_id = s.agent_id
 		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "list slots to supervise")

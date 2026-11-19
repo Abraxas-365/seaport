@@ -154,7 +154,7 @@ func TestReadHomeRefuses(t *testing.T) {
 }
 
 func TestSpecHome(t *testing.T) {
-	s := Spec{Harness: HarnessRness, Home: "sha256:" + strings.Repeat("a", 64)}
+	s := Spec{Harness: HarnessRness, Machine: Machine{Home: "sha256:" + strings.Repeat("a", 64)}}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
 	}

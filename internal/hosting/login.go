@@ -173,18 +173,12 @@ var (
 	AccountCommand = []string{"/opt/seaport/bin/seaport", "agent-account"}
 )
 
-// SignsIn: slots of an environment with this spec sign in to a
-// subscription: Claude Code with no Anthropic key (with one the gateway's
-// key wins), rness with no model key at all (with any, the gateway serves
-// its providers and its sessions start there).
-func (s Spec) SignsIn() bool {
-	switch s.Harness {
-	case HarnessClaudeCode:
-		return s.Models.KeyName(ProviderAnthropic) == ""
-	case HarnessRness:
-		return len(s.Models.Providers()) == 0
-	}
-	return false
+// SignsIn: the slots sign in to the person's Claude subscription
+// (Models: anthropic is Subscription; Normalize makes it the default of a
+// harness with no Anthropic key: Claude Code without one, rness without
+// any key).
+func (s Machine) SignsIn() bool {
+	return strings.TrimSpace(s.Models[ProviderAnthropic]) == Subscription
 }
 
 // subscriptionHosts are what a signed-in harness reaches itself: the

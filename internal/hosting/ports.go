@@ -7,80 +7,62 @@ import (
 
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/identity"
-	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // Every method takes the organization right after ctx; another
-// organization's environment or agent is NotFound (TestTenantFirstPorts).
+// organization's agent is NotFound (TestTenantFirstPorts). What a hosted
+// agent runs is its current config's harness and machine (agent.Queries
+// Profile; Spec).
 type Commands interface {
-	// CreateEnvironment stores version 1 of a new environment (at most
-	// MaxEnvironments per organization).
-	CreateEnvironment(ctx context.Context, organization identity.OrganizationID, input CreateEnvironment) (Environment, error)
-	// SaveEnvironment stores the next version (Conflict when input.Base is
-	// not the current one). A spec equal to the current one (normalized)
-	// stores nothing and answers the current version.
-	SaveEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SaveEnvironment) (Environment, error)
-	// DeleteEnvironment removes it with its history and secrets (Conflict
-	// while an agent is hosted on it).
-	DeleteEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) error
-	// SetSecret creates or replaces an environment's secret (sealed; never
-	// read back; at most MaxSecrets). Running slots get it at their next
-	// start.
-	SetSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SetEnvironmentSecret) (EnvironmentSecret, error)
-	// DeleteSecret removes one (Conflict while the current spec names it as
-	// a repo credential or model key).
-	DeleteSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, name string) error
-	// Host hosts the agent on an environment, or moves it, or changes its
-	// slot count (slots beyond it must be stopped: Conflict). The secrets
-	// the environment's spec names must be the environment's or the
-	// agent's.
+	// Host hosts the agent, or changes its slot count (slots beyond it
+	// must be stopped: Conflict). Its config must have a harness and a
+	// machine (Business), and it must have no live people's tokens: a
+	// hosted agent works only through its slots (Conflict; revoke them).
 	Host(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Host) (Hosted, error)
 	// Unhost stops hosting it (Conflict while a slot is not stopped).
 	Unhost(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
-	// StartBuild starts building an environment version's image in the
-	// background (environment.build events follow) and answers the build.
-	// A version already built or building is answered as it is unless
+	// StartBuild starts building the image of the agent's current config
+	// in the background (agent.build events follow) and answers the build.
+	// An image already built or building is answered as it is unless
 	// input.Force (a failed or stale one is built again). Business error
-	// while the runtime is off.
-	StartBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input BuildEnvironment) (Build, error)
+	// while the runtime is off or the config has no machine.
+	StartBuild(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input BuildAgent) (Build, error)
 	// UploadHome validates a harness home (ReadHome) and stores it sealed
 	// (Business when blob storage is off); the same files again answer the
-	// home already there. A spec names it by its Digest.
+	// home already there. A machine names it by its Digest.
 	UploadHome(ctx context.Context, organization identity.OrganizationID, input UploadHome) (Home, error)
-	// SweepHomes deletes homes no environment version names, uploaded or
-	// named more than HomeGrace before now, in every organization (system:
+	// SweepHomes deletes homes no agent config names, uploaded or named
+	// more than HomeGrace before now, in every organization (system:
 	// sweeper; their blobs go to the trash), and says how many.
 	SweepHomes(ctx context.Context, now time.Time) (int, error)
 	// StartSlot starts a stopped or failed slot in the background (it
-	// builds the environment's current version first when needed;
-	// slot.updated events follow) and answers the hosting. A slot already
-	// starting or running is answered as it is. Business error while the
-	// runtime is off.
+	// builds the config's image first when needed; slot.updated events
+	// follow) and answers the hosting. A slot already starting or running
+	// is answered as it is. Business error while the runtime is off.
 	StartSlot(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Hosted, error)
 	// StopSlot stops a slot in the background (its agent gets
 	// StopTimeout to finish) and answers the hosting.
 	StopSlot(ctx context.Context, organization identity.OrganizationID, input SlotAction) (Hosted, error)
 	// OpenWorkspace is a running slot's workspace plan, repo credentials
-	// resolved (the environment's secrets, else the agent's): only for the
-	// slot's own token (hostinghttp, GET /crew/workspace;
-	// TestOnlyTheCrewEquips).
+	// resolved (the agent's secrets): only for the slot's own token
+	// (hostinghttp, GET /crew/workspace; TestOnlyTheCrewEquips).
 	OpenWorkspace(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int) (Workspace, error)
 	// ModelKey is the provider key the gateway forwards a slot's model
-	// calls with (the environment's models: its secret, else the agent's):
-	// only for the slot's own token (hostinggateway; TestOnlyTheCrewEquips).
-	// NotFound when the environment names none.
+	// calls with (the machine's models: the agent's secret): only for the
+	// slot's own token (hostinggateway; TestOnlyTheCrewEquips). NotFound
+	// when the machine names no key for the provider.
 	ModelKey(ctx context.Context, organization identity.OrganizationID, input KeyRequest) (ModelKey, error)
 	// RecordUsage adds one model response's tokens to the agent's day.
 	RecordUsage(ctx context.Context, organization identity.OrganizationID, input Usage) error
 	// Egress is the hosts a slot may reach through the egress proxy (its
-	// environment's egress and repo hosts; NotFound when the slot is gone).
+	// machine's egress and repo hosts; NotFound when the slot is gone).
 	Egress(ctx context.Context, organization identity.OrganizationID, caller SlotCaller) ([]string, error)
 	// RecordDenial notes a host the egress proxy refused a slot.
 	RecordDenial(ctx context.Context, organization identity.OrganizationID, input Denied) error
 
 	// StartLogin starts signing a running slot's harness in to the
 	// person's subscription (experimental; Claude Code and rness when
-	// Spec.SignsIn, Business otherwise): the harness's login runs in the
+	// Machine.SignsIn, Business otherwise): the harness's login runs in the
 	// slot's container,
 	// relayed by this process, and the answer is the sign-in (poll Login
 	// for its URL). One already going for the slot's run is answered as
@@ -90,7 +72,7 @@ type Commands interface {
 	// waiting sign-in (any process; Conflict when none waits).
 	SubmitLoginCode(ctx context.Context, organization identity.OrganizationID, input LoginCode) (Login, error)
 	// OpenBrowser opens a viewer on a running slot's managed browser
-	// (Business when its environment has none or the slot isn't running;
+	// (Business when its machine has none or the slot isn't running;
 	// Conflict while this process has one open on the slot). The relay
 	// runs in the slot (BrowserRelayCommand) until the connection is
 	// closed, idle for BrowserIdle or open for BrowserMax. Publishes
@@ -99,20 +81,14 @@ type Commands interface {
 }
 
 type Queries interface {
-	// Environment is a version of the environment (0: the current one).
-	Environment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Environment, error)
-	EnvironmentByName(ctx context.Context, organization identity.OrganizationID, name string) (Environment, error)
-	Environments(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Environment], error)
-	Versions(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]Version, error)
-	// Secrets are the environment's secrets: names and flags, never values.
-	Secrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecret, error)
 	// Hosted is the agent's hosting (NotFound when it is not hosted).
 	Hosted(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Hosted, error)
 	// HostedAgents are the organization's hosted agents.
 	HostedAgents(ctx context.Context, organization identity.OrganizationID) ([]Hosted, error)
-	// Build is a version's build with its log (version 0: the current
-	// one; NotFound when it was never built).
-	Build(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Build, error)
+	// Build is the build of the image the agent's current config runs,
+	// with its log (NotFound when it was never built; Business when the
+	// config has no machine).
+	Build(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Build, error)
 	// Usage is the agent's model use per day and model, newest first.
 	Usage(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input UsageQuery) ([]UsageDay, error)
 	// Denials are the hosts the egress proxy refused the agent's slots,
@@ -129,7 +105,7 @@ type Queries interface {
 	Home(ctx context.Context, organization identity.OrganizationID, digest string) (Home, error)
 	// HomeFile is one file of a home.
 	HomeFile(ctx context.Context, organization identity.OrganizationID, digest, path string) ([]byte, error)
-	// HomeArchive is a home's normalized tar (seaport env home pull).
+	// HomeArchive is a home's normalized tar (seaport agents home pull).
 	HomeArchive(ctx context.Context, organization identity.OrganizationID, digest string) ([]byte, error)
 	// Account is how the slot's harness is signed in, asked of the harness
 	// in its container (Business when the slot isn't running).
@@ -186,34 +162,13 @@ type Viewers interface {
 }
 
 type Repository interface {
-	// CreateEnvironment stores it unless the organization already has
-	// limit; count and insert are atomic (errx.QuotaExceeded when full).
-	CreateEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input CreateEnvironment, limit int) (Environment, error)
-	// SaveEnvironment inserts version input.Base+1 and makes it current,
-	// atomically (Conflict when the current version is not input.Base).
-	SaveEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SaveEnvironment) (Environment, error)
-	// DeleteEnvironment deletes it and its versions (Conflict while an
-	// agent is hosted on it).
-	DeleteEnvironment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) error
-	Environment(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Environment, error)
-	EnvironmentByName(ctx context.Context, organization identity.OrganizationID, name string) (Environment, error)
-	Environments(ctx context.Context, organization identity.OrganizationID, page query.Pagination) (query.Paginated[Environment], error)
-	Versions(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]Version, error)
-
-	// SetSecret seals and upserts an environment's secret, at most limit
-	// per environment (Business when the port has no secret key).
-	SetSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, input SetEnvironmentSecret, limit int) (EnvironmentSecret, error)
-	// DeleteSecret removes one; Conflict while the current spec names it.
-	DeleteSecret(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, name string) error
-	Secrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecret, error)
-	// OpenEnvironmentSecrets are the environment's secrets with their
-	// values (hostingsvc only: TestOnlyTheCrewEquips).
-	OpenEnvironmentSecrets(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID) ([]EnvironmentSecretValue, error)
-
 	// Host upserts the agent's hosting and makes its slots 1..input.Slots,
-	// atomically, under the organization's hosting lock: at most maxSlots
-	// slots across the organization (errx.QuotaExceeded; 0 = no limit),
-	// slots it drops must be stopped (Conflict), the agent must be live.
+	// atomically, under the organization's hosting lock and the agent's
+	// row: at most maxSlots slots across the organization
+	// (errx.QuotaExceeded; 0 = no limit), slots it drops must be stopped
+	// (Conflict), the agent must be live, its current config must have a
+	// harness and a machine (Business), and it must have no live people's
+	// tokens (Conflict: modes are exclusive).
 	Host(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Host, maxSlots int) (Hosted, error)
 	// Unhost deletes the hosting and its slots (Conflict while one is not
 	// stopped; NotFound when it is not hosted).
@@ -221,19 +176,19 @@ type Repository interface {
 	Hosted(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Hosted, error)
 	HostedAgents(ctx context.Context, organization identity.OrganizationID) ([]Hosted, error)
 
-	// ClaimBuild makes this caller the builder of an environment version
-	// FROM base: it inserts the build, or restarts one that failed, went
-	// stale (no progress for BuildStale: its process died) or is forced,
-	// and answers claimed = true; else the build as it is and false.
-	// NotFound when the version doesn't exist.
-	ClaimBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int, base string, force bool) (build Build, claimed bool, err error)
+	// ClaimBuild makes this caller the builder of the image with this
+	// content digest (BuildRequest.Digest) FROM base, for agent: it
+	// inserts the build, or restarts one that failed, went stale (no
+	// progress for BuildStale: its process died) or is forced, and
+	// answers claimed = true; else the build as it is and false.
+	ClaimBuild(ctx context.Context, organization identity.OrganizationID, digest string, agent identity.AgentID, base string, force bool) (build Build, claimed bool, err error)
 	// BuildProgress stores the log so far of a build in progress and keeps
 	// it fresh (not stale).
-	BuildProgress(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int, log string) error
+	BuildProgress(ctx context.Context, organization identity.OrganizationID, digest, log string) error
 	// FinishBuild ends a build in progress: ready with image, or failed
 	// with detail (image empty).
-	FinishBuild(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int, image, detail, log string) (Build, error)
-	Build(ctx context.Context, organization identity.OrganizationID, environment identity.EnvironmentID, version int) (Build, error)
+	FinishBuild(ctx context.Context, organization identity.OrganizationID, digest, image, detail, log string) (Build, error)
+	Build(ctx context.Context, organization identity.OrganizationID, digest string) (Build, error)
 
 	// BeginStart makes the caller a slot's starter: stopped or failed (or
 	// starting but stale: no progress for StartStale) → starting, in one
@@ -283,8 +238,12 @@ type Repository interface {
 	// before the blob is written (AddHome takes it out).
 	StageHomeBlob(ctx context.Context, organization identity.OrganizationID, key string, due time.Time) error
 	Home(ctx context.Context, organization identity.OrganizationID, digest string) (Home, error)
-	// StaleHomes lists homes of every organization that no environment
-	// version names, last touched before before (system: sweeper).
+	// TouchHome marks a home named again (a config saving it), under the
+	// organization's hosting lock, so the sweep doesn't delete it
+	// meanwhile; NotFound when the organization has no such home.
+	TouchHome(ctx context.Context, organization identity.OrganizationID, digest string) error
+	// StaleHomes lists homes of every organization that no agent config
+	// names, last touched before before (system: sweeper).
 	StaleHomes(ctx context.Context, before time.Time, limit int) ([]Home, error)
 	// DeleteHome deletes a home if still unnamed and untouched since
 	// before (its blob goes to the trash by trigger).

@@ -48,24 +48,38 @@ func TestLoginFailure(t *testing.T) {
 	}
 }
 
-// A subscription slot (Claude Code, no model key) reaches its provider
-// itself; one with a key goes through the gateway.
+// A subscription slot (Claude Code, no model key: Normalize makes it
+// anthropic: subscription) reaches its provider itself; one with a key
+// goes through the gateway.
 func TestSubscriptionEgress(t *testing.T) {
-	sub := Spec{Harness: HarnessClaudeCode, Network: Network{Egress: []string{"pypi.org"}}}
-	if !sub.SignsIn() || !slices.Equal(sub.EgressHosts(), []string{"pypi.org", "api.anthropic.com", "platform.claude.com"}) {
+	sub := Normalize(Spec{Harness: HarnessClaudeCode, Machine: Machine{Network: Network{Egress: []string{"pypi.org"}}}})
+	if sub.Models[ProviderAnthropic] != Subscription || !sub.SignsIn() ||
+		!slices.Equal(sub.EgressHosts(), []string{"pypi.org", "api.anthropic.com", "platform.claude.com"}) {
 		t.Fatalf("subscription egress: %v", sub.EgressHosts())
 	}
-	keyed := sub
-	keyed.Models = Models{"anthropic": "${ANTHROPIC_KEY}"}
+	keyed := Normalize(Spec{Harness: HarnessClaudeCode, Machine: Machine{Network: Network{Egress: []string{"pypi.org"}},
+		Models: Models{"anthropic": "${ANTHROPIC_KEY}"}}})
 	if keyed.SignsIn() || !slices.Equal(keyed.EgressHosts(), []string{"pypi.org"}) {
 		t.Fatalf("keyed egress: %v", keyed.EgressHosts())
 	}
-	if (Spec{Harness: HarnessRness, Models: Models{"groq": "${GROQ_KEY}"}}).SignsIn() {
-		t.Fatal("an rness environment with a model key signs in")
+	if Normalize(Spec{Harness: HarnessRness, Machine: Machine{Models: Models{"groq": "${GROQ_KEY}"}}}).SignsIn() {
+		t.Fatal("an rness machine with a model key signs in")
 	}
-	rness := Spec{Harness: HarnessRness, Network: Network{Egress: []string{"pypi.org"}}}
+	rness := Normalize(Spec{Harness: HarnessRness, Machine: Machine{Network: Network{Egress: []string{"pypi.org"}}}})
 	if !rness.SignsIn() || !slices.Equal(rness.EgressHosts(), []string{"pypi.org", "api.anthropic.com", "platform.claude.com"}) {
 		t.Fatalf("rness subscription egress: %v", rness.EgressHosts())
+	}
+	// Claude Code with a groq key still signs in to Anthropic.
+	mixed := Normalize(Spec{Harness: HarnessClaudeCode, Machine: Machine{Models: Models{"groq": "${GROQ_KEY}"}}})
+	if !mixed.SignsIn() || !slices.Equal(mixed.Models.Providers(), []string{"groq"}) {
+		t.Fatalf("mixed: %v %v", mixed.Models, mixed.Models.Providers())
+	}
+	// rness can't sign in and use keys at once; only anthropic signs in.
+	if err := (Spec{Harness: HarnessRness, Machine: Machine{Models: Models{"anthropic": Subscription, "groq": "${GROQ_KEY}"}}}).Validate(); err == nil {
+		t.Fatal("rness subscription with keys accepted")
+	}
+	if err := (Spec{Harness: HarnessClaudeCode, Machine: Machine{Models: Models{"openai": Subscription}}}).Validate(); err == nil {
+		t.Fatal("an openai subscription accepted")
 	}
 	if err := (LoginCode{Agent: identity.NewAgentID(), Index: 1, Code: "abc#def"}).Validate(); err != nil {
 		t.Fatalf("code: %v", err)

@@ -19,7 +19,6 @@ Counted per organization. `0` turns a configurable quota off.
 | Active crew tokens | 100 | `crew.MaxTokens` | No |
 | Agents | 100 | `agent.MaxAgents` | No |
 | Agent secrets per agent | 50 | `agent.MaxSecrets` | No |
-| Environments | 50 | `hosting.MaxEnvironments` | No |
 | Harness homes | 500 | `hosting.MaxHomes` | No |
 | Slots per hosted agent | 10 | `hosting.MaxSlotsPerAgent` | No |
 | Destinations per dock | 64 | `dock.MaxDestinations` | No |
@@ -232,19 +231,21 @@ See [Vaults](../guides/vaults.md).
 | Versions listed for one entry | 100 | `vault.MaxVersions` | No |
 | First line shown in a summary | 160 characters | `vault.FirstLineMax` | No |
 
-## Environments and homes
+## Machines and homes
 
-Environment fields are described in [Environment spec](environment-spec.md).
+The machine's fields are described in [Agent config](agent-config.md).
 
 | Limit | Value | Constant | Configurable |
 | :--- | :--- | :--- | :--- |
-| Environment description | 1000 characters | `hosting.MaxDescription` | No |
 | Packages | 100 | `hosting.MaxPackages` | No |
 | Setup script | 16384 bytes | `hosting.MaxSetup` | No |
 | Repos | 10 | `hosting.MaxRepos` | No |
 | Repo `on_start` | 4096 bytes | `hosting.MaxOnStart` | No |
 | Egress hosts | 100 | `hosting.MaxEgress` | No |
 | Longest `idle_stop` | 7 days | `hosting.MaxIdleStop` | No |
+| Plain variables (`env`) | 50 | `hosting.MaxEnv` | No |
+| One `env` value | 4096 bytes | `hosting.MaxEnvValue` | No |
+| A config's machine, as JSON | 256 KiB | `agent.MaxMachine` | No |
 | CPUs per slot | 4 | `config.Server.HostMaxCPUs` | `SEAPORT_HOST_MAX_CPUS` |
 | Memory per slot | 8192 MB | `config.Server.HostMaxMemoryMB` | `SEAPORT_HOST_MAX_MEMORY_MB` |
 | Home files | 2000 | `hosting.MaxHomeFiles` | No |

@@ -65,16 +65,16 @@ func (s *Service) OpenBrowser(ctx context.Context, org identity.OrganizationID, 
 	if s.runtime() == nil {
 		return nil, errx.Business("hosted agents are off on this port (SEAPORT_RUNTIME=off)")
 	}
-	env, err := s.repo.Environment(ctx, org, h.Environment, 0)
-	if err != nil {
-		return nil, err
-	}
-	if !env.Spec.Browser.Enabled() {
-		return nil, errx.Business("environment " + env.Name + " has no browser: set browser.engine to " + hosting.BrowserChromium)
-	}
 	p, err := s.agents.Profile(ctx, org, input.Agent, 0)
 	if err != nil {
 		return nil, err
+	}
+	spec, err := hosting.SpecOf(p.Harness, p.Machine)
+	if err != nil {
+		return nil, err
+	}
+	if !spec.Browser.Enabled() {
+		return nil, errx.Business("the agent's machine has no browser: set its browser engine to " + hosting.BrowserChromium)
 	}
 	if !p.Browser {
 		return nil, errx.Business("the agent's profile has its browser off: turn it on first (the slot starts the browser with it)")

@@ -6,19 +6,20 @@ A hosted agent runs code and reads text from strangers. If it also held your mod
 
 ## Model gateway
 
-Store the key as a secret of the environment and name it in the spec, one per provider:
+Store the key as a secret of the agent and name it in the machine of its config, one per provider:
 
 ```sh
-printf %s "$ANTHROPIC_API_KEY" | seaport env secrets set dev ANTHROPIC_KEY
+printf %s "$ANTHROPIC_API_KEY" | seaport agents secrets set pm ANTHROPIC_KEY
 ```
 
 ```yaml
-models:
-  anthropic: ${ANTHROPIC_KEY}
-  openrouter: ${OPENROUTER_KEY}   # optional: more providers
+machine:
+  models:
+    anthropic: ${ANTHROPIC_KEY}
+    openrouter: ${OPENROUTER_KEY}   # optional: more providers
 ```
 
-The spec stores only the name. The secret belongs to the environment (every agent hosted on it uses it); a secret of the hosted agent with that name works too, for agents that need their own key. See [Variables and secrets](secrets.md).
+The config stores only the name. The secret belongs to the agent, so each agent has its own key, and it can't be deleted while the machine names it. Saving the config needs `agents:write`. See [Variables and secrets](secrets.md).
 
 With it, a slot never sees the key. For each provider named, Seaport gives the slot:
 
@@ -56,16 +57,16 @@ The same data is at `GET /api/v1/agents/{id}/usage?days=N` (30 days by default, 
 
 ### Which model a slot uses
 
-Claude Code calls Anthropic only, so only `models.anthropic` matters to it. rness works with every provider in the table. Its base image points each provider the environment names at the gateway. It also declares `openai`, `groq` and `deepseek` itself, since its default config has only Anthropic and OpenRouter. Its sessions start on the first of:
+Claude Code calls Anthropic only, so only `models.anthropic` matters to it. rness works with every provider in the table. Its base image points each provider the machine names at the gateway. It also declares `openai`, `groq` and `deepseek` itself, since its default config has only Anthropic and OpenRouter. Its sessions start on the first of:
 
-1. The agent's **Model** in its [profile](../profiles.md), written `<provider>/<model>`, when the environment names that provider (`openrouter/anthropic/claude-sonnet-4.5`, `deepseek/deepseek-chat`). When the environment names a single provider other than `anthropic`, a model without a provider (`gpt-4.1`) goes to that one.
-2. `SEAPORT_MODEL`, in the same format, set with `ENV` in a custom image (an environment's `env:` can't hold `SEAPORT_` names).
-3. `claude-sonnet-5-5`, when the environment names `anthropic` or has no `models` at all.
+1. The agent's **Model** in its [profile](../profiles.md), written `<provider>/<model>`, when the machine names that provider (`openrouter/anthropic/claude-sonnet-4.5`, `deepseek/deepseek-chat`). When the machine names a single provider other than `anthropic`, a model without a provider (`gpt-4.1`) goes to that one.
+2. `SEAPORT_MODEL`, in the same format, set with `ENV` in a custom image (the machine's `env:` can't hold `SEAPORT_` names).
+3. `claude-sonnet-5-5`, when the machine names `anthropic` or has no `models` at all.
 
 If none of these applies, rness won't start, and the slot's log names the setting to add. A model name without a provider, such as `claude-opus-5-5`, is picked among the harness's own models once the session is open, along with the effort. rness lists only the Anthropic models of its default config there. So give a model of any other provider as `<provider>/<model>`.
 
 > [!NOTE]
-> This applies to environments with `models`. A `claude-code` environment without `models.anthropic`, or an `rness` one without `models`, signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
+> This applies to machines with `models`. A `claude-code` agent without `models.anthropic`, or an `rness` one without `models`, signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
 
 ## Egress proxy
 
@@ -79,14 +80,15 @@ It needs `token` or `iam` mode, and the deploy compose file sets it for you.
 
 Slots get `HTTP_PROXY` and `HTTPS_PROXY` pointing at the proxy and carrying the slot's token as credentials. The port itself is excluded through `NO_PROXY`, so the harness still reaches it directly. Plain HTTP and `CONNECT` tunnels then reach only:
 
-- the hosts in the environment's `network.egress`, and
+- the hosts in the machine's `network.egress`, and
 - the hosts of its repos' URLs.
 
 ```yaml
-network:
-  egress:
-    - registry.npmjs.org
-    - "*.example.com"       # subdomains of example.com
+machine:
+  network:
+    egress:
+      - registry.npmjs.org
+      - "*.example.com"       # subdomains of example.com
 ```
 
 Each entry is a host name with at least two labels. `*.example.com` matches subdomains, `example.com` the host itself. Up to 100 entries.
@@ -94,9 +96,10 @@ Each entry is a host name with at least two labels. `*.example.com` matches subd
 `*` alone allows any public host. Use it when an agent must search the web or read any page: rness's `web_search` (DuckDuckGo) and `web_fetch`, Claude Code's `WebFetch`, or the [browser](browser.md) on sites you can't list ahead of time. Claude Code's `WebSearch` runs inside Anthropic's API, so it goes through the model gateway and needs no egress entry. Even with `*`, the proxy still refuses [private addresses](#private-addresses), so slots can't reach your internal services.
 
 ```yaml
-network:
-  egress:
-    - "*"                   # the open web; still no private addresses
+machine:
+  network:
+    egress:
+      - "*"                   # the open web; still no private addresses
 ```
 
 The harnesses' web tools go through the proxy on their own: rness's base image always hands it `HTTPS_PROXY` as `rness.web.proxy`, and behind the proxy Claude Code's `WebFetch` skips its preflight call to `api.anthropic.com` (the port turns on `skipWebFetchPreflight` in its managed settings), so the hosts you list are the whole policy. That preflight is also Anthropic's check against known-bad domains. With `*`, an agent that reads untrusted content can be told to send data to any public host, so give `*` only to agents whose inputs you trust, or list hosts.
@@ -129,7 +132,7 @@ The proxy records each host it refused, per slot, with a count and the time it w
 seaport agents egress pm
 ```
 
-The same list is at `GET /api/v1/agents/{id}/hosting/egress` (needs `environments:read`), and the web app shows it under **Salidas bloqueadas** on the agent's page. When an agent needs a host, add it to `network.egress` and save a new version.
+The same list is at `GET /api/v1/agents/{id}/hosting/egress` (needs `hosting:read`), and the web app shows it under **Salidas bloqueadas** on the agent's page. When an agent needs a host, add it to `machine.network.egress` and save the config.
 
 > [!TIP]
 > A failing `npm install` or `git clone` inside a slot is usually a missing host. Check the denials first.

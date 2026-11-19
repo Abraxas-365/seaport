@@ -15,23 +15,19 @@ import { buildLabel, buildTone, slotLabel, slotTone } from "./tone"
 export function SlotRow({
   name,
   slot,
-  current,
   now,
   actions,
   className,
 }: {
   name: string
   slot: Slot
-  /** The environment's current version: an older one restarts once idle. */
-  current?: number
   /** useNow() of the page. */
   now: number
   actions?: React.ReactNode
   className?: string
 }) {
   const busy = slot.state === "starting" || slot.state === "stopping"
-  const outdated =
-    slot.state === "running" && current !== undefined && slot.environment_version > 0 && slot.environment_version < current
+  const outdated = slot.state === "running" && slot.outdated
   return (
     <div data-slot="slot-row" className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5", className)}>
       <span className="font-mono text-sm font-medium">{name}</span>
@@ -39,13 +35,13 @@ export function SlotRow({
         {slotLabel[slot.state]}
       </StatusBadge>
       {outdated && (
-        <StatusBadge tone="info" dot={false} title="Reinicia con la versión actual del entorno al quedar libre">
-          v{slot.environment_version} → v{current}
+        <StatusBadge tone="info" dot={false} title="La máquina cambió: reinicia con la configuración actual al quedar libre">
+          Desactualizada
         </StatusBadge>
       )}
       <span className="text-xs text-muted-foreground">
         {slot.state === "running" && slot.started_at
-          ? `hace ${formatDuration(slot.started_at, now)}${slot.environment_version ? ` · v${slot.environment_version}` : ""}`
+          ? `hace ${formatDuration(slot.started_at, now)}${slot.config_version ? ` · v${slot.config_version}` : ""}`
           : slot.state === "running"
             ? ""
             : formatRelative(slot.updated_at, now)}
@@ -102,7 +98,7 @@ export function AccountBadge({ account, className }: { account: SlotAccount | un
 export function BuildBadge({ build, className }: { build: Build | null | undefined; className?: string }) {
   if (!build)
     return (
-      <StatusBadge className={className} title="Esta versión aún no tiene imagen">
+      <StatusBadge className={className} title="Esta máquina aún no tiene imagen">
         Sin construir
       </StatusBadge>
     )
@@ -111,9 +107,9 @@ export function BuildBadge({ build, className }: { build: Build | null | undefin
       className={className}
       tone={buildTone[build.state]}
       pulse={build.state === "building"}
-      title={build.finished_at ? `Terminó ${formatFull(build.finished_at)}` : `Empezó ${formatFull(build.started_at)}`}
+      title={`${build.finished_at ? `Terminó ${formatFull(build.finished_at)}` : `Empezó ${formatFull(build.started_at)}`} · ${build.digest.slice(0, 12)}`}
     >
-      {buildLabel[build.state]} · v{build.version}
+      {buildLabel[build.state]}
     </StatusBadge>
   )
 }

@@ -25,15 +25,17 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsRead, h.find))
 	r.Patch("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.update))
 	r.Delete("/api/v1/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.delete))
+	r.Post("/api/v1/agents/:id/clone", httpx.RequireFunc(permission.AgentsWrite, h.clone))
 	r.Get("/api/v1/docks/:dock/agents", httpx.RequireFunc(permission.AgentsRead, h.team))
 	r.Put("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.assign))
 	r.Delete("/api/v1/docks/:dock/agents/:id", httpx.RequireFunc(permission.AgentsWrite, h.unassign))
-	// Profiles and secrets: writing either can direct the agent's secrets
-	// (an MCP header naming one), so both need agents:write.
-	r.Get("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsRead, h.profile))
-	r.Put("/api/v1/agents/:id/profile", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
-	r.Get("/api/v1/agents/:id/profile/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
-	r.Get("/api/v1/agents/:id/profile/versions/:version", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	// The config (profile + harness + machine) and secrets: writing either
+	// can direct the agent's secrets (an MCP header, a model key or a repo
+	// credential naming one), so both need agents:write.
+	r.Get("/api/v1/agents/:id/config", httpx.RequireFunc(permission.AgentsRead, h.profile))
+	r.Put("/api/v1/agents/:id/config", httpx.RequireFunc(permission.AgentsWrite, h.saveProfile))
+	r.Get("/api/v1/agents/:id/config/versions", httpx.RequireFunc(permission.AgentsRead, h.versions))
+	r.Get("/api/v1/agents/:id/config/versions/:version", httpx.RequireFunc(permission.AgentsRead, h.profile))
 	r.Get("/api/v1/agents/:id/secrets", httpx.RequireFunc(permission.AgentsRead, h.secrets))
 	r.Put("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.setSecret))
 	r.Delete("/api/v1/agents/:id/secrets/:name", httpx.RequireFunc(permission.AgentsWrite, h.deleteSecret))
@@ -76,6 +78,42 @@ func (h *Handler) create(c fiber.Ctx) error {
 		by = p.Subject
 	}
 	a, err := h.commands.Create(c.Context(), p.Organization, agent.Create{Name: req.Name, Description: req.Description, CreatedBy: by})
+	if err != nil {
+		return err
+	}
+	return httpx.Created(c, a.ID.String(), a)
+}
+
+// CloneRequest is the body of POST /api/v1/agents/{id}/clone.
+type CloneRequest struct {
+	// Name of the new agent (same rules as creating one).
+	Name string `json:"name"`
+	// Description of the new agent; absent: the source's.
+	Description *string `json:"description,omitempty"`
+	// Secrets also copies the source's secrets (resealed for the clone;
+	// never shown). Absent or false: the clone starts with none.
+	Secrets bool `json:"secrets"`
+}
+
+func (h *Handler) clone(c fiber.Ctx) error {
+	p, err := httpx.Caller(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	var req CloneRequest
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	by := p.Name
+	if by == "" {
+		by = p.Subject
+	}
+	a, err := h.commands.Clone(c.Context(), p.Organization, id, agent.Clone{Name: req.Name, Description: req.Description,
+		Secrets: req.Secrets, CreatedBy: by})
 	if err != nil {
 		return err
 	}

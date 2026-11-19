@@ -8,34 +8,35 @@ Many of an agent's jobs end in a browser: a dashboard behind a login, an interna
 
 Two switches, one per side:
 
-1. **The environment has a browser** (capacity). Add it to the spec:
+1. **The machine has a browser** (capacity). Add it to the machine of the agent's config:
 
    ```yaml
-   browser:
-     engine: chromium
-   network:
-     egress:
-       - app.example.com
-       - "*.example.com"
+   machine:
+     browser:
+       engine: chromium
+     network:
+       egress:
+         - app.example.com
+         - "*.example.com"
    ```
 
-   The next build of the environment installs Chromium, Xvfb (a virtual display), Node and the browser MCP server ([chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)) in the image. The sites the browser visits go through the egress proxy like everything else, so list them in `network.egress`.
+   The next build of the machine installs Chromium, Xvfb (a virtual display), Node and the browser MCP server ([chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)) in the image. The sites the browser visits go through the egress proxy like everything else, so list them in `network.egress`.
 
-2. **The agent uses it** (usage). On the agent's page, under **Perfil**, turn on **Navegador**, or:
+2. **The agent uses it** (usage). On the agent's page, under **Configuración**, turn on **Navegador**, or:
 
    ```sh
-   seaport profile set nav -browser on
+   seaport agents profile set nav -browser on
    ```
 
 With both on, every slot of the agent starts Chromium at start (headed on a virtual display, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `ask_takeover`.
 
-Chromium runs headed, not headless, because sites refuse a headless browser far more often: Google's sign-in refuses a headless Chromium at the first step and lets a headed one through. An image built by an older Seaport has no Xvfb; its slots run Chromium headless and log a warning until you rebuild the environment (`seaport env build <env> -force`, then restart the slots).
+Chromium runs headed, not headless, because sites refuse a headless browser far more often: Google's sign-in refuses a headless Chromium at the first step and lets a headed one through. An image built by an older Seaport has no Xvfb; its slots run Chromium headless and log a warning until you rebuild its machine (`seaport agents build <agent> -force`, then restart the slots).
 
-An agent with the switch on but hosted on an environment without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.
+An agent with the switch on but hosted on a machine without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.
 
 ## When a person must take over
 
-When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` (or Seaport [detects the page](#seaport-detects-it) and asks for it) with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** card: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
+When a site asks the agent for something only a person may do — credentials, a captcha, a 2FA code, a "verify you are human" wall, a payment — it calls `ask_takeover` (or Seaport [detects the page](#seaport-detects-it) and asks for it) with the site's host, what the person must do (`login`, `captcha`, `2fa` or `other`, with a note) and the conversation it is working, tells the person in the conversation, and goes on with what doesn't need it. The takeover shows up on the agent's page, in the **Navegador** tab: *El agente necesita que inicies sesión en app.example.com* (or *resuelvas un captcha*, *introduzcas el código 2FA*, *hagas algo*). **Abrir** opens the viewer on that host; **Listo** ends it. The agent keeps at most 8 open takeovers, one per host; the newest replaces an older one for the same host.
 
 ### Telling a person, and resuming the agent
 
@@ -45,11 +46,11 @@ Left to itself, the agent tells the person in the conversation. The profile's `b
 - A [destination](../destinations.md) name (`oncall`, `it-support`): Seaport opens a conversation at that destination of one of the agent's docks (a Slack thread, a WhatsApp chat) with the same message; when the destination's dock is the conversation's own, the new conversation joins its thread.
 - Empty (default): nobody; the takeover shows only in the web.
 
-In the web, a takeover shows on the agent's **Navegador** card and, when the agent named a conversation, as a banner in that conversation in the **Bandeja**, with **Abrir navegador** and **Listo** (see [the conversation panel](../web-app.md#the-conversation-panel)).
+In the web, a takeover shows on the agent's **Navegador** tab and, when the agent named a conversation, as a banner in that conversation in the **Bandeja**, with **Abrir navegador** and **Listo** (see [the conversation panel](../web-app.md#the-conversation-panel)).
 
 One notice per host: asking again for the same host updates the takeover and sends nothing. When the person presses **Listo** (or `DELETE /api/v1/agents/{id}/takeovers/{host}`), the agent gets a system message (`system:browser`) in the conversation the notice went to — else the one the call named — addressed to it, so it wakes up and goes on in the browser; a takeover nobody was told about in any conversation wakes nobody (the agent finds out when it retries). The agent can also wait in the call (`wait_seconds`, up to 290 s) when the step is short: a code, a captcha.
 
-A takeover nobody attends within an hour is swept (every 30 s, with the other sweepers): it leaves the **Navegador** card and the agent gets a system message saying nobody came, in the same place, so it goes on without that step or asks again when it matters.
+A takeover nobody attends within an hour is swept (every 30 s, with the other sweepers): it leaves the **Navegador** tab and the agent gets a system message saying nobody came, in the same place, so it goes on without that step or asks again when it matters.
 
 ```sh
 seaport agents profile set surf -browser on -browser-assist conversation
@@ -67,7 +68,7 @@ A model doesn't always notice it is on a sign-in page, and one that does may try
 - **captcha**: a reCAPTCHA, hCaptcha, Turnstile, Arkose, DataDome, PerimeterX, GeeTest or AWS WAF widget or wall.
 - **2fa**: a one-time-code input, or a row of single-digit boxes. Ranked first; then login, then captcha.
 
-The script reads the DOM and writes nothing; the page's content never leaves the slot. A hit records the takeover (`POST /crew/takeovers`, `by: detector`, with the page's path and never its query) on the conversation of the newest turn running, tells a person as `browser_assist` says, and steers a note into every running turn: the page needs a person, whether one was told, never guess credentials or codes, go on with what doesn't need it or wait. The **Navegador** card shows *Seaport detectó que el navegador necesita que inicies sesión en sso.example.com/signin*. A host is asked at most once every 10 minutes while the page keeps needing someone; nothing is asked while a person is in the viewer (they are on it), nor for `browser_ignore_hosts` (sites and their subdomains the agent never needs to pass: `-browser-ignore intranet.example.com,wiki.example.com`). Detection is independent of `browser_assist`: with nobody to tell, the takeover still shows in the web and the agent's note says so.
+The script reads the DOM and writes nothing; the page's content never leaves the slot. A hit records the takeover (`POST /crew/takeovers`, `by: detector`, with the page's path and never its query) on the conversation of the newest turn running, tells a person as `browser_assist` says, and steers a note into every running turn: the page needs a person, whether one was told, never guess credentials or codes, go on with what doesn't need it or wait. The **Navegador** tab shows *Seaport detectó que el navegador necesita que inicies sesión en sso.example.com/signin*. A host is asked at most once every 10 minutes while the page keeps needing someone; nothing is asked while a person is in the viewer (they are on it), nor for `browser_ignore_hosts` (sites and their subdomains the agent never needs to pass: `-browser-ignore intranet.example.com,wiki.example.com`). Detection is independent of `browser_assist`: with nobody to tell, the takeover still shows in the web and the agent's note says so.
 
 A sign-in that refuses automated browsers is not a takeover. Google may answer *Couldn't sign you in · This browser or app may not be secure* (`accounts.google.com/…/rejected`) to a browser it takes for automated: always to a headless one, and sometimes to a headed one too. Nobody gets past that page, not even a person in the viewer, since the viewer drives the same browser. The detector reports it as refused instead of asking for a person. Running turns get a note, at most once per host every 10 minutes: don't retry, and use the site's own sign-in or its API or MCP server instead, with keys stored as the agent's secrets. The viewer shows the same advice over the page: *Google no deja iniciar sesión en este navegador*. See [Sites that refuse automated browsers](#sites-that-refuse-automated-browsers).
 
@@ -79,23 +80,23 @@ seaport agents profile set surf -browser-detect off
 
 ## The viewer
 
-**Abrir navegador** in the agent's **Navegador** card opens the slot's browser in the page: a live screencast with an address bar, back, forward, reload, tabs, and your mouse and keyboard. Type the site's address, sign in as you would, and close the viewer. Keys you type in the page go only to the slot's browser, not to the web app's shortcuts. Accents typed with dead keys work, and Cmd/Ctrl+V pastes your own clipboard. Nothing you typed leaves the browser: the password goes from your keyboard to the slot's Chromium over the port's WebSocket; the port relays bytes and keeps none.
+**Abrir navegador** in the agent's **Navegador** tab opens the slot's browser in the page: a live screencast with an address bar, back, forward, reload, tabs, and your mouse and keyboard. Type the site's address, sign in as you would, and close the viewer. Keys you type in the page go only to the slot's browser, not to the web app's shortcuts. Accents typed with dead keys work, and Cmd/Ctrl+V pastes your own clipboard. Nothing you typed leaves the browser: the password goes from your keyboard to the slot's Chromium over the port's WebSocket; the port relays bytes and keeps none.
 
 - **Sesiones** lists the sites the browser holds cookies of, with their expiry, and forgets one on demand. That's how you sign the agent out of a site.
 - While the agent is in a turn, the viewer is read-only (*El agente trabaja*): you see what it does without moving its mouse. **Tomar el control** overrides that.
 - The agent knows you are there: when the viewer opens, the slot's connector tells the running turn that a person is using the browser and it should wait (or work on what doesn't need it), and when it closes, that the browser is its own again and it should check the page. A turn that starts while you are in the viewer gets the same note. It is a hint to the model, not a lock: the agent's browser tools keep working.
 - One viewer per slot at a time; a second opener gets `409`. A viewer ends after 10 minutes without a message or 2 hours in all.
-- An open viewer keeps the slot busy: `idle_stop` doesn't stop it and a new environment version doesn't restart it while you are in it. The port marks the slot every 20 s; a mark older than a minute (the port that relayed the viewer went away) no longer counts.
-- The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Alojamiento** section.
+- An open viewer keeps the slot busy: `idle_stop` doesn't stop it and a change of the machine doesn't restart it while you are in it. The port marks the slot every 20 s; a mark older than a minute (the port that relayed the viewer went away) no longer counts.
+- The viewer needs the slot running with the browser on (both switches). A stopped slot starts when work arrives, or start it from the **Dónde corre** tab.
 - **Security keys and passkeys don't work in the slot's browser**: no USB key or device authenticator can reach a container. So the browser has no WebAuthn authenticator and never opens Chromium's *Use your security key* dialog, which the viewer can't show and which would block every click on the page. A site that asks for a key (Google's 2-Step Verification, Okta, GitHub…) gets no answer and offers its other methods: click **Try another way** (or the site's equivalent) and pick a code, a phone prompt or a backup code.
 
 Opening and closing a viewer publish `slot.browser` (`opened`/`closed`, with who did it); the stream itself is never stored. The permission is `seaport:browser:use` (Admin and Operator in iam mode); see [Permissions](../../reference/permissions.md).
 
 ## What persists and where
 
-The browser's profile is in the slot's state volume, with the harness's sessions. It survives restarts and new versions of the environment, and goes away with the slot. Each slot has its own profile: an agent with two slots has two browsers, and a session you sign in on `nav-1` isn't on `nav-2`. Most agents need one slot; with more, sign in on each.
+The browser's profile is in the slot's state volume, with the harness's sessions. It survives restarts and new versions of the config, and goes away with the slot. Each slot has its own profile: an agent with two slots has two browsers, and a session you sign in on `nav-1` isn't on `nav-2`. Most agents need one slot; with more, sign in on each.
 
-The egress proxy sees the browser's hosts like any other traffic: a site the environment doesn't allow shows up in **Salidas bloqueadas** on the agent's page. Chromium's own background hosts (`accounts.google.com`, `update.googleapis.com`, …) are refused and harmless.
+The egress proxy sees the browser's hosts like any other traffic: a site the machine doesn't allow shows up in **Salidas bloqueadas** on the agent's page. Chromium's own background hosts (`accounts.google.com`, `update.googleapis.com`, …) are refused and harmless.
 
 ## Limits
 
@@ -123,12 +124,12 @@ The agent's Chromium is driven over the DevTools protocol, and some sign-ins ref
   ]
   ```
 
-  Prefer keys of a service account with read-only scopes. The environment's egress must allow the server's host.
+  Prefer keys of a service account with read-only scopes. The machine's egress must allow the server's host.
 - **The site's own sign-in.** An email-and-password account of the site itself (not *Sign in with Google*) works in the viewer like any other sign-in, 2FA included.
 
 ## Related
 
-- [Hosted agents](hosted-agents.md): environments, slots and the state volume.
+- [Hosted agents](hosted-agents.md): the machine, slots and the state volume.
 - [Network](network.md): the egress proxy the browser goes through.
-- [Environment spec](../../reference/environment-spec.md#browser) and [Agent profile](../../reference/agent-profile.md): the two switches.
+- [Agent config](../../reference/agent-config.md#browser) and [Agent profile](../../reference/agent-profile.md): the two switches.
 - [MCP tools](../../reference/mcp-tools.md#ask_takeover): `ask_takeover`.

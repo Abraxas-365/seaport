@@ -45,8 +45,8 @@ func (s *Service) StartLogin(ctx context.Context, org identity.OrganizationID, i
 	return l, nil
 }
 
-// signsIn: the slot exists, the runtime is on and its environment's
-// harness signs in from Seaport.
+// signsIn: the slot exists, the runtime is on and its agent's machine
+// signs in to the subscription from Seaport.
 func (s *Service) signsIn(ctx context.Context, org identity.OrganizationID, input hosting.SlotAction) error {
 	h, err := s.repo.Hosted(ctx, org, input.Agent)
 	if err != nil {
@@ -58,17 +58,15 @@ func (s *Service) signsIn(ctx context.Context, org identity.OrganizationID, inpu
 	if s.runtime() == nil {
 		return errx.Business("hosted agents are off on this port (SEAPORT_RUNTIME=off)")
 	}
-	env, err := s.repo.Environment(ctx, org, h.Environment, 0)
+	spec, err := s.spec(ctx, org, input.Agent)
 	if err != nil {
 		return err
 	}
 	switch {
-	case env.Spec.Harness != hosting.HarnessClaudeCode && env.Spec.Harness != hosting.HarnessRness:
-		return errx.Business("signing in from Seaport works with Claude Code and rness; " + env.Spec.Harness + " uses the environment's model key")
-	case env.Spec.Harness == hosting.HarnessRness && !env.Spec.SignsIn():
-		return errx.Business("the environment gives its agents model keys (models), served by the port's gateway: remove them to sign in")
-	case !env.Spec.SignsIn():
-		return errx.Business("the environment gives its agents an API key (models.anthropic), which wins over a subscription: remove it to sign in")
+	case spec.Harness != hosting.HarnessClaudeCode && spec.Harness != hosting.HarnessRness:
+		return errx.Business("signing in from Seaport works with Claude Code and rness; " + spec.Harness + " uses the machine's model key")
+	case !spec.SignsIn():
+		return errx.Business("the agent reaches Anthropic with an API key (models.anthropic): set its model access to subscription to sign in")
 	}
 	return nil
 }

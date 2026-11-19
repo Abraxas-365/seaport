@@ -521,10 +521,9 @@ var cliSwitches = map[string]string{
 	"agents/sub":              "seaport agents",
 	"hostCmd/sub":             "seaport agents",
 	"profileCmd/sub":          "seaport agents profile",
+	"configCmd/sub":           "seaport agents config",
+	"agentHome/sub":           "seaport agents home",
 	"secretsCmd/sub":          "seaport agents secrets",
-	"env/sub":                 "seaport env",
-	"envHome/sub":             "seaport env home",
-	"envSecrets/sub":          "seaport env secrets",
 	"schedules/sub":           "seaport schedules",
 	"crewTokens/sub":          "seaport crew tokens",
 	"vaultCmd/sub":            "seaport vault",
@@ -542,13 +541,11 @@ var cliExtra = []string{
 // cliAliases: names that stand for another command; the doc may leave them
 // to prose.
 var cliAliases = map[string]string{
-	"seaport envs": "seaport env", "seaport environments": "seaport env",
 	"seaport schedule": "seaport schedules", "seaport cron": "seaport schedules",
 	"seaport agent": "seaport agents", "seaport convs": "seaport conversations",
 	"seaport threads": "seaport thread", "seaport vaults": "seaport vault",
 	// subcommand aliases
 	"seaport dock destination remove": "seaport dock destination rm",
-	"seaport env show":                "seaport env export",
 	"seaport vault ls":                "seaport vault list",
 	"seaport vault add":               "seaport vault create",
 	"seaport vault edit":              "seaport vault update",

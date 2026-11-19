@@ -112,6 +112,93 @@ func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id
 	return a, nil
 }
 
+// Clone: Create's lock, count and insert, then the source's current config
+// as version 1 and, with in.Secrets, its secrets resealed for the clone,
+// all in one transaction. The config is copied as it is, with no check
+// that the secrets it names exist (SaveProfile's rule): a clone without
+// secrets keeps naming them, and what resolves them answers a Business
+// error naming the missing one. The source's row is locked (shared) so a
+// concurrent SaveProfile (FOR UPDATE) doesn't tear the copy. Plaintext
+// exists only inside this method, between Open and Seal.
+func (r *Repository) Clone(ctx context.Context, org identity.OrganizationID, source, id identity.AgentID, in agent.Clone, limit int) (agent.Agent, error) {
+	var a agent.Agent
+	if in.Secrets && r.sealer == nil {
+		return a, errx.Business("this port has no secret key: set SEAPORT_SECRET_KEY (or SEAPORT_SECRET_KEY_FILE) to copy agent secrets")
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return a, pgerr.Map(err, "begin clone agent")
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, createLock, org); err != nil {
+		return a, pgerr.Map(err, "lock agents")
+	}
+	var src struct {
+		Description string `db:"description"`
+		Version     int    `db:"profile_version"`
+	}
+	if err := tx.GetContext(ctx, &src, `SELECT description, profile_version FROM agents
+		WHERE organization_id = $1 AND id = $2 AND deleted_at IS NULL FOR SHARE`, org, source); err != nil {
+		return a, pgerr.MapWith(err, "find agent to clone", messages)
+	}
+	var n int
+	if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM agents WHERE organization_id = $1 AND deleted_at IS NULL`, org); err != nil {
+		return a, pgerr.Map(err, "count agents")
+	}
+	if n >= limit {
+		return a, errx.QuotaExceeded("agents", limit, "an organization can have at most "+strconv.Itoa(limit)+" agents; delete one first")
+	}
+	description := src.Description
+	if in.Description != nil {
+		description = *in.Description
+	}
+	if err := tx.GetContext(ctx, &a, `INSERT INTO agents (id, organization_id, name, description, created_by)
+		VALUES ($1, $2, $3, $4, $5) RETURNING `+columns, id, org, in.Name, description, in.CreatedBy); err != nil {
+		return a, pgerr.MapWith(err, "create agent", messages)
+	}
+	if src.Version > 0 {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_profiles
+			(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts,
+			 harness, machine, machine_digest, machine_secrets, home, created_by)
+			SELECT organization_id, $3, 1, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts,
+			 harness, machine, machine_digest, machine_secrets, home, $5
+			FROM agent_profiles WHERE organization_id = $1 AND agent_id = $2 AND version = $4`,
+			org, source, id, src.Version, in.CreatedBy); err != nil {
+			return a, pgerr.MapWith(err, "copy profile", profileMessages)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE agents SET profile_version = 1 WHERE organization_id = $1 AND id = $2`, org, id); err != nil {
+			return a, pgerr.Map(err, "point clone at profile")
+		}
+		a.ProfileVersion = 1
+	}
+	if in.Secrets {
+		var rows []struct {
+			Name   string `db:"name"`
+			Sealed []byte `db:"sealed"`
+			Env    bool   `db:"env"`
+		}
+		if err := tx.SelectContext(ctx, &rows, `SELECT name, sealed, env FROM agent_secrets
+			WHERE organization_id = $1 AND agent_id = $2 ORDER BY name`, org, source); err != nil {
+			return a, pgerr.Map(err, "read secrets to clone")
+		}
+		for _, row := range rows {
+			plain, err := r.sealer.Open(secretPurpose(org, source, row.Name), row.Sealed)
+			if err != nil {
+				return a, errx.Internal("agent secret " + row.Name + " doesn't open with this port's secret key (was the key changed?)")
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO agent_secrets (organization_id, agent_id, name, sealed, env)
+				VALUES ($1, $2, $3, $4, $5)`, org, id, row.Name, r.sealer.Seal(secretPurpose(org, id, row.Name), plain), row.Env); err != nil {
+				return a, pgerr.Map(err, "copy secret")
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return a, pgerr.Map(err, "commit clone agent")
+	}
+	a.Docks, a.Takeovers = []agent.Assignment{}, agent.Takeovers{}
+	return a, nil
+}
+
 func (r *Repository) Find(ctx context.Context, org identity.OrganizationID, id identity.AgentID) (agent.Agent, error) {
 	var a agent.Agent
 	err := r.db.GetContext(ctx, &a, `SELECT `+columns+` FROM agents

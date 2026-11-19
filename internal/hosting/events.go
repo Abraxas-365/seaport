@@ -1,28 +1,15 @@
 package hosting
 
-import "github.com/Abraxas-365/seaport/internal/identity"
-
 // Events the hosting domain publishes (see internal/event). Payloads carry
-// no secrets (specs name secrets as ${NAME} only).
+// no secrets (machines name secrets as ${NAME} only).
 const (
-	// EventEnvironmentUpdated: an environment was created or got a new
-	// version. Data: Environment.
-	EventEnvironmentUpdated = "environment.updated"
-	// EventEnvironmentDeleted: Data: EnvironmentDeleted.
-	EventEnvironmentDeleted = "environment.deleted"
-	// EventSlotsUpdated: an agent was hosted, moved, unhosted or one of its
-	// slots changed state. Data: Hosted (no environment and no slots when
-	// it is no longer hosted).
+	// EventSlotsUpdated: an agent was hosted, unhosted or one of its slots
+	// changed state. Data: Hosted (no slots when it is no longer hosted).
 	EventSlotsUpdated = "slot.updated"
-	// EventEnvironmentBuild: an environment version's build started,
-	// finished or failed. Data: Build (without its log).
-	EventEnvironmentBuild = "environment.build"
+	// EventAgentBuild: a build of an agent's image started, finished or
+	// failed. Data: Build (without its log).
+	EventAgentBuild = "agent.build"
 	// EventSlotBrowser: someone opened or closed a slot's browser viewer.
 	// Data: BrowserEvent.
 	EventSlotBrowser = "slot.browser"
 )
-
-// EnvironmentDeleted is the payload of EventEnvironmentDeleted.
-type EnvironmentDeleted struct {
-	ID identity.EnvironmentID `json:"id"`
-}

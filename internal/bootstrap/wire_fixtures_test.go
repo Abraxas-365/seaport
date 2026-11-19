@@ -66,7 +66,6 @@ func wireFixtures() map[string]any {
 		outID    = fixtureID(identity.ParseShipID, 4)
 		agentID  = fixtureID(identity.ParseAgentID, 5)
 		delivery = fixtureID(identity.ParseDeliveryID, 6)
-		envID    = fixtureID(identity.ParseEnvironmentID, 7)
 		apprID   = fixtureID(identity.ParseApprovalID, 8)
 		schedID  = fixtureID(identity.ParseScheduleID, 9)
 		attID    = fixtureID(identity.ParseAttachmentID, 10)
@@ -147,20 +146,31 @@ func wireFixtures() map[string]any {
 		Timezone: "UTC", Text: "Summarize yesterday.", Enabled: true, NextAt: at(10), LastAt: ptr(at(1)), LastShip: &shipID,
 		CreatedAt: at(0), UpdatedAt: at(1), Preview: []time.Time{at(10), at(20)}}
 
-	env := hosting.Environment{ID: envID, Name: "default", Version: 2, CreatedBy: "admin", CreatedAt: at(0), UpdatedAt: at(1), Agents: 1,
-		Spec: hosting.Spec{Description: "Go toolchain", Harness: "claude-code", Image: "", Packages: []string{"git", "make"},
-			Setup: "echo ready", RepoConfig: "ignore", Home: "",
-			Repos:  []hosting.Repo{{URL: "https://example.com/org/repo.git", Ref: "main", Path: "repo", Credential: "${GIT_TOKEN}", OnStart: "make deps"}},
-			Models: hosting.Models{"anthropic": "${ANTHROPIC_KEY}"}, Env: map[string]string{"TZ": "UTC"}, Network: hosting.Network{Egress: []string{"example.com", "*.example.org"}},
-			Browser: hosting.Browser{Engine: "chromium"}, Resources: hosting.Resources{Size: "M", CPUs: 2, MemoryMB: 4096},
-			Workspace: "persistent", IdleStop: "30m"}}
+	machine := hosting.Machine{Image: "", Packages: []string{"git", "make"},
+		Setup: "echo ready", RepoConfig: "ignore", Home: "",
+		Repos:  []hosting.Repo{{URL: "https://example.com/org/repo.git", Ref: "main", Path: "repo", Credential: "${GIT_TOKEN}", OnStart: "make deps"}},
+		Models: hosting.Models{"anthropic": "${ANTHROPIC_KEY}"}, Env: map[string]string{"TZ": "UTC"}, Network: hosting.Network{Egress: []string{"example.com", "*.example.org"}},
+		Browser: hosting.Browser{Engine: "chromium"}, Resources: hosting.Resources{Size: "M", CPUs: 2, MemoryMB: 4096},
+		Workspace: "persistent", IdleStop: "30m"}
+	machineJSON, err := json.Marshal(machine)
+	if err != nil {
+		panic(err)
+	}
+	spec := hosting.Spec{Harness: "claude-code", Machine: machine}
+	config := agent.Profile{Agent: agentID, Version: 3, Instructions: "Answer support questions in Spanish.",
+		Skills:     []agent.Skill{{Name: "triage", Description: "Sort incoming tickets"}},
+		MCPServers: []agent.MCPServer{{Name: "docs", URL: "https://mcp.example.com/mcp", Headers: []agent.Header{{Name: "Authorization", Value: "Bearer ${DOCS_TOKEN}"}}}},
+		Approve:    "auto", Model: "opus", Effort: "high", Browser: true, BrowserAssist: agent.AssistConversation,
+		BrowserIgnoreHosts: []string{}, Harness: "claude-code", Machine: machineJSON, MachineDigest: spec.Digest(),
+		MachineSecrets: []string{"ANTHROPIC_KEY", "GIT_TOKEN"}, CreatedBy: "admin", CreatedAt: at(1)}
 
-	build := hosting.Build{Environment: envID, Version: 2, State: "ready", Base: "ghcr.io/example/seaport-claude-code:latest",
-		Image: "sha256:0123456789abcdef", Detail: "", StartedAt: at(0), FinishedAt: ptr(at(1)), UpdatedAt: at(1)}
+	build := hosting.Build{Digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", Agent: agentID, State: "ready",
+		Base: "ghcr.io/example/seaport-claude-code:latest", Image: "sha256:0123456789abcdef", Detail: "",
+		StartedAt: at(0), FinishedAt: ptr(at(1)), UpdatedAt: at(1)}
 
-	hosted := hosting.Hosted{Agent: agentID, Environment: envID, UpdatedBy: "admin", UpdatedAt: at(1),
+	hosted := hosting.Hosted{Agent: agentID, UpdatedBy: "admin", UpdatedAt: at(1),
 		Slots: []hosting.Slot{{Index: 1, State: "running", Detail: "", Image: "sha256:0123456789abcdef",
-			EnvironmentVersion: 2, StartedAt: ptr(at(0)), ActiveAt: ptr(at(2)), UpdatedAt: at(2)}}}
+			ConfigVersion: 3, Outdated: false, StartedAt: ptr(at(0)), ActiveAt: ptr(at(2)), UpdatedAt: at(2)}}}
 
 	customs := conversation.Customs{
 		Policy: conversation.Policy{Dock: dockID, Default: conversation.DefaultAsk, GroupMode: conversation.GroupMentions},
@@ -172,32 +182,30 @@ func wireFixtures() map[string]any {
 	page := func(total int) query.Page { return query.Page{Total: total, Limit: 20, Offset: 0} }
 
 	events := map[string]any{
-		dock.EventUpdated:               dk,
-		dock.EventDeleted:               dock.Deleted{ID: dockID},
-		conversation.EventUpdated:       conv,
-		conversation.EventCustoms:       customs,
-		ship.EventCreated:               inbound,
-		ship.EventUpdated:               outbound,
-		ship.EventDelivery:              deliveryEvent,
-		ship.EventTurn:                  turn,
-		ship.EventApproval:              approval,
-		crew.EventChanged:               status,
-		crew.EventActivity:              activity,
-		agent.EventUpdated:              libAgent,
-		agent.EventDeleted:              agent.Deleted{ID: agentID},
-		agent.EventTakeover:             libAgent.Takeovers[0].Event(agentID, agent.TakeoverStateDone, "admin"),
-		hosting.EventEnvironmentUpdated: env,
-		hosting.EventEnvironmentDeleted: hosting.EnvironmentDeleted{ID: envID},
-		hosting.EventSlotsUpdated:       hosted,
-		hosting.EventEnvironmentBuild:   build,
-		hosting.EventSlotBrowser:        hosting.BrowserEvent{Agent: agentID, Slot: 1, State: hosting.BrowserOpened, By: "admin"},
-		schedule.EventCreated:           sched,
-		schedule.EventUpdated:           sched,
-		schedule.EventDeleted:           sched,
-		schedule.EventFired:             sched,
-		vault.EventCreated:              vlt,
-		vault.EventUpdated:              vlt,
-		vault.EventDeleted:              vlt,
+		dock.EventUpdated:         dk,
+		dock.EventDeleted:         dock.Deleted{ID: dockID},
+		conversation.EventUpdated: conv,
+		conversation.EventCustoms: customs,
+		ship.EventCreated:         inbound,
+		ship.EventUpdated:         outbound,
+		ship.EventDelivery:        deliveryEvent,
+		ship.EventTurn:            turn,
+		ship.EventApproval:        approval,
+		crew.EventChanged:         status,
+		crew.EventActivity:        activity,
+		agent.EventUpdated:        libAgent,
+		agent.EventDeleted:        agent.Deleted{ID: agentID},
+		agent.EventTakeover:       libAgent.Takeovers[0].Event(agentID, agent.TakeoverStateDone, "admin"),
+		hosting.EventSlotsUpdated: hosted,
+		hosting.EventAgentBuild:   build,
+		hosting.EventSlotBrowser:  hosting.BrowserEvent{Agent: agentID, Slot: 1, State: hosting.BrowserOpened, By: "admin"},
+		schedule.EventCreated:     sched,
+		schedule.EventUpdated:     sched,
+		schedule.EventDeleted:     sched,
+		schedule.EventFired:       sched,
+		vault.EventCreated:        vlt,
+		vault.EventUpdated:        vlt,
+		vault.EventDeleted:        vlt,
 		vault.EventEntry: vault.EntryChange{Vault: vaultID, Entry: entryID, Name: entry.Name, Version: entry.Version,
 			Deleted: false, Provenance: byAgent},
 	}
@@ -229,8 +237,7 @@ func wireFixtures() map[string]any {
 		"crew_token":      token,
 		"schedule":        sched,
 		"schedules":       query.Paginated[schedule.Schedule]{Items: []schedule.Schedule{sched}, Page: page(1)},
-		"environment":     env,
-		"environments":    query.Paginated[hosting.Environment]{Items: []hosting.Environment{env}, Page: page(1)},
+		"config":          config,
 		"build":           build,
 		"hosted":          hosted,
 		"vault":           vlt,

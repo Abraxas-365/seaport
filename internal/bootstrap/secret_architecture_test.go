@@ -15,20 +15,18 @@ import (
 // a hosted slot's repo credentials for OpenWorkspace, which only
 // hostinghttp serves (GET /crew/workspace, the slot's own token), and its
 // model key for ModelKey, which only the gateway calls (it forwards the
-// slot's model calls with the key and never answers it back);
-// OpenEnvironmentSecrets opens an environment's own secrets (model keys,
-// repo credentials, env variables of its slots) for the same two paths
-// and the slot's start, all in hostingsvc. AgentToken
+// slot's model calls with the key and never answers it back). Every
+// hosted secret is the agent's own (one store since the agent-centric
+// config). AgentToken
 // mints a GitHub App token for an agent's repo: only dockgithub's crew
 // handler (POST /crew/github/token, the agent's own crew token) calls it.
 var secretCalls = map[string]string{
-	"Equip":                  "crew/adapters/crewhttp",
-	"OpenSecrets":            "agent/agentsvc",
-	"Reveal":                 "hosting/hostingsvc",
-	"OpenEnvironmentSecrets": "hosting/hostingsvc",
-	"OpenWorkspace":          "hosting/adapters/hostinghttp",
-	"ModelKey":               "hosting/adapters/hostinggateway",
-	"AgentToken":             "dock/adapters/dockgithub",
+	"Equip":         "crew/adapters/crewhttp",
+	"OpenSecrets":   "agent/agentsvc",
+	"Reveal":        "hosting/hostingsvc",
+	"OpenWorkspace": "hosting/adapters/hostinghttp",
+	"ModelKey":      "hosting/adapters/hostinggateway",
+	"AgentToken":    "dock/adapters/dockgithub",
 }
 
 func secretViolations(files []goFile) []string {

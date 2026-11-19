@@ -114,22 +114,31 @@ func TestAssignBodyIsOptional(t *testing.T) {
 	}
 }
 
-func TestProfileVersionsAndSave(t *testing.T) {
+func TestConfigVersionsAndSave(t *testing.T) {
 	f := &fake{}
 	app := newApp(f, permission.All)
 	id := identity.NewAgentID().String()
-	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/profile", ""); resp.StatusCode != 200 || f.version != 0 {
-		t.Fatalf("current profile: %d v%d", resp.StatusCode, f.version)
+	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/config", ""); resp.StatusCode != 200 || f.version != 0 {
+		t.Fatalf("current config: %d v%d", resp.StatusCode, f.version)
 	}
-	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/profile/versions/3", ""); resp.StatusCode != 200 || f.version != 3 {
+	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/config/versions/3", ""); resp.StatusCode != 200 || f.version != 3 {
 		t.Fatalf("version 3: %d v%d", resp.StatusCode, f.version)
 	}
-	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/profile/versions/x", ""); resp.StatusCode != 400 {
+	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/config/versions/x", ""); resp.StatusCode != 400 {
 		t.Fatalf("bad version: %d", resp.StatusCode)
 	}
-	if resp, body := call(t, app, "PUT", "/api/v1/agents/"+id+"/profile", `{"base":2,"instructions":"hi"}`); resp.StatusCode != 200 ||
-		f.saved.CreatedBy != "Tester" || !strings.Contains(body, `"version":3`) {
+	if resp, body := call(t, app, "PUT", "/api/v1/agents/"+id+"/config", `{"base":2,"instructions":"hi"}`); resp.StatusCode != 200 ||
+		f.saved.CreatedBy != "Tester" || !strings.Contains(body, `"version":3`) || f.saved.Machine != nil {
 		t.Fatalf("save: %d %+v %s", resp.StatusCode, f.saved, body)
+	}
+	// Harness and machine reach the service as given (it checks them).
+	if resp, body := call(t, app, "PUT", "/api/v1/agents/"+id+"/config", `{"base":3,"harness":"rness","machine":{"packages":["jq"]}}`); resp.StatusCode != 200 ||
+		f.saved.Harness != "rness" || !strings.Contains(string(f.saved.Machine), `"jq"`) {
+		t.Fatalf("save machine: %d %+v %s", resp.StatusCode, f.saved, body)
+	}
+	// The old routes are gone.
+	if resp, _ := call(t, app, "GET", "/api/v1/agents/"+id+"/profile", ""); resp.StatusCode != 404 {
+		t.Fatalf("old profile route: %d", resp.StatusCode)
 	}
 }
 

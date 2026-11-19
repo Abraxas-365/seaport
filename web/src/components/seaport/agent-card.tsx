@@ -40,9 +40,9 @@ export function AgentCard({
               {agent.outdated && (
                 <StatusBadge
                   tone="warning"
-                  title="El perfil del agente cambió: reinicia con el nuevo al quedar libre (o su conector no aplica perfiles)"
+                  title="La configuración del agente cambió: reinicia con la nueva al quedar libre (o su conector no la aplica)"
                 >
-                  {agent.profile_version ? `perfil v${agent.profile_version}` : "sin perfil"} · desactualizado
+                  {agent.profile_version ? `config v${agent.profile_version}` : "sin configuración"} · desactualizada
                 </StatusBadge>
               )}
               {agent.steer && (

@@ -15,7 +15,7 @@ Every command and flag of the seaport binary: serving the port, administering it
 
 `seaport serve` reads its own variables: see [Configuration](configuration.md). Admin commands are thin clients of the [HTTP API](http-api.md): each call times out after 30 seconds and answers are limited to 32 MiB. Errors print as `seaport: <message>` with exit code 1.
 
-An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed). Dock, conversation, rule and token arguments are ids (as shown by the matching `list`); environments are named.
+An `<agent>` argument takes the agent's id or its name (a leading `@` is allowed). Dock, conversation, rule and token arguments are ids (as shown by the matching `list`).
 
 ## Server
 
@@ -83,6 +83,7 @@ Patterns match the handles the channel reports: phone numbers (`34600000001`, `+
 | :--- | :--- |
 | `seaport agents [list]` | Table of agents: ID, name, profile version, docks (the default one marked), description. Alias: `seaport agent`. |
 | `seaport agents add <name> [-description D]` | Creates an agent. Its name is its `@mention` handle. |
+| `seaport agents clone <agent> <name> [-secrets] [-description D]` | Creates `<name>` as a copy of the agent's current [config](agent-config.md) (profile, harness, machine) as its version 1; a hosted agent's clone is hosted with the same slots, stopped. `-secrets` also copies the agent's secrets (resealed for the clone, never shown); without it the clone has none and whatever its config names fails, naming the secret, until you set it. Docks, vault grants, tokens, takeovers and usage are not copied. |
 | `seaport agents edit <agent> [-name N] [-description D]` | Changes the flags you give; at least one is required. |
 | `seaport agents assign <agent> <dock-id> [-default]` | Puts the agent on a dock's team. `-default` makes it the one that takes messages that call nobody. |
 | `seaport agents unassign <agent> <dock-id>` | Takes it off the team; what waited for it there is held. |
@@ -90,15 +91,25 @@ Patterns match the handles the channel reports: phone numbers (`34600000001`, `+
 
 See [Agents and routing](../guides/agents-and-routing.md).
 
+### Config
+
+The config is the agent's whole configuration in one versioned document: its harness, its profile and, for a hosted agent, its machine. See [Agent config](agent-config.md).
+
+| Command | What it does |
+| :--- | :--- |
+| `seaport agents config [show] <agent> [-version N]` | Prints the current config as YAML, or a past `-version`, in the format `apply` reads. An agent with no config yet prints a hint. |
+| `seaport agents config versions <agent>` | Table of versions: number (current marked), author, time. |
+| `seaport agents config apply <agent> -f FILE` | Saves the file as the agent's new config (an unchanged file makes no version). `FILE` is YAML or JSON (`-` = stdin), read strictly: an unknown key is an error. It replaces the whole config, so start from `show`. A `machine.home` that is a directory (relative to the file) is uploaded first. |
+
 ### Profiles
 
-The profile is what the agent's harness is told and given: see [Agent profile](agent-profile.md).
+The profile is what the agent's harness is told and given: see [Agent profile](agent-profile.md). `profile set` keeps the agent's harness and machine as they are; `config apply` edits them.
 
 | Command | What it does |
 | :--- | :--- |
 | `seaport agents profile [show] <agent> [-version N] [-json]` | Shows the current profile, or a past `-version`. `-json` prints it in the format `set -f` reads. |
 | `seaport agents profile versions <agent>` | Table of versions: number (current marked), author, time. |
-| `seaport agents profile set <agent> [flags]` | Saves a new version. Starts from the current profile, applies the flags in the order below, and refuses a stale base. At least one flag is required. |
+| `seaport agents profile set <agent> [flags]` | Saves a new config version. Starts from the current profile, applies the flags in the order below, and refuses a stale base. At least one flag is required. |
 
 Flags of `profile set`:
 
@@ -112,7 +123,7 @@ Flags of `profile set`:
 | `-approve allow\|reject\|connector` | Answer to the harness's permission requests; `connector` leaves it to the connector's `-approve`. |
 | `-model M` | Model, among the harness's options; `none` clears it. |
 | `-effort E` | Reasoning effort, among the harness's options; `none` clears it. |
-| `-browser on\|off` | Whether the agent uses its environment's [managed browser](../guides/hosting/browser.md). |
+| `-browser on\|off` | Whether the agent uses its machine's [managed browser](../guides/hosting/browser.md). |
 | `-browser-assist none\|conversation\|NAME` | Whom Seaport tells when the agent asks for a browser takeover: nobody, the conversation it is working, or a destination `NAME` of one of its docks. |
 | `-browser-detect on\|off` | Whether the connector detects sign-in, captcha and 2FA pages in the browser and asks the takeover itself. |
 | `-browser-ignore HOSTS` | Comma-separated sites (and their subdomains) the detector leaves alone; `none` clears the list. |
@@ -124,8 +135,8 @@ A `SKILL.md` has front matter with `name` (default: its directory's name) and a 
 | Command | What it does |
 | :--- | :--- |
 | `seaport agents secrets [list] <agent>` | Table of secret names, whether each is given as an environment variable, and update time. Values are never shown. |
-| `seaport agents secrets set <agent> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. MCP headers use it as `${NAME}`. `-env` also gives it to the harness as an environment variable: hosted slots always get it; `seaport connect` only with `-env`. |
-| `seaport agents secrets rm <agent> NAME` | Deletes it. A secret an MCP header, a repo credential or a model key still uses can't be deleted. |
+| `seaport agents secrets set <agent> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. MCP headers and the machine's model keys and repo credentials use it as `${NAME}`. `-env` also gives it to the harness as an environment variable: hosted slots always get it; `seaport connect` only with `-env`. |
+| `seaport agents secrets rm <agent> NAME` | Deletes it. A secret an MCP header, or the machine's model key or repo credential, still names can't be deleted. |
 
 ### Hosting
 
@@ -133,9 +144,10 @@ These commands need `SEAPORT_RUNTIME=docker` on the port for anything that build
 
 | Command | What it does |
 | :--- | :--- |
-| `seaport agents host <agent> <env> [-slots N]` | Runs the agent on the port in that environment. `-slots` is the number of instances (default 1; each keeps its own sessions and workspace). |
+| `seaport agents build <agent> [-force] [-wait=false]` | Builds the image of the agent's machine and follows the log until it ends; a failed build is an error. Builds are keyed by content, so an agent whose machine builds the same image as another's, or whose config changed only its instructions, builds nothing. `-force` builds again even if built (pulls the base anew). `-wait=false` returns once the build starts. |
+| `seaport agents host <agent> [-slots N]` | Runs the agent on the port, on its config's machine (the config needs a harness and a machine). `-slots` is the number of instances (default 1; each keeps its own sessions and workspace). Refused while the agent has live crew tokens. |
 | `seaport agents unhost <agent>` | Stops hosting it (running slots must be stopped first). |
-| `seaport agents slots [<agent>]` | Table of hosted slots: slot, environment and version, state, detail. |
+| `seaport agents slots [<agent>]` | Table of hosted slots: slot, config version, state, detail. |
 | `seaport agents start <agent>[-<n>]` | Starts a slot (1 by default). New work also wakes a stopped agent. |
 | `seaport agents stop <agent>[-<n>]` | Stops a slot. |
 | `seaport agents logs <agent>[-<n>] [-lines N]` | The tail of a running slot's output; `-lines` defaults to 300, at most 2000. |
@@ -146,38 +158,15 @@ These commands need `SEAPORT_RUNTIME=docker` on the port for anything that build
 
 `<agent>-<n>` names slot `n` of an agent; an agent whose own name looks like that wins.
 
-## Environments
-
-An environment says where hosted agents run: see [Environment spec](environment-spec.md). Aliases: `seaport envs`, `seaport environments`.
-
-| Command | What it does |
-| :--- | :--- |
-| `seaport env [list]` | Table: name, version, harness, size, repos, agents, description. |
-| `seaport env apply -f FILE` | Creates the environment, or saves a new version (an unchanged file makes none). `FILE` is YAML or JSON (`-` = stdin), read strictly: an unknown key is an error. The file holds `name` plus the spec's fields. A `home:` that is a directory (relative to the file) is uploaded first. |
-| `seaport env export <env> [-version N]` | Prints the environment as YAML, the format `apply` reads (alias `show`). |
-| `seaport env versions <env>` | Table of versions: number, author, time. |
-| `seaport env build <env> [-version N] [-force] [-wait=false]` | Builds the image of a version (default: current) and follows the log until it ends; a failed build is an error. `-force` builds again even if built (pulls the base anew). `-wait=false` returns once the build starts. |
-| `seaport env delete <env> -yes` | Deletes it and its history. Refused while agents run on it. |
-
 ### Harness homes
 
-A harness home is an uploaded `~/.claude` or `~/.rness` baked into the environment's image. See [Harness homes](../guides/hosting/harness-homes.md).
+A harness home is an uploaded `~/.claude` or `~/.rness` baked into the agent's image. See [Harness homes](../guides/hosting/harness-homes.md).
 
 | Command | What it does |
 | :--- | :--- |
-| `seaport env home push <env> [dir] [-dry-run]` | Packs the harness's config files from `dir` (default `~/.claude` or `~/.rness`, by the environment's harness), checks them with the server's own rules, uploads them and saves a version naming the home. What isn't config (sessions, sign-in, memory…) is left out and listed. `-dry-run` lists what would be uploaded and uploads nothing. |
-| `seaport env home show <env>` | The files of its home: path, size, executable mark. |
-| `seaport env home pull <env> <dir>` | Downloads the home into a new or empty directory. |
-
-### Environment secrets
-
-An environment's own secrets: the model keys and repo credentials its spec names as `${NAME}`, and with `-env` variables every slot's harness gets. They belong to the environment, not to the agents hosted on it. See [Variables and secrets](../guides/hosting/secrets.md).
-
-| Command | What it does |
-| :--- | :--- |
-| `seaport env secrets [list] <env>` | Table of secret names, whether each is given as an environment variable, and update time. Values are never shown. |
-| `seaport env secrets set <env> NAME [-env]` | Saves a secret. The value comes from a hidden terminal prompt or from stdin (one trailing newline dropped), never from the command line. The spec names it as `${NAME}`. `-env` also gives it to every slot's harness as an environment variable. |
-| `seaport env secrets rm <env> NAME` | Deletes it. A secret the spec still names can't be deleted. |
+| `seaport agents home push <agent> [dir] [-dry-run]` | Packs the harness's config files from `dir` (default `~/.claude` or `~/.rness`, by the agent's harness), checks them with the server's own rules, uploads them and saves a config version whose machine names the home. What isn't config (sessions, sign-in, memory…) is left out and listed. `-dry-run` lists what would be uploaded and uploads nothing. |
+| `seaport agents home show <agent>` | The files of its home: path, size, executable mark. |
+| `seaport agents home pull <agent> <dir>` | Downloads the home into a new or empty directory. |
 
 ## Crew tokens
 
@@ -275,6 +264,6 @@ These run inside a hosted slot's container and aren't meant to be called by hand
 | `seaport agent-login` | The subscription sign-in the port runs in a slot and relays. |
 | `seaport browser-relay` | The slot's managed browser for the port's viewer: Chrome DevTools Protocol as lines on stdin and stdout. The port runs it in the slot and relays it. |
 | `seaport agent-account` | Prints how the slot's harness is signed in, as JSON; the port asks. |
-| `seaport home-setup` | Finishes an environment's harness home while its image is built. |
-| `seaport git-credential` | Git's credential helper in a slot: asks the port for repo credentials each time (the environment's, else a [GitHub App](../guides/github.md#act-on-github-as-the-app) token), so no token stays on disk. |
+| `seaport home-setup` | Finishes an agent machine's harness home while its image is built. |
+| `seaport git-credential` | Git's credential helper in a slot: asks the port for repo credentials each time (the agent's secret the machine's repo names, else a [GitHub App](../guides/github.md#act-on-github-as-the-app) token), so no token stays on disk. |
 | `gh` | Seaport's shim of GitHub's CLI in a slot (the seaport binary called as `gh`): runs the real `gh` with a GitHub App token for the repository the command is about. |

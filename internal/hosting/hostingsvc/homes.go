@@ -145,7 +145,7 @@ func (s *Service) buildHome(ctx context.Context, org identity.OrganizationID, sp
 		return nil, err
 	}
 	if h.Harness != spec.Harness {
-		return nil, errx.Business("the environment's home is for " + h.Harness + ", its harness is " + spec.Harness)
+		return nil, errx.Business("the machine's home is for " + h.Harness + ", its harness is " + spec.Harness)
 	}
 	return s.openHome(ctx, h)
 }

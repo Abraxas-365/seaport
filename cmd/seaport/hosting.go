@@ -15,7 +15,6 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
-	"github.com/Abraxas-365/seaport/internal/query"
 )
 
 // hostCmd is `seaport agents host|unhost|slots|start|stop|logs|usage|egress|login|account ...`.
@@ -45,7 +44,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		name := hosting.SlotName(ag.Name, idx)
 		switch {
 		case !acc.Supported:
-			fmt.Fprintf(stdout, "%s: its harness uses the environment's model key (no sign-in)\n", name)
+			fmt.Fprintf(stdout, "%s: its harness uses the machine's model keys (no sign-in)\n", name)
 		case acc.LoggedIn && acc.Subscription != "":
 			fmt.Fprintf(stdout, "%s: signed in (%s, %s)\n", name, acc.Method, acc.Subscription)
 		case acc.LoggedIn:
@@ -103,7 +102,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", hosting.SlotName(ag.Name, d.Slot), d.Host, d.Count, d.LastSeen.Local().Format("2006-01-02 15:04"))
 		}
 		_ = w.Flush()
-		fmt.Fprintln(stdout, "allow one: add it to the environment's network.egress (seaport env export|apply); a host that resolves to a private address stays refused")
+		fmt.Fprintln(stdout, "allow one: add it to the machine's network.egress (seaport agents config show|apply); a host that resolves to a private address stays refused")
 		return nil
 	case "logs":
 		if len(args) < 1 {
@@ -144,12 +143,12 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		fmt.Fprintln(stdout, "follow it with: seaport agents slots "+ag.Name)
 		return nil
 	case "host":
-		if len(args) < 2 {
-			return errx.Validation("usage: seaport agents host <agent> <env> [-slots N]")
+		if len(args) < 1 {
+			return errx.Validation("usage: seaport agents host <agent> [-slots N]")
 		}
 		fs := flag.NewFlagSet("agents host", flag.ContinueOnError)
 		slots := fs.Int("slots", 0, "instances (default 1; each keeps its own sessions and workspace)")
-		if err := fs.Parse(args[2:]); err != nil {
+		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
 		ag, err := findAgent(ctx, a, args[0])
@@ -158,10 +157,10 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		}
 		var h hosting.Hosted
 		if err := a.do(ctx, http.MethodPut, "/api/v1/agents/"+ag.ID.String()+"/hosting",
-			map[string]any{"environment": args[1], "slots": *slots}, &h); err != nil {
+			map[string]any{"slots": *slots}, &h); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "agent %s hosted on %s with %d slot(s)\n", ag.Name, args[1], len(h.Slots))
+		fmt.Fprintf(stdout, "agent %s hosted with %d slot(s), on its config's machine\n", ag.Name, len(h.Slots))
 		return nil
 	case "unhost":
 		if len(args) != 1 {
@@ -199,7 +198,7 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 		hosted = out.Agents
 	}
 	if len(hosted) == 0 {
-		fmt.Fprintln(stdout, "no hosted agents: seaport agents host <agent> <env>")
+		fmt.Fprintln(stdout, "no hosted agents: seaport agents host <agent>")
 		return nil
 	}
 	agents, err := listAgents(ctx, a)
@@ -210,23 +209,18 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	for _, ag := range agents {
 		names[ag.ID] = ag.Name
 	}
-	var envs query.Paginated[hosting.Environment]
-	if err := a.do(ctx, http.MethodGet, "/api/v1/environments?limit=100", nil, &envs); err != nil {
-		return err
-	}
-	envNames := map[identity.EnvironmentID]string{}
-	for _, e := range envs.Items {
-		envNames[e.ID] = e.Name
-	}
 	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "SLOT\tENV\tSTATE\tDETAIL")
+	fmt.Fprintln(w, "SLOT\tCONFIG\tSTATE\tDETAIL")
 	for _, h := range hosted {
 		for _, s := range h.Slots {
-			version := ""
-			if s.EnvironmentVersion > 0 {
-				version = fmt.Sprintf(" v%d", s.EnvironmentVersion)
+			version := "-"
+			if s.ConfigVersion > 0 {
+				version = fmt.Sprintf("v%d", s.ConfigVersion)
 			}
-			fmt.Fprintf(w, "%s\t%s%s\t%s\t%s\n", hosting.SlotName(names[h.Agent], s.Index), envNames[h.Environment], version, s.State, s.Detail)
+			if s.Outdated {
+				version += " (outdated)"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", hosting.SlotName(names[h.Agent], s.Index), version, s.State, s.Detail)
 		}
 	}
 	return w.Flush()

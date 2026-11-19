@@ -1,11 +1,14 @@
 // Package hosting runs an organization's agents on the port's own host:
-// environments (where an agent runs: harness, image, tools, repos,
-// network, resources; versioned like profiles), which agents are hosted
-// on which environment and with how many slots (stable instances, each
-// with its own state volume).
+// what a hosted agent runs is its config's harness and machine (Spec:
+// image, tools, repos, model access, network, resources; versioned with
+// the agent's config, agent.Profile), which agents are hosted and with
+// how many slots (stable instances, each with its own state volume).
 package hosting
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net/url"
 	"path"
 	"regexp"
@@ -15,24 +18,20 @@ import (
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
-	"github.com/Abraxas-365/seaport/internal/identity"
-	"github.com/Abraxas-365/seaport/internal/text"
 )
 
-// Environment limits.
+// Machine limits.
 const (
-	MaxEnvironments = 50
-	MaxDescription  = 1000
-	MaxPackages     = 100
-	MaxSetup        = 16384
-	MaxRepos        = 10
-	MaxOnStart      = 4096
-	MaxEgress       = 100
+	MaxPackages = 100
+	MaxSetup    = 16384
+	MaxRepos    = 10
+	MaxOnStart  = 4096
+	MaxEgress   = 100
 	// MaxIdleStop is the longest idle_stop (0: never stop).
 	MaxIdleStop = 7 * 24 * time.Hour
 )
 
-// Harnesses an environment can run.
+// Harnesses an agent can run (agent.Profile.Harness).
 const (
 	HarnessRness      = "rness"
 	HarnessClaudeCode = "claude-code"
@@ -74,7 +73,6 @@ const (
 const DefaultIdleStop = 30 * time.Minute
 
 var (
-	envName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	// a Debian package, optionally pinned (name=version)
 	packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]{0,99}(=[A-Za-z0-9.+:~-]{1,100})?$`)
 	// an image reference: [registry[:port]/]path[:tag][@sha256:digest]
@@ -93,38 +91,34 @@ var sizes = map[string]Resources{
 	SizeL: {CPUs: 4, MemoryMB: 8192},
 }
 
-// Environment is where an organization's hosted agents run. Its spec is
-// versioned (Version is the current one); agents hosted on it run the
-// current version.
-type Environment struct {
-	ID           identity.EnvironmentID  `json:"id"`
-	Organization identity.OrganizationID `json:"-"`
-	// Name is unique in the organization (`seaport env apply` keys on it).
-	Name      string    `json:"name"`
-	Version   int       `json:"version"`
-	Spec      Spec      `json:"spec"`
-	CreatedBy string    `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	// Agents is how many agents are hosted on it.
-	Agents int `json:"agents"`
-}
-
-// Version is an environment version in the history (no spec).
-type Version struct {
-	Version   int       `db:"version" json:"version"`
-	CreatedBy string    `db:"created_by" json:"created_by"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-}
-
-// Spec is one version of an environment. No secret values: repo
-// credentials and model keys name a secret as ${NAME} (the environment's,
-// else the hosted agent's: Secrets), and Env holds plain variables only.
+// Spec is what a hosted agent runs: its config's harness (rness or
+// claude-code: Seaport's base image for it; agent.Profile.Harness) and
+// machine (agent.Profile.Machine).
 type Spec struct {
-	Description string `json:"description"`
-	// Harness is the agent program: rness or claude-code (Seaport's base
-	// image for it).
-	Harness string `json:"harness"`
+	Harness string
+	Machine
+}
+
+// SpecOf reads an agent config's harness and machine (agent.Profile;
+// NotFound-free: a config with no machine is a Business error, the agent
+// can't be hosted yet).
+func SpecOf(harness string, machine []byte) (Spec, error) {
+	if len(machine) == 0 || string(machine) == "null" {
+		return Spec{}, errx.Business("the agent's config has no machine: set where it runs (seaport agents config apply, or the web's Dónde corre) before hosting it")
+	}
+	var m Machine
+	if err := json.Unmarshal(machine, &m); err != nil {
+		return Spec{}, errx.Wrap(err, "decode machine", errx.TypeInternal)
+	}
+	return Spec{Harness: harness, Machine: m}, nil
+}
+
+// Machine is where and how a hosted agent runs, part of its versioned
+// config (agent.Profile.Machine; hosting checks and normalizes it:
+// agent.MachineCheck). No secret values: repo credentials and model keys
+// name one of the agent's secrets as ${NAME} (Secrets), and Env holds
+// plain variables only.
+type Machine struct {
 	// Image replaces the base image; it must be built FROM Seaport's base
 	// image of the harness (the user, home and entrypoint are its).
 	Image string `json:"image"`
@@ -141,10 +135,12 @@ type Spec struct {
 	RepoConfig string `json:"repo_config"`
 	// Home names the harness config baked into the image (its ~/.claude or
 	// ~/.rness: instructions, settings, agents, skills, plugins): a home
-	// uploaded to this environment, as sha256:<digest> ("": none).
+	// uploaded to the organization, as sha256:<digest> ("": none).
 	Home string `json:"home"`
-	// Models are the model keys the port's gateway uses for the slots:
-	// provider (Providers) → ${NAME} of a secret.
+	// Models say how the slots reach each provider (Providers): ${NAME} of
+	// one of the agent's secrets holding the API key (the port's gateway
+	// uses it; the key never enters the container), or Subscription
+	// (Anthropic only: the slot signs in to the person's Claude account).
 	Models Models `json:"models"`
 	// Env are plain variables every slot's harness gets (TZ, NODE_ENV, a
 	// flag): name → value, never a credential (ValidEnv refuses what looks
@@ -152,8 +148,8 @@ type Spec struct {
 	Env     map[string]string `json:"env"`
 	Network Network           `json:"network"`
 	// Browser gives the slots a managed browser (Browser.Enabled): the
-	// image gets the engine and the agent's tooling; an agent whose profile
-	// turns its browser on needs an environment with one.
+	// image gets the engine and the agent's tooling; the config's browser
+	// switch (agent.Profile.Browser) needs it.
 	Browser   Browser   `json:"browser"`
 	Resources Resources `json:"resources"`
 	// Workspace: persistent (kept across restarts) or ephemeral.
@@ -171,20 +167,17 @@ type Repo struct {
 	Ref string `json:"ref"`
 	// Path is where it goes, relative to /workspace ("": its name).
 	Path string `json:"path"`
-	// Credential names the secret holding a token for the URL's host:
-	// ${NAME} ("": public). The environment's secret, else the hosted
-	// agent's.
+	// Credential names the agent's secret holding a token for the URL's
+	// host: ${NAME} ("": public).
 	Credential string `json:"credential"`
 	// OnStart runs in the repo after each clone or fetch (shell).
 	OnStart string `json:"on_start"`
 }
 
-// Models name the secrets holding model API keys, by provider
-// (Providers): provider → ${NAME}. With one set, the slots reach that
-// provider through the port's model gateway with their own token: the key
-// never enters the container. The secret is the environment's (the key is
-// infrastructure its slots share), else the hosted agent's (transitional:
-// specs from before environment secrets).
+// Models say how the slots reach each model provider (Providers):
+// provider → ${NAME} of the agent's secret holding its API key (the slots
+// reach it through the port's model gateway with their own token: the key
+// never enters the container) or Subscription (the slot signs in).
 type Models map[string]string
 
 // Network is what a slot may reach besides the port.
@@ -194,7 +187,7 @@ type Network struct {
 	Egress []string `json:"egress"`
 }
 
-// Browser is the managed browser of an environment's slots: a CDP engine
+// Browser is the managed browser of an agent's slots: a CDP engine
 // (BrowserChromium) run by the slot with the agent's profile
 // (cookies, storage) in its state volume. The sites it visits go through
 // the egress proxy like everything else (Network.Egress).
@@ -234,23 +227,38 @@ func (l Limits) Check(r Resources) error {
 	return nil
 }
 
-// ValidName checks an environment name.
-func ValidName(name string) error {
-	if !envName.MatchString(name) {
-		return errx.InvalidField("name", "name must be 1-64 lowercase letters, digits, - or _, starting with a letter or digit")
-	}
-	return nil
-}
-
+// Validate checks a spec: the harness and the machine.
 func (s Spec) Validate() error {
-	if err := text.Optional("description", s.Description, MaxDescription); err != nil {
-		return err
-	}
 	switch strings.TrimSpace(s.Harness) {
 	case HarnessRness, HarnessClaudeCode:
 	default:
 		return errx.InvalidField("harness", "harness must be rness or claude-code")
 	}
+	if err := s.Machine.Validate(); err != nil {
+		return err
+	}
+	// rness signs in only when no model goes through the gateway: its
+	// image registers the gateway's providers and starts there
+	// (images/rness/seaport.lua).
+	m := NormalizeModels(s.Models)
+	if strings.TrimSpace(s.Harness) == HarnessRness && m[ProviderAnthropic] == Subscription && len(m.Providers()) > 0 {
+		return errx.InvalidField("models", "rness signs in to the Claude subscription only when no other model has a key: drop anthropic: subscription or the keys")
+	}
+	return nil
+}
+
+// ValidHarness checks a config's harness: "" (not set) or one of the
+// harnesses.
+func ValidHarness(h string) error {
+	switch h {
+	case "", HarnessRness, HarnessClaudeCode:
+		return nil
+	}
+	return errx.InvalidField("harness", "harness must be rness or claude-code")
+}
+
+// Validate checks a machine (Spec.Validate adds the harness).
+func (s Machine) Validate() error {
 	if img := strings.TrimSpace(s.Image); img != "" && (len(img) > 255 || !imageRef.MatchString(img)) {
 		return errx.InvalidField("image", "image must be an image reference (registry/name:tag or @sha256:digest)")
 	}
@@ -285,7 +293,7 @@ func (s Spec) Validate() error {
 		return errx.InvalidField("repo_config", "repo_config must be trust or ignore")
 	}
 	if s.Home != "" && !homeDigest.MatchString(s.Home) {
-		return errx.InvalidField("home", "home must name an uploaded home as sha256:<digest> (seaport env home push)")
+		return errx.InvalidField("home", "home must name an uploaded home as sha256:<digest> (seaport agents home push)")
 	}
 	if err := s.Models.validate(); err != nil {
 		return err
@@ -454,16 +462,51 @@ func formatIdleStop(d time.Duration) string {
 // to CPUs and memory, idle_stop canonical. Two specs that run the same
 // normalize equal.
 func Normalize(s Spec) Spec {
-	out := Spec{Description: text.Clean(s.Description), Harness: strings.TrimSpace(s.Harness),
-		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home,
-		Models: Models{}, Env: map[string]string{},
-		Browser:   Browser{Engine: strings.TrimSpace(s.Browser.Engine)},
-		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
-	for p, ref := range s.Models {
-		if ref = strings.TrimSpace(ref); ref != "" {
-			out.Models[strings.ToLower(strings.TrimSpace(p))] = ref
+	out := Spec{Harness: strings.TrimSpace(s.Harness), Machine: normalizeMachine(s.Machine)}
+	// Model access defaults to the subscription where the harness has no
+	// key for its sessions: Claude Code with no Anthropic key, rness with
+	// no key at all.
+	switch out.Harness {
+	case HarnessClaudeCode:
+		if out.Models[ProviderAnthropic] == "" {
+			out.Models[ProviderAnthropic] = Subscription
+		}
+	case HarnessRness:
+		if len(out.Models.Providers()) == 0 {
+			out.Models[ProviderAnthropic] = Subscription
 		}
 	}
+	return out
+}
+
+// Digest names what a slot runs: sha256 (hex) of the normalized spec, so
+// two configs whose harness and machine run the same share it. A slot
+// started on another digest than its agent's current config is outdated
+// (restarted when idle); an edit of the instructions or skills keeps it.
+func (s Spec) Digest() string {
+	raw, _ := json.Marshal(Normalize(s))
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// NormalizeModels trims providers (lowercase) and values, dropping empty
+// ones.
+func NormalizeModels(in Models) Models {
+	out := Models{}
+	for p, ref := range in {
+		if ref = strings.TrimSpace(ref); ref != "" {
+			out[strings.ToLower(strings.TrimSpace(p))] = ref
+		}
+	}
+	return out
+}
+
+func normalizeMachine(s Machine) Machine {
+	out := Machine{
+		Image: strings.TrimSpace(s.Image), Setup: strings.TrimSpace(s.Setup), RepoConfig: s.RepoConfig, Home: s.Home,
+		Models: NormalizeModels(s.Models), Env: map[string]string{},
+		Browser:   Browser{Engine: strings.TrimSpace(s.Browser.Engine)},
+		Workspace: s.Workspace, Packages: []string{}, Repos: []Repo{}, Network: Network{Egress: []string{}}}
 	for k, v := range s.Env {
 		out.Env[strings.TrimSpace(k)] = v
 	}
@@ -510,10 +553,10 @@ func Normalize(s Spec) Spec {
 	return out
 }
 
-// Secrets are the secret names the spec names: repo credentials and model
-// keys, in a stable order (repos first, then providers by name).
-func (s Spec) Secrets() []string {
-	var out []string
+// Secrets are the secret names the machine names: repo credentials and
+// model keys, in a stable order (repos first, then providers by name).
+func (s Machine) Secrets() []string {
+	out := []string{}
 	seen := map[string]bool{}
 	add := func(n string) {
 		if n != "" && !seen[n] {
@@ -530,11 +573,12 @@ func (s Spec) Secrets() []string {
 	return out
 }
 
-// Providers are the providers with a key named, sorted.
+// Providers are the providers reached with a key (the gateway serves
+// them), sorted; a subscription is not one (SignsIn).
 func (m Models) Providers() []string {
 	out := make([]string, 0, len(m))
-	for p, ref := range m {
-		if ref != "" {
+	for p := range m {
+		if m.KeyName(p) != "" {
 			out = append(out, p)
 		}
 	}
@@ -552,20 +596,28 @@ func (m Models) KeyName(provider string) string {
 
 func (m Models) validate() error {
 	for p, ref := range m {
+		p = strings.ToLower(strings.TrimSpace(p))
 		if _, ok := Providers[p]; !ok {
 			return errx.InvalidField("models", "models."+p+": the gateway serves no provider "+strconv.Quote(p)+" (one of "+strings.Join(ProviderNames(), ", ")+")")
 		}
+		ref = strings.TrimSpace(ref)
+		if ref == Subscription {
+			if p != ProviderAnthropic {
+				return errx.InvalidField("models."+p, "models."+p+": only anthropic has a subscription to sign in to; name a secret with the key, as ${NAME}")
+			}
+			continue
+		}
 		if !credentialRef.MatchString(ref) {
-			return errx.InvalidField("models."+p, "models."+p+" must name a secret, as ${NAME}")
+			return errx.InvalidField("models."+p, "models."+p+" must name a secret with the key, as ${NAME}, or be "+Subscription)
 		}
 	}
 	return nil
 }
 
 // EgressHosts are the hosts a slot may reach through the egress proxy:
-// the spec's egress plus its repos' hosts, and the provider's hosts when
-// its slots sign in to a subscription (SignsIn).
-func (s Spec) EgressHosts() []string {
+// the machine's egress plus its repos' hosts, and the provider's hosts
+// when its slots sign in to a subscription (SignsIn).
+func (s Machine) EgressHosts() []string {
 	out := slices.Clone(s.Network.Egress)
 	for _, r := range s.Repos {
 		if h := r.Host(); h != "" && !slices.Contains(out, h) {
@@ -580,40 +632,4 @@ func (s Spec) EgressHosts() []string {
 		}
 	}
 	return out
-}
-
-// CreateEnvironment is the input of Commands.CreateEnvironment.
-type CreateEnvironment struct {
-	Name string
-	Spec Spec
-	// CreatedBy is filled from the caller (not client input).
-	CreatedBy string
-}
-
-func (c CreateEnvironment) Validate() error {
-	if err := ValidName(c.Name); err != nil {
-		return err
-	}
-	if err := c.Spec.Validate(); err != nil {
-		return err
-	}
-	return text.Optional("created_by", c.CreatedBy, text.MaxName)
-}
-
-// SaveEnvironment stores the next version of an environment. Base is the
-// version it was edited from (the current one).
-type SaveEnvironment struct {
-	Base      int
-	Spec      Spec
-	CreatedBy string
-}
-
-func (s SaveEnvironment) Validate() error {
-	if s.Base <= 0 {
-		return errx.InvalidField("base", "base must be the current environment version")
-	}
-	if err := s.Spec.Validate(); err != nil {
-		return err
-	}
-	return text.Optional("created_by", s.CreatedBy, text.MaxName)
 }

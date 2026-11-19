@@ -3,11 +3,9 @@ package hosting
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
@@ -25,8 +23,7 @@ const (
 	LabelBase         = "io.seaport.base"
 	LabelHarness      = "io.seaport.harness"
 	LabelOrganization = "io.seaport.organization"
-	LabelEnvironment  = "io.seaport.environment"
-	LabelVersion      = "io.seaport.version"
+	LabelDigest       = "io.seaport.digest"
 )
 
 // MaxBuildLog bounds the build log kept (its tail).
@@ -36,13 +33,15 @@ const MaxBuildLog = 256 << 10
 // dead (its process died) and may be started again.
 const BuildStale = time.Minute
 
-// Build is the image of an environment version: Seaport builds it from the
-// spec (FROM the image or the harness's base, packages, setup) and runs
-// every slot of that version on it.
+// Build is an image Seaport built for hosted agents, keyed by its content
+// (BuildRequest.Digest: harness, base, Dockerfile, setup): agents whose
+// machines build the same share it, and an edit that leaves the image
+// alone builds nothing.
 type Build struct {
-	Environment identity.EnvironmentID `json:"environment_id"`
-	Version     int                    `json:"version"`
-	State       string                 `json:"state"`
+	Digest string `json:"digest"`
+	// Agent is the agent whose start or build asked for it last.
+	Agent identity.AgentID `json:"agent_id"`
+	State string           `json:"state"`
 	// Base is the image it was built FROM.
 	Base string `json:"base"`
 	// Image is the built image's id (sha256:…) once ready.
@@ -59,40 +58,42 @@ type Build struct {
 // BuildRequest is what Runtime.Build builds.
 type BuildRequest struct {
 	Organization identity.OrganizationID
-	Environment  identity.EnvironmentID
-	Version      int
 	Spec         Spec
-	// Base is the image to build FROM (Spec.Image, else the harness's).
+	// Base is the image to build FROM (Machine.Image, else the harness's).
 	Base string
 	// Force builds again even when the tag exists, pulling the base anew
 	// (a moving tag such as :latest).
 	Force bool
-	// Home is the normalized tar of Spec.Home (ReadHome), baked into the
+	// Home is the normalized tar of Machine.Home (ReadHome), baked into the
 	// home (HomeContext in the build context).
 	Home []byte
 }
 
-// BuildEnvironment is the input of Commands.StartBuild.
-type BuildEnvironment struct {
-	// Version to build (0: the current one).
-	Version int
-	// Force builds a version again even when it is ready (not while a
+// BuildAgent is the input of Commands.StartBuild.
+type BuildAgent struct {
+	// Force builds the image again even when it is ready (not while a
 	// build of it is in progress).
 	Force bool
 }
 
-func (b BuildEnvironment) Validate() error {
-	if b.Version < 0 {
-		return errx.InvalidField("version", "version must be positive (0: the current one)")
-	}
-	return nil
+func (b BuildAgent) Validate() error { return nil }
+
+// Digest is the build's content key: sha256 of the harness, the base, the
+// Dockerfile and the setup script (the home's digest is in the
+// Dockerfile), as hex.
+func (r BuildRequest) Digest() string {
+	sum := sha256.Sum256([]byte(r.Spec.Harness + "\x00" + r.Base + "\x00" + Dockerfile(r.Spec, r.Base) + "\x00" + r.Spec.Setup))
+	return hex.EncodeToString(sum[:])
 }
 
-// Tag is the build's image name: one per environment version and content
-// (a new base or spec makes a new tag).
+// Tag is the build's image name: seaport-build-<org>:<digest>, both cut
+// to 12 hex digits (the labels carry them whole).
 func (r BuildRequest) Tag() string {
-	sum := sha256.Sum256([]byte(r.Spec.Harness + "\x00" + r.Base + "\x00" + Dockerfile(r.Spec, r.Base) + "\x00" + r.Spec.Setup))
-	return "seaport-env-" + r.Environment.String() + ":v" + strconv.Itoa(r.Version) + "-" + hex.EncodeToString(sum[:6])
+	org := strings.ReplaceAll(r.Organization.String(), "-", "")
+	if len(org) > 12 {
+		org = org[:12]
+	}
+	return "seaport-build-" + org + ":" + r.Digest()[:12]
 }
 
 // SetupFile is the setup script's name in the build context.
@@ -102,7 +103,7 @@ const SetupFile = "setup.sh"
 // under the harness's HomeRoot (copied over /home/agent).
 const HomeContext = "home"
 
-// Dockerfile derives an environment's image from base: packages (apt, as
+// Dockerfile derives an agent's image from base: packages (apt, as
 // root), then the setup script (bash, as root, with HOME=/home/agent; the
 // home is handed back to uid 1000 after it), then back to the agent user,
 // then the harness home (spec.Home, over whatever setup wrote) and

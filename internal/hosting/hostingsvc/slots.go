@@ -20,8 +20,8 @@ import (
 type Slots struct {
 	// Credentials mint and revoke slot tokens (crew).
 	Credentials hosting.Credentials
-	// Kits reveal a slot's repo credentials and model keys the environment
-	// lacks (agent secrets).
+	// Kits reveal a slot's repo credentials and model keys (the agent's
+	// secrets).
 	Kits agent.Kits
 	// URL is how a slot's container reaches the port (SEAPORT_AGENT_URL).
 	URL string
@@ -70,6 +70,9 @@ func (s *Service) StartSlot(ctx context.Context, org identity.OrganizationID, in
 	}
 	if s.slots.cfg.Credentials == nil || s.slots.cfg.URL == "" {
 		return hosting.Hosted{}, errx.Business("hosted agents need crew tokens (SEAPORT_AUTH=token or iam)")
+	}
+	if err := s.checkSecrets(ctx, org, input.Agent); err != nil {
+		return hosting.Hosted{}, err
 	}
 	start, claimed, err := s.repo.BeginStart(ctx, org, input.Agent, input.Index, false)
 	if err != nil {
@@ -135,8 +138,8 @@ func (s *Service) portID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-// runStart brings a claimed slot up: the environment's image (built now
-// when needed), a fresh slot token, the container. Any failure ends the
+// runStart brings a claimed slot up: the agent's image (built now when
+// needed), a fresh slot token, the container. Any failure ends the
 // run as failed with a detail; a slot stopped meanwhile (the run lost)
 // takes down what this start made.
 func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, idx int, start hosting.SlotStart) {
@@ -159,7 +162,7 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 			case <-alive.Done():
 				return
 			case <-t.C:
-				_ = progress("building the environment's image", identity.CrewTokenID{})
+				_ = progress("building the agent's image", identity.CrewTokenID{})
 			}
 		}
 	}()
@@ -187,10 +190,14 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 			s.events.Publish(org, hosting.EventSlotsUpdated, h)
 		}
 	}
-	env := start.Environment
-	image, err := s.imageFor(ctx, org, env)
+	spec := start.Spec
+	if err := s.missingSecrets(ctx, org, agentID, spec); err != nil {
+		fail(failure(err, "the agent's secrets could not be read"), err, identity.CrewTokenID{})
+		return
+	}
+	image, err := s.imageFor(ctx, org, agentID, spec)
 	if err != nil {
-		fail(failure(err, "the environment's image could not be built"), err, identity.CrewTokenID{})
+		fail(failure(err, "the agent's image could not be built"), err, identity.CrewTokenID{})
 		return
 	}
 	port, err := s.portID(ctx)
@@ -209,20 +216,16 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		fail("stopped while starting", err, issued.ID) // stopped meanwhile: the token isn't recorded
 		return
 	}
-	vars, err := s.slotEnv(ctx, org, env, name, issued.Value)
-	if err != nil {
-		fail("could not open the environment's secrets", err, issued.ID)
-		return
-	}
+	vars := s.slotEnv(spec, name, issued.Value)
 	stopAlive()
 	err = s.runtime().Start(ctx, hosting.StartSlot{Slot: ref, Run: start.Run, Port: port, Name: name, Image: image,
-		Harness: env.Spec.Harness, Resources: env.Spec.Resources, Persistent: env.Spec.Workspace == hosting.WorkspacePersistent,
+		Harness: spec.Harness, Resources: spec.Resources, Persistent: spec.Workspace == hosting.WorkspacePersistent,
 		Env: vars})
 	if err != nil {
 		fail(failure(err, "the container could not start"), err, issued.ID)
 		return
 	}
-	h, err := s.repo.StartDone(ctx, org, agentID, idx, start.Run, hosting.SlotRun{Image: image, Environment: env.ID, Version: env.Version})
+	h, err := s.repo.StartDone(ctx, org, agentID, idx, start.Run, hosting.SlotRun{Image: image, ConfigVersion: start.ConfigVersion, Digest: start.Digest})
 	if err != nil {
 		// stopped meanwhile: the stop owns the slot now; take ours down
 		end := context.WithoutCancel(ctx)
@@ -233,32 +236,64 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 	s.events.Publish(org, hosting.EventSlotsUpdated, h)
 }
 
+// checkSecrets refuses (Business) a start while the agent's config names
+// a secret the agent doesn't have: a clone made without secrets, or one
+// deleted behind the config's back.
+func (s *Service) checkSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) error {
+	spec, err := s.spec(ctx, org, agentID)
+	if err != nil {
+		return err
+	}
+	return s.missingSecrets(ctx, org, agentID, spec)
+}
+
+// missingSecrets is nil when every secret the machine names (model keys,
+// repo credentials) is one of the agent's; else a Business error naming
+// them (names only: never a value).
+func (s *Service) missingSecrets(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) error {
+	names := spec.Secrets()
+	if len(names) == 0 {
+		return nil
+	}
+	have, err := s.agents.Secrets(ctx, org, agentID)
+	if err != nil {
+		return err
+	}
+	set := make(map[string]bool, len(have))
+	for _, h := range have {
+		set[h.Name] = true
+	}
+	var missing []string
+	for _, n := range names {
+		if !set[n] {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		return errx.Business("the agent's machine names secrets it doesn't have: " + strings.Join(missing, ", ") +
+			" (seaport agents secrets set <agent> NAME; a clone made without -secrets starts with none)")
+	}
+	return nil
+}
+
 // slotEnv is a slot container's environment, lowest precedence first:
-// the spec's plain variables, the environment's env secrets, then what the
-// port sets (the agent's env secrets come through the kit in the slot):
+// the machine's plain variables, then what the port sets (the agent's env
+// secrets come through the kit in the slot and win over the plain ones;
+// the connector keeps the port's own from being replaced: Config.Protect):
 // the port, its token and name, the model gateway (for every provider the
-// environment names a key for: the harness's provider goes there with the
+// machine names a key for: the harness's provider goes there with the
 // slot token as its key) and the egress proxy (the slot signs in to it
 // with its token).
-func (s *Service) slotEnv(ctx context.Context, org identity.OrganizationID, e hosting.Environment, name, token string) (map[string]string, error) {
+func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]string {
 	env := map[string]string{}
-	for k, v := range e.Spec.Env {
+	for k, v := range spec.Env {
 		env[k] = v
-	}
-	values, err := s.repo.OpenEnvironmentSecrets(ctx, org, e.ID)
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range values {
-		if v.Env {
-			env[v.Name] = v.Value
-		}
 	}
 	env[hosting.EnvURL] = s.slots.cfg.URL
 	env[hosting.EnvToken] = token
 	env[hosting.EnvSlot] = name
-	env[hosting.EnvHarness] = e.Spec.Harness
-	if providers := e.Spec.Models.Providers(); len(providers) > 0 {
+	env[hosting.EnvHarness] = spec.Harness
+	if providers := spec.Models.Providers(); len(providers) > 0 {
 		env[hosting.EnvGateway] = s.slots.cfg.URL + hosting.GatewayPath
 		env[hosting.EnvGatewayProviders] = strings.Join(providers, ",")
 		for _, name := range providers {
@@ -281,31 +316,33 @@ func (s *Service) slotEnv(ctx context.Context, org identity.OrganizationID, e ho
 			env["NO_PROXY"], env["no_proxy"] = noProxy, noProxy
 		}
 	}
-	return env, nil
+	return env
 }
 
-// imageFor is the ready image of the environment's version, building it
-// first (and waiting) when needed.
-func (s *Service) imageFor(ctx context.Context, org identity.OrganizationID, env hosting.Environment) (string, error) {
-	base := s.base(env.Spec)
-	if base == "" {
-		return "", errx.Business("no base image is configured for harness " + env.Spec.Harness)
+// imageFor is the ready image of the agent's spec, building it first (and
+// waiting) when needed. Builds are keyed by content, so agents whose
+// machines build the same share one.
+func (s *Service) imageFor(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) (string, error) {
+	req, err := s.buildRequest(org, spec)
+	if err != nil {
+		return "", err
 	}
+	digest := req.Digest()
 	for {
-		b, claimed, err := s.repo.ClaimBuild(ctx, org, env.ID, env.Version, base, false)
+		b, claimed, err := s.repo.ClaimBuild(ctx, org, digest, agentID, req.Base, false)
 		if err != nil {
 			return "", err
 		}
 		if claimed {
-			s.events.Publish(org, hosting.EventEnvironmentBuild, withoutLog(b))
-			s.runBuild(hosting.BuildRequest{Organization: org, Environment: env.ID, Version: env.Version, Spec: env.Spec, Base: base})
+			s.events.Publish(org, hosting.EventAgentBuild, withoutLog(b))
+			s.runBuild(req)
 			continue // read its outcome
 		}
 		switch b.State {
 		case hosting.BuildReady:
 			return b.Image, nil
 		case hosting.BuildFailed:
-			return "", errx.Business("the environment's image failed to build: " + b.Detail + " (seaport env build)")
+			return "", errx.Business("the agent's image failed to build: " + b.Detail + " (seaport agents build)")
 		}
 		select { // another process builds it: wait
 		case <-ctx.Done():
@@ -374,7 +411,7 @@ func (s *Service) OpenWorkspace(ctx context.Context, org identity.OrganizationID
 	if !hasSlot(h, slot) {
 		return hosting.Workspace{}, errx.NotFound("slot not found")
 	}
-	env, err := s.repo.Environment(ctx, org, h.Environment, 0)
+	spec, err := s.spec(ctx, org, agentID)
 	if err != nil {
 		return hosting.Workspace{}, err
 	}
@@ -382,19 +419,25 @@ func (s *Service) OpenWorkspace(ctx context.Context, org identity.OrganizationID
 	if err != nil {
 		return hosting.Workspace{}, err
 	}
-	secrets, err := s.reveal(ctx, org, env.ID, agentID, env.Spec.Secrets())
+	var names []string
+	for _, r := range spec.Repos {
+		if n := r.CredentialName(); n != "" {
+			names = append(names, n)
+		}
+	}
+	secrets, err := s.reveal(ctx, org, agentID, names)
 	if err != nil {
 		return hosting.Workspace{}, err
 	}
-	w := hosting.Workspace{Slot: hosting.SlotName(a.Name, slot), Harness: env.Spec.Harness, RepoConfig: env.Spec.RepoConfig,
-		Persistent: env.Spec.Workspace == hosting.WorkspacePersistent, SignIn: env.Spec.SignsIn(), Browser: env.Spec.Browser.Engine,
-		Repos: make([]hosting.WorkspaceRepo, 0, len(env.Spec.Repos))}
-	for _, r := range env.Spec.Repos {
+	w := hosting.Workspace{Slot: hosting.SlotName(a.Name, slot), Harness: spec.Harness, RepoConfig: spec.RepoConfig,
+		Persistent: spec.Workspace == hosting.WorkspacePersistent, SignIn: spec.SignsIn(), Browser: spec.Browser.Engine,
+		Repos: make([]hosting.WorkspaceRepo, 0, len(spec.Repos))}
+	for _, r := range spec.Repos {
 		repo := hosting.WorkspaceRepo{URL: r.URL, Ref: r.Ref, Path: r.Path, OnStart: r.OnStart}
 		if n := r.CredentialName(); n != "" {
 			v, ok := secrets[n]
 			if !ok {
-				return hosting.Workspace{}, errx.Business("neither environment " + env.Name + " nor agent " + a.Name + " has secret " + n + " (repo " + r.URL + ")")
+				return hosting.Workspace{}, errx.Business("agent " + a.Name + " has no secret " + n + " (repo " + r.URL + ")")
 			}
 			repo.Token = v
 		}

@@ -24,7 +24,7 @@ What each domain owns:
 | `ship` | messages, the delivery queue, attachments, outbound limits |
 | `crew` | the wire protocol, crew tokens, presence of connected agents, the MCP tools |
 | `agent` | the agent library, dock teams, routing (`Route`), profiles, secrets, kits |
-| `hosting` | environments, image builds, slots, the model gateway, the egress proxy, harness homes |
+| `hosting` | machines (the hosted part of an agent's config), image builds, slots, the model gateway, the egress proxy, harness homes |
 | `auth` | iam mode: browser sessions and bearer checks |
 | `connector` | the agent side: WebSocket client, ACP client, the agent's kit |
 
@@ -153,7 +153,7 @@ Advisory lock keys are `7_401_00N`; pick the next free number for a new lock.
 | `7_401_006` | `crewpg.connectionLock` | live agent connection quota |
 | `7_401_007` | `conversationpg` customs lock | per-dock customs decisions (session lock) |
 | `7_401_008` | `agentpg.createLock` | agent library quota |
-| `7_401_009` | `hostingpg.hostingLock` | environments, slots and homes quotas |
+| `7_401_009` | `hostingpg.hostingLock` | slots and homes quotas |
 
 Session advisory locks and `LISTEN` need session pooling, so a transaction-mode pooler such as PgBouncer can't sit in front of Seaport. To run replicas, see [several processes](guides/operations/several-processes.md).
 

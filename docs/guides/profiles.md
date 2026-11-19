@@ -1,6 +1,6 @@
 # Agent profiles
 
-A profile is what an agent is told and given: its instructions, skills, extra MCP servers, secrets, model and permissions. You edit it on the port, and every connector running that agent picks it up. You don't copy files to the agent's machine.
+A profile is what an agent is told and given: its instructions, skills, extra MCP servers, secrets, model and permissions. It is the part of the agent's [config](../reference/agent-config.md) that every agent has, hosted or not. You edit it on the port, and every connector running that agent picks it up. You don't copy files to the agent's machine.
 
 ![An agent's profile in the web app](../assets/screenshots/agent-profile.png)
 
@@ -13,7 +13,7 @@ A profile is what an agent is told and given: its instructions, skills, extra MC
 | **MCP servers** | Extra tools the agent can call, added to every session | up to 20, each with up to 20 headers |
 | **Secrets** | Values the agent needs (API tokens), kept sealed | up to 50, each up to 16384 characters |
 | **Approve** | How the connector answers the harness's permission requests: `allow`, `reject`, or the connector decides | |
-| **Model**, **Effort** | The model and reasoning effort, when the harness offers them. A hosted rness also takes `<provider>/<model>` of any provider its environment names (see [Which model a slot uses](hosting/network.md#which-model-a-slot-uses)) | |
+| **Model**, **Effort** | The model and reasoning effort, when the harness offers them. A hosted rness also takes `<provider>/<model>` of any provider its machine names (see [Which model a slot uses](hosting/network.md#which-model-a-slot-uses)) | |
 
 Instructions reach the harness as its system prompt when it supports that (Claude Code does), and otherwise ahead of the first prompt of each session. When you change the instructions, a conversation that already has a session gets the new ones with its next prompt, marked as changed, because a system prompt added on resume doesn't outweigh a long history.
 
@@ -27,7 +27,7 @@ seaport agents profile versions pm
 seaport agents profile show pm -version 3      # a past version
 ```
 
-`seaport agents profile set <agent>` flags (at least one is required; the rest of the profile stays as it is):
+`seaport agents profile set <agent>` flags (at least one is required; the rest of the profile stays as it is, and so do the agent's harness and machine):
 
 | Flag | Does |
 | :--- | :--- |
@@ -104,17 +104,17 @@ A secret is used in one of two ways:
 | **In a header** | `${NAME}` in an MCP server header | the MCP server, with the request |
 | **As an environment variable** | save it with `-env` (the **Variable de entorno** switch in the web app) | the harness process of a hosted slot, under that name; `seaport connect` only with `-env` |
 
-Secrets are **sealed** with the port's secret key. The admin API and the web app show names and flags, never values, and no event or MCP tool returns one. Only the agent's own connector (with its crew token) receives them, to start the harness. A secret a header uses can't be deleted until you remove it from the header. To change a value, save the secret again.
+Secrets are **sealed** with the port's secret key. The admin API and the web app show names and flags, never values, and no event or MCP tool returns one. Only the agent's own connector (with its crew token) receives them, to start the harness. A secret a header uses, or the machine's model keys and repo credentials name, can't be deleted until you remove it from there. To change a value, save the secret again.
 
-Agent secrets are for what is the agent's own: a tracker token, a key one agent must have apart from the others. A model key or a repo credential every hosted agent on an environment shares belongs to the environment: see [Variables and secrets](hosting/secrets.md).
+Agent secrets are for what is the agent's own: a tracker token, a key one agent must have apart from the others. The model keys and repo credentials of a hosted agent's machine are its secrets too, named from the machine as `${NAME}`: see [Variables and secrets](hosting/secrets.md).
 
 ## Versions
 
-Every save creates a new, immutable **version**. The agent's current version is the latest. The web app's **Guardar vN** saves the next one, and you can open any past version read-only.
+Every save creates a new, immutable **version** of the agent's config (an unchanged save makes none). The agent's current version is the latest. The web app's **Guardar vN** saves the next one, and you can open any past version read-only.
 
 Saves are **optimistic**: you save a change against the version you started from. If someone else saved in the meantime, the port refuses yours with a conflict, and the web app offers to discard your edits and load the new version. This way two people never overwrite each other silently.
 
-The CLI does the same for you: each `profile set` reads the current version, applies your flags, and saves against it.
+The CLI does the same for you: each `profile set` reads the current version, applies your flags, and saves against it. To edit the whole config as one file, including the harness and machine of a hosted agent, use `seaport agents config show` and `seaport agents config apply -f`; see [Agent config](../reference/agent-config.md).
 
 ## How connectors pick up changes
 
@@ -124,6 +124,8 @@ When you save a profile or a secret, the port tells every connected connector of
 2. **drains**: it stops receiving new work and lets the conversations in flight finish;
 3. when idle, restarts the harness with the new profile, resuming its saved sessions.
 
-Nothing is cut off mid-answer. While a connector is draining or hasn't restarted yet, **Tripulación** and the agent's page show it as **desactualizada** (outdated): its running version is not the agent's current one. The connectors also check on every (re)connection, so one that was offline picks up the change when it comes back.
+For a hosted agent that is only the harness inside the container: the container itself isn't restarted. Only a change of its machine restarts the slot (once idle).
+
+Nothing is cut off mid-answer. While a connector is draining or hasn't restarted yet, the agent's page shows it as **desactualizada** (outdated): its running version is not the agent's current one. The connectors also check on every (re)connection, so one that was offline picks up the change when it comes back.
 
 See [The connector](connector.md) for how the connector runs the harness, and the [agent profile reference](../reference/agent-profile.md) for the JSON format.

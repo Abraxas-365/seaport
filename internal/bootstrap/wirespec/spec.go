@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/Abraxas-365/seaport/internal/agent"
+	"github.com/Abraxas-365/seaport/internal/agent/adapters/agenthttp"
 	"github.com/Abraxas-365/seaport/internal/auth"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
@@ -98,6 +99,7 @@ func Spec() wire.Spec {
 			"IssuedCrewToken": of[crew.Issued](),
 			// the agent library
 			"LibraryAgent":   of[agent.Agent](),
+			"CloneAgent":     of[agenthttp.CloneRequest](),
 			"AgentDeleted":   of[agent.Deleted](),
 			"Assignment":     of[agent.Assignment](),
 			"TeamMember":     of[agent.Member](),
@@ -123,30 +125,26 @@ func Spec() wire.Spec {
 			"VaultHit":          of[vault.Hit](),
 			"VaultEntryChange":  of[vault.EntryChange](),
 			"Provenance":        of[vault.Provenance](),
-			// hosting
-			"Environment":        of[hosting.Environment](),
-			"EnvironmentDeleted": of[hosting.EnvironmentDeleted](),
-			"EnvVersion":         of[hosting.Version](),
-			"EnvSpec":            of[hosting.Spec](),
-			"EnvRepo":            of[hosting.Repo](),
-			"EnvModels":          of[hosting.Models](),
-			"EnvSecret":          of[hosting.EnvironmentSecret](),
-			"EnvNetwork":         of[hosting.Network](),
-			"EnvBrowser":         of[hosting.Browser](),
-			"EnvResources":       of[hosting.Resources](),
-			"Build":              of[hosting.Build](),
-			"Hosted":             of[hosting.Hosted](),
-			"Slot":               of[hosting.Slot](),
-			"SlotLog":            of[hosting.SlotLog](),
-			"SlotLogin":          of[hosting.Login](),
-			"SlotAccount":        of[hosting.Account](),
-			"SlotBrowserEvent":   of[hosting.BrowserEvent](),
-			"Home":               of[hosting.Home](),
-			"HomeFile":           of[hosting.HomeFile](),
-			"HomeRules":          of[hosting.HomeRules](),
-			"SecretPattern":      of[hosting.SecretPattern](),
-			"Denial":             of[hosting.Denial](),
-			"UsageDay":           of[hosting.UsageDay](),
+			// hosting (an agent config's machine: agent.Profile.Machine)
+			"Machine":          of[hosting.Machine](),
+			"MachineRepo":      of[hosting.Repo](),
+			"MachineModels":    of[hosting.Models](),
+			"MachineNetwork":   of[hosting.Network](),
+			"MachineBrowser":   of[hosting.Browser](),
+			"MachineResources": of[hosting.Resources](),
+			"Build":            of[hosting.Build](),
+			"Hosted":           of[hosting.Hosted](),
+			"Slot":             of[hosting.Slot](),
+			"SlotLog":          of[hosting.SlotLog](),
+			"SlotLogin":        of[hosting.Login](),
+			"SlotAccount":      of[hosting.Account](),
+			"SlotBrowserEvent": of[hosting.BrowserEvent](),
+			"Home":             of[hosting.Home](),
+			"HomeFile":         of[hosting.HomeFile](),
+			"HomeRules":        of[hosting.HomeRules](),
+			"SecretPattern":    of[hosting.SecretPattern](),
+			"Denial":           of[hosting.Denial](),
+			"UsageDay":         of[hosting.UsageDay](),
 			// members (iam mode)
 			"MemberAccess":       of[auth.Access](),
 			"Member":             of[auth.Member](),
@@ -197,10 +195,9 @@ func Spec() wire.Spec {
 			field[ship.TurnTool]("Status"):       "ToolStatus",
 			field[agent.Profile]("Approve"):      "Approve",
 			field[dockemail.Endpoint]("TLS"):     "EmailTLS",
-			field[hosting.Spec]("Harness"):       "Harness",
 			field[hosting.Home]("Harness"):       "Harness",
-			field[hosting.Spec]("RepoConfig"):    "RepoConfig",
-			field[hosting.Spec]("Workspace"):     "WorkspaceKind",
+			field[hosting.Machine]("RepoConfig"): "RepoConfig",
+			field[hosting.Machine]("Workspace"):  "WorkspaceKind",
 			field[hosting.Resources]("Size"):     "ResourceSize",
 			field[hosting.Browser]("Engine"):     "BrowserEngine",
 			field[hosting.BrowserEvent]("State"): "BrowserState",
@@ -215,6 +212,10 @@ func Spec() wire.Spec {
 			field[conversation.Policy]("GroupMode"): `Exclude<GroupMode, "">`,
 			// permission names (permissions.gen.ts)
 			field[httpx.SessionState]("Permissions"): "Permission[]",
+			// a config's harness may be unset (a remote agent's), and its
+			// machine is hosting's (opaque to agent: json.RawMessage)
+			field[agent.Profile]("Harness"): `Harness | ""`,
+			field[agent.Profile]("Machine"): "Machine | null",
 		},
 		Events: map[string]reflect.Type{
 			dock.EventUpdated:         of[dock.Dock](),
@@ -232,19 +233,17 @@ func Spec() wire.Spec {
 			agent.EventDeleted:        of[agent.Deleted](),
 			agent.EventTakeover:       of[agent.TakeoverEvent](),
 
-			hosting.EventEnvironmentUpdated: of[hosting.Environment](),
-			hosting.EventEnvironmentDeleted: of[hosting.EnvironmentDeleted](),
-			hosting.EventSlotsUpdated:       of[hosting.Hosted](),
-			hosting.EventEnvironmentBuild:   of[hosting.Build](),
-			hosting.EventSlotBrowser:        of[hosting.BrowserEvent](),
-			schedule.EventCreated:           of[schedule.Schedule](),
-			schedule.EventUpdated:           of[schedule.Schedule](),
-			schedule.EventDeleted:           of[schedule.Schedule](),
-			schedule.EventFired:             of[schedule.Schedule](),
-			vault.EventCreated:              of[vault.Vault](),
-			vault.EventUpdated:              of[vault.Vault](),
-			vault.EventDeleted:              of[vault.Vault](),
-			vault.EventEntry:                of[vault.EntryChange](),
+			hosting.EventSlotsUpdated: of[hosting.Hosted](),
+			hosting.EventAgentBuild:   of[hosting.Build](),
+			hosting.EventSlotBrowser:  of[hosting.BrowserEvent](),
+			schedule.EventCreated:     of[schedule.Schedule](),
+			schedule.EventUpdated:     of[schedule.Schedule](),
+			schedule.EventDeleted:     of[schedule.Schedule](),
+			schedule.EventFired:       of[schedule.Schedule](),
+			vault.EventCreated:        of[vault.Vault](),
+			vault.EventUpdated:        of[vault.Vault](),
+			vault.EventDeleted:        of[vault.Vault](),
+			vault.EventEntry:          of[vault.EntryChange](),
 		},
 	}
 }

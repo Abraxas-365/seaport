@@ -1,18 +1,33 @@
-// An environment as `seaport env export` writes it (and `seaport env
-// apply -f` reads it): name, then the spec's fields in order, block YAML,
-// empty values left out.
+// An agent's config as `seaport agents config show` writes it (and
+// `seaport agents config apply -f` reads it): the harness, the profile's
+// fields, then the machine, block YAML, empty values left out.
 
-import type { EnvSpec } from "./types"
+import type { ProfileInput } from "./types"
 
 type Value = string | number | boolean | null | undefined | Value[] | { [k: string]: Value }
 
-export function environmentYaml(name: string, spec: EnvSpec): string {
-  const s: EnvSpec = structuredClone(spec)
-  if (s.resources.size) s.resources = { size: s.resources.size, cpus: 0, memory_mb: 0 } // the preset says it
-  const doc = { name, ...s } as unknown as Record<string, Value>
+export function configYaml(c: ProfileInput): string {
+  const machine = c.machine ? structuredClone(c.machine) : null
+  if (machine?.resources.size) machine.resources = { ...machine.resources, cpus: 0, memory_mb: 0 } // the preset says it
+  // The CLI's order (configFile: harness, profileFile's fields, machine).
+  const doc = {
+    harness: c.harness,
+    instructions: c.instructions,
+    skills: c.skills,
+    mcp_servers: c.mcp_servers,
+    approve: c.approve,
+    model: c.model,
+    effort: c.effort,
+    browser: c.browser,
+    browser_assist: c.browser_assist,
+    browser_detect: c.browser_detect,
+    browser_ignore_hosts: c.browser_ignore_hosts,
+    machine,
+  } as unknown as Record<string, Value>
   return lines(doc, 0).join("\n") + "\n"
 }
 
+/** What the CLI leaves out: empty strings, zeros, nulls and empty lists or maps (false stays). */
 function empty(v: Value): boolean {
   if (v === undefined || v === null || v === "" || v === 0) return true
   if (Array.isArray(v)) return v.length === 0

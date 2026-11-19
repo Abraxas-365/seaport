@@ -1,9 +1,10 @@
-// Package hostinghttp is the admin API of environments and hosted agents.
+// Package hostinghttp is the admin API of hosted agents: hosting, builds,
+// slots, homes, sign-in and the browser viewer. What an agent runs (its
+// harness and machine) is its config (agenthttp, /agents/{id}/config).
 package hostinghttp
 
 import (
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -25,46 +26,34 @@ func New(c hosting.Commands, q hosting.Queries, runtime bool) *Handler {
 	return &Handler{commands: c, queries: q, runtime: runtime}
 }
 
-// Register mounts the routes on r (already behind admin auth). A spec
-// whose repo credentials or model keys name secrets the environment lacks
-// directs the hosted agents' secrets, so saving one, or hosting an agent
-// on one, needs agents:write too (credentials).
+// Register mounts the routes on r (already behind admin auth).
 func (h *Handler) Register(r httpx.Router) {
-	r.Get("/api/v1/environments", httpx.RequireFunc(permission.EnvironmentsRead, h.list))
-	r.Post("/api/v1/environments", httpx.RequireFunc(permission.EnvironmentsWrite, h.create))
-	r.Get("/api/v1/environments/:id", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
-	r.Put("/api/v1/environments/:id", httpx.RequireFunc(permission.EnvironmentsWrite, h.save))
-	r.Delete("/api/v1/environments/:id", httpx.RequireFunc(permission.EnvironmentsWrite, h.delete))
-	r.Get("/api/v1/environments/:id/versions", httpx.RequireFunc(permission.EnvironmentsRead, h.versions))
-	r.Get("/api/v1/environments/:id/versions/:version", httpx.RequireFunc(permission.EnvironmentsRead, h.find))
-	r.Get("/api/v1/environments/:id/secrets", httpx.RequireFunc(permission.EnvironmentsRead, h.secrets))
-	r.Put("/api/v1/environments/:id/secrets/:name", httpx.RequireFunc(permission.EnvironmentsWrite, h.setSecret))
-	r.Delete("/api/v1/environments/:id/secrets/:name", httpx.RequireFunc(permission.EnvironmentsWrite, h.deleteSecret))
-	r.Post("/api/v1/environments/:id/build", httpx.RequireFunc(permission.EnvironmentsWrite, h.startBuild))
-	r.Get("/api/v1/environments/:id/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
-	r.Get("/api/v1/environments/:id/versions/:version/build", httpx.RequireFunc(permission.EnvironmentsRead, h.build))
-	r.Post("/api/v1/homes", httpx.RequireFunc(permission.EnvironmentsWrite, h.uploadHome))
-	r.Get("/api/v1/homes/rules", httpx.RequireFunc(permission.EnvironmentsRead, h.homeRules))
-	r.Get("/api/v1/homes/:digest", httpx.RequireFunc(permission.EnvironmentsRead, h.home))
-	r.Get("/api/v1/homes/:digest/archive", httpx.RequireFunc(permission.EnvironmentsRead, h.homeArchive))
-	r.Get("/api/v1/homes/:digest/files/*", httpx.RequireFunc(permission.EnvironmentsRead, h.homeFile))
-	r.Get("/api/v1/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hostedAgents))
-	r.Get("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.EnvironmentsRead, h.hosted))
-	r.Put("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.host))
-	r.Delete("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.EnvironmentsWrite, h.unhost))
-	r.Post("/api/v1/agents/:id/hosting/slots/:slot/start", httpx.RequireFunc(permission.EnvironmentsWrite, h.startSlot))
-	r.Post("/api/v1/agents/:id/hosting/slots/:slot/stop", httpx.RequireFunc(permission.EnvironmentsWrite, h.stopSlot))
-	r.Get("/api/v1/agents/:id/hosting/egress", httpx.RequireFunc(permission.EnvironmentsRead, h.denials))
+	r.Post("/api/v1/agents/:id/build", httpx.RequireFunc(permission.HostingWrite, h.startBuild))
+	r.Get("/api/v1/agents/:id/build", httpx.RequireFunc(permission.HostingRead, h.build))
+	// Homes are what an agent config names; uploading one is part of
+	// writing a config (agents:write).
+	r.Post("/api/v1/homes", httpx.RequireFunc(permission.AgentsWrite, h.uploadHome))
+	r.Get("/api/v1/homes/rules", httpx.RequireFunc(permission.AgentsRead, h.homeRules))
+	r.Get("/api/v1/homes/:digest", httpx.RequireFunc(permission.AgentsRead, h.home))
+	r.Get("/api/v1/homes/:digest/archive", httpx.RequireFunc(permission.AgentsRead, h.homeArchive))
+	r.Get("/api/v1/homes/:digest/files/*", httpx.RequireFunc(permission.AgentsRead, h.homeFile))
+	r.Get("/api/v1/hosting", httpx.RequireFunc(permission.HostingRead, h.hostedAgents))
+	r.Get("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingRead, h.hosted))
+	r.Put("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingWrite, h.host))
+	r.Delete("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingWrite, h.unhost))
+	r.Post("/api/v1/agents/:id/hosting/slots/:slot/start", httpx.RequireFunc(permission.HostingWrite, h.startSlot))
+	r.Post("/api/v1/agents/:id/hosting/slots/:slot/stop", httpx.RequireFunc(permission.HostingWrite, h.stopSlot))
+	r.Get("/api/v1/agents/:id/hosting/egress", httpx.RequireFunc(permission.HostingRead, h.denials))
 	// Logs: whatever the agent printed (a tool may echo an env secret), so
 	// only who may change where it runs reads them.
-	r.Get("/api/v1/agents/:id/hosting/slots/:slot/logs", httpx.RequireFunc(permission.EnvironmentsWrite, h.slotLog))
+	r.Get("/api/v1/agents/:id/hosting/slots/:slot/logs", httpx.RequireFunc(permission.HostingWrite, h.slotLog))
 	r.Get("/api/v1/agents/:id/usage", httpx.RequireFunc(permission.AgentsRead, h.usage))
 	// Subscription sign-in (experimental): signing a slot in decides whose
-	// account it spends, so it is environments:write's, like starting it.
-	r.Post("/api/v1/agents/:id/hosting/slots/:slot/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.startLogin))
-	r.Get("/api/v1/agents/:id/hosting/slots/:slot/login", httpx.RequireFunc(permission.EnvironmentsWrite, h.login))
-	r.Post("/api/v1/agents/:id/hosting/slots/:slot/login/code", httpx.RequireFunc(permission.EnvironmentsWrite, h.loginCode))
-	r.Get("/api/v1/agents/:id/hosting/slots/:slot/account", httpx.RequireFunc(permission.EnvironmentsRead, h.account))
+	// account it spends, so it is hosting:write's, like starting it.
+	r.Post("/api/v1/agents/:id/hosting/slots/:slot/login", httpx.RequireFunc(permission.HostingWrite, h.startLogin))
+	r.Get("/api/v1/agents/:id/hosting/slots/:slot/login", httpx.RequireFunc(permission.HostingWrite, h.login))
+	r.Post("/api/v1/agents/:id/hosting/slots/:slot/login/code", httpx.RequireFunc(permission.HostingWrite, h.loginCode))
+	r.Get("/api/v1/agents/:id/hosting/slots/:slot/account", httpx.RequireFunc(permission.HostingRead, h.account))
 	// The browser viewer (a WebSocket): whoever drives a slot's browser
 	// signs in to sites as the agent, so it has a permission of its own.
 	r.Get("/api/v1/agents/:id/hosting/slots/:slot/browser", httpx.RequireFunc(permission.BrowserUse, h.browser))
@@ -98,124 +87,19 @@ func by(p httpx.Principal) string {
 	return p.Subject
 }
 
-// credentials: a spec naming secrets the environment doesn't have directs
-// the hosted agents' (the repo URL gets the token, the gateway spends the
-// model key), which is agents:write's to allow. A new environment has no
-// secrets yet and no agent on it: its spec is checked when one is hosted.
-func (h *Handler) credentials(c fiber.Ctx, p httpx.Principal, id identity.EnvironmentID, spec hosting.Spec) error {
-	need := spec.Secrets()
-	if len(need) == 0 || p.Can(permission.AgentsWrite) {
-		return nil
-	}
-	ours, err := h.queries.Secrets(c.Context(), p.Organization, id)
-	if err != nil {
-		return err
-	}
-	for _, n := range need {
-		if !slices.ContainsFunc(ours, func(s hosting.EnvironmentSecret) bool { return s.Name == n }) {
-			return errx.Forbidden("missing permission " + permission.AgentsWrite + " (the spec names secret " + n + ", which the environment lacks: it would be the hosted agents')")
-		}
-	}
-	return nil
-}
-
-// environmentID resolves {id}: an environment id or name.
-func (h *Handler) environmentID(c fiber.Ctx, org identity.OrganizationID) (identity.EnvironmentID, error) {
-	raw := httpx.Param(c, "id")
-	if id, err := identity.ParseEnvironmentID(raw); err == nil {
-		return id, nil
-	}
-	e, err := h.queries.EnvironmentByName(c.Context(), org, raw)
-	if err != nil {
-		return identity.EnvironmentID{}, err
-	}
-	return e.ID, nil
-}
-
-func (h *Handler) list(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	page, err := httpx.Pagination(c)
-	if err != nil {
-		return err
-	}
-	out, err := h.queries.Environments(c.Context(), org, page)
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, out)
-}
-
-type createRequest struct {
-	Name string       `json:"name"`
-	Spec hosting.Spec `json:"spec"`
-}
-
-func (h *Handler) create(c fiber.Ctx) error {
-	p, err := httpx.Caller(c)
-	if err != nil {
-		return err
-	}
-	var req createRequest
-	if err := httpx.DecodeJSON(c, &req); err != nil {
-		return err
-	}
-	e, err := h.commands.CreateEnvironment(c.Context(), p.Organization, hosting.CreateEnvironment{Name: req.Name, Spec: req.Spec, CreatedBy: by(p)})
-	if err != nil {
-		return err
-	}
-	return httpx.Created(c, e.ID.String(), e)
-}
-
-func (h *Handler) find(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	version, err := pathVersion(c)
-	if err != nil {
-		return err
-	}
-	e, err := h.queries.Environment(c.Context(), org, id, version)
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, e)
-}
-
-// pathVersion is {version} (0 when the route has none).
-func pathVersion(c fiber.Ctx) (int, error) {
-	v := httpx.Param(c, "version")
-	if v == "" {
-		return 0, nil
-	}
-	version, err := strconv.Atoi(v)
-	if err != nil || version <= 0 {
-		return 0, errx.InvalidField("version", "version must be a positive number")
-	}
-	return version, nil
-}
-
 type buildRequest struct {
-	// Version to build (0: the current one).
-	Version int  `json:"version"`
-	Force   bool `json:"force"`
+	Force bool `json:"force"`
 }
 
-// startBuild answers 202 with the build (in progress, or as it is when
-// already built or building); the body is optional.
+// startBuild answers 202 with the build of the agent's current config
+// (in progress, or as it is when already built or building); the body is
+// optional.
 func (h *Handler) startBuild(c fiber.Ctx) error {
 	org, err := httpx.Organization(c)
 	if err != nil {
 		return err
 	}
-	id, err := h.environmentID(c, org)
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
@@ -225,7 +109,7 @@ func (h *Handler) startBuild(c fiber.Ctx) error {
 			return err
 		}
 	}
-	b, err := h.commands.StartBuild(c.Context(), org, id, hosting.BuildEnvironment{Version: req.Version, Force: req.Force})
+	b, err := h.commands.StartBuild(c.Context(), org, id, hosting.BuildAgent{Force: req.Force})
 	if err != nil {
 		return err
 	}
@@ -237,136 +121,15 @@ func (h *Handler) build(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	id, err := h.environmentID(c, org)
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
 	if err != nil {
 		return err
 	}
-	version, err := pathVersion(c)
-	if err != nil {
-		return err
-	}
-	b, err := h.queries.Build(c.Context(), org, id, version)
+	b, err := h.queries.Build(c.Context(), org, id)
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(c, http.StatusOK, b)
-}
-
-type saveRequest struct {
-	// Base is the version the edit started from (the current one).
-	Base int          `json:"base"`
-	Spec hosting.Spec `json:"spec"`
-}
-
-func (h *Handler) save(c fiber.Ctx) error {
-	p, err := httpx.Caller(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, p.Organization)
-	if err != nil {
-		return err
-	}
-	var req saveRequest
-	if err := httpx.DecodeJSON(c, &req); err != nil {
-		return err
-	}
-	if err := h.credentials(c, p, id, req.Spec); err != nil {
-		return err
-	}
-	e, err := h.commands.SaveEnvironment(c.Context(), p.Organization, id, hosting.SaveEnvironment{Base: req.Base, Spec: req.Spec, CreatedBy: by(p)})
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, e)
-}
-
-func (h *Handler) delete(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	if err := h.commands.DeleteEnvironment(c.Context(), org, id); err != nil {
-		return err
-	}
-	return c.SendStatus(http.StatusNoContent)
-}
-
-func (h *Handler) secrets(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	out, err := h.queries.Secrets(c.Context(), org, id)
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, map[string]any{"secrets": out})
-}
-
-type secretRequest struct {
-	Value string `json:"value"`
-	Env   bool   `json:"env"`
-}
-
-// setSecret answers with the secret's name and flags, never its value.
-func (h *Handler) setSecret(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	var req secretRequest
-	if err := httpx.DecodeJSON(c, &req); err != nil {
-		return err
-	}
-	out, err := h.commands.SetSecret(c.Context(), org, id, hosting.SetEnvironmentSecret{Name: httpx.Param(c, "name"), Value: req.Value, Env: req.Env})
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, out)
-}
-
-func (h *Handler) deleteSecret(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	if err := h.commands.DeleteSecret(c.Context(), org, id, httpx.Param(c, "name")); err != nil {
-		return err
-	}
-	return c.SendStatus(http.StatusNoContent)
-}
-
-func (h *Handler) versions(c fiber.Ctx) error {
-	org, err := httpx.Organization(c)
-	if err != nil {
-		return err
-	}
-	id, err := h.environmentID(c, org)
-	if err != nil {
-		return err
-	}
-	out, err := h.queries.Versions(c.Context(), org, id)
-	if err != nil {
-		return err
-	}
-	return httpx.JSON(c, http.StatusOK, map[string]any{"versions": out})
 }
 
 func (h *Handler) hostedAgents(c fiber.Ctx) error {
@@ -398,11 +161,12 @@ func (h *Handler) hosted(c fiber.Ctx) error {
 }
 
 type hostRequest struct {
-	// Environment is the environment's id or name.
-	Environment string `json:"environment"`
-	Slots       int    `json:"slots"`
+	Slots int `json:"slots"`
 }
 
+// host is PUT /api/v1/agents/{id}/hosting {slots}: hosts the agent on its
+// config's machine, or changes its slot count. The body is optional (one
+// slot).
 func (h *Handler) host(c fiber.Ctx) error {
 	p, err := httpx.Caller(c)
 	if err != nil {
@@ -413,25 +177,12 @@ func (h *Handler) host(c fiber.Ctx) error {
 		return err
 	}
 	var req hostRequest
-	if err := httpx.DecodeJSON(c, &req); err != nil {
-		return err
+	if c.Request().Header.ContentLength() != 0 {
+		if err := httpx.DecodeJSON(c, &req); err != nil {
+			return err
+		}
 	}
-	if req.Environment == "" {
-		return errx.InvalidField("environment", "environment (id or name) is required")
-	}
-	var env hosting.Environment
-	if envID, perr := identity.ParseEnvironmentID(req.Environment); perr == nil {
-		env, err = h.queries.Environment(c.Context(), p.Organization, envID, 0)
-	} else {
-		env, err = h.queries.EnvironmentByName(c.Context(), p.Organization, req.Environment)
-	}
-	if err != nil {
-		return err
-	}
-	if err := h.credentials(c, p, env.ID, env.Spec); err != nil {
-		return err
-	}
-	out, err := h.commands.Host(c.Context(), p.Organization, id, hosting.Host{Environment: env.ID, Slots: req.Slots, By: by(p)})
+	out, err := h.commands.Host(c.Context(), p.Organization, id, hosting.Host{Slots: req.Slots, By: by(p)})
 	if err != nil {
 		return err
 	}

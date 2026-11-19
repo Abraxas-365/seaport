@@ -48,7 +48,10 @@ export interface HostingStatus {
   runtime: boolean
 }
 
-/** The fields the web edits of a profile (the rest is the server's). */
+/**
+ * The fields the web edits of an agent's config (PUT /agents/{id}/config;
+ * the rest is the server's): the profile, the harness and the machine.
+ */
 export type ProfileInput = Pick<
   AgentProfile,
   | "instructions"
@@ -61,6 +64,8 @@ export type ProfileInput = Pick<
   | "browser_assist"
   | "browser_detect"
   | "browser_ignore_hosts"
+  | "harness"
+  | "machine"
 >
 
 /** The body of POST /api/v1/schedules (the handler's createRequest). */
