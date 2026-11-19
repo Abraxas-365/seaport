@@ -56,11 +56,15 @@ function SelectTrigger({
   )
 }
 
+// Seaport: menus open below their trigger (popper), at least as wide and
+// aligned to its start. shadcn's default, item-aligned, lays the menu over
+// the trigger shifted so the selected item sits on it: it jumps up or down
+// with the selection and covers what you were reading.
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  position = "popper",
+  align = "start",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content>) {
   return (
@@ -76,10 +80,7 @@ function SelectContent({
         <SelectScrollUpButton />
         <SelectPrimitive.Viewport
           data-position={position}
-          className={cn(
-            "data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)",
-            position === "popper" && ""
-          )}
+          className="p-1 data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)"
         >
           {children}
         </SelectPrimitive.Viewport>
