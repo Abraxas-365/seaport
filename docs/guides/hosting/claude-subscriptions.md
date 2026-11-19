@@ -2,21 +2,29 @@
 
 Experimental: let a hosted slot (Claude Code or rness) use a Claude account you sign in to, instead of an API key held by the port.
 
-Normally a hosted agent calls models with a key you store as a secret and the [gateway](network.md) forwards. If you would rather use a Claude subscription, an agent whose machine has no model key signs each slot in to an account instead.
+Normally a hosted agent calls models with a key you store as a secret and the [gateway](network.md) forwards. If you would rather use a Claude subscription, set `models.anthropic: subscription` (in the web app: **Cuenta de Claude** under **Acceso a la IA**) and each slot signs in to an account instead. An rness agent can still keep keys for the other providers next to it.
 
 > [!WARNING]
 > This feature is experimental. A slot uses that account's limits and terms, and Anthropic's terms decide whether an agent like this may use a personal plan: check them first. Model calls skip the gateway, so there is no usage metering for these slots.
 
 ## When it applies
 
-| Harness | Signs in when |
+A slot signs in when its machine has `models.anthropic: subscription`. The port fills that value in when you leave Anthropic unset:
+
+| Harness | Default when |
 |---|---|
-| `claude-code` | Its machine has no `models.anthropic`. With a key, the gateway's key wins. |
-| `rness` | Its machine has no `models` at all. With any key, the gateway serves those providers and sessions start there. |
+| `claude-code` | Its machine has no `models.anthropic`. With a key there, the gateway's key wins. |
+| `rness` | Its machine has no `models` at all. With only other providers' keys, it uses those and doesn't sign in. |
 
-The proxy then also lets the slot reach `api.anthropic.com` and `platform.claude.com`, which the harness needs for its API and token refresh. You don't add them to `machine.network.egress`.
+Each provider takes one value, so Anthropic is either a key or the account, never both. The proxy then also lets the slot reach `api.anthropic.com` and `platform.claude.com`, which the harness needs for its API and token refresh. You don't add them to `machine.network.egress`.
 
-A signed-in rness slot works on Anthropic models (Claude Sonnet unless the agent's profile picks another `anthropic/…` model). To give it other providers, use `models` and the gateway instead.
+An rness slot can mix the two: Anthropic through the account and other providers (`openai`, `groq`…) through the gateway with their keys. It starts on the agent's model, written `<provider>/<model>`, and otherwise on Claude Sonnet. Only the keyed providers' calls are metered.
+
+```yaml
+models:
+  anthropic: subscription
+  groq: ${GROQ_KEY}
+```
 
 ## Sign a slot in
 
@@ -24,7 +32,7 @@ A slot of such an agent waits after it starts, taking no messages, until it is s
 
 ### From the web app
 
-Open the agent's page. In **Dónde corre**, a slot that isn't signed in shows **Sin cuenta**. Use **Conectar cuenta** (the key) on its row. On a stopped slot, the same button starts it first ("Arrancando la instancia…") and the login begins once it runs. The harness's own login runs inside the slot:
+Open the agent's page, **Configuración**, section **Acceso a la IA**. With **Cuenta de Claude** chosen, it lists the agent's slots with the account each one is signed in to; a slot that isn't signed in shows **Sin cuenta**. Use **Conectar cuenta** on its row (**Cambiar cuenta** once it has one). On a stopped slot, the same button starts it first ("Arrancando la instancia…") and the login begins once it runs. The harness's own login runs inside the slot:
 
 1. Open the link the dialog shows and sign in with the account the slot should use.
 2. The page shows a code. Paste it into the dialog.

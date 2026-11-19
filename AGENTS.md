@@ -772,8 +772,13 @@ net/http mux; only `/healthz` answers 405.
   stay in the slot's state volume (`~/.claude` and `~/.claude.json`, or
   `~/.rness/credentials.json`, linked there); the port never sees them,
   and the code is not a secret opener (single use, bound to the PKCE of
-  that login). `Account` asks the harness (`agent-account`). Without a
-  gateway and without `ANTHROPIC_API_KEY`, `images/rness/seaport.lua`
+  that login). `Account` asks the harness (`agent-account`). It mixes
+  with other providers' keys (each provider has one value: Anthropic signs
+  in, the keyed ones go through the gateway; the web's **Acceso a la IA**
+  sets both, with the slots' accounts and sign-in). A signing-in slot gets
+  `SEAPORT_SIGN_IN=anthropic` (`hosting.EnvSignIn`, in `SlotSet`); then,
+  or with no gateway at all, and without `ANTHROPIC_API_KEY`,
+  `images/rness/seaport.lua` serves Anthropic outside the gateway and
   rewrites an `anthropic` registration with `auth = {env =
   "ANTHROPIC_API_KEY"}` to `auth = {oauth = "anthropic"}` (rness never
   swaps an env-declared key for stored tokens). Fallbacks: env secret

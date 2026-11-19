@@ -51,6 +51,9 @@ func TestSlotSignIn(t *testing.T) {
 	}
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 	st := rt.lastStart()
+	if st.Env[hosting.EnvSignIn] != hosting.ProviderAnthropic {
+		t.Fatalf("a subscription slot names its sign-in: %v", st.Env)
+	}
 	var ws hosting.Workspace
 	if code := p.call(http.MethodGet, "/crew/workspace", st.Env[hosting.EnvToken], nil, &ws); code != http.StatusOK || !ws.SignIn {
 		t.Fatalf("workspace of a subscription slot: %d %+v", code, ws)

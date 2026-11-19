@@ -10,6 +10,7 @@ import {
   Hammer,
   KeyRound,
   Laptop,
+  LogIn,
   Play,
   Plus,
   RefreshCw,
@@ -79,6 +80,8 @@ import {
   StatusBadge,
   Takeovers,
   UsageChart,
+  slotLabel,
+  slotTone,
   type ChoiceOption,
 } from "@/components/seaport"
 
@@ -108,7 +111,7 @@ export function WhereTab({
   if (hosted.isError) return <ErrorState error={hosted.error} onRetry={() => hosted.refetch()} />
   if (hosted.isPending || !profile) return <Skeleton className="h-48 rounded-xl" />
   return hosted.data ? (
-    <HostedPanel agent={agent} hosted={hosted.data} profile={profile} />
+    <HostedPanel agent={agent} hosted={hosted.data} profile={profile} onConfigure={onConfigure} />
   ) : (
     <RemotePanel agent={agent} profile={profile} onConfigure={onConfigure} />
   )
@@ -124,7 +127,17 @@ function RuntimeOff() {
 }
 
 /** A hosted agent: its instances, image and what the proxy refused. */
-function HostedPanel({ agent, hosted, profile }: { agent: LibraryAgent; hosted: Hosted; profile: AgentProfile }) {
+function HostedPanel({
+  agent,
+  hosted,
+  profile,
+  onConfigure,
+}: {
+  agent: LibraryAgent
+  hosted: Hosted
+  profile: AgentProfile
+  onConfigure: () => void
+}) {
   const can = useCan()
   const status = useHosting()
   const write = can(Perm.HostingWrite)
@@ -149,7 +162,14 @@ function HostedPanel({ agent, hosted, profile }: { agent: LibraryAgent; hosted: 
         <CardContent className="space-y-4">
           {!runtime && <RuntimeOff />}
           {write && <SlotsForm agent={agent} hosted={hosted} />}
-          <Slots agent={agent} hosted={hosted} profile={profile} write={write} runtime={runtime} />
+          <Slots
+            agent={agent}
+            hosted={hosted}
+            profile={profile}
+            write={write}
+            runtime={runtime}
+            onConfigure={onConfigure}
+          />
           <Denials agent={agent} />
         </CardContent>
       </Card>
@@ -241,17 +261,20 @@ function Slots({
   profile,
   write,
   runtime,
+  onConfigure,
 }: {
   agent: LibraryAgent
   hosted: Hosted
   profile: AgentProfile
   write: boolean
   runtime: boolean
+  onConfigure: () => void
 }) {
   const now = useNow(10_000)
   const action = useSlotAction(agent.id)
   const busy = (s: Slot) => action.isPending && action.variables?.slot === s.index
-  // A Claude account instead of a key: each slot signs in.
+  // A Claude account: each running slot shows it; signing in is in
+  // Configuración → Acceso a la IA, with the rest of the access.
   const account = signsIn(profile.harness, profile.machine?.models)
   return (
     <ul className="divide-y rounded-lg border" aria-label="Instancias">
@@ -265,8 +288,17 @@ function Slots({
               now={now}
               actions={
                 <>
-                  {account && s.state === "running" && <SlotAccountBadge agent={agent} slot={s} />}
-                  {write && account && runtime && s.state !== "stopping" && <SignInDialog agent={agent} slot={s} />}
+                  {account && s.state === "running" && (
+                    <button
+                      type="button"
+                      className="rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                      title="Conectar o cambiar la cuenta en Configuración → Acceso a la IA"
+                      aria-label={`Cuenta de ${agent.name}-${s.index}`}
+                      onClick={onConfigure}
+                    >
+                      <SlotAccountBadge agent={agent} slot={s} />
+                    </button>
+                  )}
                   {write && (
                     <>
                       <SlotLogDialog agent={agent} slot={s} />
@@ -303,13 +335,65 @@ function SlotAccountBadge({ agent, slot }: { agent: LibraryAgent; slot: Slot }) 
 const live = (state: string | undefined) => state === "starting" || state === "waiting" || state === "verifying"
 
 /**
+ * The Claude account of each of a hosted agent's instances, where its AI
+ * access is configured: the account each one is signed in to and the
+ * button that signs it in (or to another one). Each instance keeps its
+ * own sign-in in its volume.
+ */
+export function SlotAccounts({ agent }: { agent: LibraryAgent }) {
+  const can = useCan()
+  const hosted = useHosted(agent.id)
+  const status = useHosting()
+  const write = can(Perm.HostingWrite)
+  const runtime = status.data?.runtime ?? true
+  if (!can(Perm.HostingRead) || hosted.isError) return null
+  if (hosted.isPending) return <Skeleton className="h-12 rounded-lg" />
+  if (!hosted.data)
+    return (
+      <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+        Cuando el puerto lo aloje, cada instancia se conecta a su cuenta aquí.
+      </p>
+    )
+  return (
+    <ul className="divide-y rounded-lg border" aria-label="Cuentas de las instancias">
+      {hosted.data.slots.map((s) => (
+        <SlotAccountRow key={s.index} agent={agent} slot={s} write={write && runtime} />
+      ))}
+    </ul>
+  )
+}
+
+function SlotAccountRow({ agent, slot, write }: { agent: LibraryAgent; slot: Slot; write: boolean }) {
+  const running = slot.state === "running"
+  const account = useSlotAccount(agent.id, slot.index, running)
+  const name = `${agent.name}-${slot.index}`
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+      <span className="font-mono text-sm font-medium">{name}</span>
+      {running ? (
+        !account.isError && <AccountBadge account={account.data} />
+      ) : (
+        <StatusBadge tone={slotTone[slot.state]} dot={false}>
+          {slotLabel[slot.state]}
+        </StatusBadge>
+      )}
+      {write && slot.state !== "stopping" && (
+        <span className="ml-auto">
+          <SignInDialog agent={agent} slot={slot} connected={running && !!account.data?.logged_in} />
+        </span>
+      )}
+    </li>
+  )
+}
+
+/**
  * Signs a slot (Claude Code or rness) in to a Claude subscription
  * (experimental): the harness's own login runs in the slot; the person
  * opens its URL, signs in and pastes the code the page shows. A slot that
  * isn't running is started first (tokens live in its state volume), and
  * the login begins once it runs.
  */
-function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
+function SignInDialog({ agent, slot, connected }: { agent: LibraryAgent; slot: Slot; connected: boolean }) {
   const [open, setOpen] = React.useState(false)
   const [code, setCode] = React.useState("")
   const name = `${agent.name}-${slot.index}`
@@ -356,12 +440,12 @@ function SignInDialog({ agent, slot }: { agent: LibraryAgent; slot: Slot }) {
     >
       <DialogTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon-sm"
+          variant="outline"
+          size="sm"
           aria-label={`Conectar cuenta de ${name}`}
-          title={running ? "Conectar cuenta" : "Arrancar y conectar cuenta"}
+          title={running ? undefined : "Arranca la instancia y conecta su cuenta"}
         >
-          <KeyRound />
+          <LogIn /> {connected ? "Cambiar cuenta" : "Conectar cuenta"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">

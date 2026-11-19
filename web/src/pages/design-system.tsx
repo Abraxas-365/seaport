@@ -258,6 +258,7 @@ function Primitives() {
   const [def, setDef] = React.useState<"ask" | "allow" | "deny">("ask")
   const [chips, setChips] = React.useState(["nodejs", "npm"])
   const [pickedSecret, setPickedSecret] = React.useState("${ANTHROPIC_KEY}")
+  const [engine, setEngine] = React.useState<"none" | "chromium">("chromium")
   return (
     <Block title="Primitivas" description="shadcn/ui tal cual, con los tokens de Seaport.">
       <div className="grid gap-8 md:grid-cols-2">
@@ -289,10 +290,9 @@ function Primitives() {
             canCreate={false}
             suggested="ANTHROPIC_KEY"
             none="Sin clave"
-            options={[{ value: "subscription", label: "Cuenta de Claude (suscripción)" }]}
           />
         </Specimen>
-        <Specimen label="SegmentedChoice">
+        <Specimen label="SegmentedChoice (la elegida: rellena, con borde y en negrita)" className="space-y-3">
           <SegmentedChoice
             value={access}
             onChange={setAccess}
@@ -300,6 +300,16 @@ function Primitives() {
               { value: "auto", label: "Reglas", tone: "brand" },
               { value: "allow", label: "Permitir", icon: Check, tone: "success" },
               { value: "deny", label: "Bloquear", icon: Ban, tone: "danger" },
+            ]}
+          />
+          <SegmentedChoice
+            aria-label="Motor del navegador"
+            value={engine}
+            onChange={setEngine}
+            size="sm"
+            options={[
+              { value: "none", label: "Sin navegador" },
+              { value: "chromium", label: "Chromium" },
             ]}
           />
         </Specimen>

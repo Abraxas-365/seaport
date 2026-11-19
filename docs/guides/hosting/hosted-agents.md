@@ -150,7 +150,7 @@ A hosted agent works only through its slots, and an agent that people connect fr
 - Hosting an agent that has live crew tokens is refused (`409`): revoke them first.
 - Minting a crew token for a hosted agent is refused (`409`): stop hosting it first.
 
-On the web, the agent's **Dónde corre** tab has one row per slot: state, **Arrancar** and **Detener** buttons, **Registro** for the container's output, and **Conectar cuenta** for [Claude subscriptions](claude-subscriptions.md). With a [browser](browser.md) on, the **Navegador** tab opens the slot's browser.
+On the web, the agent's **Dónde corre** tab has one row per slot: state, **Arrancar** and **Detener** buttons, and **Registro** for the container's output. A slot's account for [Claude subscriptions](claude-subscriptions.md) is signed in from **Configuración** → **Acceso a la IA**. With a [browser](browser.md) on, the **Navegador** tab opens the slot's browser.
 
 ### Clone a hosted agent
 

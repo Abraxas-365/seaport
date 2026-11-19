@@ -282,8 +282,8 @@ func (s *Service) missingSecrets(ctx context.Context, org identity.OrganizationI
 // the connector keeps the port's own from being replaced: Config.Protect):
 // the port, its token and name, the model gateway (for every provider the
 // machine names a key for: the harness's provider goes there with the
-// slot token as its key) and the egress proxy (the slot signs in to it
-// with its token).
+// slot token as its key), the provider it signs in to and the egress
+// proxy (the slot signs in to it with its token).
 func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]string {
 	env := map[string]string{}
 	for k, v := range spec.Env {
@@ -293,6 +293,9 @@ func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]stri
 	env[hosting.EnvToken] = token
 	env[hosting.EnvSlot] = name
 	env[hosting.EnvHarness] = spec.Harness
+	if spec.SignsIn() {
+		env[hosting.EnvSignIn] = hosting.ProviderAnthropic
+	}
 	if providers := spec.Models.Providers(); len(providers) > 0 {
 		env[hosting.EnvGateway] = s.slots.cfg.URL + hosting.GatewayPath
 		env[hosting.EnvGatewayProviders] = strings.Join(providers, ",")

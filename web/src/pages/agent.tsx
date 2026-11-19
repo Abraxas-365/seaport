@@ -86,7 +86,7 @@ import {
   VaultsCard,
   type ChoiceOption,
 } from "@/components/seaport"
-import { BrowserCard, UsageCard, WhereTab, hasBrowserTab } from "@/pages/agent-hosting"
+import { BrowserCard, SlotAccounts, UsageCard, WhereTab, hasBrowserTab } from "@/pages/agent-hosting"
 import { ConfigSection, MachineSections, ModelAccess, type SecretsCtx } from "@/pages/agent-machine"
 
 /** The agent profile rules (agent.SaveProfile.Validate). */
@@ -425,12 +425,17 @@ function ConfigEditor({ agent, write, hosted }: { agent: LibraryAgent; write: bo
   // base: the version the draft started from; baseline: its content.
   const [base, setBase] = React.useState(-1)
   const [baseline, setBaseline] = React.useState<ProfileInput>(empty)
+  // Claude's "Clave de API" chosen with no secret yet (ModelAccess).
+  const [pendingKey, setPendingKey] = React.useState(false)
+  // Bumped by a load or a discard: the form's local choices start over.
+  const [round, setRound] = React.useState(0)
   const loaded = current.data
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
+  const dirty = pendingKey || JSON.stringify(draft) !== JSON.stringify(baseline)
   const load = (p: AgentProfile) => {
     setDraft(inputOf(p))
     setBaseline(inputOf(p))
     setBase(p.version)
+    setRound((r) => r + 1)
   }
 
   // Load the current config, and again whenever a new version lands
@@ -448,11 +453,13 @@ function ConfigEditor({ agent, write, hosted }: { agent: LibraryAgent; write: bo
   const set = (patch: Partial<ProfileInput>) => setDraft((d) => ({ ...d, ...patch }))
   const setMachine = (patch: Partial<Machine>) =>
     setDraft((d) => ({ ...d, machine: { ...(d.machine ?? newMachine()), ...patch } }))
-  const problem = draft.machine
-    ? machineProblem(draft.harness, draft.machine)
-    : hosted
-      ? "Un agente alojado necesita su máquina."
-      : ""
+  const problem = pendingKey
+    ? "Elige el secreto con la clave de Anthropic."
+    : draft.machine
+      ? machineProblem(draft.harness, draft.machine)
+      : hosted
+        ? "Un agente alojado necesita su máquina."
+        : ""
   const secrets: SecretsCtx = {
     agentId: agent.id,
     agentName: agent.name,
@@ -520,11 +527,14 @@ function ConfigEditor({ agent, write, hosted }: { agent: LibraryAgent; write: bo
         ) : (
           <>
             <HarnessSection
+              key={round}
+              agent={agent}
               profile={shown}
               hosted={hosted}
               readOnly={readOnly}
               set={set}
               secrets={secrets}
+              onPending={setPendingKey}
             />
             <ProfileFields
               profile={shown}
@@ -567,7 +577,13 @@ function ConfigEditor({ agent, write, hosted }: { agent: LibraryAgent; write: bo
             )}
             {dirty && !stale && problem && <span className="mr-auto text-sm text-destructive">{problem}</span>}
             {dirty && !stale && (
-              <Button variant="ghost" onClick={() => setDraft(baseline)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setDraft(baseline)
+                  setRound((r) => r + 1)
+                }}
+              >
                 Descartar
               </Button>
             )}
@@ -595,17 +611,21 @@ const harnessOptions: ChoiceOption<Harness | "none">[] = [
  * machine and how it reaches its models.
  */
 function HarnessSection({
+  agent,
   profile: p,
   hosted,
   readOnly,
   set,
   secrets,
+  onPending,
 }: {
+  agent: LibraryAgent
   profile: ProfileInput
   hosted: boolean
   readOnly: boolean
   set: (patch: Partial<ProfileInput>) => void
   secrets: SecretsCtx
+  onPending: (pending: boolean) => void
 }) {
   const options = hosted ? harnessOptions.filter((o) => o.value !== "none") : harnessOptions
   return (
@@ -653,22 +673,25 @@ function HarnessSection({
               />
             )
           }
+        />
+      )}
+      {p.harness && p.machine && (
+        <ConfigSection
+          id="acceso-ia"
+          icon={KeyRound}
+          title="Acceso a la IA"
+          yaml="machine.models"
+          description="Cómo sus instancias llegan a los modelos: con la cuenta de Claude de cada una, con claves de API, o con ambas."
         >
-          {p.machine && (
-            <div className="space-y-3">
-              <h4 className="flex items-center gap-2 text-sm font-medium">
-                <KeyRound className="size-4" /> Modelos y acceso
-                <Mono className="text-xs font-normal text-muted-foreground">machine.models</Mono>
-              </h4>
-              <ModelAccess
-                harness={p.harness}
-                models={p.machine.models ?? {}}
-                onChange={(models) => set({ machine: { ...(p.machine ?? newMachine()), models } })}
-                secrets={secrets}
-                readOnly={readOnly}
-              />
-            </div>
-          )}
+          <ModelAccess
+            harness={p.harness}
+            models={p.machine.models ?? {}}
+            onChange={(models) => set({ machine: { ...(p.machine ?? newMachine()), models } })}
+            secrets={secrets}
+            readOnly={readOnly}
+            accounts={<SlotAccounts agent={agent} />}
+            onPending={onPending}
+          />
         </ConfigSection>
       )}
     </div>

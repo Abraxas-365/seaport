@@ -115,6 +115,9 @@ func TestHostedNetwork(t *testing.T) {
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 	st := rt.lastStart()
 	token := st.Env[hosting.EnvToken]
+	if _, ok := st.Env[hosting.EnvSignIn]; ok {
+		t.Fatalf("a keyed slot names a sign-in: %v", st.Env)
+	}
 	if st.Env[hosting.EnvGateway] != "http://port.test:8740/gateway" || st.Env[hosting.EnvGatewayProviders] != "anthropic,groq" ||
 		st.Env["ANTHROPIC_BASE_URL"] != "http://port.test:8740/gateway/anthropic" || st.Env["ANTHROPIC_API_KEY"] != token ||
 		st.Env["GROQ_BASE_URL"] != "http://port.test:8740/gateway/groq" || st.Env["GROQ_API_KEY"] != token {

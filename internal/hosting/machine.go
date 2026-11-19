@@ -234,17 +234,10 @@ func (s Spec) Validate() error {
 	default:
 		return errx.InvalidField("harness", "harness must be rness or claude-code")
 	}
-	if err := s.Machine.Validate(); err != nil {
-		return err
-	}
-	// rness signs in only when no model goes through the gateway: its
-	// image registers the gateway's providers and starts there
-	// (images/rness/seaport.lua).
-	m := NormalizeModels(s.Models)
-	if strings.TrimSpace(s.Harness) == HarnessRness && m[ProviderAnthropic] == Subscription && len(m.Providers()) > 0 {
-		return errx.InvalidField("models", "rness signs in to the Claude subscription only when no other model has a key: drop anthropic: subscription or the keys")
-	}
-	return nil
+	// A subscription and keys mix: Anthropic signs in inside the slot
+	// (EnvSignIn) and the providers with a key go through the gateway
+	// (rness: images/rness/seaport.lua; Claude Code uses Anthropic only).
+	return s.Machine.Validate()
 }
 
 // ValidHarness checks a config's harness: "" (not set) or one of the

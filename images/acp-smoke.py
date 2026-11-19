@@ -6,8 +6,9 @@ SEAPORT_SLOT, the gateway and the slot token as the Anthropic key; no
 network, read-only root), then checks it answers initialize and opens a
 session: what a slot needs before its first message. rness also runs as
 the slots of other environments (RNESS_CASES: no gateway, OpenAI-protocol
-providers through it, the agent's model), each session starting on the
-model its images/rness/seaport.lua picks.
+providers through it, the agent's model, a Claude sign-in with or without
+the gateway), each session starting on the model its
+images/rness/seaport.lua picks.
 
     images/acp-smoke.py IMAGE rness|claude-code
 """
@@ -48,6 +49,11 @@ RNESS_CASES = [
      "deepseek/deepseek-chat"),
     ("anthropic and groq, a bare Claude model", slot("anthropic", "groq", SEAPORT_AGENT_MODEL="claude-opus-5-5"),
      "anthropic/claude-sonnet-5-5"),
+    ("signed in, no gateway", {"SEAPORT_SIGN_IN": "anthropic"}, "anthropic/claude-sonnet-5-5"),
+    ("signed in to anthropic, groq through the gateway", slot("groq", SEAPORT_SIGN_IN="anthropic"),
+     "anthropic/claude-sonnet-5-5"),
+    ("signed in to anthropic, groq's model", slot("groq", SEAPORT_SIGN_IN="anthropic", SEAPORT_AGENT_MODEL="groq/llama-ci"),
+     "groq/llama-ci"),
 ]
 
 
