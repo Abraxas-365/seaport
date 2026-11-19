@@ -76,8 +76,21 @@ test("a hosted agent made from the wizard takes its model key, names it in its m
 
   // A hosted agent can't drop its machine: the editor offers no switch.
   await page.getByRole("tab", { name: "Configuración" }).click()
+  const claude = page.getByRole("radiogroup", { name: "Acceso a Claude" })
+  await expect(claude.getByRole("radio", { name: /Clave de API/ })).toHaveAttribute("aria-checked", "true")
   await expect(page.getByRole("combobox", { name: "Anthropic" })).toHaveText("ANTHROPIC_KEY")
   await expect(page.getByRole("switch", { name: "Máquina" })).toHaveCount(0)
+
+  // Both: Claude through each instance's account, OpenAI with the key.
+  await page.getByRole("combobox", { name: "OpenAI" }).click()
+  await page.getByRole("option", { name: "ANTHROPIC_KEY" }).click()
+  await claude.getByRole("radio", { name: /Cuenta de Claude/ }).click()
+  await expect(page.getByRole("list", { name: "Cuentas de las instancias" })).toBeVisible()
+  await page.getByRole("button", { name: /Guardar v/ }).click()
+  await expect.poll(async () => (await config(api, id)).machine?.models).toEqual({
+    anthropic: "subscription",
+    openai: "${ANTHROPIC_KEY}",
+  })
 
   // Back to remote (no slot is running here: the UI port has no runtime).
   await page.getByRole("tab", { name: "Dónde corre" }).click()
@@ -95,7 +108,9 @@ test("a hosted agent signs in to a Claude account when made without a key", asyn
   expect(saved.harness).toBe("claude-code")
   expect(saved.machine?.models).toEqual({ anthropic: "subscription" })
   await page.getByRole("tab", { name: "Configuración" }).click()
-  await expect(page.getByRole("combobox", { name: "Anthropic" })).toHaveText("Cuenta de Claude (suscripción)")
+  await expect(
+    page.getByRole("radiogroup", { name: "Acceso a Claude" }).getByRole("radio", { name: /Cuenta de Claude/ }),
+  ).toHaveAttribute("aria-checked", "true")
   await api.delete(`/api/v1/agents/${agentId(page.url())}/hosting`)
 })
 

@@ -31,6 +31,12 @@ const (
 	EnvGatewayProviders = "SEAPORT_GATEWAY_PROVIDERS"
 )
 
+// EnvSignIn names the provider the slot signs in to (ProviderAnthropic),
+// set when the machine signs in (Machine.SignsIn): rness's base image then
+// reaches Anthropic with the slot's sign-in, next to the providers the
+// gateway serves (images/rness/seaport.lua).
+const EnvSignIn = "SEAPORT_SIGN_IN"
+
 // Egress proxy settings.
 const (
 	// EgressCacheFor is how long the proxy trusts a slot token's allowlist

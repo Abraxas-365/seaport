@@ -81,9 +81,9 @@ func GatewayURL(base, provider string) string {
 
 // SlotSet are the variables the port sets on a slot for its network and
 // the agent's kit may not replace (connector.Config.Protect): the gateway,
-// every provider's key and base URL, and the egress proxy's.
+// the sign-in, every provider's key and base URL, and the egress proxy's.
 func SlotSet() []string {
-	out := []string{EnvGateway, "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY", "no_proxy"}
+	out := []string{EnvGateway, EnvSignIn, "HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY", "no_proxy"}
 	for _, n := range ProviderNames() {
 		p := Providers[n]
 		out = append(out, p.BaseEnv, p.KeyEnv)

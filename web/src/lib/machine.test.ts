@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   agentNamePattern,
+  claudeAccess,
   cleanMachine,
   configSecrets,
   emptyConfig,
@@ -49,10 +50,19 @@ describe("model access", () => {
     expect(signsIn("rness", {})).toBe(true)
     expect(signsIn("rness", { openai: "${OPENAI_KEY}" })).toBe(false)
     expect(signsIn("rness", { anthropic: "subscription" })).toBe(true)
+    expect(signsIn("rness", { anthropic: "subscription", groq: "${GROQ_KEY}" })).toBe(true)
   })
 
-  it("refuses a Claude account mixed with keys on rness, and literals", () => {
-    expect(modelsProblem("rness", { anthropic: "subscription", openai: "${OPENAI_KEY}" })).toMatch(/no se combina/)
+  it("reads how the slots reach Claude", () => {
+    expect(claudeAccess("claude-code", {})).toBe("account")
+    expect(claudeAccess("claude-code", { anthropic: "${ANTHROPIC_KEY}" })).toBe("key")
+    expect(claudeAccess("rness", {})).toBe("account")
+    expect(claudeAccess("rness", { openai: "${OPENAI_KEY}" })).toBe("none")
+    expect(claudeAccess("rness", { anthropic: "subscription", openai: "${OPENAI_KEY}" })).toBe("account")
+  })
+
+  it("takes a Claude account with keys, and refuses literals", () => {
+    expect(modelsProblem("rness", { anthropic: "subscription", openai: "${OPENAI_KEY}" })).toBe("")
     expect(modelsProblem("claude-code", { anthropic: "subscription", openai: "${OPENAI_KEY}" })).toBe("")
     expect(modelsProblem("rness", { openai: "sk-literal" })).toMatch(/secreto/)
     expect(modelsProblem("rness", { openai: "subscription" })).toMatch(/Solo Anthropic/)

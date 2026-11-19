@@ -61,12 +61,12 @@ Claude Code calls Anthropic only, so only `models.anthropic` matters to it. rnes
 
 1. The agent's **Model** in its [profile](../profiles.md), written `<provider>/<model>`, when the machine names that provider (`openrouter/anthropic/claude-sonnet-4.5`, `deepseek/deepseek-chat`). When the machine names a single provider other than `anthropic`, a model without a provider (`gpt-4.1`) goes to that one.
 2. `SEAPORT_MODEL`, in the same format, set with `ENV` in a custom image (the machine's `env:` can't hold `SEAPORT_` names).
-3. `claude-sonnet-5-5`, when the machine names `anthropic` or has no `models` at all.
+3. `claude-sonnet-5-5`, when the machine names `anthropic` (a key or `subscription`) or has no `models` at all.
 
 If none of these applies, rness won't start, and the slot's log names the setting to add. A model name without a provider, such as `claude-opus-5-5`, is picked among the harness's own models once the session is open, along with the effort. rness lists only the Anthropic models of its default config there. So give a model of any other provider as `<provider>/<model>`.
 
 > [!NOTE]
-> This applies to machines with `models`. A `claude-code` agent without `models.anthropic`, or an `rness` one without `models`, signs in to a subscription instead and doesn't use the gateway. See [Claude subscriptions](claude-subscriptions.md).
+> The gateway serves the providers with a key. `anthropic: subscription` (the default for a `claude-code` agent without `models.anthropic`, or an `rness` one without `models`) signs the slot in to a Claude account instead, and its Anthropic calls skip the gateway; an rness slot's other keyed providers still go through it. See [Claude subscriptions](claude-subscriptions.md).
 
 ## Egress proxy
 

@@ -74,9 +74,14 @@ func TestSubscriptionEgress(t *testing.T) {
 	if !mixed.SignsIn() || !slices.Equal(mixed.Models.Providers(), []string{"groq"}) {
 		t.Fatalf("mixed: %v %v", mixed.Models, mixed.Models.Providers())
 	}
-	// rness can't sign in and use keys at once; only anthropic signs in.
-	if err := (Spec{Harness: HarnessRness, Machine: Machine{Models: Models{"anthropic": Subscription, "groq": "${GROQ_KEY}"}}}).Validate(); err == nil {
-		t.Fatal("rness subscription with keys accepted")
+	// rness signs in to Anthropic and uses the other keys through the
+	// gateway; only anthropic signs in.
+	mixedRness := Spec{Harness: HarnessRness, Machine: Machine{Models: Models{"anthropic": Subscription, "groq": "${GROQ_KEY}"}}}
+	if err := mixedRness.Validate(); err != nil {
+		t.Fatalf("rness subscription with keys: %v", err)
+	}
+	if n := Normalize(mixedRness); !n.SignsIn() || !slices.Equal(n.Models.Providers(), []string{"groq"}) {
+		t.Fatalf("rness mixed: %v %v", n.Models, n.Models.Providers())
 	}
 	if err := (Spec{Harness: HarnessClaudeCode, Machine: Machine{Models: Models{"openai": Subscription}}}).Validate(); err == nil {
 		t.Fatal("an openai subscription accepted")

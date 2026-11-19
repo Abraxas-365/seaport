@@ -84,10 +84,10 @@ export function configSecrets(p: Pick<ProfileInput, "mcp_servers" | "machine">):
 }
 
 /**
- * Whether the machine's slots sign in to a Claude account instead of using
- * a model key (hosting Machine.SignsIn after Normalize): `anthropic:
- * subscription`, or no Anthropic key on Claude Code, or no key at all on
- * rness.
+ * Whether the machine's slots sign in to a Claude account (hosting
+ * Machine.SignsIn after Normalize): `anthropic: subscription`, or no
+ * Anthropic key on Claude Code, or no key at all on rness. Other
+ * providers' keys still go through the gateway.
  */
 export function signsIn(harness: Harness | "", models: Record<string, string> | undefined): boolean {
   const named = Object.entries(models ?? {}).filter(([, v]) => v)
@@ -97,20 +97,26 @@ export function signsIn(harness: Harness | "", models: Record<string, string> | 
   return false
 }
 
+/** How the slots reach Claude: a Claude account, a key, or not at all. */
+export type ClaudeAccess = "account" | "key" | "none"
+
+/** claudeAccess reads the machine's models as the port resolves them. */
+export function claudeAccess(harness: Harness | "", models: Record<string, string> | undefined): ClaudeAccess {
+  if (signsIn(harness, models)) return "account"
+  return models?.anthropic ? "key" : "none"
+}
+
 /**
  * What's wrong with the model access, or "" when nothing: every value is a
- * `${SECRET}` or Anthropic's `subscription`, and rness can't mix a Claude
- * account with other keys (hosting.Normalize refuses it).
+ * `${SECRET}` or Anthropic's `subscription`.
  */
-export function modelsProblem(harness: Harness | "", models: Record<string, string> | undefined): string {
+export function modelsProblem(_harness: Harness | "", models: Record<string, string> | undefined): string {
   const named = Object.entries(models ?? {}).filter(([, v]) => v)
   for (const [p, v] of named) {
     if (v === subscription) {
       if (p !== "anthropic") return "Solo Anthropic se conecta con una cuenta."
     } else if (!secretRefPattern.test(v)) return "Cada clave nombra un secreto del agente, como ${NOMBRE}."
   }
-  if (harness === "rness" && named.some(([, v]) => v === subscription) && named.length > 1)
-    return "Con rness, la cuenta de Claude no se combina con claves de otros proveedores."
   return ""
 }
 

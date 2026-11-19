@@ -78,6 +78,47 @@ describe("AgentPage", () => {
     expect(screen.getAllByText(/OPENAI_KEY/).length).toBeGreaterThan(0)
   })
 
+  it("sets the AI access in one place: a Claude account and keys together", async () => {
+    const { qc, a } = seeded()
+    renderAt(<AgentPage />, qc, at(a.id, "#configuracion"))
+    const claude = screen.getByRole("radiogroup", { name: "Acceso a Claude" })
+    expect(within(claude).getByRole("radio", { name: /Sin Claude/ })).toHaveAttribute("aria-checked", "true")
+    const user = userEvent.setup()
+    await user.click(within(claude).getByRole("radio", { name: /Cuenta de Claude/ }))
+    expect(within(claude).getByRole("radio", { name: /Cuenta de Claude/ })).toHaveAttribute("aria-checked", "true")
+    // The OpenAI key stays, and the instances' accounts show here.
+    expect(screen.getByRole("combobox", { name: "OpenAI" })).toHaveTextContent("OPENAI_KEY")
+    expect(screen.getByRole("list", { name: "Cuentas de las instancias" })).toBeInTheDocument()
+    expect(screen.getByText(/Claude con la cuenta de cada instancia y OpenAI con clave/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Guardar v/ })).toBeEnabled()
+  })
+
+  it("won't save a Claude key before its secret is picked", async () => {
+    const { qc, a } = seeded()
+    renderAt(<AgentPage />, qc, at(a.id, "#configuracion"))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("radio", { name: /Clave de API/ }))
+    expect(screen.getByRole("radio", { name: /Clave de API/ })).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("combobox", { name: "Anthropic" })).toHaveTextContent("Elige un secreto…")
+    expect(screen.getByRole("button", { name: /Guardar v/ })).toBeDisabled()
+    expect(screen.getAllByText(/Elige el secreto con la clave de Anthropic/).length).toBeGreaterThan(0)
+    // Discarding goes back to what the config says.
+    await user.click(screen.getByRole("button", { name: "Descartar" }))
+    expect(screen.getByRole("radio", { name: /Sin Claude/ })).toHaveAttribute("aria-checked", "true")
+    expect(screen.queryByRole("combobox", { name: "Anthropic" })).not.toBeInTheDocument()
+  })
+
+  it("leaves a Claude account for a key: the account goes, the key waits", async () => {
+    const { qc, a } = seeded({ profile: { machine: newMachine({ models: { anthropic: "subscription" } }) } })
+    renderAt(<AgentPage />, qc, at(a.id, "#configuracion"))
+    const user = userEvent.setup()
+    expect(screen.getByRole("radio", { name: /Cuenta de Claude/ })).toHaveAttribute("aria-checked", "true")
+    await user.click(screen.getByRole("radio", { name: /Clave de API/ }))
+    expect(screen.getByRole("radio", { name: /Clave de API/ })).toHaveAttribute("aria-checked", "true")
+    expect(screen.queryByRole("list", { name: "Cuentas de las instancias" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Guardar v/ })).toBeDisabled()
+  })
+
   it("lets a remote agent go without a harness or machine", async () => {
     const { qc, a } = seeded({ hosted: false, profile: { harness: "", machine: null } })
     renderAt(<AgentPage />, qc, at(a.id, "#configuracion"))

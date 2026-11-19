@@ -159,7 +159,7 @@ func TestProvidersAndSecrets(t *testing.T) {
 		t.Fatalf("gateway url: %q", got)
 	}
 	slot := hosting.SlotSet()
-	for _, v := range []string{"SEAPORT_GATEWAY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "HTTPS_PROXY", "no_proxy"} {
+	for _, v := range []string{"SEAPORT_GATEWAY", "SEAPORT_SIGN_IN", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "HTTPS_PROXY", "no_proxy"} {
 		if !slices.Contains(slot, v) {
 			t.Errorf("slot set lacks %s", v)
 		}

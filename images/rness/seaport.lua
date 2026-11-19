@@ -47,54 +47,63 @@ local protocols = {
 }
 
 -- The ones this slot's environment names (SEAPORT_GATEWAY_PROVIDERS,
--- sorted); an older port sets only Anthropic's variables. With no gateway
--- (an environment without `models`) sessions start on Anthropic, with a
--- key in an env secret (ANTHROPIC_API_KEY) or else the slot's sign-in.
+-- sorted; an older port sets only Anthropic's variables) go through the
+-- gateway. Anthropic may instead be reached outside it: the slot's sign-in
+-- to the person's Claude subscription (SEAPORT_SIGN_IN, next to any of the
+-- gateway's; or no gateway at all) or a key in an env secret
+-- (ANTHROPIC_API_KEY), which wins over the sign-in.
 local gateway = (os.getenv("SEAPORT_GATEWAY") or ""):gsub("/+$", "")
-local served, names = {}, {}
-local list = gateway ~= "" and os.getenv("SEAPORT_GATEWAY_PROVIDERS") or "anthropic"
-for name in list:gmatch("[^,%s]+") do
+local served, routed, names = {}, {}, {}
+local function serve(name)
   if protocols[name] and not served[name] then
     served[name] = true
     names[#names + 1] = name
   end
 end
-if #names == 0 then
-  error("seaport: SEAPORT_GATEWAY_PROVIDERS names no provider this image knows")
+if gateway ~= "" then
+  for name in (os.getenv("SEAPORT_GATEWAY_PROVIDERS") or "anthropic"):gmatch("[^,%s]+") do
+    if protocols[name] then
+      routed[name] = true
+      serve(name)
+    end
+  end
+  if #names == 0 then
+    error("seaport: SEAPORT_GATEWAY_PROVIDERS names no provider this image knows")
+  end
 end
+if not routed.anthropic and (gateway == "" or os.getenv("SEAPORT_SIGN_IN") == "anthropic") then
+  serve("anthropic")
+end
+local signin = served.anthropic and not routed.anthropic and (os.getenv("ANTHROPIC_API_KEY") or "") == ""
 
--- Each served provider is registered here, on the gateway (base URL
+-- Each routed provider is registered here, on the gateway (base URL
 -- <gateway>/<provider>, key the instance token in <PROVIDER>_API_KEY), so
 -- one the flavor doesn't declare (openai, groq, deepseek) exists too. A
 -- later registration of the same name (the flavor's, a home's) is dropped:
 -- the gateway's stands, and rness refuses a provider registered twice.
-if gateway ~= "" then
-  local register = rness.providers.register
-  for _, name in ipairs(names) do
+-- Signed in, the slot's sign-in (`seaport agents login`, the web's
+-- "Conectar cuenta") is kept as rness's "anthropic" OAuth tokens; the
+-- flavor (or a home) declares Anthropic with the key's variable, which
+-- rness never swaps for a sign-in: such a registration uses it instead.
+local register = rness.providers.register
+for _, name in ipairs(names) do
+  if routed[name] then
     register(name, {
       protocol = protocols[name],
       base_url = gateway .. "/" .. name,
       auth = { env = name:upper() .. "_API_KEY" },
     })
   end
+end
+if gateway ~= "" or signin then
   rness.providers.register = function(name, spec)
-    if served[name] then
+    if routed[name] then
       if name ~= "anthropic" and name ~= "openrouter" then -- the flavor's own
         rness.log.warn("seaport: provider " .. name .. " goes through the port's gateway; this registration is ignored")
       end
       return
     end
-    return register(name, spec)
-  end
-elseif (os.getenv("ANTHROPIC_API_KEY") or "") == "" then
-  -- No gateway and no key: the slot signs in to the person's Claude
-  -- subscription (`seaport agents login`, the web's "Conectar cuenta"),
-  -- which rness keeps as its "anthropic" OAuth tokens. The flavor (or a
-  -- home) declares Anthropic with the key's variable, which rness never
-  -- swaps for a sign-in: such a registration uses the sign-in instead.
-  local register = rness.providers.register
-  rness.providers.register = function(name, spec)
-    if name == "anthropic" and type(spec) == "table" and type(spec.auth) == "table"
+    if signin and name == "anthropic" and type(spec) == "table" and type(spec.auth) == "table"
       and spec.auth.env == "ANTHROPIC_API_KEY" then
       spec.auth = { oauth = "anthropic" }
     end

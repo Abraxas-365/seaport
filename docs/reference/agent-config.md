@@ -179,7 +179,7 @@ machine:
 | `deepseek` | OpenAI | `DEEPSEEK_BASE_URL`, `DEEPSEEK_API_KEY` |
 
 - `subscription` is for `anthropic` only. It is experimental; see [Claude subscriptions](../guides/hosting/claude-subscriptions.md).
-- Access is explicit, and the port fills the default in: a `claude-code` machine with no `models.anthropic` gets `anthropic: subscription`, and an `rness` machine with no `models` at all gets it too. `rness` signs in only when no other provider has a key: `anthropic: subscription` together with another provider's key is refused.
+- Access is explicit, and the port fills the default in: a `claude-code` machine with no `models.anthropic` gets `anthropic: subscription`, and an `rness` machine with no `models` at all gets it too. `anthropic: subscription` mixes with other providers' keys: the slot signs in to Anthropic and reaches the keyed providers through the gateway (`rness` uses them all; Claude Code only Anthropic). Such a slot also gets `SEAPORT_SIGN_IN=anthropic`.
 - With a key set, the slots reach the provider through the port's model gateway (`/gateway/<provider>/`) with their own slot token as the key: the base URL points at the gateway and the key variable holds the slot token, so the real key never enters the container. `SEAPORT_GATEWAY_PROVIDERS` lists the providers served. The gateway meters the usage per agent; read it with `GET /api/v1/agents/{id}/usage`. A `rness` slot works with any of them; Claude Code uses only `anthropic`. For how a slot picks its model, see [Which model a slot uses](../guides/hosting/network.md#which-model-a-slot-uses).
 
 ```yaml
