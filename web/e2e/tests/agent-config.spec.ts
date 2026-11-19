@@ -81,16 +81,12 @@ test("a hosted agent made from the wizard takes its model key, names it in its m
   await expect(page.getByRole("combobox", { name: "Anthropic" })).toHaveText("ANTHROPIC_KEY")
   await expect(page.getByRole("switch", { name: "Máquina" })).toHaveCount(0)
 
-  // Both: Claude through each instance's account, OpenAI with the key.
-  await page.getByRole("combobox", { name: "OpenAI" }).click()
-  await page.getByRole("option", { name: "ANTHROPIC_KEY" }).click()
+  // Claude through each instance's account instead: the key is no longer named.
+  await expect(page.getByText("Otros proveedores")).toHaveCount(0)
   await claude.getByRole("radio", { name: /Cuenta de Claude/ }).click()
   await expect(page.getByRole("list", { name: "Cuentas de las instancias" })).toBeVisible()
   await page.getByRole("button", { name: /Guardar v/ }).click()
-  await expect.poll(async () => (await config(api, id)).machine?.models).toEqual({
-    anthropic: "subscription",
-    openai: "${ANTHROPIC_KEY}",
-  })
+  await expect.poll(async () => (await config(api, id)).machine?.models).toEqual({ anthropic: "subscription" })
 
   // Back to remote (no slot is running here: the UI port has no runtime).
   await page.getByRole("tab", { name: "Dónde corre" }).click()

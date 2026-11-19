@@ -774,8 +774,10 @@ net/http mux; only `/healthz` answers 405.
   and the code is not a secret opener (single use, bound to the PKCE of
   that login). `Account` asks the harness (`agent-account`). It mixes
   with other providers' keys (each provider has one value: Anthropic signs
-  in, the keyed ones go through the gateway; the web's **Acceso a la IA**
-  sets both, with the slots' accounts and sign-in). A signing-in slot gets
+  in, the keyed ones go through the gateway). The web's **Acceso a la IA**
+  sets Claude only (account, with the slots' accounts and sign-in, or key);
+  other providers' keys are YAML-only for now (the form keeps and names
+  them). A signing-in slot gets
   `SEAPORT_SIGN_IN=anthropic` (`hosting.EnvSignIn`, in `SlotSet`); then,
   or with no gateway at all, and without `ANTHROPIC_API_KEY`,
   `images/rness/seaport.lua` serves Anthropic outside the gateway and

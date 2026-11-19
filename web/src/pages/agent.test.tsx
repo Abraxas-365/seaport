@@ -75,21 +75,23 @@ describe("AgentPage", () => {
     // A hosted agent can't drop its harness.
     expect(screen.queryByRole("radio", { name: /Lo elige quien conecta/ })).not.toBeInTheDocument()
     expect(screen.getByTestId("model-access")).toBeInTheDocument()
-    expect(screen.getAllByText(/OPENAI_KEY/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/OpenAI con clave, desde el YAML/)).toBeInTheDocument()
   })
 
-  it("sets the AI access in one place: a Claude account and keys together", async () => {
+  it("sets the AI access in one place: Claude through an account or a key, other keys stay", async () => {
     const { qc, a } = seeded()
     renderAt(<AgentPage />, qc, at(a.id, "#configuracion"))
     const claude = screen.getByRole("radiogroup", { name: "Acceso a Claude" })
-    expect(within(claude).getByRole("radio", { name: /Sin Claude/ })).toHaveAttribute("aria-checked", "true")
+    // Claude only: the other providers aren't offered, a YAML key is named and kept.
+    expect(within(claude).getAllByRole("radio")).toHaveLength(2)
+    expect(screen.queryByText("Otros proveedores")).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "OpenAI" })).not.toBeInTheDocument()
+    for (const r of within(claude).getAllByRole("radio")) expect(r).toHaveAttribute("aria-checked", "false")
     const user = userEvent.setup()
     await user.click(within(claude).getByRole("radio", { name: /Cuenta de Claude/ }))
     expect(within(claude).getByRole("radio", { name: /Cuenta de Claude/ })).toHaveAttribute("aria-checked", "true")
-    // The OpenAI key stays, and the instances' accounts show here.
-    expect(screen.getByRole("combobox", { name: "OpenAI" })).toHaveTextContent("OPENAI_KEY")
     expect(screen.getByRole("list", { name: "Cuentas de las instancias" })).toBeInTheDocument()
-    expect(screen.getByText(/Claude con la cuenta de cada instancia y OpenAI con clave/)).toBeInTheDocument()
+    expect(screen.getByText(/También OpenAI con clave, desde el YAML/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Guardar v/ })).toBeEnabled()
   })
 
@@ -104,7 +106,7 @@ describe("AgentPage", () => {
     expect(screen.getAllByText(/Elige el secreto con la clave de Anthropic/).length).toBeGreaterThan(0)
     // Discarding goes back to what the config says.
     await user.click(screen.getByRole("button", { name: "Descartar" }))
-    expect(screen.getByRole("radio", { name: /Sin Claude/ })).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("radio", { name: /Clave de API/ })).toHaveAttribute("aria-checked", "false")
     expect(screen.queryByRole("combobox", { name: "Anthropic" })).not.toBeInTheDocument()
   })
 

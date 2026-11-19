@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { ChoiceCards, Mono, type ChoiceOption } from "@/components/seaport"
@@ -26,7 +25,7 @@ import { SlotCount } from "./agent-hosting"
 
 type Where = "hosted" | "remote"
 type Step = "name" | "where" | "harness" | "models"
-/** How a hosted agent reaches its models: a Claude account or a provider's key. */
+/** How a hosted agent reaches Claude: a Claude account or an Anthropic key. */
 type Access = "account" | "key"
 
 const whereOptions: ChoiceOption<Where>[] = [
@@ -55,7 +54,6 @@ export function NewAgentDialog() {
   const [where, setWhere] = React.useState<Where>("remote")
   const [harness, setHarness] = React.useState<Harness | "">("")
   const [access, setAccess] = React.useState<Access>("account")
-  const [provider, setProvider] = React.useState("anthropic")
   const [key, setKey] = React.useState("")
   const [slots, setSlots] = React.useState(1)
 
@@ -66,8 +64,8 @@ export function NewAgentDialog() {
   const at = steps.indexOf(step)
   const last = at === steps.length - 1
   const accountOnly = access === "account"
-  // Claude Code reaches Anthropic only; rness picks the provider.
-  const p = harness === "rness" ? (providers.find((x) => x.name === provider) ?? providers[0]) : providers[0]
+  // Claude through a key; other providers' keys go in the YAML later.
+  const p = providers[0]
   const ready = nameOk && !!harness && (accountOnly || key.trim() !== "")
 
   const reset = () => {
@@ -78,7 +76,6 @@ export function NewAgentDialog() {
     setWhere(hostFirst ? "hosted" : "remote")
     setHarness(hostFirst ? "rness" : "")
     setAccess("account")
-    setProvider("anthropic")
     setKey("")
     setSlots(1)
   }
@@ -246,42 +243,23 @@ export function NewAgentDialog() {
                   className="sm:grid-cols-2"
                 />
                 {access === "key" && (
-                  <>
-                    {harness === "rness" && (
-                      <Field>
-                        <FieldLabel>Proveedor</FieldLabel>
-                        <Select value={provider} onValueChange={setProvider}>
-                          <SelectTrigger aria-label="Proveedor">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {providers.map((x) => (
-                              <SelectItem key={x.name} value={x.name}>
-                                {x.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    )}
-                    <Field>
-                      <FieldLabel htmlFor="agent-key">Clave de {p.label}</FieldLabel>
-                      <Input
-                        id="agent-key"
-                        type="password"
-                        value={key}
-                        onChange={(e) => setKey(e.target.value)}
-                        className="font-mono"
-                        autoComplete="new-password"
-                        maxLength={16384}
-                        autoFocus
-                      />
-                      <FieldDescription>
-                        Queda como el secreto <Mono>{keyNameFor(p)}</Mono>. Más
-                        proveedores, repos y paquetes, luego en Configuración.
-                      </FieldDescription>
-                    </Field>
-                  </>
+                  <Field>
+                    <FieldLabel htmlFor="agent-key">Clave de {p.label}</FieldLabel>
+                    <Input
+                      id="agent-key"
+                      type="password"
+                      value={key}
+                      onChange={(e) => setKey(e.target.value)}
+                      className="font-mono"
+                      autoComplete="new-password"
+                      maxLength={16384}
+                      autoFocus
+                    />
+                    <FieldDescription>
+                      Queda como el secreto <Mono>{keyNameFor(p)}</Mono>. Repos y paquetes, luego en
+                      Configuración.
+                    </FieldDescription>
+                  </Field>
                 )}
               </FieldGroup>
             )}
