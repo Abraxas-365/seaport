@@ -1,7 +1,7 @@
 import * as React from "react"
 import { AppWindow, ExternalLink, Lock } from "lucide-react"
 
-import { useAgents, useCan, useEndTakeover, useEnvironments, useHosted, useNow, useProfile, useSlotAction } from "@/lib/hooks"
+import { useAgents, useCan, useEndTakeover, useHosted, useNow, useProfile, useSlotAction } from "@/lib/hooks"
 import { formatRelative } from "@/lib/format"
 import { Perm } from "@/lib/permissions.gen"
 import type { Conversation, LibraryAgent, Takeover } from "@/lib/types"
@@ -12,17 +12,16 @@ import { BrowserViewer, Mono, takeoverLabel } from "@/components/seaport"
 
 /**
  * Whether a person can open an agent's managed browser from here: its
- * environment runs one, its profile uses it and the caller may drive it
+ * machine runs one, its profile uses it and the caller may drive it
  * (Perm.BrowserUse). `slot` is a running slot to open it on.
  */
 export function useAgentBrowser(agentId: string) {
   const can = useCan()
   const hosted = useHosted(agentId)
-  const envs = useEnvironments()
   const profile = useProfile(agentId)
   const h = hosted.data
-  const env = h ? envs.data?.items.find((e) => e.id === h.environment_id) : undefined
-  const ready = can(Perm.BrowserUse) && !!h && !!env?.spec.browser?.engine && !!profile.data?.browser
+  const p = profile.data
+  const ready = can(Perm.BrowserUse) && !!h && !!p?.machine?.browser?.engine && !!p.browser
   return {
     ready,
     slot: h?.slots.find((s) => s.state === "running"),
@@ -75,7 +74,7 @@ export function BrowserDialog({
         ) : (
           <div className="space-y-3 text-sm">
             <p className="text-muted-foreground">Ninguna instancia del agente está corriendo, así que su navegador está apagado.</p>
-            {can(Perm.EnvironmentsWrite) && b.idle ? (
+            {can(Perm.HostingWrite) && b.idle ? (
               <Button size="sm" onClick={() => action.mutate({ slot: b.idle!.index, action: "start" })}>
                 Arrancar <Mono>{`${agent.name}-${b.idle.index}`}</Mono>
               </Button>

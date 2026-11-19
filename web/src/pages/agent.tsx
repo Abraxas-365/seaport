@@ -1,9 +1,12 @@
 import * as React from "react"
-import { Link, Navigate, useParams } from "react-router"
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router"
 import {
   ArrowLeft,
   Bot,
   AppWindow,
+  Copy,
+  Cpu,
+  FileCode2,
   History,
   KeyRound,
   Pencil,
@@ -12,28 +15,45 @@ import {
   RotateCcw,
   Save,
   ScrollText,
+  Server,
   ShieldCheck,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { ApiError } from "@/lib/api"
+import { configYaml } from "@/lib/config-yaml"
 import {
+  flatten,
   useAgent,
   useCan,
+  useCloneAgent,
   useCrew,
   useDeleteSecret,
   useDocksDestinations,
+  useHosted,
+  useInbox,
+  useNow,
   useProfile,
   useProfileVersions,
   useSaveProfile,
   useSecrets,
-  useSetSecret,
 } from "@/lib/hooks"
-import { formatFull } from "@/lib/format"
+import { conversationName, formatFull } from "@/lib/format"
+import {
+  agentNamePattern,
+  cleanMachine,
+  configSecrets,
+  emptyConfig,
+  fullMachine,
+  harnessLabel,
+  machineProblem,
+  newMachine,
+} from "@/lib/machine"
 import { Perm } from "@/lib/permissions.gen"
-import type { AgentProfile, Approve, LibraryAgent, McpServer, ProfileInput, Skill } from "@/lib/types"
+import type { Agent, AgentProfile, Approve, Harness, LibraryAgent, Machine, McpServer, ProfileInput, Skill } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -51,24 +71,27 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
+  AgentCard,
   ConfirmAction,
   EmptyState,
   ErrorState,
+  LogView,
   Mono,
+  SecretDialog,
   SegmentedChoice,
   StatusBadge,
   VaultsCard,
   type ChoiceOption,
 } from "@/components/seaport"
-import { BrowserCard, HostingCard, UsageCard } from "@/pages/agent-hosting"
+import { BrowserCard, UsageCard, WhereTab, hasBrowserTab } from "@/pages/agent-hosting"
+import { ConfigSection, MachineSections, ModelAccess, type SecretsCtx } from "@/pages/agent-machine"
 
 /** The agent profile rules (agent.SaveProfile.Validate). */
 const skillNamePattern = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const serverNamePattern = /^[a-z0-9][a-z0-9_-]{0,31}$/
-const secretNamePattern = /^[A-Z_][A-Z0-9_]{0,63}$/
-const secretRef = /\$\{([A-Z_][A-Z0-9_]{0,63})\}/g
 
 const approveOptions: ChoiceOption<"connector" | "allow" | "reject">[] = [
   { value: "connector", label: "Lo decide el conector", description: "Su flag -approve (rechaza por defecto)" },
@@ -76,18 +99,7 @@ const approveOptions: ChoiceOption<"connector" | "allow" | "reject">[] = [
   { value: "allow", label: "Permitir", tone: "success" },
 ]
 
-const empty: ProfileInput = {
-  instructions: "",
-  skills: [],
-  mcp_servers: [],
-  approve: "",
-  model: "",
-  effort: "",
-  browser: false,
-  browser_assist: "",
-  browser_detect: false,
-  browser_ignore_hosts: [],
-}
+const empty = emptyConfig
 
 function inputOf(p: AgentProfile): ProfileInput {
   return {
@@ -101,8 +113,19 @@ function inputOf(p: AgentProfile): ProfileInput {
     browser_assist: p.browser_assist ?? "",
     browser_detect: p.browser_detect ?? false,
     browser_ignore_hosts: p.browser_ignore_hosts ?? [],
+    harness: p.harness ?? "",
+    machine: p.machine ? fullMachine(p.machine) : null,
   }
 }
+
+/** The config as it is sent: the machine cleaned of blank entries. */
+function outOf(p: ProfileInput): ProfileInput {
+  return { ...p, machine: p.machine ? cleanMachine(p.machine) : null }
+}
+
+/** The agent page's tabs; the URL's hash picks one (`#navegador`). */
+const tabs = ["resumen", "configuracion", "secretos", "donde", "navegador"] as const
+type Tab = (typeof tabs)[number]
 
 /** An agent: its profile (what its harness is told and given) and secrets. */
 export function AgentPage() {
@@ -131,11 +154,20 @@ export function AgentHostingRedirect() {
 function AgentDetail({ agent }: { agent: LibraryAgent }) {
   const can = useCan()
   const crew = useCrew()
+  const hosted = useHosted(agent.id)
+  const profile = useProfile(agent.id)
+  const { hash } = useLocation()
+  const navigate = useNavigate()
+  const fromHash = hash.slice(1) as Tab
+  const tab: Tab = tabs.includes(fromHash) ? fromHash : "resumen"
+  const setTab = (t: string) => navigate({ hash: t === "resumen" ? "" : t }, { replace: true })
   const conns = crew.data?.agents.filter((c) => c.agent_id === agent.id)
   const outdated = conns?.filter((c) => c.outdated).length ?? 0
+  const p = profile.data
+  const browserTab = hasBrowserTab(agent, p) || tab === "navegador"
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-      <div className="border-b px-6 py-5">
+      <div className="border-b px-6 pt-5">
         <Link
           to="/agents"
           className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -152,43 +184,243 @@ function AgentDetail({ agent }: { agent: LibraryAgent }) {
               {agent.description || <span className="italic">Sin descripción</span>}
             </p>
           </div>
+          {hosted.data !== undefined && (
+            <StatusBadge tone={hosted.data ? "brand" : "neutral"} dot={false}>
+              {hosted.data
+                ? `Alojado · ${hosted.data.slots.length} ${hosted.data.slots.length === 1 ? "instancia" : "instancias"}`
+                : "Remoto"}
+            </StatusBadge>
+          )}
           <StatusBadge tone={agent.profile_version ? "brand" : "neutral"} dot={false}>
-            {agent.profile_version ? `Perfil v${agent.profile_version}` : "Sin perfil"}
+            {agent.profile_version ? `Config v${agent.profile_version}` : "Sin configuración"}
           </StatusBadge>
-          {conns !== undefined &&
-            (conns.length === 0 ? (
-              <StatusBadge>Sin conexión</StatusBadge>
-            ) : outdated > 0 ? (
-              <StatusBadge tone="warning" title="Reinician el agente con el perfil nuevo al quedar libres">
-                {outdated === 1 ? "1 conexión desactualizada" : `${outdated} conexiones desactualizadas`}
-              </StatusBadge>
-            ) : (
-              <StatusBadge tone="success">
-                {conns.length === 1 ? "1 conexión al día" : `${conns.length} conexiones al día`}
-              </StatusBadge>
-            ))}
+          {can(Perm.AgentsWrite) && <CloneDialog agent={agent} />}
         </div>
+        <Tabs value={tab} onValueChange={setTab} className="mt-4">
+          <TabsList variant="line" className="-mb-px">
+            <TabsTrigger value="resumen">Resumen</TabsTrigger>
+            <TabsTrigger value="configuracion">Configuración</TabsTrigger>
+            <TabsTrigger value="secretos">Secretos</TabsTrigger>
+            <TabsTrigger value="donde">Dónde corre</TabsTrigger>
+            {browserTab && <TabsTrigger value="navegador">Navegador</TabsTrigger>}
+          </TabsList>
+        </Tabs>
       </div>
-      <div className="mx-auto max-w-4xl space-y-6 p-6">
-        <ProfileEditor agent={agent} write={can(Perm.AgentsWrite)} />
-        <HostingCard agent={agent} />
-        <BrowserCard agent={agent} />
-        <UsageCard agent={agent} />
-        {can(Perm.VaultsRead) && <VaultsCard kind="agent" id={agent.id} />}
-        <SecretsCard agent={agent} write={can(Perm.AgentsWrite)} />
-      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <div className="mx-auto max-w-4xl p-6">
+          <TabsContent value="resumen" className="space-y-6">
+            <Connections agent={agent} conns={conns} outdated={outdated} hosted={!!hosted.data} />
+            <UsageCard agent={agent} />
+            {can(Perm.VaultsRead) && <VaultsCard kind="agent" id={agent.id} />}
+          </TabsContent>
+          <TabsContent value="configuracion">
+            <ConfigEditor agent={agent} write={can(Perm.AgentsWrite)} hosted={!!hosted.data} />
+          </TabsContent>
+          <TabsContent value="secretos">
+            <SecretsCard agent={agent} write={can(Perm.AgentsWrite)} />
+          </TabsContent>
+          <TabsContent value="donde">
+            <WhereTab agent={agent} profile={p} onConfigure={() => setTab("configuracion")} />
+          </TabsContent>
+          {browserTab && (
+            <TabsContent value="navegador">
+              <BrowserCard agent={agent} profile={p} />
+            </TabsContent>
+          )}
+        </div>
+      </Tabs>
     </div>
   )
 }
 
-/** Edits the current profile; saving makes a new version. Past versions
- * open read-only and can be restored (saved again as a new version). */
-function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }) {
+/** Who works as the agent right now: its connections (slots or machines). */
+function Connections({
+  agent,
+  conns,
+  outdated,
+  hosted,
+}: {
+  agent: LibraryAgent
+  conns: Agent[] | undefined
+  outdated: number
+  hosted: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Plug className="size-4" /> Conexiones
+          {conns !== undefined && conns.length > 0 && outdated > 0 && (
+            <StatusBadge tone="warning" title="Reinician el agente con la configuración nueva al quedar libres">
+              {outdated === 1 ? "1 desactualizada" : `${outdated} desactualizadas`}
+            </StatusBadge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          {hosted
+            ? "Sus instancias se conectan solas cuando le llegan mensajes."
+            : "Quien corre seaport connect con uno de sus tokens."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {conns === undefined ? (
+          <Skeleton className="h-12 rounded-lg" />
+        ) : conns.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Sin conexión: los mensajes para @{agent.name} esperan
+            {hosted ? " a que arranque una instancia." : " a que alguien lo conecte."}
+          </p>
+        ) : (
+          <ConnectionCards conns={conns} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Each connection with its capacity and the conversations it's working. */
+function ConnectionCards({ conns }: { conns: Agent[] }) {
+  const now = useNow(1000)
+  const inbox = useInbox({})
+  const titles = new Map(flatten(inbox.data).map((c) => [c.id, conversationName(c)]))
+  return (
+    <div className="grid gap-3" aria-label="Conexiones" role="list">
+      {conns.map((c) => (
+        <div key={c.session} role="listitem">
+          <AgentCard agent={c} now={now} titleOf={(id) => titles.get(id)} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The config as `seaport agents config show` prints it, to copy. */
+function YamlDialog({ agent, config }: { agent: LibraryAgent; config: ProfileInput }) {
+  const yaml = configYaml(config)
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <FileCode2 /> Ver como YAML
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{agent.name}.yaml</DialogTitle>
+          <DialogDescription>
+            Lo mismo que <Mono>seaport agents config show {agent.name}</Mono>; aplícalo con{" "}
+            <Mono>seaport agents config apply {agent.name} -f</Mono>. Los secretos van por nombre, nunca su valor.
+          </DialogDescription>
+        </DialogHeader>
+        <LogView text={yaml} className="max-h-[60vh] text-xs" />
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigator.clipboard.writeText(yaml).then(
+                () => toast.success("YAML copiado"),
+                () => toast.error("No se pudo copiar"),
+              )
+            }
+          >
+            <Copy /> Copiar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** A new agent with this one's config (and, if asked, its secrets). */
+export function CloneDialog({ agent, trigger }: { agent: LibraryAgent; trigger?: React.ReactNode }) {
+  const clone = useCloneAgent()
+  const navigate = useNavigate()
+  const [open, setOpen] = React.useState(false)
+  const [name, setName] = React.useState("")
+  const [secrets, setSecrets] = React.useState(true)
+  const ok = agentNamePattern.test(name)
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (o) setName(`${agent.name}-copia`.slice(0, 32))
+      }}
+    >
+      <DialogTrigger asChild>
+        {trigger ?? (
+          <Button variant="outline" size="sm">
+            <Copy /> Clonar
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            clone.mutate(
+              { id: agent.id, name, secrets },
+              {
+                onSuccess: (a) => {
+                  setOpen(false)
+                  navigate(`/agents/${a.id}`)
+                },
+              },
+            )
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Clonar @{agent.name}</DialogTitle>
+            <DialogDescription>
+              Un agente nuevo con su configuración actual. No hereda muelles, tokens ni alojamiento.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup className="py-5">
+            <Field data-invalid={!!name && !ok}>
+              <FieldLabel htmlFor="clone-name">Nombre</FieldLabel>
+              <Input
+                id="clone-name"
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase())}
+                className="font-mono"
+                autoFocus
+              />
+              <FieldDescription>Su @mención: minúsculas, dígitos, - y _.</FieldDescription>
+            </Field>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="clone-secrets">Copiar sus secretos</FieldLabel>
+                <FieldDescription>Los valores se copian cifrados; nadie los ve.</FieldDescription>
+              </FieldContent>
+              <Switch id="clone-secrets" checked={secrets} onCheckedChange={setSecrets} />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={!ok || clone.isPending}>
+              {clone.isPending && <Spinner />} Clonar
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Edits the agent's config (profile + harness + machine); saving makes a
+ * new version. Past versions open read-only and can be restored (saved
+ * again as a new version).
+ */
+function ConfigEditor({ agent, write, hosted }: { agent: LibraryAgent; write: boolean; hosted: boolean }) {
   const [viewing, setViewing] = React.useState(0)
   const current = useProfile(agent.id)
   const past = useProfile(agent.id, viewing)
   const versions = useProfileVersions(agent.id)
   const save = useSaveProfile(agent.id)
+  const secretList = useSecrets(agent.id)
   const [draft, setDraft] = React.useState<ProfileInput>(empty)
   // base: the version the draft started from; baseline: its content.
   const [base, setBase] = React.useState(-1)
@@ -201,7 +433,7 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
     setBase(p.version)
   }
 
-  // Load the current profile, and again whenever a new version lands
+  // Load the current config, and again whenever a new version lands
   // (ours or someone else's) while there's nothing unsaved (state
   // adjusted during render: React re-renders before painting).
   if (loaded && (base < 0 || (!dirty && loaded.version !== base))) load(loaded)
@@ -214,6 +446,19 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
   const stale = loaded.version !== base
   const conflict = save.error instanceof ApiError && save.error.status === 409
   const set = (patch: Partial<ProfileInput>) => setDraft((d) => ({ ...d, ...patch }))
+  const setMachine = (patch: Partial<Machine>) =>
+    setDraft((d) => ({ ...d, machine: { ...(d.machine ?? newMachine()), ...patch } }))
+  const problem = draft.machine
+    ? machineProblem(draft.harness, draft.machine)
+    : hosted
+      ? "Un agente alojado necesita su máquina."
+      : ""
+  const secrets: SecretsCtx = {
+    agentId: agent.id,
+    agentName: agent.name,
+    names: (secretList.data?.secrets ?? []).map((s) => s.name),
+    canCreate: write,
+  }
 
   return (
     <Card>
@@ -221,31 +466,35 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2">
-              <ScrollText className="size-4" /> Perfil
+              <ScrollText className="size-4" /> Configuración
             </CardTitle>
             <CardDescription>
-              Lo que <Mono>seaport connect</Mono> le da al agente: instrucciones, skills, servidores MCP y permisos. Cada
-              cambio es una versión nueva; sus conexiones reinician el agente con ella al quedar libres.
+              Todo el agente en un documento: lo que se le dice, sus herramientas y, si el puerto lo aloja, su máquina.
+              Cada cambio es una versión nueva (también con <Mono>seaport agents config</Mono>); sus conexiones lo toman
+              al quedar libres.
             </CardDescription>
           </div>
-          {(versions.data?.versions.length ?? 0) > 0 && (
-            <Select value={String(viewing)} onValueChange={(v) => setViewing(Number(v))}>
-              <SelectTrigger size="sm" className="w-56" aria-label="Versión">
-                <History className="size-3.5" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">{write ? "Actual (editable)" : `Actual (v${loaded.version})`}</SelectItem>
-                {versions.data?.versions
-                  .filter((v) => v.version !== loaded.version)
-                  .map((v) => (
-                    <SelectItem key={v.version} value={String(v.version)}>
-                      v{v.version} · {v.created_by || "—"} · {formatFull(v.created_at)}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {shown && <YamlDialog agent={agent} config={shown} />}
+            {(versions.data?.versions.length ?? 0) > 0 && (
+              <Select value={String(viewing)} onValueChange={(v) => setViewing(Number(v))}>
+                <SelectTrigger size="sm" className="w-56" aria-label="Versión">
+                  <History className="size-3.5" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">{write ? "Actual (editable)" : `Actual (v${loaded.version})`}</SelectItem>
+                  {versions.data?.versions
+                    .filter((v) => v.version !== loaded.version)
+                    .map((v) => (
+                      <SelectItem key={v.version} value={String(v.version)}>
+                        v{v.version} · {v.created_by || "—"} · {formatFull(v.created_at)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -269,10 +518,38 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
         {!shown ? (
           <Skeleton className="h-64 rounded-xl" />
         ) : (
-          <ProfileFields profile={shown} docks={agent.docks.map((d) => d.dock_id)} readOnly={readOnly} set={set} />
+          <>
+            <HarnessSection
+              profile={shown}
+              hosted={hosted}
+              readOnly={readOnly}
+              set={set}
+              secrets={secrets}
+            />
+            <ProfileFields
+              profile={shown}
+              docks={agent.docks.map((d) => d.dock_id)}
+              readOnly={readOnly}
+              set={set}
+            />
+            {shown.machine && shown.harness && (
+              <MachineSections
+                harness={shown.harness}
+                machine={shown.machine}
+                set={setMachine}
+                secrets={secrets}
+                readOnly={readOnly}
+                homeCompare={
+                  viewing > 0
+                    ? { home: loaded.machine?.home ?? "", label: `la v${loaded.version} actual` }
+                    : { home: baseline.machine?.home ?? "", label: `la v${base} guardada` }
+                }
+              />
+            )}
+          </>
         )}
         {write && viewing === 0 && (
-          <div className="flex flex-wrap items-center justify-end gap-3 border-t pt-4">
+          <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap items-center justify-end gap-3 rounded-b-xl border-t bg-card px-6 py-4">
             {(stale || conflict) && (
               <span className="mr-auto text-sm text-warning">
                 Alguien guardó la v{loaded.version} mientras editabas.{" "}
@@ -288,19 +565,15 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
                 </button>
               </span>
             )}
+            {dirty && !stale && problem && <span className="mr-auto text-sm text-destructive">{problem}</span>}
             {dirty && !stale && (
               <Button variant="ghost" onClick={() => setDraft(baseline)}>
                 Descartar
               </Button>
             )}
             <Button
-              disabled={!dirty || stale || save.isPending}
-              onClick={() =>
-                save.mutate(
-                  { base, profile: draft },
-                  { onSuccess: load },
-                )
-              }
+              disabled={!dirty || stale || !!problem || save.isPending}
+              onClick={() => save.mutate({ base, profile: outOf(draft) }, { onSuccess: load })}
             >
               {save.isPending ? <Spinner /> : <Save />} Guardar v{base + 1}
             </Button>
@@ -308,6 +581,97 @@ function ProfileEditor({ agent, write }: { agent: LibraryAgent; write: boolean }
         )}
       </CardContent>
     </Card>
+  )
+}
+
+const harnessOptions: ChoiceOption<Harness | "none">[] = [
+  { value: "rness", label: "rness", description: "Cualquier proveedor de modelos" },
+  { value: "claude-code", label: "Claude Code", description: "Modelos de Anthropic" },
+  { value: "none", label: "Lo elige quien conecta", description: "Solo para agentes remotos" },
+]
+
+/**
+ * The harness and, for an agent the port runs (or will), whether it has a
+ * machine and how it reaches its models.
+ */
+function HarnessSection({
+  profile: p,
+  hosted,
+  readOnly,
+  set,
+  secrets,
+}: {
+  profile: ProfileInput
+  hosted: boolean
+  readOnly: boolean
+  set: (patch: Partial<ProfileInput>) => void
+  secrets: SecretsCtx
+}) {
+  const options = hosted ? harnessOptions.filter((o) => o.value !== "none") : harnessOptions
+  return (
+    <div className="space-y-6">
+      <ConfigSection
+        icon={Cpu}
+        title="Harness"
+        yaml="harness"
+        description={
+          hosted
+            ? "Lo que corre en sus instancias."
+            : "Lo que debe correr quien lo conecta; lo necesita para que el puerto pueda alojarlo."
+        }
+      >
+        <SegmentedChoice
+          aria-label="Harness"
+          value={p.harness || "none"}
+          onChange={(v) => {
+            const harness = v === "none" ? "" : v
+            set({ harness, ...(harness === "" ? { machine: null } : {}) })
+          }}
+          options={options}
+          disabled={readOnly}
+          size="sm"
+        />
+      </ConfigSection>
+      {p.harness && (
+        <ConfigSection
+          icon={Server}
+          title="Máquina"
+          yaml="machine"
+          description={
+            p.machine
+              ? `Con lo que el puerto construye la imagen de sus instancias de ${harnessLabel[p.harness]}.`
+              : "Sin máquina el puerto no puede alojarlo: corre donde alguien lo conecta."
+          }
+          badge={
+            !hosted &&
+            !readOnly && (
+              <Switch
+                aria-label="Máquina"
+                checked={!!p.machine}
+                onCheckedChange={(on) => set({ machine: on ? newMachine() : null })}
+                className="ml-auto"
+              />
+            )
+          }
+        >
+          {p.machine && (
+            <div className="space-y-3">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <KeyRound className="size-4" /> Modelos y acceso
+                <Mono className="text-xs font-normal text-muted-foreground">machine.models</Mono>
+              </h4>
+              <ModelAccess
+                harness={p.harness}
+                models={p.machine.models ?? {}}
+                onChange={(models) => set({ machine: { ...(p.machine ?? newMachine()), models } })}
+                secrets={secrets}
+                readOnly={readOnly}
+              />
+            </div>
+          )}
+        </ConfigSection>
+      )}
+    </div>
   )
 }
 
@@ -412,9 +776,10 @@ function ProfileFields({
             <AppWindow className="size-4" /> Navegador
           </FieldLabel>
           <FieldDescription>
-            El agente usa el navegador gestionado de su entorno (herramientas MCP de Chrome DevTools y la herramienta{" "}
+            El agente usa el navegador de su máquina (herramientas MCP de Chrome DevTools y la herramienta{" "}
             <Mono>ask_takeover</Mono>). Las sesiones viven en la instancia; cuando un sitio pide algo que solo una persona
-            puede hacer (iniciar sesión, un captcha, un código), ella toma el control desde la pestaña Navegador. Solo surte efecto en agentes alojados en un entorno con navegador.
+            puede hacer (iniciar sesión, un captcha, un código), ella toma el control desde la pestaña Navegador. Solo
+            surte efecto en agentes alojados.
           </FieldDescription>
         </FieldContent>
         <Switch
@@ -425,9 +790,15 @@ function ProfileFields({
             set({
               browser,
               // Turning the browser on turns detection on too (the usual
-              // case); off clears what needs it.
+              // case), and the machine's engine (the port refuses a hosted
+              // agent's browser without one); off clears what needs it.
               ...(browser
-                ? { browser_detect: true }
+                ? {
+                    browser_detect: true,
+                    ...(p.machine && !p.machine.browser?.engine
+                      ? { machine: { ...p.machine, browser: { engine: "chromium" as const } } }
+                      : {}),
+                  }
                 : { browser_assist: "", browser_detect: false, browser_ignore_hosts: [] }),
             })
           }
@@ -933,9 +1304,7 @@ function SecretsCard({ agent, write }: { agent: LibraryAgent; write: boolean }) 
   const secrets = useSecrets(agent.id)
   const profile = useProfile(agent.id)
   const remove = useDeleteSecret(agent.id)
-  const used = new Set<string>()
-  for (const s of profile.data?.mcp_servers ?? [])
-    for (const h of s.headers ?? []) for (const m of h.value.matchAll(secretRef)) used.add(m[1])
+  const used = configSecrets(profile.data ? inputOf(profile.data) : empty)
   return (
     <Card>
       <CardHeader>
@@ -945,12 +1314,12 @@ function SecretsCard({ agent, write }: { agent: LibraryAgent; write: boolean }) 
               <KeyRound className="size-4" /> Secretos
             </CardTitle>
             <CardDescription>
-              Lo propio de este agente: los tokens de sus headers MCP (<Mono>{"${NOMBRE}"}</Mono>) y lo que su harness
-              necesite en el entorno. Se guardan cifrados y solo salen hacia sus conexiones. Las claves de modelo y las
-              credenciales que comparten las instancias van en los secretos del entorno.
+              Las credenciales del agente: claves de modelo, tokens de repos y de headers MCP (
+              <Mono>{"${NOMBRE}"}</Mono>) y lo que su harness necesite como variable. Se guardan cifrados y solo salen
+              hacia sus conexiones (las claves de modelo, ni eso: las usa el gateway del puerto).
             </CardDescription>
           </div>
-          {write && <SecretDialog agent={agent} />}
+          {write && <SecretDialog agentId={agent.id} agentName={agent.name} trigger="default" />}
         </div>
       </CardHeader>
       <CardContent>
@@ -959,142 +1328,54 @@ function SecretsCard({ agent, write }: { agent: LibraryAgent; write: boolean }) 
         ) : secrets.isError ? (
           <ErrorState error={secrets.error} onRetry={() => secrets.refetch()} />
         ) : secrets.data.secrets.length === 0 ? (
-          <EmptyState icon={KeyRound} title="Sin secretos" description="Por ejemplo el token de un servidor MCP." />
+          <EmptyState icon={KeyRound} title="Sin secretos" description="Por ejemplo una clave de modelo o el token de un repo." />
         ) : (
-          <ul className="divide-y rounded-lg border">
-            {secrets.data.secrets.map((s) => (
-              <li key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                <span className="font-mono text-sm">{s.name}</span>
-                {s.env && (
-                  <StatusBadge dot={false} title="El harness lo recibe como variable de entorno">
-                    env
-                  </StatusBadge>
-                )}
-                {used.has(s.name) && (
-                  <StatusBadge tone="brand" dot={false} title="Lo usa un header MCP del perfil actual">
-                    en uso
-                  </StatusBadge>
-                )}
-                <span className="ml-auto text-xs text-muted-foreground">actualizado {formatFull(s.updated_at)}</span>
-                {write && (
-                  <>
-                    <SecretDialog agent={agent} name={s.name} env={s.env} />
-                    <ConfirmAction
-                      trigger={
-                        <Button variant="ghost" size="icon-sm" aria-label={`Eliminar ${s.name}`} disabled={used.has(s.name)}>
-                          <Trash2 />
-                        </Button>
-                      }
-                      title={`¿Eliminar ${s.name}?`}
-                      description={<p>Las conexiones del agente reinician sin él al quedar libres.</p>}
-                      destructive
-                      actionLabel="Eliminar"
-                      onConfirm={() => remove.mutateAsync(s.name)}
-                    />
-                  </>
-                )}
-              </li>
-            ))}
+          <ul className="divide-y rounded-lg border" aria-label="Secretos">
+            {secrets.data.secrets.map((s) => {
+              const uses = used.get(s.name) ?? []
+              return (
+                <li key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
+                  <span className="font-mono text-sm">{s.name}</span>
+                  {s.env && (
+                    <StatusBadge dot={false} title="El harness lo recibe como variable de entorno">
+                      env
+                    </StatusBadge>
+                  )}
+                  {uses.length > 0 && (
+                    <StatusBadge tone="brand" dot={false} title={`Lo usa la configuración actual: ${uses.join(", ")}`}>
+                      {uses.length === 1 ? uses[0] : `en uso (${uses.length})`}
+                    </StatusBadge>
+                  )}
+                  <span className="ml-auto text-xs text-muted-foreground">actualizado {formatFull(s.updated_at)}</span>
+                  {write && (
+                    <>
+                      <SecretDialog agentId={agent.id} agentName={agent.name} name={s.name} env={s.env} trigger="edit" />
+                      <ConfirmAction
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Eliminar ${s.name}`}
+                            disabled={uses.length > 0}
+                            title={uses.length > 0 ? "Quítalo antes de la configuración" : undefined}
+                          >
+                            <Trash2 />
+                          </Button>
+                        }
+                        title={`¿Eliminar ${s.name}?`}
+                        description={<p>Las conexiones del agente reinician sin él al quedar libres.</p>}
+                        destructive
+                        actionLabel="Eliminar"
+                        onConfirm={() => remove.mutateAsync(s.name)}
+                      />
+                    </>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
       </CardContent>
     </Card>
-  )
-}
-
-/** Sets a secret (new, or a new value for an existing one). */
-function SecretDialog({ agent, name: fixed, env: wasEnv }: { agent: LibraryAgent; name?: string; env?: boolean }) {
-  const setSecret = useSetSecret(agent.id)
-  const [open, setOpen] = React.useState(false)
-  const [name, setName] = React.useState(fixed ?? "")
-  const [value, setValue] = React.useState("")
-  const [env, setEnv] = React.useState(wasEnv ?? false)
-  const nameOk = secretNamePattern.test(name) && !name.startsWith("SEAPORT_")
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        setOpen(o)
-        if (o) {
-          setName(fixed ?? "")
-          setEnv(wasEnv ?? false)
-        }
-        setValue("")
-      }}
-    >
-      <DialogTrigger asChild>
-        {fixed ? (
-          <Button variant="ghost" size="icon-sm" aria-label={`Cambiar ${fixed}`}>
-            <Pencil />
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm">
-            <Plus /> Secreto
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            setSecret.mutate({ name, value, env }, { onSuccess: () => setOpen(false) })
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{fixed ? `Cambiar ${fixed}` : "Nuevo secreto"}</DialogTitle>
-            <DialogDescription>
-              {fixed ? "El valor anterior se reemplaza; no se puede ver." : `Para @${agent.name}. No se puede volver a ver.`}
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup className="py-5">
-            <Field data-invalid={!!name && !nameOk}>
-              <FieldLabel htmlFor="secret-name">Nombre</FieldLabel>
-              <Input
-                id="secret-name"
-                value={name}
-                readOnly={!!fixed}
-                onChange={(e) => setName(e.target.value.trim().toUpperCase())}
-                className="font-mono"
-                placeholder="LINEAR_TOKEN"
-                autoComplete="off"
-              />
-              <FieldDescription>
-                {!!name && !nameOk ? "Mayúsculas, dígitos y _; no puede empezar con SEAPORT_." : `Úsalo como \${${name || "NOMBRE"}}.`}
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="secret-value">Valor</FieldLabel>
-              <Input
-                id="secret-value"
-                type="password"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                className="font-mono"
-                autoComplete="new-password"
-                maxLength={16384}
-              />
-            </Field>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="secret-env">Variable de entorno</FieldLabel>
-                <FieldDescription>
-                  Lo recibe el harness de sus instancias alojadas; en <Mono>seaport connect</Mono> solo con{" "}
-                  <Mono>-env</Mono>.
-                </FieldDescription>
-              </FieldContent>
-              <Switch id="secret-env" checked={env} onCheckedChange={setEnv} />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={!nameOk || !value || setSecret.isPending}>
-              {setSecret.isPending && <Spinner />} Guardar
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   )
 }

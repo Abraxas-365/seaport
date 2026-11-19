@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest"
 
 import wire from "./__fixtures__/wire.json"
 import type {
+  AgentProfile,
   Approval,
   Build,
   Conversation,
@@ -17,7 +18,6 @@ import type {
   CrewToken,
   Customs,
   Dock,
-  Environment,
   EventMap,
   Hosted,
   InboxItem,
@@ -95,8 +95,7 @@ export type ApiMatches = AllTrue<{
   crew_token: Matches<Api["crew_token"], CrewToken>
   schedule: Matches<Api["schedule"], Schedule>
   schedules: Matches<Api["schedules"], Paginated<Schedule>>
-  environment: Matches<Api["environment"], Environment>
-  environments: Matches<Api["environments"], Paginated<Environment>>
+  config: Matches<Api["config"], AgentProfile>
   build: Matches<Api["build"], Build>
   hosted: Matches<Api["hosted"], Hosted>
   vault: Matches<Api["vault"], Vault>

@@ -9,8 +9,6 @@ export class Pages {
   readonly dock: DockPage
   readonly conversation: ConversationPage
   readonly agents: AgentsPage
-  readonly environments: EnvironmentsPage
-  readonly crew: CrewPage
   readonly customs: CustomsPage
   readonly vaults: VaultsPage
 
@@ -19,8 +17,6 @@ export class Pages {
     this.dock = new DockPage(page)
     this.conversation = new ConversationPage(page)
     this.agents = new AgentsPage(page)
-    this.environments = new EnvironmentsPage(page)
-    this.crew = new CrewPage(page)
     this.customs = new CustomsPage(page)
     this.vaults = new VaultsPage(page)
   }
@@ -106,47 +102,55 @@ export class ConversationPage {
 export class AgentsPage {
   constructor(private readonly page: Page) {}
 
-  async open(id: string) {
-    await this.page.goto(`/agents/${id}`)
+  /** An agent's page, on a tab when `tab` names one ("configuracion", "secretos", "donde"). */
+  async open(id: string, tab?: string) {
+    await this.page.goto(`/agents/${id}${tab ? `#${tab}` : ""}`)
   }
-}
 
-export class EnvironmentsPage {
-  constructor(private readonly page: Page) {}
+  async list() {
+    await this.page.goto("/agents")
+    await expect(this.page.getByRole("heading", { level: 1, name: "Agentes" })).toBeVisible()
+  }
 
-  async open() {
-    await this.page.goto("/environments")
-    await expect(this.page.getByRole("heading", { name: "Entornos" })).toBeVisible()
+  /** An agent's card on the list. */
+  card(name: string): Locator {
+    return this.page.getByRole("main").locator('[data-slot="card"]').filter({ hasText: `@${name}` })
   }
 
   /**
-   * Creates an environment from the two-step dialog; `template` is the label of
-   * a starting point ("Python"). With `key`, the model key is stored on the way
-   * (step 2); without, the key is left for later ("Luego").
+   * "Nuevo agente" on the list: name, where it runs, harness and, hosted,
+   * a model key (`key`) or the Claude account (no key). Ends on its page.
    */
-  async create(name: string, template?: string, key?: { provider: string; value: string }) {
-    await this.page.getByRole("button", { name: "Entorno" }).first().click()
-    const step1 = this.page.getByRole("dialog", { name: "Nuevo entorno" })
-    await step1.getByLabel("Nombre").fill(name)
-    if (template) await step1.getByRole("radio", { name: template }).click()
-    await step1.getByRole("button", { name: "Siguiente" }).click()
-    const step2 = this.page.getByRole("dialog", { name: "Clave del modelo" })
-    if (key) {
-      await step2.getByRole("radiogroup", { name: "Proveedor" }).getByRole("radio", { name: key.provider }).click()
-      await step2.getByLabel("Clave", { exact: true }).fill(key.value)
-      await step2.getByRole("button", { name: "Crear con clave" }).click()
-    } else {
-      await step2.getByRole("button", { name: "Luego" }).click()
+  async create(
+    name: string,
+    opts: { where: "hosted" | "remote"; harness: "rness" | "Claude Code" | "none"; key?: string },
+  ) {
+    await this.page.getByRole("button", { name: "Nuevo agente" }).first().click()
+    const dialog = this.page.getByRole("dialog", { name: "Nuevo agente" })
+    await dialog.getByLabel("Nombre").fill(name)
+    await dialog.getByRole("button", { name: "Siguiente" }).click()
+    await dialog
+      .getByRole("radio", { name: opts.where === "hosted" ? /En el puerto/ : /Donde alguien lo conecte/ })
+      .click()
+    await dialog.getByRole("button", { name: "Siguiente" }).click()
+    await dialog
+      .getByRole("radio", { name: opts.harness === "none" ? /Lo elige quien conecta/ : new RegExp(`^${opts.harness}`) })
+      .click()
+    if (opts.where === "hosted") {
+      await dialog.getByRole("button", { name: "Siguiente" }).click()
+      if (opts.key) {
+        await dialog.getByRole("radio", { name: /Clave de API/ }).click()
+        await dialog.getByLabel(/^Clave de /).fill(opts.key)
+      } else await dialog.getByRole("radio", { name: /Cuenta de Claude/ }).click()
     }
+    await dialog.getByRole("button", { name: "Crear agente" }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(this.page.getByRole("heading", { level: 1, name: `@${name}` })).toBeVisible()
   }
-}
 
-export class CrewPage {
-  constructor(private readonly page: Page) {}
-
-  async open() {
-    await this.page.goto("/crew")
-    await expect(this.page.getByRole("heading", { name: "Tripulación" })).toBeVisible()
+  /** The "Guardar vN" button of the config editor. */
+  save(): Locator {
+    return this.page.getByRole("button", { name: /^Guardar v\d+$/ })
   }
 }
 

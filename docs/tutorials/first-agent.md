@@ -51,7 +51,7 @@ curl -sS -X POST "http://127.0.0.1:8740/api/v1/docks/$DOCK/ships" \
 seaport history <conversation-id>
 ```
 
-You should see Ana's message and, a few seconds later, an outbound message from `support`, `sent`. The web app shows the answer live in **Bandeja** (Inbox), and **Tripulación** (Crew) shows the connection and the delivery it is working on.
+You should see Ana's message and, a few seconds later, an outbound message from `support`, `sent`. The web app shows the answer live in **Bandeja** (Inbox), and the agent's page in **Agentes** (Agents) shows the connection and the delivery it is working on.
 
 ![The inbox with a conversation an agent answered](../assets/screenshots/inbox.png)
 
@@ -84,7 +84,7 @@ The running connector notices, finishes what it is working on, restarts the harn
 | Symptom | Cause |
 | :--- | :--- |
 | The connector says the agent is unknown | `-agent` must name an agent of the library (`seaport agents`). |
-| The message stays queued | No connection works as the dock's agent; check **Tripulación**. |
+| The message stays queued | No connection works as the dock's agent; check the agent's card in **Agentes**. |
 | The message is held with "no agent is assigned to this dock" | It arrived before the agent was assigned and more than 24 hours ago, or the chat moved on since. Post a new message. |
 | The answer appears in the connector's log but not in the chat | The agent didn't call `reply`. Use `-auto-reply` for agents without HTTP MCP. |
 | `rness` exits at start | rness needs a model: pass `-m provider/model`. |

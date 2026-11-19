@@ -126,6 +126,6 @@ When you save a profile or a secret, the port tells every connected connector of
 
 For a hosted agent that is only the harness inside the container: the container itself isn't restarted. Only a change of its machine restarts the slot (once idle).
 
-Nothing is cut off mid-answer. While a connector is draining or hasn't restarted yet, **Tripulación** and the agent's page show it as **desactualizada** (outdated): its running version is not the agent's current one. The connectors also check on every (re)connection, so one that was offline picks up the change when it comes back.
+Nothing is cut off mid-answer. While a connector is draining or hasn't restarted yet, the agent's page shows it as **desactualizada** (outdated): its running version is not the agent's current one. The connectors also check on every (re)connection, so one that was offline picks up the change when it comes back.
 
 See [The connector](connector.md) for how the connector runs the harness, and the [agent profile reference](../reference/agent-profile.md) for the JSON format.

@@ -109,5 +109,5 @@ The first prompt of a session also carries the agent's instructions when the har
 | You want to know | Look at |
 | :--- | :--- |
 | why a message is held | under it in the [Bandeja](../guides/web-app.md#bandeja-inbox) |
-| whether an agent is working on it | **Tripulación**, or `seaport crew` |
+| whether an agent is working on it | the agent's card in **Agentes**, or `seaport crew` |
 | everything that happened | the live [event stream](../reference/events.md) |

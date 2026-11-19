@@ -41,7 +41,7 @@ If the connection drops, the connector reconnects, waiting 1 second and doubling
 | `-server URL` | `$SEAPORT_URL`, else `http://127.0.0.1:8740` | the port |
 | `-token TOKEN` | `$SEAPORT_CREW_TOKEN` | the agent's [crew token](agents-and-routing.md#crew-tokens); none for a port in `none` mode |
 | `-agent NAME` | `$SEAPORT_AGENT` | the agent to work as. Required in `none` mode; with a token it is optional (the token names the agent) and must match if given |
-| `-name LABEL` | the harness command's name | the label this connection shows in **Tripulación** |
+| `-name LABEL` | the harness command's name | the label this connection shows on the agent's page (**Resumen**) |
 | `-concurrency N` | `2` | conversations worked at once (up to 32) |
 | `-deliver steer\|queue` | `steer` | what to do with messages that arrive while the agent is working; see below |
 | `-approve allow\|reject` | the profile's, else `reject` | answer to the harness's permission requests |
@@ -124,13 +124,13 @@ To have the port run the harness for you instead, see [Hosted agents](hosting/ho
 | You see | Cause and fix |
 | :--- | :--- |
 | "the port requires a crew token" | the port isn't in `none` mode; pass `-token` or set `SEAPORT_CREW_TOKEN` |
-| "the port rejected the crew token (revoked, expired or not of this port)" | create a new token ([Tokens de agentes](web-app.md#tokens-de-agentes-agent-tokens) or `seaport crew tokens create`). The connector stops; it doesn't retry a refused token |
+| "the port rejected the crew token (revoked, expired or not of this port)" | create a new token (the agent's **Dónde corre** tab in the [web app](web-app.md#agentes-agents), or `seaport crew tokens create`). The connector stops; it doesn't retry a refused token |
 | "the port refused the connection: …" (a refused hello) | the agent named by `-agent` isn't the token's agent, doesn't exist, or none was named in `none` mode. The reason follows the message. The connector stops |
 | "this organization already has as many agents connected as it allows" | the connection limit is reached; disconnect one, or raise `SEAPORT_MAX_CREW_CONNECTIONS` |
 | "ACP initialize (is the command an ACP agent?…)" | the command after `--` isn't an ACP agent, for example `rness` without `--acp` |
 | "the agent can't use HTTP MCP servers" / "can't use the reply tool" | the harness lacks HTTP MCP; use `-auto-reply`, and expect profile skills and MCP servers to be unavailable |
 | "the agent can't take messages mid-turn" | the harness can't steer; messages queue for the next turn (informational) |
-| Messages wait and nothing happens | check that the agent is on the dock's team, the chat is allowed, and the agent shows up in **Tripulación**. See [Message lifecycle](../explanation/message-lifecycle.md) |
+| Messages wait and nothing happens | check that the agent is on the dock's team, the chat is allowed, and the agent shows as connected in **Agentes**. See [Message lifecycle](../explanation/message-lifecycle.md) |
 | "port connection lost, reconnecting" | transient; the connector retries on its own |
 
 Run with `-v` for debug logs.

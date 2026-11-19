@@ -38,10 +38,6 @@ import type {
   AgentSecret,
   Build,
   Denial,
-  EnvSecret,
-  EnvSpec,
-  EnvVersion,
-  Environment,
   Harness,
   Home,
   HomeRules,
@@ -274,12 +270,16 @@ export const api = {
   updateAgent: (id: string, patch: { name?: string; description?: string }) =>
     request<LibraryAgent>("PATCH", `${v1}/agents/${id}`, patch),
   deleteAgent: (id: string) => request<void>("DELETE", `${v1}/agents/${id}`),
+  /** A new agent with the source's config (and its secrets, resealed, when asked). */
+  cloneAgent: (id: string, name: string, secrets: boolean, description?: string) =>
+    request<LibraryAgent>("POST", `${v1}/agents/${id}/clone`, { name, secrets, description }),
   agent: (id: string) => request<LibraryAgent>("GET", `${v1}/agents/${id}`),
+  /** The agent's config (profile + harness + machine); version 0: the current one. */
   profile: (id: string, version?: number) =>
-    request<AgentProfile>("GET", `${v1}/agents/${id}/profile${version ? `/versions/${version}` : ""}`),
+    request<AgentProfile>("GET", `${v1}/agents/${id}/config${version ? `/versions/${version}` : ""}`),
   saveProfile: (id: string, base: number, profile: ProfileInput) =>
-    request<AgentProfile>("PUT", `${v1}/agents/${id}/profile`, { base, ...profile }),
-  profileVersions: (id: string) => request<{ versions: ProfileVersion[] }>("GET", `${v1}/agents/${id}/profile/versions`),
+    request<AgentProfile>("PUT", `${v1}/agents/${id}/config`, { base, ...profile }),
+  profileVersions: (id: string) => request<{ versions: ProfileVersion[] }>("GET", `${v1}/agents/${id}/config/versions`),
   secrets: (id: string) => request<{ secrets: AgentSecret[] }>("GET", `${v1}/agents/${id}/secrets`),
   setSecret: (id: string, name: string, value: string, env: boolean) =>
     request<AgentSecret>("PUT", `${v1}/agents/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
@@ -325,23 +325,9 @@ export const api = {
     request<IssuedMemberApiKey>("POST", `${v1}/members/api-keys`, { name, role, expires_in }),
   revokeMemberApiKey: (id: string) => request<void>("DELETE", `${v1}/members/api-keys/${encodeURIComponent(id)}`),
 
-  environments: () => request<Paginated<Environment>>("GET", `${v1}/environments${qs({ limit: 100 })}`),
-  environment: (id: string, version?: number) =>
-    request<Environment>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}`),
-  createEnvironment: (name: string, spec: Partial<EnvSpec>) =>
-    request<Environment>("POST", `${v1}/environments`, { name, spec }),
-  saveEnvironment: (id: string, base: number, spec: EnvSpec) =>
-    request<Environment>("PUT", `${v1}/environments/${id}`, { base, spec }),
-  deleteEnvironment: (id: string) => request<void>("DELETE", `${v1}/environments/${id}`),
-  environmentVersions: (id: string) => request<{ versions: EnvVersion[] }>("GET", `${v1}/environments/${id}/versions`),
-  environmentSecrets: (id: string) => request<{ secrets: EnvSecret[] }>("GET", `${v1}/environments/${id}/secrets`),
-  setEnvironmentSecret: (id: string, name: string, value: string, env: boolean) =>
-    request<EnvSecret>("PUT", `${v1}/environments/${id}/secrets/${encodeURIComponent(name)}`, { value, env }),
-  deleteEnvironmentSecret: (id: string, name: string) =>
-    request<void>("DELETE", `${v1}/environments/${id}/secrets/${encodeURIComponent(name)}`),
-  build: (id: string, version?: number) =>
-    request<Build>("GET", `${v1}/environments/${id}${version ? `/versions/${version}` : ""}/build`),
-  startBuild: (id: string, force = false) => request<Build>("POST", `${v1}/environments/${id}/build`, { force }),
+  /** The image build of the agent's current config; 404 when never built. */
+  build: (agent: string) => request<Build>("GET", `${v1}/agents/${agent}/build`),
+  startBuild: (agent: string, force = false) => request<Build>("POST", `${v1}/agents/${agent}/build`, { force }),
 
   homeRules: () => request<Record<Harness, HomeRules>>("GET", `${v1}/homes/rules`),
   home: (digest: string) => request<Home>("GET", `${v1}/homes/${digest}`),
@@ -358,8 +344,7 @@ export const api = {
 
   hosting: () => request<HostingStatus>("GET", `${v1}/hosting`),
   hosted: (agent: string) => request<Hosted>("GET", `${v1}/agents/${agent}/hosting`),
-  host: (agent: string, environment: string, slots: number) =>
-    request<Hosted>("PUT", `${v1}/agents/${agent}/hosting`, { environment, slots }),
+  host: (agent: string, slots: number) => request<Hosted>("PUT", `${v1}/agents/${agent}/hosting`, { slots }),
   unhost: (agent: string) => request<void>("DELETE", `${v1}/agents/${agent}/hosting`),
   slotAction: (agent: string, slot: number, action: "start" | "stop") =>
     request<Hosted>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/${action}`),

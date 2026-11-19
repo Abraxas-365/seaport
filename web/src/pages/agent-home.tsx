@@ -64,7 +64,7 @@ import {
   toneClasses,
   type HomeChange,
 } from "@/components/seaport"
-import { harnessLabel } from "@/pages/environments"
+import { harnessLabel } from "@/lib/machine"
 
 /** Files the viewer fetches (bigger: download the archive). */
 const maxView = 1 << 20
@@ -73,10 +73,10 @@ const maxEdit = 256 << 10
 const archiveName = /\.(zip|tar|tgz|tar\.gz)$/i
 
 /**
- * An environment's harness config (spec.home): what's in it, how it
+ * A hosted agent's harness config (machine.home): what's in it, how it
  * differs from the version compared with, and (writable) uploading a
  * folder or archive, editing text files. Every change uploads a new home
- * and sets the draft's `home`; saving the spec makes the version.
+ * and sets the draft's `home`; saving the config makes the version.
  */
 export function HomeSection({
   harness,
@@ -249,7 +249,7 @@ export function HomeSection({
 
       {current.data && current.data.harness !== harness && (
         <Notice tone="danger" icon={TriangleAlert}>
-          Esta configuración es de {harnessLabel[current.data.harness]} y el entorno usa {harnessLabel[harness]}: el build
+          Esta configuración es de {harnessLabel[current.data.harness]} y el agente usa {harnessLabel[harness]}: el build
           fallará. Sube una para {harnessLabel[harness]} o quítala.
         </Notice>
       )}
@@ -649,8 +649,8 @@ function StageDialog({
                 ))}
               </ul>
               <p>
-                La configuración se hornea en la imagen y la lee quien vea el entorno. Dale el secreto al agente (secreto
-                env) y léelo del entorno, como <Mono className="text-inherit">{"\"${GITHUB_TOKEN}\""}</Mono>.
+                La configuración se hornea en la imagen y la lee quien vea el agente. Dale un secreto al agente (con
+                «Variable de entorno») y léelo de la variable, como <Mono className="text-inherit">{"\"${GITHUB_TOKEN}\""}</Mono>.
               </p>
             </Notice>
           )}
@@ -744,7 +744,7 @@ function EditDialog({
           <DialogHeader>
             <DialogTitle>{initial.isNew ? "Nuevo archivo" : initial.path}</DialogTitle>
             <DialogDescription>
-              Se sube una configuración nueva con este cambio; guarda la versión del entorno para aplicarla.
+              Se sube una configuración nueva con este cambio; guarda la configuración del agente para aplicarla.
             </DialogDescription>
           </DialogHeader>
           {initial.isNew && (
@@ -774,8 +774,8 @@ function EditDialog({
             />
             {secret && (
               <FieldDescription>
-                Línea {secret.line} parece {secret.what}: los secretos no van aquí. Dalo como secreto env del agente y
-                léelo del entorno.
+                Línea {secret.line} parece {secret.what}: los secretos no van aquí. Dalo como secreto del agente (con
+                «Variable de entorno») y léelo de la variable.
               </FieldDescription>
             )}
             {tooBig && <FieldDescription>Pasa de {formatBytes(rules.max_file)}.</FieldDescription>}

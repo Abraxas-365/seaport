@@ -22,7 +22,6 @@ import type {
   DefaultAccess,
   DockTools,
   Effect,
-  EnvSpec,
   GroupMode,
   Harness,
   InboxItem,
@@ -621,6 +620,61 @@ export function useCreateAgent() {
   })
 }
 
+export function useCloneAgent() {
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: ({ id, name, secrets }: { id: string; name: string; secrets: boolean }) =>
+      api.cloneAgent(id, name, secrets),
+    onSuccess: changed,
+    onError: fail("No se pudo clonar el agente"),
+  })
+}
+
+/** What the "Nuevo agente" wizard asks for. */
+export interface NewAgent {
+  name: string
+  description: string
+  /** Its first config (version 1); null: none yet. */
+  config: ProfileInput | null
+  /** A model key to keep as the agent's secret before the config names it. */
+  key?: { name: string; value: string }
+  /** Host it with this many instances (0: remote). */
+  slots: number
+}
+
+/**
+ * Creates an agent with its key, first config and hosting, in that order
+ * (each step needs the previous one). The agent stays when a later step
+ * fails: the result names it and the step's error, so the page can open it.
+ */
+export function useNewAgent() {
+  const qc = useQueryClient()
+  const changed = useAgentsChanged()
+  return useMutation({
+    mutationFn: async (n: NewAgent) => {
+      const agent = await api.createAgent(n.name, n.description)
+      try {
+        if (n.key) await api.setSecret(agent.id, n.key.name, n.key.value, false)
+        if (n.config) await api.saveProfile(agent.id, 0, n.config)
+        if (n.slots > 0) qc.setQueryData(keys.hosted(agent.id), await api.host(agent.id, n.slots))
+        return { agent, error: null as Error | null }
+      } catch (err) {
+        return { agent, error: err as Error }
+      }
+    },
+    onSuccess: ({ agent, error }) => {
+      changed()
+      qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
+      if (error)
+        toast.error(`@${agent.name} se creó, pero falta un paso`, {
+          description: `${error.message}. Termínalo en su página.`,
+        })
+      else toast.success(`@${agent.name} creado`)
+    },
+    onError: fail("No se pudo crear el agente"),
+  })
+}
+
 export function useUpdateAgent() {
   const changed = useAgentsChanged()
   return useMutation({
@@ -692,14 +746,16 @@ export function useSecrets(id: string) {
   return useQuery({ queryKey: keys.secrets(id), queryFn: () => api.secrets(id), enabled: can(Perm.AgentsRead) })
 }
 
-/** A saved profile or secret changes the agent's kit: its connections
- * restart once idle. */
+/** A saved config or secret changes the agent's kit (its connections
+ * restart once idle) and maybe its machine (outdated slots, another build). */
 function useKitChanged(id: string) {
   const qc = useQueryClient()
   return () => {
     qc.invalidateQueries({ queryKey: keys.agents })
     qc.invalidateQueries({ queryKey: ["profile", id] })
     qc.invalidateQueries({ queryKey: keys.secrets(id) })
+    qc.invalidateQueries({ queryKey: keys.hosted(id) })
+    qc.invalidateQueries({ queryKey: keys.build(id) })
   }
 }
 
@@ -707,13 +763,15 @@ export function useSaveProfile(id: string) {
   const changed = useKitChanged(id)
   return useMutation({
     mutationFn: ({ base, profile }: { base: number; profile: ProfileInput }) => api.saveProfile(id, base, profile),
-    onSuccess: (p) => {
+    onSuccess: (p, { base }) => {
       changed()
-      toast.success(`Perfil v${p.version} guardado`, {
-        description: "Sus conexiones reinician el agente con él al terminar lo que están atendiendo.",
-      })
+      if (p.version === base) toast.info("Sin cambios: la configuración ya era así")
+      else
+        toast.success(`Configuración v${p.version} guardada`, {
+          description: "Sus conexiones e instancias la toman al terminar lo que están atendiendo.",
+        })
     },
-    onError: fail("No se pudo guardar el perfil"),
+    onError: fail("No se pudo guardar la configuración"),
   })
 }
 
@@ -759,69 +817,16 @@ export function useNow(ms = 30_000) {
   return now
 }
 
-// Hosting: environments, hosted agents and their slots.
+// Hosting: the agent's image build, its hosting and slots.
 
-export function useEnvironments() {
-  const can = useCan()
-  return useQuery({ queryKey: keys.environments, queryFn: api.environments, enabled: can(Perm.EnvironmentsRead) })
-}
-
-/** An environment (version 0: the current one). */
-export function useEnvironment(id: string, version = 0) {
+/** The build of the agent's current config; null when it was never built.
+ * While one runs it refetches (for its log; events carry none). */
+export function useBuild(agent: string, enabled = true) {
   const can = useCan()
   return useQuery({
-    queryKey: keys.environment(id, version),
-    queryFn: () => api.environment(id, version),
-    enabled: !!id && can(Perm.EnvironmentsRead),
-  })
-}
-
-export function useEnvironmentVersions(id: string) {
-  const can = useCan()
-  return useQuery({
-    queryKey: keys.environmentVersions(id),
-    queryFn: () => api.environmentVersions(id),
-    enabled: !!id && can(Perm.EnvironmentsRead),
-  })
-}
-
-/** The environment's secrets: names and flags, never values. */
-export function useEnvironmentSecrets(id: string) {
-  const can = useCan()
-  return useQuery({
-    queryKey: keys.environmentSecrets(id),
-    queryFn: () => api.environmentSecrets(id),
-    enabled: !!id && can(Perm.EnvironmentsRead),
-  })
-}
-
-export function useSetEnvironmentSecret(id: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ name, value, env }: { name: string; value: string; env: boolean }) =>
-      api.setEnvironmentSecret(id, name, value, env),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.environmentSecrets(id) }),
-    onError: fail("No se pudo guardar el secreto"),
-  })
-}
-
-export function useDeleteEnvironmentSecret(id: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (name: string) => api.deleteEnvironmentSecret(id, name),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.environmentSecrets(id) }),
-    onError: fail("No se pudo eliminar el secreto"),
-  })
-}
-
-/** A version's build; null when it was never built. While one runs it
- * refetches (for its log; events carry none). */
-export function useBuild(id: string, version: number) {
-  const can = useCan()
-  return useQuery({
-    queryKey: keys.build(id, version),
-    queryFn: () => api.build(id, version).catch(notFoundIsNull),
-    enabled: !!id && version > 0 && can(Perm.EnvironmentsRead),
+    queryKey: keys.build(agent),
+    queryFn: () => api.build(agent).catch(notFoundIsNull),
+    enabled: enabled && !!agent && can(Perm.HostingRead),
     refetchInterval: (q) => (q.state.data?.state === "building" ? 2000 : false),
   })
 }
@@ -838,7 +843,7 @@ export function useHomeRules() {
   return useQuery({
     queryKey: keys.homeRules,
     queryFn: api.homeRules,
-    enabled: can(Perm.EnvironmentsRead),
+    enabled: can(Perm.AgentsRead),
     staleTime: Infinity,
   })
 }
@@ -849,7 +854,7 @@ export function useHome(digest: string) {
   return useQuery({
     queryKey: keys.home(digest),
     queryFn: () => api.home(digest),
-    enabled: !!digest && can(Perm.EnvironmentsRead),
+    enabled: !!digest && can(Perm.AgentsRead),
     staleTime: Infinity,
   })
 }
@@ -860,7 +865,7 @@ export function useHomeFile(digest: string, path: string, enabled = true) {
   return useQuery({
     queryKey: keys.homeFile(digest, path),
     queryFn: () => api.homeFile(digest, path),
-    enabled: enabled && !!digest && !!path && can(Perm.EnvironmentsRead),
+    enabled: enabled && !!digest && !!path && can(Perm.AgentsRead),
     staleTime: Infinity,
   })
 }
@@ -874,90 +879,12 @@ export function useUploadHome() {
   })
 }
 
-function useEnvironmentsChanged() {
-  const qc = useQueryClient()
-  return () => {
-    qc.invalidateQueries({ queryKey: keys.environments })
-    qc.invalidateQueries({ queryKey: keys.hosting })
-  }
-}
-
-export function useCreateEnvironment() {
-  const changed = useEnvironmentsChanged()
-  return useMutation({
-    mutationFn: ({ name, spec }: { name: string; spec: Partial<EnvSpec> }) => api.createEnvironment(name, spec),
-    onSuccess: changed,
-    onError: fail("No se pudo crear el entorno"),
-  })
-}
-
-/**
- * The "Nuevo entorno" dialog: creates the environment and, when a model key
- * comes with it, stores the key as an environment secret and names it in a
- * second version. A key that fails to store still leaves the environment
- * (the page's checklist says what's left).
- */
-export function useNewEnvironment() {
-  const changed = useEnvironmentsChanged()
-  return useMutation({
-    mutationFn: async ({
-      name,
-      spec,
-      key,
-    }: {
-      name: string
-      spec: Partial<EnvSpec>
-      key?: { provider: string; secret: string; value: string }
-    }) => {
-      const env = await api.createEnvironment(name, spec)
-      if (!key) return env
-      try {
-        await api.setEnvironmentSecret(env.id, key.secret, key.value, false)
-        return await api.saveEnvironment(env.id, env.version, {
-          ...env.spec,
-          models: { ...(env.spec.models ?? {}), [key.provider]: `\${${key.secret}}` },
-        })
-      } catch (err) {
-        toast.error("El entorno se creó, pero la clave no se guardó", { description: (err as Error).message })
-        return env
-      }
-    },
-    onSuccess: changed,
-    onError: fail("No se pudo crear el entorno"),
-  })
-}
-
-export function useSaveEnvironment(id: string) {
-  const changed = useEnvironmentsChanged()
-  return useMutation({
-    mutationFn: ({ base, spec }: { base: number; spec: EnvSpec }) => api.saveEnvironment(id, base, spec),
-    onSuccess: (e, { base }) => {
-      changed()
-      if (e.version === base) toast.info("Sin cambios: el entorno ya era así")
-      else
-        toast.success(`Entorno v${e.version} guardado`, {
-          description: e.agents ? "Sus agentes reinician con él al quedar libres." : undefined,
-        })
-    },
-    onError: fail("No se pudo guardar el entorno"),
-  })
-}
-
-export function useDeleteEnvironment() {
-  const changed = useEnvironmentsChanged()
-  return useMutation({
-    mutationFn: (id: string) => api.deleteEnvironment(id),
-    onSuccess: changed,
-    onError: fail("No se pudo eliminar el entorno"),
-  })
-}
-
-export function useStartBuild(id: string) {
+export function useStartBuild(agent: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (force: boolean) => api.startBuild(id, force),
+    mutationFn: (force: boolean) => api.startBuild(agent, force),
     onSuccess: (b) => {
-      qc.setQueryData(keys.build(id, b.version), b)
+      qc.setQueryData(keys.build(agent), b)
     },
     onError: fail("No se pudo construir la imagen"),
   })
@@ -966,7 +893,7 @@ export function useStartBuild(id: string) {
 /** Which agents are hosted, and whether this port runs any. */
 export function useHosting() {
   const can = useCan()
-  return useQuery({ queryKey: keys.hosting, queryFn: api.hosting, enabled: can(Perm.EnvironmentsRead) })
+  return useQuery({ queryKey: keys.hosting, queryFn: api.hosting, enabled: can(Perm.HostingRead) })
 }
 
 /** An agent's hosting; null when it isn't hosted. */
@@ -975,24 +902,23 @@ export function useHosted(agent: string) {
   return useQuery({
     queryKey: keys.hosted(agent),
     queryFn: () => api.hosted(agent).catch(notFoundIsNull),
-    enabled: can(Perm.EnvironmentsRead),
+    enabled: can(Perm.HostingRead),
   })
 }
 
 function useHostingChanged(agent: string) {
   const qc = useQueryClient()
   return (h?: unknown) => {
-    if (h) qc.setQueryData(keys.hosted(agent), h)
+    if (h !== undefined) qc.setQueryData(keys.hosted(agent), h)
     qc.invalidateQueries({ queryKey: keys.hosting, exact: true })
-    qc.invalidateQueries({ queryKey: keys.environments })
+    qc.invalidateQueries({ queryKey: keys.crewTokens })
   }
 }
 
 export function useHost(agent: string) {
   const changed = useHostingChanged(agent)
   return useMutation({
-    mutationFn: ({ environment, slots }: { environment: string; slots: number }) =>
-      api.host(agent, environment, slots),
+    mutationFn: ({ slots }: { slots: number }) => api.host(agent, slots),
     onSuccess: (h) => changed(h),
     onError: fail("No se pudo alojar el agente"),
   })
@@ -1022,7 +948,7 @@ export function useSlotLog(agent: string, slot: number, open: boolean) {
   return useQuery({
     queryKey: keys.slotLog(agent, slot),
     queryFn: () => api.slotLog(agent, slot),
-    enabled: open && can(Perm.EnvironmentsWrite),
+    enabled: open && can(Perm.HostingWrite),
     refetchInterval: open ? 3000 : false,
     retry: false,
   })
@@ -1034,7 +960,7 @@ export function useSlotAccount(agent: string, slot: number, enabled: boolean) {
   return useQuery({
     queryKey: keys.slotAccount(agent, slot),
     queryFn: () => api.slotAccount(agent, slot),
-    enabled: enabled && can(Perm.EnvironmentsRead),
+    enabled: enabled && can(Perm.HostingRead),
     staleTime: 60_000,
     retry: false,
   })
@@ -1046,7 +972,7 @@ export function useSlotLogin(agent: string, slot: number, enabled: boolean) {
   return useQuery({
     queryKey: keys.slotLogin(agent, slot),
     queryFn: () => api.slotLogin(agent, slot),
-    enabled: enabled && can(Perm.EnvironmentsWrite),
+    enabled: enabled && can(Perm.HostingWrite),
     refetchInterval: (q) => {
       const s = q.state.data?.state
       return s === "starting" || s === "waiting" || s === "verifying" ? 1000 : false
@@ -1082,7 +1008,7 @@ export function useEgress(agent: string, enabled: boolean) {
   return useQuery({
     queryKey: keys.egress(agent),
     queryFn: () => api.egress(agent),
-    enabled: enabled && can(Perm.EnvironmentsRead),
+    enabled: enabled && can(Perm.HostingRead),
     refetchInterval: 60_000,
   })
 }

@@ -26,6 +26,7 @@ import {
   Checklist,
   ChecklistItem,
   ChipInput,
+  SecretPicker,
   ConfirmAction,
   ConversationRow,
   CountBadge,
@@ -256,6 +257,7 @@ function Primitives() {
   const [access, setAccess] = React.useState<"auto" | "allow" | "deny">("auto")
   const [def, setDef] = React.useState<"ask" | "allow" | "deny">("ask")
   const [chips, setChips] = React.useState(["nodejs", "npm"])
+  const [pickedSecret, setPickedSecret] = React.useState("${ANTHROPIC_KEY}")
   return (
     <Block title="Primitivas" description="shadcn/ui tal cual, con los tokens de Seaport.">
       <div className="grid gap-8 md:grid-cols-2">
@@ -274,6 +276,21 @@ function Primitives() {
         <Specimen label="ChipInput" className="space-y-2">
           <ChipInput aria-label="Paquetes" value={chips} onChange={setChips} placeholder="python3" />
           <p className="text-xs text-muted-foreground">Enter, coma o espacio añaden; × o Backspace quitan.</p>
+        </Specimen>
+        <Specimen label="SecretPicker (un secreto del agente para ${NOMBRE}, o uno nuevo)" className="space-y-2">
+          <SecretPicker
+            id="design-secret"
+            label="Anthropic"
+            value={pickedSecret}
+            onChange={setPickedSecret}
+            agentId="00000000-0000-0000-0000-000000000001"
+            agentName="pm"
+            secrets={["ANTHROPIC_KEY", "GIT_TOKEN"]}
+            canCreate={false}
+            suggested="ANTHROPIC_KEY"
+            none="Sin clave"
+            options={[{ value: "subscription", label: "Cuenta de Claude (suscripción)" }]}
+          />
         </Specimen>
         <Specimen label="SegmentedChoice">
           <SegmentedChoice
@@ -526,8 +543,9 @@ const sampleSlot = (over: Partial<Slot>): Slot => ({
   index: 1,
   state: "stopped",
   detail: "",
-  image: "seaport-env-backend:v3-1a2b3c",
-  environment_version: 3,
+  image: "seaport-build-0a1b2c3d4e5f:1a2b3c4d5e6f",
+  config_version: 3,
+  outdated: false,
   started_at: null,
   active_at: null,
   updated_at: ago(42),
@@ -536,18 +554,18 @@ const sampleSlot = (over: Partial<Slot>): Slot => ({
 
 const sampleSlots: Slot[] = [
   sampleSlot({ index: 1, state: "running", started_at: ago(75), active_at: ago(3) }),
-  sampleSlot({ index: 2, state: "running", environment_version: 2, started_at: ago(300), active_at: ago(20) }),
+  sampleSlot({ index: 2, state: "running", config_version: 2, outdated: true, started_at: ago(300), active_at: ago(20) }),
   sampleSlot({ index: 3, state: "starting", updated_at: ago(0) }),
   sampleSlot({ index: 4, state: "failed", detail: "clone https://github.com/acme/app.git: authentication failed" }),
   sampleSlot({ index: 5 }),
 ]
 
 const sampleBuild = (over: Partial<Build>): Build => ({
-  environment_id: "e1",
-  version: 3,
+  digest: "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
+  agent_id: "a1",
   state: "ready",
   base: "ghcr.io/abraxas-365/seaport-rness:latest",
-  image: "seaport-env-backend:v3-1a2b3c",
+  image: "seaport-build-0a1b2c3d4e5f:1a2b3c4d5e6f",
   detail: "",
   started_at: ago(10),
   finished_at: ago(8),
@@ -669,14 +687,13 @@ function Domain() {
         <Specimen label="ThreadChips (puertas de un hilo; la primera alterna esta puerta / todo el hilo)" className="lg:col-span-2">
           <ThreadChips doors={threadDoors} current={threadDoors[1].id} whole={false} onWhole={() => {}} className="rounded-lg border" />
         </Specimen>
-        <Specimen label="SlotRow (instancias de un agente alojado; v2 → v3 = reinicia al quedar libre)" className="lg:col-span-2">
+        <Specimen label="SlotRow (instancias de un agente alojado; desactualizada = otra máquina, reinicia al quedar libre)" className="lg:col-span-2">
           <ul className="divide-y rounded-lg border bg-card">
             {sampleSlots.map((s) => (
               <li key={s.index}>
                 <SlotRow
                   name={`pm-${s.index}`}
                   slot={s}
-                  current={3}
                   now={now}
                   actions={
                     <>
@@ -726,16 +743,16 @@ function Domain() {
           <AccountBadge account={{ slot: 1, supported: true, logged_in: true, method: "claude.ai", subscription: "max" }} />
           <AccountBadge account={{ slot: 1, supported: true, logged_in: true, method: "oauth_token" }} />
         </Specimen>
-        <Specimen label="BuildBadge (imagen de una versión del entorno)" className="flex flex-wrap items-center gap-2">
+        <Specimen label="BuildBadge (imagen de la máquina de un agente, una por contenido)" className="flex flex-wrap items-center gap-2">
           <BuildBadge build={null} />
           <BuildBadge build={sampleBuild({ state: "building", finished_at: null })} />
           <BuildBadge build={sampleBuild({})} />
-          <BuildBadge build={sampleBuild({ state: "failed", version: 2 })} />
+          <BuildBadge build={sampleBuild({ state: "failed" })} />
         </Specimen>
         <Specimen label="LogView (build o instancia; sigue el final)">
           <LogView
             className="max-h-40"
-            text={"#5 [2/3] RUN apt-get install -y nodejs npm\n#5 DONE 21.4s\n#6 [3/3] RUN bash /opt/seaport/setup.sh\n#6 DONE 3.1s\nnaming to seaport-env-backend:v3-1a2b3c done"}
+            text={"#5 [2/3] RUN apt-get install -y nodejs npm\n#5 DONE 21.4s\n#6 [3/3] RUN bash /opt/seaport/setup.sh\n#6 DONE 3.1s\nnaming to seaport-build-0a1b2c3d4e5f:1a2b3c4d5e6f done"}
           />
         </Specimen>
         <Specimen label="HomeTree (configuración del harness; cambios vs otra versión)">

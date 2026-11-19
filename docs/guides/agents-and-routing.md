@@ -109,13 +109,13 @@ The value starts with `sp_crew_` and is **shown once**, when you create the toke
 | Active tokens | up to 100 per organization |
 | Revoking | closes the token's live connections, on every process |
 
-In the web app: **Tokens de agentes** → **Nuevo token** (agent, name, lifetime), then **Revocar** on a row. Create **one token per machine** so you can revoke them separately.
+In the web app: the agent's **Dónde corre** tab → **Nuevo token** (name, lifetime), then **Revocar** on a row. Create **one token per machine** so you can revoke them separately. A hosted agent has no tokens: the port mints its slots' own.
 
 A port in `none` mode has no tokens: the connector names its agent with `-agent pm` instead. A port in `token` or `iam` mode refuses connections without a token. The old shared `SEAPORT_CREW_TOKEN` setting on the *server* is ignored (the port logs a warning); only the connector reads that variable.
 
 ## Several connections per agent
 
-You can connect the same agent from several machines, or several times from one. Each connection is shown separately under the agent's name in **Tripulación** and in `seaport crew`.
+You can connect the same agent from several machines, or several times from one. Each connection is shown separately on the agent's page (**Resumen**) and in `seaport crew`.
 
 - Every connection can claim the agent's messages, so the work is shared.
 - One conversation is handled by one connection at a time, in arrival order.

@@ -15,7 +15,6 @@ import type {
   Conversation,
   Customs,
   Dock,
-  Environment,
   EventMap,
   EventType,
   Hosted,
@@ -257,17 +256,18 @@ describe("agent events", () => {
     keys.inbox({}),
   ]
 
-  it("agent.updated refetches the library, profile, secrets, teams, tokens, histories and inbox", () => {
-    for (const k of touched()) seed(k)
+  it("agent.updated refetches the library, config, secrets, build, hosting, teams, tokens, histories and inbox", () => {
+    const all = [...touched(), keys.build("a"), keys.hosted("a")]
+    for (const k of all) seed(k)
     apply("agent.updated")
-    for (const k of touched()) expect(invalidated(qc, k), JSON.stringify(k)).toBe(true)
+    for (const k of all) expect(invalidated(qc, k), JSON.stringify(k)).toBe(true)
   })
 
   it("agent.deleted refetches those and the hosting that went with it", () => {
-    for (const k of [...touched().filter((k) => k[0] !== "profile" && k[0] !== "secrets"), keys.hosting, keys.environments])
+    for (const k of [...touched().filter((k) => k[0] !== "profile" && k[0] !== "secrets"), keys.hosting])
       seed(k)
     apply("agent.deleted")
-    for (const k of [keys.agents, keys.team("d"), keys.crewTokens, keys.ships("c"), keys.inbox({}), keys.hosting, keys.environments])
+    for (const k of [keys.agents, keys.team("d"), keys.crewTokens, keys.ships("c"), keys.inbox({}), keys.hosting])
       expect(invalidated(qc, k), JSON.stringify(k)).toBe(true)
   })
 })
@@ -338,50 +338,32 @@ describe("vault events", () => {
 })
 
 describe("hosting events", () => {
-  it("environment.updated stores the environment and refetches the list, versions and secrets", () => {
-    const env = eventData("environment.updated")
-    seed(keys.environments, page<Environment>([]))
-    seed(keys.environment(env.id), { ...env, version: 1 })
-    seed(keys.environmentVersions(env.id))
-    seed(keys.environmentSecrets(env.id))
-    apply("environment.updated")
-    expect(qc.getQueryData<Environment>(keys.environment(env.id))?.version).toBe(env.version)
-    expect(invalidated(qc, keys.environments)).toBe(true)
-    expect(invalidated(qc, keys.environmentVersions(env.id))).toBe(true)
-    expect(invalidated(qc, keys.environmentSecrets(env.id))).toBe(true)
-  })
-
-  it("environment.deleted drops its queries and builds, and refetches the list", () => {
-    const { id } = eventData("environment.deleted")
-    seed(keys.environments, page<Environment>([]))
-    seed(keys.environment(id))
-    seed(keys.build(id, 2))
-    apply("environment.deleted")
-    expect(invalidated(qc, keys.environments)).toBe(true)
-    expect(qc.getQueryData(keys.environment(id))).toBeUndefined()
-    expect(qc.getQueryData(keys.build(id, 2))).toBeUndefined()
-  })
-
-  it("environment.build keeps the log the event doesn't carry", () => {
-    const b = eventData("environment.build")
+  it("agent.build keeps the log the event doesn't carry", () => {
+    const b = eventData("agent.build")
     expect(b.log).toBeUndefined()
-    seed(keys.build(b.environment_id, b.version), { ...b, state: "building", log: "step 1\nstep 2" })
-    apply("environment.build")
-    expect(qc.getQueryData<Build>(keys.build(b.environment_id, b.version))).toMatchObject({ state: "ready", log: "step 1\nstep 2" })
-    expect(invalidated(qc, keys.build(b.environment_id, b.version))).toBe(true)
+    seed(keys.build(b.agent_id), { ...b, state: "building", log: "step 1\nstep 2" })
+    apply("agent.build")
+    expect(qc.getQueryData<Build>(keys.build(b.agent_id))).toMatchObject({ state: "ready", log: "step 1\nstep 2" })
+    expect(invalidated(qc, keys.build(b.agent_id))).toBe(true)
+  })
+
+  it("agent.build of another digest (an older config's) leaves the current build alone", () => {
+    const b = eventData("agent.build")
+    seed(keys.build(b.agent_id), { ...b, digest: "f".repeat(64), state: "building" })
+    apply("agent.build")
+    expect(qc.getQueryData<Build>(keys.build(b.agent_id))).toMatchObject({ digest: "f".repeat(64), state: "building" })
+    expect(invalidated(qc, keys.build(b.agent_id))).toBe(true)
   })
 
   it("slot.updated stores the hosted agent, or null once unhosted", () => {
     const h = eventData("slot.updated")
     seed(keys.hosting)
-    seed(keys.environments, page<Environment>([]))
     apply("slot.updated")
     expect(qc.getQueryData<Hosted>(keys.hosted(h.agent_id))?.slots[0].state).toBe("running")
     expect(invalidated(qc, keys.hosting)).toBe(true)
-    expect(invalidated(qc, keys.environments)).toBe(true)
 
-    // Go sends no environment_id (a zero id marshals as "") and no slots.
-    apply("slot.updated", { ...h, environment_id: "", slots: [] })
+    // Unhosting sends the agent with no slots.
+    apply("slot.updated", { ...h, slots: [] })
     expect(qc.getQueryData(keys.hosted(h.agent_id))).toBeNull()
   })
 })

@@ -17,13 +17,9 @@ import { ConversationPage } from "@/pages/conversation"
 import { CustomsPage } from "@/pages/customs"
 import { DocksPage } from "@/pages/docks"
 import { DockPage } from "@/pages/dock"
-import { CrewPage } from "@/pages/crew"
-import { TokensPage } from "@/pages/tokens"
 import { MembersPage } from "@/pages/members"
 import { AgentsPage } from "@/pages/agents"
 import { AgentHostingRedirect, AgentPage } from "@/pages/agent"
-import { EnvironmentsPage } from "@/pages/environments"
-import { EnvironmentPage } from "@/pages/environment"
 import { VaultsPage } from "@/pages/vaults"
 import { VaultPage } from "@/pages/vault"
 import { DesignSystemPage } from "@/pages/design-system"
@@ -74,10 +70,7 @@ function Gate() {
       { to: "/inbox", perm: Perm.ConversationsRead },
       { to: "/docks", perm: Perm.DocksRead },
       { to: "/agents", perm: Perm.AgentsRead },
-      { to: "/environments", perm: Perm.EnvironmentsRead },
       { to: "/vaults", perm: Perm.VaultsRead },
-      { to: "/crew", perm: Perm.CrewRead },
-      { to: "/tokens", perm: Perm.CrewTokensRead },
     ].find((s) => can(s.perm))?.to ?? "/none"
 
   return (
@@ -136,22 +129,10 @@ function Gate() {
           }
         />
         <Route path="/agents/:agentId/hosting" element={<AgentHostingRedirect />} />
-        <Route
-          path="/environments"
-          element={
-            <Guard perm={Perm.EnvironmentsRead} what="los entornos">
-              <EnvironmentsPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/environments/:envId"
-          element={
-            <Guard perm={Perm.EnvironmentsRead} what="los entornos">
-              <EnvironmentPage />
-            </Guard>
-          }
-        />
+        {/* Pages that became parts of the agent page (agent-centric config). */}
+        <Route path="/environments/*" element={<Navigate to="/agents" replace />} />
+        <Route path="/crew" element={<Navigate to="/agents" replace />} />
+        <Route path="/tokens" element={<Navigate to="/agents" replace />} />
         <Route
           path="/vaults"
           element={
@@ -165,22 +146,6 @@ function Gate() {
           element={
             <Guard perm={Perm.VaultsRead} what="las bóvedas">
               <VaultPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/crew"
-          element={
-            <Guard perm={Perm.CrewRead} what="la tripulación">
-              <CrewPage />
-            </Guard>
-          }
-        />
-        <Route
-          path="/tokens"
-          element={
-            <Guard perm={Perm.CrewTokensRead} what="los tokens de agentes">
-              <TokensPage />
             </Guard>
           }
         />

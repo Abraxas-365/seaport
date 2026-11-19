@@ -2,6 +2,7 @@ import { screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it } from "vitest"
 
 import { keys } from "@/lib/query"
+import { newMachine } from "@/lib/machine"
 import { Perm } from "@/lib/permissions.gen"
 import type {
   AgentProfile,
@@ -9,7 +10,6 @@ import type {
   Conversation,
   CrewStatus,
   Dock,
-  Environment,
   Hosted,
   LibraryAgent,
   Paginated,
@@ -143,9 +143,8 @@ describe("browser takeovers", () => {
   it("shows the agent's request for this conversation with its browser and Listo", () => {
     const dock = apiData<Dock>("dock")
     const agent = apiData<LibraryAgent>("agent")
-    const env = apiData<Environment>("environment")
     const conv = conversation({ dock_id: dock.id, id: agent.takeovers[0].conversation_id! })
-    const qc = seededClient([Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead, Perm.EnvironmentsRead, Perm.BrowserUse])
+    const qc = seededClient([Perm.ConversationsRead, Perm.DocksRead, Perm.ShipsRead, Perm.AgentsRead, Perm.HostingRead, Perm.BrowserUse])
     qc.setQueryData(keys.conversation(conv.id), conv)
     qc.setQueryData(keys.thread(conv.id), [conv])
     qc.setQueryData(keys.ships(conv.id), infinite<Ship>([]))
@@ -155,9 +154,13 @@ describe("browser takeovers", () => {
     qc.setQueryData(keys.docks, page<Dock>([dock]))
     qc.setQueryData(keys.team(dock.id), { agents: [{ agent_id: agent.id, name: agent.name, default: true }] })
     qc.setQueryData(keys.agents, page<LibraryAgent>([agent]))
-    qc.setQueryData(keys.hosted(agent.id), { ...apiData<Hosted>("hosted"), environment_id: env.id })
-    qc.setQueryData(keys.environments, page<Environment>([env]))
-    qc.setQueryData(keys.profile(agent.id, 0), { agent_id: agent.id, version: 3, browser: true } as AgentProfile)
+    qc.setQueryData(keys.hosted(agent.id), apiData<Hosted>("hosted"))
+    qc.setQueryData(keys.profile(agent.id, 0), {
+      ...apiData<AgentProfile>("config"),
+      agent_id: agent.id,
+      browser: true,
+      machine: newMachine({ browser: { engine: "chromium" } }),
+    })
     renderAt(<ConversationPage />, qc, { pattern: "/inbox/:conversationId", path: `/inbox/${conv.id}` })
     expect(screen.getByText(/necesita que/)).toBeInTheDocument()
     expect(screen.getByText("app.example.com")).toBeInTheDocument()

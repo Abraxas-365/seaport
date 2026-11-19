@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from "react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Anchor, Bot, Building2, Inbox, KeyRound, LogOut, Monitor, Moon, Server, ShieldCheck, Sun, UserCog, Users, Vault } from "lucide-react"
+import { Anchor, Building2, Inbox, LogOut, Monitor, Moon, ShieldCheck, Sun, UserCog, Users, Vault } from "lucide-react"
 
 import { api } from "@/lib/api"
 import { useCan, useCrew, useDocks, useMemberAccess, useSession } from "@/lib/hooks"
@@ -77,11 +77,8 @@ function AppSidebar() {
     { to: "/inbox", label: "Bandeja", icon: Inbox, badge: undefined as number | undefined, perm: Perm.ConversationsRead },
     { to: "/customs", label: "Aduana", icon: ShieldCheck, badge: pending.data?.page.total || undefined, perm: Perm.CustomsRead },
     { to: "/docks", label: "Muelles", icon: Anchor, badge: undefined, perm: Perm.DocksRead },
-    { to: "/agents", label: "Agentes", icon: Users, badge: undefined, perm: Perm.AgentsRead },
-    { to: "/environments", label: "Entornos", icon: Server, badge: undefined, perm: Perm.EnvironmentsRead },
+    { to: "/agents", label: "Agentes", icon: Users, badge: working || undefined, perm: Perm.AgentsRead },
     { to: "/vaults", label: "Bóvedas", icon: Vault, badge: undefined, perm: Perm.VaultsRead },
-    { to: "/crew", label: "Tripulación", icon: Bot, badge: agents.length || undefined, perm: Perm.CrewRead },
-    { to: "/tokens", label: "Tokens de agentes", icon: KeyRound, badge: undefined, perm: Perm.CrewTokensRead },
   ].filter((item) => can(item.perm))
   // "Miembros y accesos" follows the API's own answer, not `can`: IAMKit's
   // iam:org:* permissions are not in Seaport's catalog (see useMemberAccess).

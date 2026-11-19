@@ -16,8 +16,8 @@ The catalog lives in [iam/permissions.json](../../iam/permissions.json), the sin
 | `seaport:ships:write` | Send messages as the agent would, and inject test messages into a dock. |
 | `seaport:customs:read` | View customs (Aduana) policies and rules. Read `customs.updated` events. |
 | `seaport:customs:write` | Change customs policies and rules. |
-| `seaport:crew:read` | View connected agents (Tripulación). Read `crew.changed` events. |
-| `seaport:crew-tokens:read` | View crew tokens (Tokens de agentes). Never their values. |
+| `seaport:crew:read` | View connected agents (their state in **Agentes**). Read `crew.changed` events. |
+| `seaport:crew-tokens:read` | View crew tokens (an agent's **Dónde corre** tab). Never their values. |
 | `seaport:crew-tokens:write` | Create and revoke crew tokens. |
 | `seaport:agents:read` | View agents, the docks they work on, their configs (profile, harness and machine) and secret names, and their model usage. View harness homes. Read `agent.updated`, `agent.deleted` and `agent.takeover` events. |
 | `seaport:agents:write` | Create, change and delete agents, assign them to docks, save configs (the profile, harness and machine, including the secrets the machine names), upload harness homes, and set or delete secrets. |
