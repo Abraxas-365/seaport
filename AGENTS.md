@@ -157,10 +157,10 @@ internal/
   crew/               wire protocol + crew tokens (token.go): crewsvc, crewmodule,
                       adapters/{crewws (hub), crewmcp (tools), crewpg, crewhttp}
   agent/              agent library + dock teams + routing (Route, pure) +
-                      profiles/secrets/kit (profile.go): agentsvc, agentmodule,
+                      config (profile.go: profile + harness + machine)/secrets/kit: agentsvc, agentmodule,
                       adapters/{agentpg, agenthttp}
-  hosting/            hosted agents: environments (versioned specs, environment.go)
-                      + slots (slot.go) + image builds (build.go): hostingsvc,
+  hosting/            hosted agents: the machine of an agent's config (machine.go,
+                      providers.go) + slots (slot.go) + image builds (build.go): hostingsvc,
                       hostingmodule, adapters/{hostingpg, hostinghttp,
                       hostingdocker (Docker Engine API: hosting.Runtime),
                       hostinggateway (model gateway), hostingegress
@@ -253,8 +253,9 @@ web/                  React SPA, embedded (web.Dist) and served by httpx.SPA at 
   `Equip` (the kit, secrets resolved) is called only by `crewhttp`
   (`GET /crew/profile`, the agent's own crew credential) and `OpenSecrets`
   only by `agentsvc` (`secretCalls`), so no admin handler, event or MCP
-  tool can hand a secret back. Hosting's openers are guarded the same way:
-  `Reveal` only from `hostingsvc`, `OpenWorkspace` only from `hostinghttp`
+  tool can hand a secret back (one store: `agent_secrets`; a hosted agent's
+  machine names the agent's own secrets, there are no others). Hosting's
+  openers are guarded the same way: `Reveal` only from `hostingsvc`, `OpenWorkspace` only from `hostinghttp`
   (the slot's own token) and `ModelKey` only from `hostinggateway` (it
   forwards with the key, never answers it).
 - Vault writes (`vault_architecture_test.go`, `TestVaultWritesCheckAccess`):
@@ -390,7 +391,7 @@ net/http mux; only `/healthz` answers 405.
   `TestErrxNoTypedNil` forbids `return nil` from an errx func returning
   `*Error`). 5xx bodies carry a generic message.
 - Postgres errors go through `pgerr.Map/MapWith` in repositories.
-- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `EnvironmentID`, `ApprovalID`, `VaultID`, `EntryID`, `OrganizationID`).
+- IDs are `identity.ID[T]` (`DockID`, `ConversationID`, `ThreadID`, `ShipID`, `DeliveryID`, `RuleID`, `AgentID`, `ApprovalID`, `VaultID`, `EntryID`, `OrganizationID`).
 - Text input: `text.Required/Optional` (limits, control chars) in `Validate()`,
   `text.Clean` in services.
 - Late binding: the WA gateway and the crew hub are built before the ship
@@ -563,22 +564,45 @@ net/http mux; only `/healthz` answers 405.
   its agent on `pending` and re-checks it after the hello). Migration 00013 gave every
   organization in use an agent `default` (default of every dock, owner of
   every token).
-- Agent profiles (migration 00014, `agent/profile.go`): `agent_profiles`
-  keeps every version (PK org, agent, version; `agents.profile_version`
-  is the current one, 0 = none). `SaveProfile` is optimistic: `Base` must
+- Agent config (migration 00014, `agent/profile.go`; the agent is the whole
+  configuration, migration 00045): `agent_profiles` keeps every version (PK
+  org, agent, version; `agents.profile_version` is the current one, 0 =
+  none) and each is one document: the profile fields (instructions, skills,
+  MCP, browser switches…) + `harness` (`rness` | `claude-code`; `''` = not
+  set, a remote agent) + `machine` (`hosting.Machine`, jsonb: image,
+  packages, setup, repos, `repo_config`, home, models, env,
+  `network.egress`, browser, resources, workspace, `idle_stop`; null = none).
+  Routes `GET|PUT /api/v1/agents/{id}/config`, `/config/versions`,
+  `/config/versions/{version}`; CLI `seaport agents config
+  show|apply -f|versions`. `SaveProfile` is optimistic: `Base` must
   be the current version (else `Conflict`), and MCP headers may name only
-  secrets the agent has (`${NAME}`). `agent_secrets` are sealed
+  secrets the agent has (`${NAME}`). The agent domain keeps `machine`
+  opaque: the service hands it with the harness to `agent.MachineCheck`
+  (= `hostingsvc.CheckMachine`, a port like `Releaser`), which validates
+  and normalizes it and answers the digest (`machine_digest`: sha256 of
+  the normalized `hosting.Spec{Harness, Machine}`, `Spec.Digest()`) and the
+  secret names it uses (`machine_secrets text[]`: model keys and repo
+  credentials), stored with the version; those must be secrets the agent
+  has, and (like a header's) can't be deleted while named (naming
+  credentials needs `agents:write`, which the save already needs). A
+  hosted agent's config must keep a harness and a machine, and a machine
+  with a browser engine when the profile's browser is on (`Business`,
+  422, `agentpg`). `agent_secrets` are sealed
   (`internal/seal`, info `seaport agent secrets v1`, purpose
-  `agent-secret/<org>/<agent>/<name>`); the admin API answers names and
-  flags only, and a secret a header uses can't be deleted. `Equip` builds
+  `agent-secret/<org>/<agent>/<name>`) and the one secrets store (there
+  are no environment secrets); the admin API answers names and
+  flags only, and a secret a header or the machine uses can't be deleted. `Equip` builds
   the agent's `Kit` (profile + resolved headers + `env` secrets +
-  `Revision`, a hash of it all). A saved profile or secret calls
+  `Revision`, a hash of it all). A saved config or secret calls
   `agent.Revoker.ProfileChanged` (`Hub`: `profile` frame to the agent's
   connections, everywhere via `crew.SignalProfile`) and publishes
   `agent.updated`. The connector fetches its kit at start and on welcome
   and `profile` frames; on a new revision it sends `drain` (the hub gives
   it no new deliveries), waits until idle and restarts its harness with
-  the kit, resuming sessions. `hello.profile_version` is stored with the
+  the kit, resuming sessions. This is all an instructions-only change
+  does; a machine change moves the digest instead, and a hosted slot
+  running another digest is outdated (see Slot runs).
+  `hello.profile_version` is stored with the
   connection; the crew status marks it `outdated` when it isn't the
   agent's current version. Instructions go as ACP `systemPrompt` (append)
   when the agent advertises `sessionCapabilities.systemPrompt`, else with
@@ -590,47 +614,65 @@ net/http mux; only `/healthz` answers 405.
   seen only after a turn carrying it succeeds. Skills are served by the MCP `skill` tool
   (per request, from the current profile), never written to the agent's
   machine.
-- Hosting (`hosting`, migration 00015): an organization's environments
-  (`environments` + `environment_versions`, versioned and optimistic like
-  profiles; an unchanged spec makes no version; at most
-  `hosting.MaxEnvironments`, counted under `hostingpg.hostingLock`
-  `7_401_009`) say where hosted agents run: harness (`rness` |
-  `claude-code`), image (`FROM` Seaport's base), packages, setup, repos
-  (https, `credential: ${SECRET}` = a secret of the hosted agent), egress
-  hosts, resources (S/M/L or custom, within `SEAPORT_HOST_MAX_*`),
-  workspace, idle stop. `hosting.Normalize` resolves defaults before
-  storing, so a stored spec is complete. Hosting an agent (`agent_hosting`)
-  gives it slots (`agent_slots`, stable `<agent>-<n>`; at most
-  `SEAPORT_MAX_SLOTS` per organization, under the same lock); its
-  environment's credentials must be secrets it has (checked on host and
-  on each save of the spec), a secret they use can't be deleted, and
-  naming credentials needs `agents:write` besides `environments:write`
-  (`hostinghttp.credentials`). An environment with hosted agents can't be
-  deleted; deleting an agent unhosts it (slots cascade); a running slot
-  must be stopped before unhosting or dropping it.
-- Environment builds (`hosting/build.go`, migration 00016,
-  `SEAPORT_RUNTIME=docker`; `off`, the default, refuses builds): each
-  environment version is built once into an image (`environment_builds`,
-  state building → ready | failed) `FROM` its `image:` or the harness's
-  base (`SEAPORT_IMAGE_*`, default `config.BaseImage`: the release's tag,
-  else `:latest`), plus packages (apt) and setup (bash as root, home handed
-  back to uid 1000), tagged `seaport-env-<env>:v<N>-<hash>` (harness, base,
-  Dockerfile, setup) and labeled with org/environment/version. A base must
-  carry `io.seaport.base` and the spec's `io.seaport.harness` (Seaport's
+- Hosting (`hosting`, migrations 00015, 00045, 00046): where and how a
+  hosted agent runs is the `harness` + `machine` of its config (see Agent
+  config; `hosting.Machine`, no secret values: repo credentials
+  and model keys name the agent's own secrets as `${NAME}`, `env` is plain
+  variables only). `hosting.SpecOf` reads them from the current config
+  (`Business` when it has no machine: the agent can't be hosted yet) and
+  `hosting.Normalize` resolves defaults, so a stored machine is complete
+  (image `FROM` Seaport's base, packages, setup, repos (https), `repo_config`,
+  `network.egress` hosts, resources (S/M/L or custom, within
+  `SEAPORT_HOST_MAX_*`), workspace, idle stop). Hosting an agent
+  (`agent_hosting` row: `PUT /api/v1/agents/{id}/hosting {slots}`,
+  `seaport agents host <agent> [-slots N]`; permissions `hosting:read`
+  / `hosting:write`) gives it slots (`agent_slots`, stable `<agent>-<n>`;
+  at most `hosting.MaxSlotsPerAgent` per agent and `SEAPORT_MAX_SLOTS`
+  per organization, under `hostingpg.hostingLock` `7_401_009`). Hosting
+  is refused (422) without a harness and machine, or with the profile's browser on and
+  no machine browser engine. The two modes are exclusive: a hosted agent
+  mints no crew token (`crewpg`: `Conflict`, 409) and hosting an agent
+  with people's live tokens is a `Conflict`. A secret the machine names
+  can't be deleted; deleting an agent unhosts it (slots cascade); a
+  running slot must be stopped before unhosting or dropping it. Upgrade
+  from environments: `bootstrap.Build` runs goose up to 45
+  (`beforeEnvironmentsDrop`), then `upgradeEnvironments`
+  (`bootstrap/upgrade_environments.go`, once, mark `environments` in
+  `migration_marks`, under an advisory lock, in one transaction), which
+  copies each hosted agent's environment spec into a new config version of
+  the agent and reseals its environment secrets as the agent's (a name
+  clash becomes `<NAME>_ENV`, with env off, and the machine's references
+  follow); it needs the secret key when there are secrets. Then goose
+  up applies 00046, which drops the environment tables (and refuses
+  without the mark). Running slots keep an empty digest, so they restart
+  once idle.
+- Builds (`hosting/build.go`, migration 00016 → 00045,
+  `SEAPORT_RUNTIME=docker`; `off`, the default, refuses builds): an image
+  is built once per content (`hosting_builds`, PK org + digest, state building
+  → ready | failed; `BuildRequest.Digest()` = sha256 of harness, base,
+  Dockerfile and setup, so agents with the same machine share one) `FROM`
+  `machine.image` or the harness's base (`SEAPORT_IMAGE_*`, default
+  `config.BaseImage`: the release's tag, else `:latest`), plus packages
+  (apt) and setup (bash as root, home handed back to uid 1000), tagged
+  `seaport-build-<org12>:<digest12>` and labeled with org/digest (and the
+  agent that claimed it last). A base must
+  carry `io.seaport.base` and the config's `io.seaport.harness` (Seaport's
   base images set them; derived images inherit them). `ClaimBuild` makes
   one caller the builder (an insert, or taking over a failed, forced or
   stale one: no progress for `hosting.BuildStale`); the build runs in the
   background (`hostingsvc.runBuild`), stores its log's tail
   (`MaxBuildLog`) every `BuildStale/6`, and records its end even on
   shutdown (`App.Close` → `hosted.Close` cancels and waits, before the
-  bus closes). `environment.build` events carry no log.
+  bus closes). Routes `POST|GET /api/v1/agents/{id}/build` (the agent's
+  current config; `seaport agents build`); `agent.build` events carry no log.
 - Slot runs (`hosting/run.go`, migration 00017; `hostingsvc/slots.go`,
   `supervisor.go`): a slot is stopped → starting → running → stopping →
   stopped (or failed). `BeginStart` claims a stopped/failed slot under
   `FOR UPDATE` and gives the run an id (`agent_slots.run`); every later
   write of the starter matches that run, so one that lost the slot (stale
-  start, `StartStale`) changes nothing. A start builds the environment's
-  image if needed, mints the run's crew token (`crew_tokens.slot` = the
+  start, `StartStale`) changes nothing. A start records the machine digest
+  and config version it runs (`agent_slots.machine_digest`/`config_version`),
+  builds the agent's image if needed, mints the run's crew token (`crew_tokens.slot` = the
   index; 30 days, not counted against `crew.MaxTokens`, not listed with
   people's tokens) and runs the container (`hostingdocker`: read-only
   root, caps dropped, no-new-privileges, uid 1000, throwaway home volume,
@@ -641,7 +683,10 @@ net/http mux; only `/healthz` answers 405.
   `ship.Notifier` through `bootstrap.fanout`): it wakes a hosted agent with
   queued ships and no slot up (lowest stopped slot, else a failed one
   after 5 min; one at a time per agent), fails a running slot whose
-  container is gone or exited, restarts an idle outdated one, stops one
+  container is gone or exited, restarts an idle outdated one (`Slot.Outdated`:
+  its `machine_digest` isn't the agent's current config's, so only a
+  machine change; an instructions edit just changes the kit revision and
+  the connector restarts its harness in place), stops one
   idle past `idle_stop` (a live sign-in on the slot's run counts as work:
   `Supervised.Signing`, and so does an open browser viewer: `Supervised.Viewing`,
   `agent_slots.viewer_at` beaten every `hosting.ViewerBeat` by the process
@@ -658,10 +703,12 @@ net/http mux; only `/healthz` answers 405.
   MCP on loopback (harnesses take plain-HTTP MCP only there) and runs the
   connector (Claude Code in session mode `default`: its `auto` mode needs
   Anthropic's classifier). A refused token ends it cleanly (no restart).
-- Hosted network (`hosting/network.go`, migration 00018): an
-  environment's `models: {anthropic: ${SECRET}}` names an agent secret
-  (checked like repo credentials: must exist, can't be deleted while
-  named, needs `agents:write`). Its slots get `SEAPORT_GATEWAY`,
+- Hosted network (`hosting/network.go`, migration 00018): the machine's
+  `models: {<provider>: ${SECRET}}` (providers in `hosting/providers.go`,
+  `hosting.Providers`) names an agent secret (checked like repo
+  credentials, by `MachineCheck`: must be the agent's, can't be deleted
+  while named; a literal `subscription` is the other value, Anthropic only,
+  see Subscription sign-in). Its slots get `SEAPORT_GATEWAY`,
   `ANTHROPIC_BASE_URL` (= `<agent URL>/gateway/anthropic`) and
   `ANTHROPIC_API_KEY` = the slot token, so the key never enters the
   container; the connector won't let the kit's env replace them
@@ -680,7 +727,7 @@ net/http mux; only `/healthz` answers 405.
   the connector after the kit's env) or an image's `SEAPORT_MODEL`, else
   Claude Sonnet when Anthropic is served or there is no gateway
   (`images/acp-smoke.py` `RNESS_CASES` check the picks). The
-  spec's `repo_config: ignore` keeps the repos' configuration out
+  machine's `repo_config: ignore` keeps the repos' configuration out
   (`connector.harnessFor`: rness `--instructions none`, Claude Code
   `settingSources: ["user"]` in the session `_meta`). The gateway (`hostinggateway`, behind crew auth;
   `x-api-key` counts as the bearer) takes slot tokens only, forwards
@@ -695,7 +742,7 @@ net/http mux; only `/healthz` answers 405.
   the runtime network is `internal` (the Docker adapter warns when it
   isn't): slots get `HTTP(S)_PROXY` with `<slot>:<slot token>` and
   `NO_PROXY` for the port; CONNECT and plain http reach only the
-  environment's egress plus repo hosts (`Spec.EgressHosts`, cached
+  machine's `network.egress` plus repo hosts (`Machine.EgressHosts`, cached
   `EgressCacheFor` per token; `hosting.AnyHost` `*` = any host), never private/loopback/link-local/CGNAT/special-purpose (`hostingegress.public`, NAT64/6to4 unwrapped)
   addresses unless `SEAPORT_EGRESS_PRIVATE`; rness's base image hands
   `HTTPS_PROXY` to its web tools as `rness.web.proxy` (`images/rness/seaport.lua`);
@@ -703,9 +750,10 @@ net/http mux; only `/healthz` answers 405.
   and host (`egress_denials`, at most once per `DenialEvery`;
   `GET /api/v1/agents/{id}/hosting/egress`).
 - Subscription sign-in (experimental; `hosting/login.go`, migration
-  00019, `hostingsvc/logins.go`): a `claude-code` spec with no
-  `models.anthropic`, or an `rness` spec with no `models` at all
-  (`Spec.SignsIn`), adds the subscription hosts to the
+  00019, `hostingsvc/logins.go`): `machine.models.anthropic: subscription`
+  (the literal, Anthropic only; `hosting.Normalize` defaults it for a
+  `claude-code` config with no Anthropic key and for an `rness` one with no
+  providers at all) makes `Machine.SignsIn()` true: it adds the subscription hosts to the
   egress and `Workspace.SignIn`, so `agent-run` waits (taking no work)
   until the harness says logged in (`connector.harnessAccount`: `claude
   auth status`; `rness auth status --json`, counting only Anthropic: its
@@ -731,11 +779,11 @@ net/http mux; only `/healthz` answers 405.
   swaps an env-declared key for stored tokens). Fallbacks: env secret
   `CLAUDE_CODE_OAUTH_TOKEN` (Claude Code), `ANTHROPIC_API_KEY` (rness).
 - Managed browser (`hosting/browser.go`, migration 00036, plan
-  `~/.rness/plans/puerto/browser-login.md`): two switches. The environment's
-  `browser: {engine: chromium}` (`Spec.Browser`, the only engine) makes the
+  `~/.rness/plans/puerto/browser-login.md`): two switches. The machine's
+  `browser: {engine: chromium}` (`Machine.Browser`, the only engine) makes the
   build install Chromium, Node and chrome-devtools-mcp (pinned versions and
   sha256 in `build.go`, `writeBrowserSteps`; the image's `# browser` line
-  changes the tag); the agent profile's `browser: true` (`Kit.Browser`,
+  changes the tag); the config's profile `browser: true` (`Kit.Browser`,
   `Workspace.Browser`; `seaport agents profile set -browser on`) makes the
   slot use it. `connector.browserFor` starts the engine (`StartBrowser`:
   headed on Xvfb (`browser_display.go`: `-displayfd`, no TCP, abstract
@@ -751,15 +799,15 @@ net/http mux; only `/healthz` answers 405.
   the target), since no security key reaches a container and Chromium's native
   key dialog, invisible in the screencast, takes the page's input; the
   real-engine check is `TestGuardWebAuthnRealChromium`, `SEAPORT_TEST_CHROMIUM=1`
-  in an environment image) only when the kit asks and `Config.Browser` is set (a
-  hosted slot of such an environment; `seaport connect` warns and goes on),
+  in a machine image) only when the kit asks and `Config.Browser` is set (a
+  hosted slot of such a machine; `seaport connect` warns and goes on),
   and every harness session gets the MCP server `browser` (stdio,
   `/opt/seaport/browser/bin/chrome-devtools-mcp --browserUrl …`). The web's
   viewer (`web/src/components/seaport/browser-viewer.tsx`, `lib/cdp.ts`:
   screencast + input over CDP) connects to `GET
   /api/v1/agents/{id}/hosting/slots/{slot}/browser` (`permission.BrowserUse`,
   Admin + Operator; same-origin, Fiber websocket contrib in `hostinghttp`,
-  exempt from `Deadline`): `hostingsvc.OpenBrowser` checks environment,
+  exempt from `Deadline`): `hostingsvc.OpenBrowser` checks the machine,
   profile and slot state, claims the slot's one viewer (`viewers`, per
   process; `Conflict` otherwise), runs `seaport browser-relay`
   (`hosting.BrowserRelayCommand`; `connector.BrowserRelay`: newline-delimited
@@ -899,11 +947,11 @@ net/http mux; only `/healthz` answers 405.
   appends `<!-- seaport-message <id> -->` so the echo of a stored reply is
   a duplicate.
 - Harness homes (`hosting/home.go`, migration 00021,
-  `hostingsvc/homes.go`): an environment's `home: sha256:…` names an
+  `hostingsvc/homes.go`): a machine's `home: sha256:…` names an
   uploaded `~/.claude` or `~/.rness` (`POST /api/v1/homes?harness=…`, raw
-  tar/tar.gz up to `MaxHomeUpload`, `httpx.ReadBody`; `seaport env home
-  push|show|pull`, or `home: ./dir` in `env apply`; the web's
-  "Configuración del harness" section, `web/src/pages/environment-home.tsx`).
+  tar/tar.gz up to `MaxHomeUpload`, `httpx.ReadBody`; `seaport agents home
+  push|show|pull`, or `home: ./dir` in `agents config apply`; the web's
+  "Configuración del harness" section).
   The web filters and checks a dropped folder or .zip/.tar.gz in the
   browser with the server's own rules (`GET /api/v1/homes/rules` =
   `hosting.HomeRulesOf`: paths, limits, `SecretPattern`s in RE2 syntax JS
@@ -916,17 +964,17 @@ net/http mux; only `/healthz` answers 405.
   plugins/ skills/`, never `lua/seaport.lua`), regular files only, within
   `MaxHomeFiles`/`MaxHomeFile`/`MaxHomeBytes`, and refuses secret-looking
   strings (`ScanSecrets`: secrets go as the agent's env secrets, files read
-  the environment); sessions, sign-in, memory and Claude's `plugins/` are
+  the machine); sessions, sign-in, memory and Claude's `plugins/` are
   never uploaded. It normalizes to a sorted tar (uid/gid 1000, 0644/0755,
   mtime 0) whose SHA-256 with the harness is the digest, so the same files
   make the same home. The tar is sealed (info `seaport homes v1`, purpose
   `home/<org>/<digest>`) in the blob store, staged in `blob_trash` before
   the Put like media; `hosting_homes` (at most `MaxHomes`, counted under
   `hostingLock`) is the index, and deleting a row puts its blob back in
-  the trash by trigger. `environment_versions.home` references it (FK);
-  saving a version naming a home touches it under `hostingLock`, and
-  `SweepHomes` (claim sweeper, before `SweepTrash`) deletes homes no
-  version names, untouched for `HomeGrace`, under the same lock. Applied at
+  the trash by trigger. `agent_profiles.home` (a column copied from `machine.home`, migration
+  00045) references it (FK); saving a config version naming a home touches
+  it under `hostingLock`, and `SweepHomes` (claim sweeper, before
+  `SweepTrash`) deletes homes no config version names, untouched for `HomeGrace`, under the same lock. Applied at
   build time: `runBuild` opens the home into `BuildRequest.Home`, the
   Dockerfile (whose `# home <digest>` line changes the tag) copies it over
   `/home/agent` after setup and runs `seaport home-setup`
@@ -1209,7 +1257,7 @@ net/http mux; only `/healthz` answers 405.
   App of one of the agent's GitHub docks has an active installation (else
   NotFound); `seaport github-token`, the `gh` shim (seaport binary called
   as `gh`, real gh at `/usr/local/bin/gh` in the base images) and
-  `git-credential` (fallback after the environment's credentials) ask it
+  `git-credential` (fallback after the machine's repo credentials) ask it
   each time; nothing on disk. Workflows send messages through the public
   `POST /github/actions/{dock}` (`dockgithub/actions.go`, composite action
   `action/action.yml`): bearer = the job's GitHub Actions OIDC token
