@@ -71,6 +71,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
                                         the default takes messages that call nobody (else they are held)
   seaport agents unassign <agent> <dock-id>
   seaport agents delete <agent> -yes    revoke its tokens, disconnect it, hold what waits for it
+  seaport agents clone <agent> <name> [-secrets] [-description D]   a new agent with the same config
+                                        (hosted the same, stopped); -secrets copies its secrets too
   seaport agents config [show] <agent> [-version N]   its whole config as YAML: harness, instructions,
                                         skills, MCP servers, model, browser and the machine it runs on when hosted
   seaport agents config apply <agent> -f agent.yaml   save it (the format of show; - = stdin; an unchanged
