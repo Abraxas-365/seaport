@@ -221,6 +221,19 @@ describe("crew events", () => {
     expect(crew.agents[0]).toMatchObject({ agent_name: "support-bot", deliveries: [{ ships: 1 }] })
   })
 
+  it("crew.changed refetches the crew status when a fetch is in flight, since it may answer an older status", () => {
+    void qc.prefetchQuery({ queryKey: keys.crew, queryFn: () => new Promise<typeof wire.api.crew_status>(() => {}) })
+    const invalidate = vi.spyOn(qc, "invalidateQueries")
+    apply("crew.changed")
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: keys.crew, exact: true })
+  })
+
+  it("crew.changed refetches nothing when no fetch is in flight", () => {
+    const invalidate = vi.spyOn(qc, "invalidateQueries")
+    apply("crew.changed")
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
   it("crew.activity builds live activity outside the cache, and the delivery ending closes it", () => {
     vi.useFakeTimers()
     const ev = eventData("crew.activity")

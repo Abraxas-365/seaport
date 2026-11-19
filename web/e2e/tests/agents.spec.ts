@@ -54,15 +54,19 @@ test("the agent shows its connection, outdated after a config change until it re
 
   // A config change makes the connection outdated, and it stays so while busy.
   await pages.agents.open(ctx.agent.id)
-  const current = await api.get<{ version: number; instructions: string }>(`/api/v1/agents/${ctx.agent.id}/config`)
-  await api.put(`/api/v1/agents/${ctx.agent.id}/config`, {
-    base: current.version,
-    instructions: `${current.instructions} (changed)`,
-  })
-  await expect(card.getByText(/config v\d+ · desactualizada/)).toBeVisible()
-
-  // The turn ends, the connector restarts with the new config.
-  writeFileSync(ctx.gate, "")
+  await expect(card.getByText("Trabajando")).toBeVisible()
+  try {
+    const current = await api.get<{ version: number; instructions: string }>(`/api/v1/agents/${ctx.agent.id}/config`)
+    await api.put(`/api/v1/agents/${ctx.agent.id}/config`, {
+      base: current.version,
+      instructions: `${current.instructions} (changed)`,
+    })
+    await expect(card.getByText(/config v\d+ · desactualizada/)).toBeVisible()
+  } finally {
+    // The turn ends (even when the check failed: a held turn would stall
+    // every later spec), and the connector restarts with the new config.
+    writeFileSync(ctx.gate, "")
+  }
   await expect(card.getByText("desactualizada")).toHaveCount(0)
   await expect(card).toContainText("conectado")
 })

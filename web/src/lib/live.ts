@@ -165,8 +165,13 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
         : { items: [a, ...old.items], page: { ...old.page, total: old.page.total + 1 } }
     })
   },
+  // A fetch in flight may answer a status older than this event (it read the
+  // presence before the change) and would overwrite it: refetch instead.
   "crew.changed": (qc, crew: CrewStatus) => {
     qc.setQueryData(keys.crew, crew)
+    if (qc.isFetching({ queryKey: keys.crew, exact: true }) > 0) {
+      void qc.invalidateQueries({ queryKey: keys.crew, exact: true })
+    }
   },
   // Live only, outside the query cache (src/lib/activity.ts).
   "crew.activity": (_qc, ev) => applyActivity(ev),
