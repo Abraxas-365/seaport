@@ -681,7 +681,7 @@ function HarnessSection({
           icon={KeyRound}
           title="Acceso a la IA"
           yaml="machine.models"
-          description="Cómo sus instancias llegan a los modelos: con la cuenta de Claude de cada una, con claves de API, o con ambas."
+          description="Cómo sus instancias llegan a Claude: con la cuenta de Claude de cada una o con una clave de API."
         >
           <ModelAccess
             harness={p.harness}

@@ -18,7 +18,7 @@ A slot signs in when its machine has `models.anthropic: subscription`. The port 
 
 Each provider takes one value, so Anthropic is either a key or the account, never both. The proxy then also lets the slot reach `api.anthropic.com` and `platform.claude.com`, which the harness needs for its API and token refresh. You don't add them to `machine.network.egress`.
 
-An rness slot can mix the two: Anthropic through the account and other providers (`openai`, `groq`…) through the gateway with their keys. It starts on the agent's model, written `<provider>/<model>`, and otherwise on Claude Sonnet. Only the keyed providers' calls are metered.
+An rness slot can mix the two: Anthropic through the account and other providers (`openai`, `groq`…) through the gateway with their keys, set in the config's YAML (`seaport agents config apply`; the web app's **Acceso a la IA** sets Claude only and keeps those keys). It starts on the agent's model, written `<provider>/<model>`, and otherwise on Claude Sonnet. Only the keyed providers' calls are metered.
 
 ```yaml
 models:

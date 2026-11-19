@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   AppWindow,
-  Ban,
   Boxes,
   ChevronDown,
   ChevronRight,
@@ -106,7 +105,7 @@ export function ConfigSection({
   )
 }
 
-const claudeOptions = (harness: Harness | "", others: boolean): ChoiceOption<ClaudeAccess>[] => [
+const claudeOptions: ChoiceOption<ClaudeAccess>[] = [
   {
     value: "account",
     label: "Cuenta de Claude",
@@ -119,24 +118,13 @@ const claudeOptions = (harness: Harness | "", others: boolean): ChoiceOption<Cla
     description: "Un secreto del agente; solo la usa el gateway del puerto, que mide el uso.",
     icon: KeyRound,
   },
-  ...(harness === "rness"
-    ? [
-        {
-          value: "none" as const,
-          label: "Sin Claude",
-          description: others ? "Solo los otros proveedores." : "Primero da la clave de otro proveedor.",
-          icon: Ban,
-          disabled: !others,
-        },
-      ]
-    : []),
 ]
 
 /**
- * How a hosted agent reaches its models, all in one place: Claude (a
- * Claude account each instance signs in to, or a key), the other
- * providers' keys (rness), and the instances' accounts. An account and
- * keys mix: Anthropic signs in, the keys go through the gateway.
+ * How a hosted agent reaches Claude, all in one place: a Claude account
+ * each instance signs in to (with the instances' accounts), or a key.
+ * Other providers' keys are YAML-only for now: the form keeps them and
+ * names them, but doesn't edit them.
  */
 export function ModelAccess({
   harness,
@@ -174,20 +162,17 @@ export function ModelAccess({
     setWantKey(false)
   }
   const anthropic = providers[0]
-  const rest = providers.slice(1)
   const picking = wantKey && !models.anthropic && !readOnly
   const claude: ClaudeAccess = picking ? "key" : claudeAccess(harness, models)
   React.useEffect(() => {
     onPending?.(picking)
     return () => onPending?.(false)
   }, [picking, onPending])
-  // Claude Code reaches Anthropic only: other keys show only to be dropped.
-  const others = harness === "rness" ? rest : rest.filter((p) => models[p.name])
-  const keyed = rest.filter((p) => models[p.name])
+  // Other providers' keys come from the YAML only: kept as they are, named.
+  const keyed = providers.slice(1).filter((p) => models[p.name])
   const choose = (v: ClaudeAccess) => {
     setWantKey(false)
     if (v === "account") return set("anthropic", subscription)
-    if (v === "none") return set("anthropic", "")
     const was = models.anthropic ?? ""
     if (secretRefPattern.test(was)) return
     const suggested = keyNameFor(anthropic)
@@ -199,67 +184,34 @@ export function ModelAccess({
     if (was) set("anthropic", "")
   }
   return (
-    <div className="space-y-4" data-testid="model-access">
-      <div className="space-y-2">
-        <h4 className="text-sm font-medium">Claude (Anthropic)</h4>
-        <ChoiceCards
-          aria-label="Acceso a Claude"
-          value={claude}
-          onChange={choose}
-          options={claudeOptions(harness, keyed.length > 0)}
-          disabled={readOnly}
-          className={harness === "rness" ? undefined : "sm:grid-cols-2"}
-        />
-        {claude === "key" && (
-          <div className="grid grid-cols-[6.5rem_1fr] items-center gap-2 pt-1">
-            <FieldLabel htmlFor={`model-${anthropic.name}`}>Clave</FieldLabel>
-            <SecretPicker
-              id={`model-${anthropic.name}`}
-              label={anthropic.label}
-              value={models.anthropic ?? ""}
-              onChange={(v) => set("anthropic", v)}
-              agentId={secrets.agentId}
-              agentName={secrets.agentName}
-              secrets={secrets.names}
-              canCreate={secrets.canCreate}
-              readOnly={readOnly}
-              suggested={keyNameFor(anthropic)}
-              none="Elige un secreto…"
-            />
-          </div>
-        )}
-        {claude === "account" && accounts}
-      </div>
-      {others.length > 0 && (
-        <div className="space-y-2">
-          <div>
-            <h4 className="text-sm font-medium">Otros proveedores</h4>
-            <p className="text-sm text-muted-foreground">
-              {harness === "rness"
-                ? "Con clave, cualquiera de estos además de Claude; el modelo del agente elige cuál usa."
-                : "Claude Code usa solo modelos de Anthropic: estas claves sobran."}
-            </p>
-          </div>
-          {others.map((p) => (
-            <div key={p.name} className="grid grid-cols-[6.5rem_1fr] items-center gap-2">
-              <FieldLabel htmlFor={`model-${p.name}`}>{p.label}</FieldLabel>
-              <SecretPicker
-                id={`model-${p.name}`}
-                label={p.label}
-                value={models[p.name] ?? ""}
-                onChange={(v) => set(p.name, v)}
-                agentId={secrets.agentId}
-                agentName={secrets.agentName}
-                secrets={secrets.names}
-                canCreate={secrets.canCreate}
-                readOnly={readOnly}
-                suggested={keyNameFor(p)}
-                none="Sin clave"
-              />
-            </div>
-          ))}
+    <div className="space-y-3" data-testid="model-access">
+      <ChoiceCards
+        aria-label="Acceso a Claude"
+        value={claude}
+        onChange={choose}
+        options={claudeOptions}
+        disabled={readOnly}
+        className="sm:grid-cols-2"
+      />
+      {claude === "key" && (
+        <div className="grid grid-cols-[6.5rem_1fr] items-center gap-2 pt-1">
+          <FieldLabel htmlFor={`model-${anthropic.name}`}>Clave</FieldLabel>
+          <SecretPicker
+            id={`model-${anthropic.name}`}
+            label={anthropic.label}
+            value={models.anthropic ?? ""}
+            onChange={(v) => set("anthropic", v)}
+            agentId={secrets.agentId}
+            agentName={secrets.agentName}
+            secrets={secrets.names}
+            canCreate={secrets.canCreate}
+            readOnly={readOnly}
+            suggested={keyNameFor(anthropic)}
+            none="Elige un secreto…"
+          />
         </div>
       )}
+      {claude === "account" && accounts}
       <FieldDescription>
         {problem ||
           (picking
@@ -272,14 +224,12 @@ export function ModelAccess({
 
 /** One line on how the instances reach their models. */
 function accessSummary(claude: ClaudeAccess, keyed: string[]): string {
-  const keys = keyed.length ? `${keyed.join(", ")} con clave` : ""
-  const via = "Las claves pasan por el gateway del puerto: nunca entran al contenedor y el uso queda medido por agente."
+  const yaml = keyed.length ? ` También ${keyed.join(", ")} con clave, desde el YAML.` : ""
   if (claude === "account")
-    return keys
-      ? `Claude con la cuenta de cada instancia y ${keys}. ${via}`
-      : "Claude con la cuenta de cada instancia: usa los límites de esa suscripción y Seaport no guarda sus tokens."
-  if (claude === "key") return `Claude${keys ? ` y ${keys}` : " con clave"}. ${via}`
-  return `${keys}. ${via}`
+    return `Claude con la cuenta de cada instancia: usa los límites de esa suscripción y Seaport no guarda sus tokens.${yaml}`
+  if (claude === "key")
+    return `Claude con clave: pasa por el gateway del puerto, nunca entra al contenedor y el uso queda medido por agente.${yaml}`
+  return `Sin Claude: ${keyed.join(", ")} con clave, desde el YAML. Elige una opción para usar Claude.`
 }
 
 /** Whether a machine differs from the defaults in anything "Avanzado" holds. */
