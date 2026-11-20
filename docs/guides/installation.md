@@ -8,7 +8,8 @@ Seaport is one binary, `seaport`: the port (`seaport serve`), its admin CLI and 
 
 ```sh
 # Example: macOS on Apple silicon. Pick your OS and architecture from the release page.
-VERSION=0.7.0
+# VERSION is the latest release (or set it to one, such as 0.10.2).
+VERSION=$(curl -sSfLo /dev/null -w '%{url_effective}' https://github.com/Abraxas-365/seaport/releases/latest | sed 's|.*/v||')
 curl -sSfLO "https://github.com/Abraxas-365/seaport/releases/download/v$VERSION/seaport_${VERSION}_darwin_arm64.tar.gz"
 tar -xzf "seaport_${VERSION}_darwin_arm64.tar.gz" seaport
 sudo mv seaport /usr/local/bin/

@@ -11,6 +11,7 @@ export const sidebar = [
   ], false),
   group('Concepts', [
     page('explanation/concepts'),
+    page('explanation/use-cases'),
     page('explanation/message-lifecycle'),
     page('explanation/security-model'),
   ], false),

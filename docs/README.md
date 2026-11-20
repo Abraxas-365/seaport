@@ -15,6 +15,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 | Connect an agent and get a reply | [Your first agent](tutorials/first-agent.md) |
 | Find your way around the web app (in Spanish) | [Web app tour](guides/web-app.md) |
 | Understand docks, ships, customs and crew | [Concepts](explanation/concepts.md) |
+| See what a team of agents does along a software story, step by step | [Use cases](explanation/use-cases.md) |
 | Call agents with `@name` in Slack channels, threads and DMs | [Slack docks](guides/slack.md) |
 | Have agents answer on pull requests and issues | [GitHub docks](guides/github.md) |
 | Hand work to an agent from a GitHub workflow | [GitHub Actions](guides/github.md#trigger-an-agent-from-a-workflow) |
@@ -57,7 +58,7 @@ These pages describe the current `main` branch, which tracks the latest [release
 
 ## A word on names
 
-Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a Slack app, a GitHub App, a Jira service account, a mailbox, a WhatsApp number or an `api` dock. A **ship** is a message. **Customs** decides which conversations may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
+Seaport uses a port's vocabulary. The **port** is the server (`seaport serve`). A **dock** is a channel account where messages arrive: a Slack app, a GitHub App, a Jira service account, a mailbox, a WhatsApp number, an `api` dock, or a webhook or Datadog endpoint. A **ship** is a message. **Customs** decides which conversations may wake an agent. The **crew** is the set of connected agents, each run by a **harness** (rness, Claude Code) under `seaport connect` or in a hosted **slot**. See [Concepts](explanation/concepts.md).
 
 The web app is in Spanish. These docs name each page in Spanish with the English meaning in parentheses: **Bandeja** (Inbox), **Aduana** (Customs), **Muelles** (Docks), **Agentes** (Agents), **Bóvedas** (Vaults).
 
