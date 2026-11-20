@@ -1273,9 +1273,11 @@ export interface Slot {
   config_version: number
   /**
    * Outdated: it runs and its machine is not the agent's current one
-   * (the config's machine changed): the supervisor restarts it once
-   * idle. An instructions edit doesn't make it outdated (the harness
-   * picks the new kit up in place).
+   * (the config's machine changed), or its image is not the agent's
+   * current build, which is ready (a new Seaport release changed the
+   * base image): the supervisor restarts it once idle (after a machine
+   * change, once the new image is built). An instructions edit doesn't
+   * make it outdated (the harness picks the new kit up in place).
    */
   outdated: boolean
   started_at: string | null

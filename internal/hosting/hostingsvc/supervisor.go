@@ -23,20 +23,18 @@ func (s *Service) Wake(identity.OrganizationID, identity.AgentID) {
 }
 
 // Supervise runs the supervisor until ctx ends: every SupervisePeriod (and
-// on Wake) it wakes hosted agents with work and no slot up, stops idle
-// slots, restarts outdated idle ones, fails slots whose container died
-// or whose start or stop was interrupted, and removes what the runtime
-// keeps of slots that no longer exist. Every process runs one: each step
-// is a conditional transition, so two never act on one slot.
+// on Wake) it builds the images hosted agents need ahead of their work
+// (warm), wakes hosted agents with work and no slot up, stops idle
+// slots, restarts outdated idle ones once their image is built, fails
+// slots whose container died or whose start or stop was interrupted, and
+// removes what the runtime keeps of slots that no longer exist. Every
+// process runs one: each step is a conditional transition, so two never
+// act on one slot.
 func (s *Service) Supervise(ctx context.Context) {
 	if s.runtime() == nil {
 		return
 	}
-	period := s.slots.cfg.Period
-	if period <= 0 {
-		period = hosting.SupervisePeriod
-	}
-	t := time.NewTicker(period)
+	t := time.NewTicker(s.supervisePeriod())
 	defer t.Stop()
 	orphans := map[string]bool{}
 	for {
@@ -60,6 +58,9 @@ func (s *Service) supervise(ctx context.Context, orphans map[string]bool) error 
 	if err != nil {
 		return err
 	}
+	// Build the hosted agents' images ahead of their work first, so this
+	// round already sees a build that was ready.
+	s.warm(ctx, time.Now())
 	rows, err := s.repo.Supervise(ctx)
 	if err != nil {
 		return err
@@ -124,7 +125,10 @@ func (s *Service) superviseSlot(ctx context.Context, row hosting.Supervised, rs 
 		if !idle {
 			return
 		}
-		if row.Outdated {
+		if row.Outdated && row.BuildReady {
+			// Restart once the image it needs is built (the supervisor builds
+			// it ahead: warm), so it never sits starting through a build;
+			// until then idle_stop still applies.
 			s.stopRun(ctx, row, true)
 			return
 		}
@@ -162,7 +166,7 @@ func (s *Service) stopRun(ctx context.Context, row hosting.Supervised, restart b
 	s.events.Publish(row.Organization, hosting.EventSlotsUpdated, h)
 	detail := "stopped after idle_stop without work"
 	if restart {
-		detail = "restarting on the agent's new machine"
+		detail = "restarting on the agent's new image"
 	}
 	slog.Info("stopping slot", "agent", row.Agent, "slot", row.Index, "reason", detail)
 	s.background(func(ctx context.Context) {

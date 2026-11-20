@@ -43,9 +43,11 @@ type Slot struct {
 	// started).
 	ConfigVersion int `db:"config_version" json:"config_version"`
 	// Outdated: it runs and its machine is not the agent's current one
-	// (the config's machine changed): the supervisor restarts it once
-	// idle. An instructions edit doesn't make it outdated (the harness
-	// picks the new kit up in place).
+	// (the config's machine changed), or its image is not the agent's
+	// current build, which is ready (a new Seaport release changed the
+	// base image): the supervisor restarts it once idle (after a machine
+	// change, once the new image is built). An instructions edit doesn't
+	// make it outdated (the harness picks the new kit up in place).
 	Outdated  bool       `db:"outdated" json:"outdated"`
 	StartedAt *time.Time `db:"started_at" json:"started_at"`
 	ActiveAt  *time.Time `db:"active_at" json:"active_at"`

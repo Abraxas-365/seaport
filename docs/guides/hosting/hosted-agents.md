@@ -104,7 +104,7 @@ seaport agents config show pm -version 2  # print a past version
 
 Open the agent (**Agentes**, then the agent) and use its **Dónde corre** tab. It holds the harness and the machine's settings, and where you host the agent and see its slots. The model key and the other secrets the machine names are kept on the **Secretos** tab. Saving makes a new version; the exact controls may change between releases, and `seaport agents config show` always has the complete picture.
 
-Saving a change to the machine makes running slots outdated: they restart once they are idle, and the image is built if it isn't yet. A change to the instructions or skills touches no container: the harness inside restarts with them once idle.
+Saving a change to the machine makes running slots outdated. The supervisor builds the new image in the background, and each slot restarts on it once the image is ready and the slot is idle. If that build fails, the slots keep running on the old machine (and still stop after `idle_stop`); `seaport agents build <agent>` shows why. A change to the instructions or skills touches no container: the harness inside restarts with them once idle.
 
 ## Image builds
 
@@ -121,7 +121,11 @@ A custom `image:` must derive from one of these. The base images carry the label
 
 Builds are keyed by what goes into the image: the harness, base image, generated Dockerfile, setup script and home. The image is named `seaport-build-<organization>:<digest>` and labeled with `io.seaport.organization` and `io.seaport.digest`. Agents whose machines build the same therefore share one image, an edit that leaves the image alone (instructions, skills, repos, network, resources) builds nothing, and a changed base, packages, setup or home makes a new one.
 
-Build ahead of time so the first message doesn't wait for it:
+You don't need to build by hand. The supervisor builds the image of every hosted agent's current config in the background, one build at a time per process, as soon as it sees one missing: after a machine change, after hosting an agent, and after a Seaport upgrade (a new base image means new images for every agent). A build it started that failed is tried again 30 minutes later, or at once by a slot start or `seaport agents build`.
+
+While a new image builds, a slot that starts runs on the image its agent last ran on the same machine, if the engine still has it, and restarts on the new one once that is ready and the slot idle. With no such image (a new machine, or a pruned one), the start waits for the build.
+
+To build now, or follow a build:
 
 ```sh
 seaport agents build pm               # follows the build log
@@ -129,7 +133,7 @@ seaport agents build pm -force        # build again and pull the base anew (a mo
 seaport agents build pm -wait=false   # start it and return
 ```
 
-A build that stops reporting for a minute is treated as dead, and the next caller may start it again.
+A forced build that makes a different image marks running slots outdated, so they restart on it once idle. A build that stops reporting for a minute is treated as dead, and the next caller may start it again.
 
 ## Host an agent
 
@@ -172,15 +176,16 @@ seaport agents logs pm-1 -lines 500   # last lines, up to 2000 (default 300)
 seaport agents unhost pm              # stop its slots first
 ```
 
-Starting builds the machine's image if needed, mints a crew token for this run (the slot signs in with it, and it is revoked when the slot stops), and runs the container. A slot that fails to start shows why in `seaport agents slots`.
+Starting uses the agent's image, or its previous one while a new image builds (see [Image builds](#image-builds)), and builds it first when there is neither. It then mints a crew token for this run (the slot signs in with it, and it is revoked when the slot stops), and runs the container. A slot that fails to start shows why in `seaport agents slots`.
 
 ### The supervisor
 
 You rarely start slots by hand. Every Seaport process runs a supervisor that checks every 15 seconds and when new work is queued:
 
+- **Builds** the image each hosted agent's current config needs, in the background, before any message asks for it.
 - **Wakes** a hosted agent that has queued ships and no slot up. It starts the lowest stopped slot, or a failed one after 5 minutes, one at a time per agent.
 - **Stops** a running slot that has been idle longer than `idle_stop`. A slot being [signed in](claude-subscriptions.md), or with a person in its [browser viewer](browser.md#the-viewer), isn't idle.
-- **Restarts** an idle slot that is outdated: its machine is no longer the agent's current one (`seaport agents slots` marks it). Slots a change of instructions leaves alone.
+- **Restarts** an idle slot that is outdated, once the agent's image is built: its machine is no longer the agent's current one, or it runs another image than the agent's current build (after an upgrade or a forced build). `seaport agents slots` marks it. Slots a change of instructions leaves alone.
 - **Fails** a running slot whose container is gone or exited.
 - **Cleans up** starts and stops that stalled, and containers that no slot row owns.
 

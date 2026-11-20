@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
@@ -29,6 +30,16 @@ type builds struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// warming: a build the supervisor started ahead of work is running in
+	// this process (one at a time: an image build is heavy).
+	warming atomic.Bool
+	mu      sync.Mutex
+	// tried: when the supervisor claimed a build (org/digest) in this
+	// process, so one that fails isn't built again every round (a start,
+	// or `seaport agents build`, still retries it at once).
+	tried map[string]time.Time
+	// warmedAt: the supervisor's last look at the hosted agents' images.
+	warmedAt time.Time
 }
 
 func newBuilds(cfg Builder) *builds {
@@ -36,7 +47,7 @@ func newBuilds(cfg Builder) *builds {
 		cfg.Timeout = 30 * time.Minute
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &builds{cfg: cfg, ctx: ctx, cancel: cancel}
+	return &builds{cfg: cfg, ctx: ctx, cancel: cancel, tried: map[string]time.Time{}}
 }
 
 // Close cancels the builds in progress and waits for them to record their
@@ -91,11 +102,7 @@ func (s *Service) StartBuild(ctx context.Context, org identity.OrganizationID, a
 		return b, nil
 	}
 	s.events.Publish(org, hosting.EventAgentBuild, withoutLog(b))
-	s.builds.wg.Add(1)
-	go func() {
-		defer s.builds.wg.Done()
-		s.runBuild(req)
-	}()
+	s.background(func(context.Context) { s.runBuild(req) })
 	return b, nil
 }
 

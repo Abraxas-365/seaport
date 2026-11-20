@@ -33,6 +33,8 @@ type fakeRuntime struct {
 	signedIn map[string]bool
 	// noBrowser: the browser relay fails (the engine isn't running).
 	noBrowser bool
+	// pruned: images the engine no longer has (HasImage).
+	pruned map[string]bool
 }
 
 func (f *fakeRuntime) browserDown() bool {
@@ -209,6 +211,13 @@ func (f *fakeRuntime) last() hosting.BuildRequest {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.requests[len(f.requests)-1]
+}
+
+// HasImage: every image a build answered is there, but pruned ones.
+func (f *fakeRuntime) HasImage(_ context.Context, image string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.pruned[image], nil
 }
 
 func buildState(state string) func(json.RawMessage) bool {

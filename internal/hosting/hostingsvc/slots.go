@@ -195,7 +195,7 @@ func (s *Service) runStart(ctx context.Context, org identity.OrganizationID, age
 		fail(failure(err, "the agent's secrets could not be read"), err, identity.CrewTokenID{})
 		return
 	}
-	image, err := s.imageFor(ctx, org, agentID, spec)
+	image, err := s.imageFor(ctx, org, agentID, spec, start.Previous)
 	if err != nil {
 		fail(failure(err, "the agent's image could not be built"), err, identity.CrewTokenID{})
 		return
@@ -324,13 +324,22 @@ func (s *Service) slotEnv(spec hosting.Spec, name, token string) map[string]stri
 
 // imageFor is the ready image of the agent's spec, building it first (and
 // waiting) when needed. Builds are keyed by content, so agents whose
-// machines build the same share one.
-func (s *Service) imageFor(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec) (string, error) {
+// machines build the same share one. While it isn't ready (a new release
+// changed the base image), previous (the image a slot of the agent last
+// ran on this machine, when the engine still has it) is answered at once
+// and the build goes on in the background: the slot restarts on the new
+// image once it is ready and the slot idle (Slot.Outdated).
+func (s *Service) imageFor(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, spec hosting.Spec, previous string) (string, error) {
 	req, err := s.buildRequest(org, spec)
 	if err != nil {
 		return "", err
 	}
 	digest := req.Digest()
+	if previous != "" {
+		if ok, err := s.runtime().HasImage(ctx, previous); err != nil || !ok {
+			previous = ""
+		}
+	}
 	for {
 		b, claimed, err := s.repo.ClaimBuild(ctx, org, digest, agentID, req.Base, false)
 		if err != nil {
@@ -338,14 +347,33 @@ func (s *Service) imageFor(ctx context.Context, org identity.OrganizationID, age
 		}
 		if claimed {
 			s.events.Publish(org, hosting.EventAgentBuild, withoutLog(b))
+			if previous != "" {
+				slog.Info("starting a slot on its previous image while the new one builds", "agent", agentID, "digest", digest[:12])
+				s.background(func(context.Context) {
+					s.runBuild(req)
+					s.Wake(org, agentID)
+				})
+				return previous, nil
+			}
 			s.runBuild(req)
-			continue // read its outcome
+			// Read its outcome (claiming again would rebuild a failed one).
+			if b, err = s.repo.Build(ctx, org, digest); err != nil {
+				return "", err
+			}
 		}
 		switch b.State {
 		case hosting.BuildReady:
 			return b.Image, nil
 		case hosting.BuildFailed:
+			if previous != "" {
+				slog.Warn("the agent's new image failed to build: starting on its previous one", "agent", agentID, "detail", b.Detail)
+				return previous, nil
+			}
 			return "", errx.Business("the agent's image failed to build: " + b.Detail + " (seaport agents build)")
+		}
+		if previous != "" { // building elsewhere (the supervisor, another process)
+			slog.Info("starting a slot on its previous image while the new one builds", "agent", agentID, "digest", digest[:12])
+			return previous, nil
 		}
 		select { // another process builds it: wait
 		case <-ctx.Done():

@@ -15,7 +15,7 @@ Each change makes a new, immutable version, and the agent runs its current one. 
 ## What a change does
 
 - **A profile change** (instructions, skills, MCP servers, model…) changes the agent's kit. A connected harness, hosted or remote, drains and restarts itself with it once idle. A hosted slot's container is not restarted.
-- **A machine or harness change** changes the machine digest: the hash of the normalized harness and machine. A running slot whose digest isn't the agent's current one is marked `outdated` and restarted once it is idle. A machine that needs a new image builds it first. Two agents whose machines build the same image share the build.
+- **A machine or harness change** changes the machine digest: the hash of the normalized harness and machine. A running slot whose digest isn't the agent's current one is marked `outdated`. The supervisor builds the new image in the background and restarts the slot once the image is ready and the slot idle. Two agents whose machines build the same image share the build.
 - **A change that leaves the config as it was** (the same normalized document) makes no version.
 
 ## The config file

@@ -172,8 +172,14 @@ type Supervised struct {
 	// IdleStop is the agent's machine's idle_stop ("0": never).
 	IdleStop string `db:"idle_stop"`
 	// Outdated: the slot runs another machine than its agent's current
-	// config (MachineDigest; restarted when idle).
+	// config, or another image than the build the agent needs now, once
+	// that is ready (Slot.Outdated).
 	Outdated bool `db:"outdated"`
+	// BuildReady: the build the agent's current config needs on this port
+	// (Repository.WantBuild) is ready. An outdated slot restarts only
+	// then, so it never sits starting through a build (one that failed
+	// leaves it running on its machine).
+	BuildReady bool `db:"build_ready"`
 	// Queued and Claimed count the agent's ships waiting and in work.
 	Queued  int `db:"queued"`
 	Claimed int `db:"claimed"`
@@ -203,6 +209,11 @@ type SlotStart struct {
 	Spec          Spec
 	ConfigVersion int
 	Digest        string
+	// Previous is the image a slot of the agent last ran on this same
+	// machine ("" when none): a start whose build isn't ready yet (a new
+	// release changed the base image) runs on it instead of waiting, and
+	// the slot restarts on the new image once it is ready and idle.
+	Previous string
 	// OldToken is the token of a run that died while starting (revoke it).
 	OldToken identity.CrewTokenID
 }
@@ -253,4 +264,19 @@ type SlotRun struct {
 	Image         string
 	ConfigVersion int
 	Digest        string
+}
+
+// HostedMachine is a hosted agent's current harness and machine as the
+// supervisor reads them (every organization) to keep its image built, and
+// the build it last recorded as the agent's (Repository.WantBuild) with
+// the machine digest that was for.
+type HostedMachine struct {
+	Organization identity.OrganizationID `db:"organization_id"`
+	Agent        identity.AgentID        `db:"agent_id"`
+	Harness      string                  `db:"harness"`
+	Machine      []byte                  `db:"machine"`
+	// MachineDigest is the current config's (Spec.Digest).
+	MachineDigest string `db:"machine_digest"`
+	Build         string `db:"build_digest"`
+	BuildMachine  string `db:"build_machine"`
 }

@@ -156,15 +156,29 @@ type hostedRow struct {
 	UpdatedAt time.Time        `db:"updated_at"`
 }
 
-// slotColumns read a slot (alias s) with outdated: running on another
-// machine digest than its agent's current config (alias p).
+// slotColumns read a slot (alias s) with outdated (slotOutdated).
 const slotColumns = `s.agent_id, s.idx, s.state, s.detail, s.image, s.config_version, s.started_at, s.active_at, s.updated_at,
-	(s.state = 'running' AND s.machine_digest IS DISTINCT FROM COALESCE(p.machine_digest, '')) AS outdated`
+	` + slotOutdated + ` AS outdated`
 
-// slotFrom joins a slot (s) to its agent's current config (p).
+// slotOutdated: the slot (s) runs another machine digest than its agent's
+// current config (p), or that machine on another image than the build
+// the agent's config needs on this port (b, recorded in its hosting h by
+// the supervisor), once that build is ready (a new release's base).
+const slotOutdated = `(s.state = 'running' AND (s.machine_digest IS DISTINCT FROM COALESCE(p.machine_digest, '')
+	OR COALESCE(h.build_machine = s.machine_digest AND b.state = 'ready' AND s.image <> b.image, false)))`
+
+// buildReady: the build the agent's current config (p) needs on this
+// port (b, of its hosting h) is recorded and ready.
+const buildReady = `(h.build_machine <> '' AND h.build_machine = COALESCE(p.machine_digest, '')
+	AND COALESCE(b.state = 'ready', false))`
+
+// slotFrom joins a slot (s) to its agent's current config (p), its
+// hosting (h) and the build that hosting wants (b).
 const slotFrom = ` FROM agent_slots s
 	JOIN agents a ON a.organization_id = s.organization_id AND a.id = s.agent_id
-	LEFT JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version`
+	JOIN agent_hosting h ON h.organization_id = s.organization_id AND h.agent_id = s.agent_id
+	LEFT JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
+	LEFT JOIN hosting_builds b ON b.organization_id = h.organization_id AND b.digest = h.build_digest`
 
 type slotRow struct {
 	Agent identity.AgentID `db:"agent_id"`

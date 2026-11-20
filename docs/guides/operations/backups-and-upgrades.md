@@ -63,7 +63,14 @@ docker compose up -d --build
 
 Migrations run at start, so there are no manual database steps. Take a backup first. With `--profile hosting`, include it in the command.
 
-Releases are tagged `v*`. Each publishes binaries to GitHub Releases and the base images for hosted agents (`ghcr.io/abraxas-365/seaport-rness` and `seaport-claude-code`), tagged with the version and `latest`. A port gets the base image of its own version by default, so after an upgrade, new builds of agents' machines use the new base. An agent's image is rebuilt when its base changes, since the base is part of the image key. Build ahead of time:
+Releases are tagged `v*`. Each publishes binaries to GitHub Releases and the base images for hosted agents (`ghcr.io/abraxas-365/seaport-rness` and `seaport-claude-code`), tagged with the version and `latest`. A port gets the base image of its own version by default, so after an upgrade, new builds of agents' machines use the new base. An agent's image is rebuilt when its base changes, since the base is part of the image key.
+
+You don't have to rebuild by hand. Once the new version is up, its supervisor builds each hosted agent's new image in the background, one at a time, without waiting for a message. Until a build is ready:
+
+- A message to an agent whose slots are stopped starts a slot on the image it ran before (same machine, previous base), so it answers right away.
+- A slot that is running keeps running. Once the new image is ready, the slot shows as outdated and restarts on it as soon as it is idle.
+
+An agent with no previous image (never started, or the engine pruned it) waits for its build on the first message. To build one agent now and follow the log:
 
 ```sh
 seaport agents build pm
@@ -89,7 +96,7 @@ This release removes environments: an agent's [config](../../reference/agent-con
 3. The environment secrets move into the secrets of the agents hosted on them. When an agent already has a secret of that name, the environment's is kept as `<NAME>_ENV` (then `_ENV_2`…), with `-env` off, and the machine's references follow it, so nothing changes for the running agent. Rename or delete these as you like.
 4. Migration 00046 drops the environments tables. It refuses to run if environments still have rows and the step didn't mark itself done, so a partial upgrade stops instead of losing data.
 
-Hosted slots that were running are left alone, and restart once they are idle on the new config, which builds the image if it isn't already (the same machine means the same image, shared between agents). Build ahead of time with `seaport agents build <agent>`.
+Hosted slots that were running are left alone, and restart once they are idle on the new config. The supervisor builds the new image in the background first (the same machine means the same image, shared between agents).
 
 **After you upgrade**
 
@@ -101,7 +108,7 @@ Hosted slots that were running are left alone, and restart once they are idle on
 
 ### With several processes
 
-Run the same version everywhere. For a rolling deploy, start a new process, then stop the old one. A stopping process hands its docks and deliveries over at once. See [Several processes](several-processes.md).
+Run the same version everywhere. For a rolling deploy, start a new process, then stop the old one. A stopping process hands its docks and deliveries over at once. While both run, each one's supervisor wants the images of its own version's base, so hosted slots may restart once more; finish the rollout promptly. See [Several processes](several-processes.md).
 
 ## Next
 
