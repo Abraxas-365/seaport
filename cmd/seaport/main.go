@@ -57,6 +57,8 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock replies <dock-id> on|off  whether the crew may answer on it (off: a trigger; it still wakes the agent)
   seaport dock tools <dock-id> [history|conversations|attachments on|off ...]
                                         what agents may read there besides the messages they get (no switches: show them)
+  seaport dock whatsapp <dock-id> [react on|off] [emoji <emoji>] [read on|off]
+                                        what a WhatsApp dock does to a message an agent gets (nothing named: show it)
   seaport dock destinations <dock-id>   places where agents may open conversations
   seaport dock destination set <dock-id> <name> <target> [-title T]   a Slack channel id, a WhatsApp +number or group JID, an api chat id
   seaport dock destination rm <dock-id> <name>
@@ -270,6 +272,8 @@ func run(ctx context.Context, args []string) error {
 			return dockWebhook(ctx, rest[1:])
 		case "datadog":
 			return dockDatadog(ctx, rest[1:])
+		case "whatsapp":
+			return dockWhatsApp(ctx, rest[1:])
 		case "destinations":
 			return dockDestinations(ctx, rest[1:])
 		case "destination":

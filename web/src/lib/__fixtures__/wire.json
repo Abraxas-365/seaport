@@ -971,6 +971,11 @@
         "offset": 0,
         "total": 1
       }
+    },
+    "whatsapp": {
+      "emoji": "👀",
+      "mark_read": false,
+      "react": true
     }
   },
   "events": {

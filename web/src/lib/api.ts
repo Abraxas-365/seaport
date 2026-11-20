@@ -67,6 +67,7 @@ import type {
   VaultEntryVersion,
   VaultHit,
   VaultMode,
+  WhatsAppSettings,
 } from "./types"
 
 export class ApiError extends Error {
@@ -205,6 +206,9 @@ export const api = {
     request<WebhookInfo>("PUT", `${v1}/docks/${id}/webhook`, body),
   rotateWebhookSecret: (id: string) => request<WebhookInfo>("POST", `${v1}/docks/${id}/webhook/secret`),
   datadog: (id: string) => request<DatadogInfo>("GET", `${v1}/docks/${id}/datadog`),
+  whatsapp: (id: string) => request<WhatsAppSettings>("GET", `${v1}/docks/${id}/whatsapp`),
+  saveWhatsApp: (id: string, body: Partial<WhatsAppSettings>) =>
+    request<WhatsAppSettings>("PUT", `${v1}/docks/${id}/whatsapp`, body),
   saveDatadog: (id: string, body: { mirror: DatadogMirror | null }) =>
     request<DatadogInfo>("PUT", `${v1}/docks/${id}/datadog`, body),
   rotateDatadogSecret: (id: string) => request<DatadogInfo>("POST", `${v1}/docks/${id}/datadog/secret`),

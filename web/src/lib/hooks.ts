@@ -32,6 +32,7 @@ import type {
   Ship,
   VaultEntrySummary,
   VaultMode,
+  WhatsAppSettings,
 } from "./types"
 
 export type InboxFilter = { status?: CustomsStatus; dock_id?: string }
@@ -191,6 +192,28 @@ export function useWebhook(dock: string, enabled = true) {
 export function useDatadog(dock: string, enabled = true) {
   const can = useCan()
   return useQuery({ queryKey: keys.datadog(dock), queryFn: () => api.datadog(dock), enabled: enabled && can(Perm.DocksRead) })
+}
+
+/** What a WhatsApp dock does to a message an agent has (reaction, read receipt). */
+export function useWhatsAppSettings(dock: string, enabled = true) {
+  const can = useCan()
+  return useQuery({
+    queryKey: keys.whatsapp(dock),
+    queryFn: () => api.whatsapp(dock),
+    enabled: enabled && can(Perm.DocksRead),
+  })
+}
+
+export function useSaveWhatsAppSettings(dock: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Partial<WhatsAppSettings>) => api.saveWhatsApp(dock, body),
+    onSuccess: (s) => {
+      qc.setQueryData(keys.whatsapp(dock), s)
+      toast.success("Ajustes guardados")
+    },
+    onError: fail("No se pudo guardar"),
+  })
 }
 
 export function useDestinations(dock: string, enabled = true) {

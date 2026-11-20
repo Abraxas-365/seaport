@@ -38,6 +38,7 @@ import type {
   VaultEntrySummary,
   VaultEntryVersion,
   VaultHit,
+  WhatsAppSettings,
 } from "./types"
 
 type Events = typeof wire.events
@@ -77,6 +78,7 @@ export type ApiMatches = AllTrue<{
   dock: Matches<Api["dock"], Dock>
   dock_linking: Matches<Api["dock_linking"], Dock>
   dock_trigger: Matches<Api["dock_trigger"], Dock>
+  whatsapp: Matches<Api["whatsapp"], WhatsAppSettings>
   docks: Matches<Api["docks"], Paginated<Dock>>
   conversation: Matches<Api["conversation"], Conversation>
   conversation_dm: Matches<Api["conversation_dm"], Conversation>

@@ -197,6 +197,8 @@ Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are rep
 | Longest pause after a replaced WhatsApp stream | 10 min | `dockwa.maxReplacedPause` | No |
 | WhatsApp pairing wait | 3 min | `dockwa.linkTimeout` | No |
 | WhatsApp message handler | 30 s | `dockwa.handlerTimeout` | No |
+| WhatsApp read receipt and reaction of one message | 30 s | `dockwa.seenTimeout` | No |
+| Longest wait of a reaction for its turn among a dock's sends (else skipped) | 5 s | `dockwa.reactionWait` | No |
 | WhatsApp media download | 20 s | `dockwa.downloadTimeout` | No |
 
 ## Agent profiles

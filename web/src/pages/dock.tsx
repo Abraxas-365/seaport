@@ -6,6 +6,7 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Eye,
   Link2,
   Link2Off,
   Mail,
@@ -48,6 +49,8 @@ import {
   useJira,
   useSlack,
   useWebhook,
+  useWhatsAppSettings,
+  useSaveWhatsAppSettings,
   useInbox,
   useUnassignAgent,
 } from "@/lib/hooks"
@@ -392,6 +395,8 @@ function DockDetail({ dock }: { dock: Dock }) {
 
         {channelReplies[dock.channel] && dock.replies && <DestinationsCard dock={dock} write={write} />}
 
+        {wa && <WhatsAppSeenCard dock={dock} write={write} />}
+
         <AgentToolsCard dock={dock} write={write} />
 
         <Card>
@@ -452,6 +457,111 @@ function RepliesCard({ dock, write }: { dock: Dock; write: boolean }) {
             checked={dock.replies}
             disabled={!write || replies.isPending}
             onCheckedChange={(on) => replies.mutate({ id: dock.id, replies: on })}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Reactions offered with one click; any other single emoji can be typed. */
+const seenEmojis = ["👀", "✅", "👍", "🙏", "🫡", "⏳"]
+
+/**
+ * What a WhatsApp dock does to a message once an agent has it (queued for
+ * one): react with an emoji and/or send the read receipt. Both off until
+ * the owner turns them on.
+ */
+function WhatsAppSeenCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const settings = useWhatsAppSettings(dock.id)
+  const save = useSaveWhatsAppSettings(dock.id)
+  const [custom, setCustom] = React.useState("")
+
+  if (settings.isError) return <ErrorState error={settings.error} onRetry={() => settings.refetch()} />
+  if (!settings.data) return <Skeleton className="h-40 rounded-xl" />
+  const s = settings.data
+  const busy = !write || save.isPending
+  const pick = (emoji: string) => save.mutate({ emoji }, { onSuccess: () => setCustom("") })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Eye className="size-4" /> Visto por el agente
+        </CardTitle>
+        <CardDescription>
+          Qué hace el muelle cuando un mensaje le llega a un agente. En grupos, solo con los mensajes que mencionan
+          al número; nunca con los retenidos por la aduana ni en tu propio chat.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="space-y-3 rounded-md border px-3 py-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Reaccionar</div>
+              <div className="text-xs text-muted-foreground">
+                {s.react ? `Reacciona con ${s.emoji} al mensaje.` : "No reacciona a los mensajes."}
+              </div>
+            </div>
+            <Switch
+              aria-label="Reaccionar"
+              checked={s.react}
+              disabled={busy}
+              onCheckedChange={(v) => save.mutate({ react: v })}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {seenEmojis.map((e) => (
+              <Button
+                key={e}
+                type="button"
+                size="sm"
+                variant={s.emoji === e ? "secondary" : "ghost"}
+                aria-label={`Reaccionar con ${e}`}
+                aria-pressed={s.emoji === e}
+                disabled={busy}
+                onClick={() => pick(e)}
+              >
+                {e}
+              </Button>
+            ))}
+            {write && (
+              <form
+                className="flex items-center gap-1.5"
+                onSubmit={(ev) => {
+                  ev.preventDefault()
+                  if (custom.trim()) pick(custom.trim())
+                }}
+              >
+                <Input
+                  aria-label="Otro emoji"
+                  placeholder="Otro"
+                  value={custom}
+                  onChange={(ev) => setCustom(ev.target.value)}
+                  className="h-8 w-20 text-center"
+                  disabled={busy}
+                />
+                <Button type="submit" size="sm" variant="outline" disabled={busy || !custom.trim()}>
+                  Usar
+                </Button>
+              </form>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Marcar como leído</div>
+            <div className="text-xs text-muted-foreground">
+              {s.mark_read
+                ? "Envía la confirmación de lectura (doble check azul). Si la cuenta tiene las confirmaciones apagadas, WhatsApp no la muestra."
+                : "Los mensajes quedan sin leer en WhatsApp."}
+            </div>
+          </div>
+          <Switch
+            aria-label="Marcar como leído"
+            checked={s.mark_read}
+            disabled={busy}
+            onCheckedChange={(v) => save.mutate({ mark_read: v })}
           />
         </div>
       </CardContent>

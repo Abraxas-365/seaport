@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/config"
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/testdb"
 )
@@ -364,6 +365,50 @@ func TestCLIWebhookAndDatadog(t *testing.T) {
 	}
 	if msg := p.fails("dock", "email"); !strings.Contains(msg, "usage: seaport dock email") {
 		t.Errorf("email usage: %q", msg)
+	}
+}
+
+// A WhatsApp dock's settings: shown, changed by name, refused when wrong.
+// (The test port runs no WhatsApp gateway, so the dock is inserted.)
+func TestCLIWhatsAppSettings(t *testing.T) {
+	p := startCLIPort(t)
+	db, err := bootstrap.OpenDB(context.Background(), testDatabaseURL(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	wa := identity.NewDockID()
+	if _, err := db.Exec(`INSERT INTO docks (id, organization_id, channel, name, address, status)
+		VALUES ($1, $2, 'whatsapp', 'wa', '', 'linked')`, wa, config.DefaultOrganization); err != nil {
+		t.Fatal(err)
+	}
+	api := p.addDock("api", "chat")
+
+	shown := p.ok("dock", "whatsapp", wa.String())
+	if !regexp.MustCompile(`react\s+off\s+react with 👀`).MatchString(shown) || !regexp.MustCompile(`read\s+off`).MatchString(shown) {
+		t.Errorf("defaults:\n%s", shown)
+	}
+	changed := p.ok("dock", "whatsapp", wa.String(), "react", "on", "emoji", "✅", "read", "on")
+	if !regexp.MustCompile(`react\s+on\s+react with ✅`).MatchString(changed) || !regexp.MustCompile(`read\s+on`).MatchString(changed) {
+		t.Errorf("after switching:\n%s", changed)
+	}
+	var got struct {
+		React    bool   `json:"react"`
+		Emoji    string `json:"emoji"`
+		MarkRead bool   `json:"mark_read"`
+	}
+	if code := p.api(http.MethodGet, "/api/v1/docks/"+wa.String()+"/whatsapp", nil, &got); code != http.StatusOK ||
+		!got.React || got.Emoji != "✅" || !got.MarkRead {
+		t.Fatalf("as the API sees it: %d %+v", code, got)
+	}
+	if msg := p.fails("dock", "whatsapp", wa.String(), "react", "yes"); !strings.Contains(msg, "usage: seaport dock whatsapp") {
+		t.Errorf("bad value: %q", msg)
+	}
+	if msg := p.fails("dock", "whatsapp", wa.String(), "emoji", "ok"); !strings.Contains(msg, "one emoji") {
+		t.Errorf("bad emoji: %q", msg)
+	}
+	if msg := p.fails("dock", "whatsapp", api); !strings.Contains(msg, "not a whatsapp dock") {
+		t.Errorf("an api dock: %q", msg)
 	}
 }
 
