@@ -344,7 +344,7 @@ func (a *Agent) mcpServers() []acp.McpServer {
 	out := []acp.McpServer{}
 	// Every agent takes stdio servers (ACP requires it); the browser MCP
 	// goes first so a page is reachable even to an agent without HTTP MCP.
-	if name, command, args, ok := a.browser.MCPServer(); ok {
+	if name, command, args, ok := a.browser.MCPServer(a.cfg.Cwd); ok {
 		out = append(out, acp.McpServer{Stdio: &acp.McpServerStdio{Name: name, Command: command, Args: args, Env: []acp.EnvVariable{}}})
 	}
 	if a.mcpURL == "" || !a.caps.McpCapabilities.Http {

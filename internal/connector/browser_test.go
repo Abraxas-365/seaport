@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,29 @@ func TestProxyBypass(t *testing.T) {
 	}
 	if got := proxyBypass(""); got != "" {
 		t.Fatalf("empty bypass %q", got)
+	}
+}
+
+// The browser MCP may read and write where the agent works: chrome-devtools-mcp
+// allows only its temp directory without --workspace, so take_screenshot's
+// filePath was refused in the slot's workspace, home and /tmp. Roots are
+// absolute, cleaned and each listed once.
+func TestBrowserMCPWorkspaces(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("slot paths are Unix paths")
+	}
+	roots := browserRoots("/workspace", "/home/agent", "/home/agent/.tmp/")
+	if strings.Join(roots, ",") != "/workspace,/home/agent,/home/agent/.tmp,/tmp" {
+		t.Fatalf("roots %v", roots)
+	}
+	if got := browserRoots("", "relative", "/tmp"); strings.Join(got, ",") != "/tmp" {
+		t.Fatalf("roots without cwd and home %v", got)
+	}
+	args := strings.Join(browserMCPArgs("http://127.0.0.1:9222", roots), " ")
+	want := "--browserUrl http://127.0.0.1:9222 --no-usage-statistics --no-performance-crux" +
+		" --workspace /workspace --workspace /home/agent --workspace /home/agent/.tmp --workspace /tmp"
+	if args != want {
+		t.Fatalf("args\n got %s\nwant %s", args, want)
 	}
 }
 
