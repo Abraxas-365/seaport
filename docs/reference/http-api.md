@@ -219,6 +219,19 @@ A dock:
 
 See [API docks](../guides/api-docks.md).
 
+### WhatsApp docks
+
+| Method | Path | Permission | Body and response |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/docks/{id}/whatsapp` | `docks:read` | The dock's settings (below). `422` for a dock of another channel. |
+| `PUT` | `/docks/{id}/whatsapp` | `docks:write` | Body with any of `react`, `emoji` and `mark_read` (at least one; only those change). Answers every setting. `400` for an `emoji` that isn't one emoji. |
+
+```json
+{ "react": true, "emoji": "👀", "mark_read": false }
+```
+
+What the dock does to a message once an agent has it (queued for one; held messages and the account's own chat are left alone). `react` (default `false`) reacts with `emoji` (default `👀`, any single emoji); `mark_read` (default `false`) sends the read receipt. See [WhatsApp](../guides/whatsapp.md#seen-by-the-agent).
+
 ### GitHub docks
 
 | Method | Path | Permission | Body and response |

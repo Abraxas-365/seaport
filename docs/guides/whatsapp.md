@@ -41,6 +41,24 @@ Your "message yourself" chat with the linked number is always allowed by customs
 
 Customs identifies people by their phone as `+<digits>` and by their WhatsApp ids (`…@s.whatsapp.net`, `…@lid`); groups by `…@g.us`. Rules can match any of these: see [Customs](customs.md).
 
+## Seen by the agent
+
+A dock can show people that an agent has their message, the way GitHub and Slack docks react with 👀. Two settings, both off until you turn them on:
+
+| Setting | What the dock does |
+| :--- | :--- |
+| React | reacts to the message with an emoji (`👀` unless you pick another) |
+| Mark as read | sends the read receipt (blue ticks). With the account's read receipts off, WhatsApp keeps it private |
+
+The dock does it when a message goes to an agent: in a group only messages that mention the number (in `mentions` mode), never messages customs holds, and never in your own chat. In the web app: the dock's page → **Visto por el agente**. From the CLI:
+
+```sh
+seaport dock whatsapp <dock-id>                            # show the settings
+seaport dock whatsapp <dock-id> react on emoji ✅ read on
+```
+
+A reaction is one more message from the number, so it takes its turn in the spacing between sends (see [limits](../reference/limits.md)). When the agent's replies are already queued for more than a few seconds, the dock skips the reaction so replies are not held back.
+
 ## Unlink or delete
 
 ```sh

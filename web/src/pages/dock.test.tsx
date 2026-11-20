@@ -1,9 +1,10 @@
 import { screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { keys } from "@/lib/query"
 import { Perm } from "@/lib/permissions.gen"
-import type { DatadogInfo, Dock, InboxItem, WebhookInfo } from "@/lib/types"
+import type { DatadogInfo, Dock, InboxItem, WebhookInfo, WhatsAppSettings } from "@/lib/types"
 import { infinite } from "@/test/query"
 import { renderAt, seededClient, stubNetwork } from "@/test/render"
 import { apiData } from "@/test/wire"
@@ -109,5 +110,63 @@ describe("the agent tools card", () => {
     expect(files).not.toBeChecked()
     expect(history).toBeDisabled()
     expect(screen.getByText("El agente sabe que llegó un archivo, pero no puede abrirlo.")).toBeInTheDocument()
+  })
+})
+
+describe("the seen-by-the-agent card", () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const whatsapp = (): Dock => ({ ...apiData<Dock>("dock"), channel: "whatsapp", address: "+34600000000" })
+  const seen = apiData<WhatsAppSettings>("whatsapp")
+
+  it("shows the settings, read-only without docks:write", () => {
+    const dock = whatsapp()
+    renderDock(dock, (qc) => qc.setQueryData(keys.whatsapp(dock.id), seen))
+    expect(screen.getByText("Visto por el agente")).toBeInTheDocument()
+    const react = screen.getByRole("switch", { name: "Reaccionar" })
+    const read = screen.getByRole("switch", { name: "Marcar como leído" })
+    expect(react).toBeChecked()
+    expect(read).not.toBeChecked()
+    expect(react).toBeDisabled()
+    expect(screen.getByText("Reacciona con 👀 al mensaje.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Reaccionar con 👀" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.queryByRole("textbox", { name: "Otro emoji" })).not.toBeInTheDocument()
+  })
+
+  it("saves only what was changed", async () => {
+    const user = userEvent.setup()
+    const dock = whatsapp()
+    const calls: { method: string; path: string; body?: unknown }[] = []
+    let stored = seen
+    vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
+      if (!path.endsWith("/whatsapp")) return new Promise<Response>(() => {})
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      calls.push({ method: init?.method ?? "GET", path, body })
+      stored = { ...stored, ...body }
+      return new Response(JSON.stringify(stored), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    })
+    const qc = seededClient([...readOnly, Perm.DocksWrite])
+    qc.setQueryData(keys.dock(dock.id), dock)
+    qc.setQueryData(keys.inbox({ dock_id: dock.id }), infinite<InboxItem>([]))
+    qc.setQueryData(keys.whatsapp(dock.id), seen)
+    renderAt(<DockPage />, qc, { pattern: "/docks/:dockId", path: `/docks/${dock.id}` })
+
+    await user.click(screen.getByRole("switch", { name: "Marcar como leído" }))
+    await user.type(screen.getByRole("textbox", { name: "Otro emoji" }), "🫶")
+    await user.click(screen.getByRole("button", { name: "Usar" }))
+
+    const puts = calls.filter((c) => c.method === "PUT")
+    expect(puts.map((c) => c.path)).toEqual([`/api/v1/docks/${dock.id}/whatsapp`, `/api/v1/docks/${dock.id}/whatsapp`])
+    expect(puts.map((c) => c.body)).toEqual([{ mark_read: true }, { emoji: "🫶" }])
+    expect(await screen.findByText("Reacciona con 🫶 al mensaje.")).toBeInTheDocument()
+    expect(screen.getByRole("switch", { name: "Marcar como leído" })).toBeChecked()
+  })
+
+  it("is not on other channels", () => {
+    const dock = apiData<Dock>("dock")
+    renderDock(dock)
+    expect(screen.queryByText("Visto por el agente")).not.toBeInTheDocument()
   })
 })

@@ -1625,6 +1625,21 @@ export interface WebhookTemplate {
   agent?: string
 }
 
+/**
+ * WhatsAppSettings are what a WhatsApp dock does to a message once an agent has
+ * it (migration 00047). Both are off until the owner turns them on.
+ */
+export interface WhatsAppSettings {
+  /** React: react to the message with Emoji. */
+  react: boolean
+  emoji: string
+  /**
+   * MarkRead: send the read receipt (blue ticks). When the account's
+   * read receipts are off WhatsApp keeps it private.
+   */
+  mark_read: boolean
+}
+
 /** The payload of every live event type (GET /api/v1/events), by type. */
 export interface WireEvents {
   "agent.build": Build

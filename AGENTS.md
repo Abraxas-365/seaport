@@ -1474,6 +1474,20 @@ net/http mux; only `/healthz` answers 405.
   copied their devices in at start); it refuses while a linked dock's
   device is only there (`TestMigrationDropsTheOldStore`, via
   `bootstrap.MigrateTo`). A dock's `address` is its device JID.
+- WhatsApp seen (`dockwa/settings.go`, `http.go`, migration 00047,
+  `whatsapp_docks`; no row = `dockwa.DefaultSettings`, both off): per dock
+  the owner may have the gateway react to a message with an emoji
+  (`ValidEmoji`, default 👀) and/or send its read receipt, once the message
+  is queued for an agent (`marks`: `Receive` answered created and queued,
+  not the self chat), as GitHub and Slack react 👀. Held messages are never
+  marked. `Gateway.seen` reads the settings in the event handler and does
+  the sends in a goroutine tracked by the gateway (`seenTimeout`, cancelled
+  and awaited by `Close`); the reaction takes a send turn only within
+  `reactionWait` (`session.paceWithin`), else it is skipped, so replies are
+  never pushed back; failures are logged. Routes `GET|PUT /api/v1/docks/{id}/whatsapp` (served
+  by `dockwa`, mounted by `dockmodule` even without the gateway; 422 on
+  another channel; PUT = `SettingsPatch`), `seaport dock whatsapp`, the
+  web's **Visto por el agente** card.
 - `SEAPORT_SECRET_KEY` (required in iam mode) else `SEAPORT_SECRET_KEY_FILE`,
   generated on first start (`bootstrap.SecretKey`: temp file 0600, fsync,
   link into place) — never while `wa_devices`, `agent_secrets`,

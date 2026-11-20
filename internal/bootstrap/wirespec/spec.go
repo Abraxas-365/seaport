@@ -18,6 +18,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockgithub"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockjira"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockslack"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwebhook"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/httpx"
@@ -71,6 +72,7 @@ func Spec() wire.Spec {
 			"WebhookInfo":        of[dockwebhook.Info](),
 			"DatadogMirror":      of[dockdatadog.Mirror](),
 			"DatadogInfo":        of[dockdatadog.Info](),
+			"WhatsAppSettings":   of[dockwa.Settings](),
 			"EmailEndpoint":      of[dockemail.Endpoint](),
 			"EmailAccount":       of[dockemail.AccountInfo](),
 			"EmailInfo":          of[dockemail.Info](),

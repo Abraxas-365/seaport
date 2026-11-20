@@ -497,6 +497,8 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/docks/" + dk + "/datadog", "GET /api/v1/docks/{id}/datadog", nil, permission.DocksRead},
 		{"PUT", "/api/v1/docks/" + dk + "/datadog", "PUT /api/v1/docks/{id}/datadog", map[string]any{"mirror": nil}, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/datadog/secret", "POST /api/v1/docks/{id}/datadog/secret", nil, permission.DocksWrite},
+		{"GET", "/api/v1/docks/" + dk + "/whatsapp", "GET /api/v1/docks/{id}/whatsapp", nil, permission.DocksRead},
+		{"PUT", "/api/v1/docks/" + dk + "/whatsapp", "PUT /api/v1/docks/{id}/whatsapp", map[string]any{"react": true}, permission.DocksWrite},
 		{"GET", "/api/v1/docks/" + dk + "/slack", "GET /api/v1/docks/{id}/slack", nil, permission.DocksRead},
 		{"POST", "/api/v1/docks/" + dk + "/slack/create", "POST /api/v1/docks/{id}/slack/create", map[string]string{"config_token": "x"}, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/slack/install", "POST /api/v1/docks/{id}/slack/install", nil, permission.DocksWrite},

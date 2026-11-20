@@ -80,6 +80,10 @@ type Module struct {
 	dd       *dockdatadog.Gateway
 	ddHTTP   *dockdatadog.Handler
 	extra    []dock.Gateway
+
+	// waHTTP serves WhatsApp docks' settings, stored data that needs no
+	// running gateway (always mounted).
+	waHTTP *dockwa.Handler
 }
 
 func New(ctx context.Context, d Deps) (*Module, error) {
@@ -141,7 +145,8 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	if wa != nil {
 		wa.Bind(svc, nil)
 	}
-	m := &Module{Service: svc, http: dockhttp.New(svc, svc), wa: wa, gh: gh, jira: jira, sl: sl, email: em, extra: d.Gateways}
+	m := &Module{Service: svc, http: dockhttp.New(svc, svc), waHTTP: dockwa.NewHandler(dockwa.NewSettingsStore(d.DB), svc),
+		wa: wa, gh: gh, jira: jira, sl: sl, email: em, extra: d.Gateways}
 	if jira != nil {
 		jira.Bind(svc, nil, nil)
 		m.jiraHTTP = dockjira.NewHandler(jira, svc)
@@ -224,6 +229,7 @@ func (m *Module) BindTeams(t dockgithub.Teams) {
 
 func (m *Module) Register(r httpx.Router) {
 	m.http.Register(r)
+	m.waHTTP.Register(r)
 	if m.ghHTTP != nil {
 		m.ghHTTP.Register(r)
 	}

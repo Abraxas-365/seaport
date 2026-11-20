@@ -35,6 +35,11 @@ const (
 	minSendGap = 1200 * time.Millisecond
 	// handlerTimeout bounds the work done for one WhatsApp event.
 	handlerTimeout = 30 * time.Second
+	// seenTimeout bounds the read receipt and reaction of one message.
+	seenTimeout = 30 * time.Second
+	// reactionWait: a reaction waits at most this long for its turn among
+	// the dock's sends; longer, it is dropped (replies matter more).
+	reactionWait = 5 * time.Second
 	// downloadTimeout bounds an image download (within handlerTimeout).
 	downloadTimeout = 20 * time.Second
 	// encryptionOverhead: WhatsApp's encrypted media is the file plus up
@@ -57,7 +62,14 @@ type LinkSink interface {
 }
 
 type Gateway struct {
-	devices *Store
+	devices  *Store
+	settings *SettingsStore
+
+	// background: what outlives an event (read receipts and reactions),
+	// cancelled and awaited by Close.
+	background context.Context
+	stop       context.CancelFunc
+	tasks      sync.WaitGroup
 
 	mu       sync.Mutex
 	clients  map[identity.DockID]*session
@@ -126,7 +138,9 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string) (*Gateway, error) 
 	if err := devices.CheckKey(ctx); err != nil {
 		return nil, err
 	}
-	return &Gateway{devices: devices, clients: map[identity.DockID]*session{}, replaced: map[identity.DockID]replacement{}}, nil
+	background, stop := context.WithCancel(context.Background())
+	return &Gateway{devices: devices, settings: NewSettingsStore(db), background: background, stop: stop,
+		clients: map[identity.DockID]*session{}, replaced: map[identity.DockID]replacement{}}, nil
 }
 
 // Bind sets the domain callbacks (they are built after the gateway).
@@ -144,16 +158,19 @@ func (g *Gateway) Channel() dock.Channel { return dock.ChannelWhatsApp }
 // the first (StreamReplaced).
 func (g *Gateway) Exclusive() bool { return true }
 
-// Close disconnects every dock.
+// Close disconnects every dock and waits for the read receipts and
+// reactions under way (cancelled).
 func (g *Gateway) Close() {
 	g.mu.Lock()
 	sessions := g.clients
 	g.clients = map[identity.DockID]*session{}
+	g.stop() // under mu: no task is added after this (see seen)
 	g.mu.Unlock()
 	for _, s := range sessions {
 		s.ended.Store(true)
 		s.client.Disconnect()
 	}
+	g.tasks.Wait()
 }
 
 // take ends the dock's session in this process, if any.
@@ -494,6 +511,30 @@ func (s *session) pace(ctx context.Context) {
 	}
 }
 
+// paceWithin is pace for a send that may be dropped (a reaction): it takes
+// a turn only when the turn comes within max, so a burst of them never
+// pushes the agent's replies back by more than that. False: no turn (the
+// queue is longer, or ctx ended while waiting).
+func (s *session) paceWithin(ctx context.Context, max time.Duration) bool {
+	s.mu.Lock()
+	wait := time.Until(s.lastSend.Add(minSendGap))
+	if wait < 0 {
+		wait = 0
+	}
+	if wait > max {
+		s.mu.Unlock()
+		return false
+	}
+	s.lastSend = time.Now().Add(wait)
+	s.mu.Unlock()
+	select {
+	case <-time.After(wait):
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (g *Gateway) setStatus(id identity.DockID, status dock.Status) {
 	g.mu.Lock()
 	links := g.links
@@ -565,10 +606,59 @@ func (g *Gateway) handle(s *session, evt any) {
 		if !ok {
 			return
 		}
-		if _, _, err := receiver.Receive(ctx, s.organization, in); err != nil {
+		st, created, err := receiver.Receive(ctx, s.organization, in)
+		if err != nil {
 			slog.Error("receive whatsapp message", "dock", s.dock, "chat", in.ChatID, "err", err)
+			return
+		}
+		if marks(st, created, in.ChatKind) {
+			g.seen(ctx, s, e.Info)
 		}
 	}
+}
+
+// seen does what the dock's settings say to a message an agent has: the
+// read receipt, then the reaction (dropped when the dock's sends are
+// queued past reactionWait, so replies come first). The settings are read
+// here; the sends go in the background (the event handler runs WhatsApp's
+// events in order). A failure is logged, never retried.
+func (g *Gateway) seen(ctx context.Context, s *session, info types.MessageInfo) {
+	set, err := g.settings.Get(ctx, s.organization, s.dock)
+	if err != nil {
+		slog.Warn("read whatsapp dock settings", "dock", s.dock, "err", err)
+		return
+	}
+	if !set.React && !set.MarkRead {
+		return
+	}
+	g.mu.Lock()
+	if g.background.Err() != nil { // closed
+		g.mu.Unlock()
+		return
+	}
+	g.tasks.Add(1)
+	g.mu.Unlock()
+	go func() {
+		defer g.tasks.Done()
+		ctx, cancel := context.WithTimeout(g.background, seenTimeout)
+		defer cancel()
+		chat, sender := info.Chat.ToNonAD(), info.Sender.ToNonAD()
+		if set.MarkRead && !s.ended.Load() {
+			if err := s.client.MarkRead(ctx, []types.MessageID{info.ID}, time.Now(), chat, sender); err != nil {
+				slog.Warn("mark whatsapp message read", "dock", s.dock, "err", err)
+			}
+		}
+		if !set.React || s.ended.Load() {
+			return
+		}
+		if !s.paceWithin(ctx, reactionWait) || s.ended.Load() {
+			slog.Info("whatsapp reaction skipped: the dock's sends are queued", "dock", s.dock)
+			return
+		}
+		if _, err := s.client.SendMessage(ctx, chat, s.client.BuildReaction(chat, sender, info.ID, set.Emoji)); err != nil {
+			slog.Warn("react to whatsapp message", "dock", s.dock, "err", err)
+		}
+	}()
 }
 
 // inbound turns a WhatsApp message into a ship, or ok=false to ignore it:

@@ -31,6 +31,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/dock"
+	"github.com/Abraxas-365/seaport/internal/dock/adapters/dockwa"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/permission"
@@ -218,6 +219,7 @@ func wireFixtures() map[string]any {
 		"dock":            dk,
 		"dock_linking":    linking,
 		"dock_trigger":    trigger,
+		"whatsapp":        dockwa.Settings{React: true, Emoji: dockwa.DefaultEmoji, MarkRead: false},
 		"docks":           query.Paginated[dock.Dock]{Items: []dock.Dock{dk, trigger}, Page: page(2)},
 		"conversation":    conv,
 		"conversation_dm": direct,
