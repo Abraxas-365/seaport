@@ -4,12 +4,13 @@ import { Image } from 'astro:assets'
 import mark from '../assets/seaport-mark.svg'
 import inbox from '../../../docs/assets/screenshots/inbox.png'
 import customs from '../../../docs/assets/screenshots/customs.png'
-import agentProfile from '../../../docs/assets/screenshots/agent-profile.png'
+import agents from '../../../docs/assets/screenshots/agents.png'
 import { repository, base } from '../../scripts/docs.mjs'
 import '../styles/landing.css'
 
 // Internal links go through the deploy base (/seaport/ on GitHub Pages).
 const u = (path: string) => base + path
+const useCases = (anchor = '') => u('docs/explanation/use-cases/') + (anchor && `#${anchor}`)
 
 const release = `VERSION=$(curl -sSfLo /dev/null -w '%{url_effective}' ${repository}/releases/latest | sed 's|.*/v||')
 curl -sSfLO "${repository}/releases/download/v$VERSION/seaport_\${VERSION}_darwin_arm64.tar.gz"
@@ -26,12 +27,12 @@ export DATABASE_URL="postgres://seaport:seaport@127.0.0.1:5449/seaport?sslmode=d
 # no login, loopback only: for your own computer
 SEAPORT_AUTH=none seaport serve      # → http://127.0.0.1:8740`
 const connect = `seaport dock add slack    # or github, jira, email, whatsapp, webhook, datadog, api
-seaport agents add pm -description "Answers about tickets"
+seaport agents add pm -description "Answers about the sprint"
 seaport agents assign pm <dock-id> -default
 
 # from the directory the agent should work in
 seaport connect -agent pm -- rness --acp`
-const env = `# agent.yaml · seaport agents config apply pm -f agent.yaml
+const env = `# agent.yaml · seaport agents config apply reviewer -f agent.yaml
 harness: rness                    # rness | claude-code
 machine:                          # where it runs when the port hosts it
   repos:
@@ -45,48 +46,41 @@ machine:                          # where it runs when the port hosts it
   browser:
     engine: chromium              # a managed browser per slot
   idle_stop: 30m`
-const features = [
-  { number: '01', title: 'Docks', text: 'A Slack app, a GitHub App on your repositories, a Jira service account, a mailbox, a WhatsApp number, an api dock, or an endpoint for webhooks and Datadog alerts. People call an agent with @name where they already work; messages carry images and documents both ways.', tags: 'Slack · GitHub · Jira · Email · WhatsApp · Webhook · Datadog · HTTP', href: u('docs/explanation/concepts/') },
-  { number: '02', title: 'Customs', text: 'Per-dock defaults and allow/deny rules decide who may wake an agent. What doesn’t pass is held: stored, visible, never delivered.', tags: 'Rules · Overrides · Groups', href: u('docs/guides/customs/') },
-  { number: '03', title: 'Crew and routing', text: 'A library of agents (@pm, @reviewer…) on the docks you assign. @name picks one; otherwise the chat stays with its agent or goes to the default.', tags: 'Agents · Teams · @mentions', href: u('docs/guides/agents-and-routing/') },
-  { number: '04', title: 'Profiles', text: 'Instructions, skills, MCP servers and sealed secrets live in the port. Save a change and every connection picks it up.', tags: 'Versions · Skills · MCP', href: u('docs/guides/profiles/') },
-  { number: '05', title: 'Any ACP agent', text: 'The connector dials out and runs rness, Claude Code or any ACP agent: one session per conversation, resumed across restarts.', tags: 'seaport connect · ACP', href: u('docs/guides/connector/') },
-  { number: '06', title: 'Nothing lost', text: 'One delivery per conversation at a time, leased while the agent works and released if it drops. Mid-turn messages are steered in.', tags: 'Leases · Steer · Replays', href: u('docs/explanation/message-lifecycle/') },
-  { number: '07', title: 'Agents that write first', text: 'A schedule posts into a conversation on a timetable. A destination is a channel you name where an agent may open a conversation: the on-call channel, the team’s group.', tags: 'Schedules · Destinations · open', href: u('docs/guides/destinations/') },
-  { number: '08', title: 'Threads and approvals', text: 'Link a Jira issue, its pull request and a Slack thread into one thread with one session. Before a deploy or a delete, the agent asks with numbered options and waits.', tags: 'Linked conversations · ask_approval', href: u('docs/guides/approvals/') },
-  { number: '09', title: 'Shared memory', text: 'Vaults are markdown notes your agents read and write through the port, whatever harness or slot runs them. You grant read or write per agent and per dock, and every version is kept.', tags: 'Vaults · memory_search · Versions', href: u('docs/guides/vaults/') },
+const steps = [
+  { title: 'Someone calls an agent', text: 'A person writes @reviewer on a pull request, @pm in a Slack thread or @stories on a Jira issue. An alert or a webhook can also call one.' },
+  { title: 'Your rules decide', text: 'Seaport stores the message and checks who sent it and from where. New people wait for your approval; nothing reaches an agent you didn’t allow.' },
+  { title: 'The agent answers there', text: 'The agent named gets the message with its instructions, skills and tools, and replies in the same thread: a comment, a review, a Slack message.' },
 ]
 // The example team of the use-cases section: one software story, column by column.
 const board = [
-  { column: 'Backlog', agent: '@stories', text: 'Looks for duplicate stories, contradictions with past decisions and real complexity.', channels: ['Jira'] },
-  { column: 'Refinement', agent: '@refiner', text: 'Writes acceptance criteria and functional test cases in the issue.', channels: ['Jira'] },
-  { column: 'Development', agent: 'a person or @dev', text: 'Implements the story and opens the pull request.', channels: ['GitHub'] },
-  { column: 'Code review', agent: '@reviewer', text: 'Formal review with comments on the lines of the diff.', channels: ['GitHub'] },
-  { column: 'QA', agent: '@qa', text: 'Runs the cases in a real browser and posts screenshots.', channels: ['Chromium'] },
-  { column: 'Production', agent: '@ops', text: 'Answers alarms and reports in the on-call channel.', channels: ['Webhook'] },
+  { column: 'Backlog', agent: '@stories', text: 'Finds duplicates, contradictions with past decisions and the code a story touches.', channel: 'Jira' },
+  { column: 'Refinement', agent: '@refiner', text: 'Writes acceptance criteria and functional test cases.', channel: 'Jira' },
+  { column: 'Development', agent: 'a person or @dev', text: 'Implements the story and opens the pull request.', channel: 'GitHub' },
+  { column: 'Code review', agent: '@reviewer', text: 'Reviews the diff against the story’s criteria.', channel: 'GitHub' },
+  { column: 'QA', agent: '@qa', text: 'Runs the test cases in a real browser, with screenshots.', channel: 'Chromium' },
+  { column: 'Production', agent: '@ops', text: 'Attends alarms and asks before acting.', channel: 'Alerts · Slack' },
 ]
-const cases = [
-  { title: 'Review a story before refinement', agent: '@stories', text: 'The product owner mentions @stories on a Jira issue. It compares the story with the backlog, the team’s decisions kept in a vault and the code in the repository, and comments what it found: a duplicate, a contradiction, which modules it touches.', uses: [['Jira dock', 'docs/guides/jira/'], ['Vaults', 'docs/guides/vaults/'], ['Hosted repo', 'docs/guides/hosting/hosted-agents/']] },
-  { title: 'Write acceptance criteria and test cases', agent: '@refiner', text: 'On the same issue, @refiner writes Given/When/Then criteria and a table of functional cases with data and expected results. Those are the cases @qa runs later.', uses: [['Skills', 'docs/guides/profiles/'], ['@mention routing', 'docs/guides/agents-and-routing/'], ['Linked conversations', 'docs/guides/linked-conversations/']] },
-  { title: 'Review the pull request', agent: '@reviewer', text: 'Someone mentions @reviewer on the pull request, or a label runs a GitHub Actions workflow that calls it. It leaves a formal review with line comments as the App’s bot, checked against the story’s criteria.', uses: [['GitHub dock', 'docs/guides/github/'], ['GitHub Action, no secrets', 'docs/guides/github/'], ['Customs', 'docs/guides/customs/']] },
-  { title: 'Functional QA in a real browser', agent: '@qa', text: '@qa runs the story’s cases on staging in a Chromium beside the agent and posts a table of results with screenshots on the pull request. When the site asks for a login or a 2FA code, a person does it from the web app; the password never goes through the agent.', uses: [['Managed browser', 'docs/guides/hosting/browser/'], ['Files in replies', 'docs/guides/messages-and-images/'], ['Hosted agents', 'docs/guides/hosting/hosted-agents/']] },
-  { title: 'Project and production questions in chat', agent: '@pm · @ops', text: 'Managers ask in Slack, or in Teams through an api dock, without opening Jira, GitHub or the cloud console. @pm answers about the sprint and posts a summary every morning; @ops reads metrics and logs with read-only credentials kept as agent secrets.', uses: [['Slack or api dock', 'docs/guides/api-docks/'], ['Schedules', 'docs/guides/schedules/'], ['Agent secrets', 'docs/guides/hosting/secrets/']] },
-  { title: 'An alarm wakes the on-call agent', agent: '@ops', text: 'At 3:12 a.m. a CloudWatch alarm reaches a webhook dock through EventBridge (or a Datadog monitor reaches a Datadog dock). @ops investigates, posts the probable cause in the on-call channel and asks before acting: 1. Roll back, 2. Page the team, 3. Nothing. Who answered is recorded.', uses: [['Webhook dock', 'docs/guides/webhooks/'], ['Destinations', 'docs/guides/destinations/'], ['Approvals', 'docs/guides/approvals/']] },
+const moreCases = [
+  { number: '2', agent: '@refiner', title: 'Acceptance criteria and test cases', text: 'Given/When/Then criteria and a table of functional cases on the issue, the ones @qa runs later.', anchor: '2-write-acceptance-criteria-and-test-cases' },
+  { number: '3', agent: '@dev', title: 'Small stories implemented', text: 'A person implements the story, or @dev does small ones and opens the pull request.', anchor: '3-development-a-person-or-an-agent' },
+  { number: '5', agent: '@qa', title: 'Functional QA in a real browser', text: 'The cases run on staging in a Chromium beside the agent; results and screenshots go on the pull request. Logins and 2FA codes stay with a person.', anchor: '5-functional-qa-in-a-real-browser' },
+  { number: '6', agent: '@pm · @ops', title: 'Project and production questions in chat', text: 'Managers ask in Slack instead of opening Jira or the cloud console. @pm posts a sprint summary every morning on a schedule.', anchor: '6-project-and-production-questions-in-chat' },
+]
+const compare = [
+  { topic: 'Where people call it', other: 'Inside the tool it belongs to.', seaport: 'The same agent in Slack, GitHub, Jira, email, WhatsApp and your own systems. A Jira issue, its pull request and a Slack thread can be one conversation.' },
+  { topic: 'How it’s defined', other: 'Configured in each tool’s settings.', seaport: 'Once: instructions, skills, MCP servers, secrets and model in one versioned document.' },
+  { topic: 'Who may call it', other: 'Each tool’s own permissions.', seaport: 'One set of rules per channel, project, repository or person, which agents can’t change.' },
+  { topic: 'Where it runs', other: 'The vendor’s service.', seaport: 'Your server and your Postgres. Models through your own keys or a Claude subscription.' },
+  { topic: 'Which agent and model', other: 'The vendor’s.', seaport: 'rness, Claude Code or any ACP agent; Anthropic, OpenAI, OpenRouter, Groq or DeepSeek.' },
+  { topic: 'When it works', other: 'When someone asks.', seaport: 'Also on a schedule or on an alert, and it can ask a person before acting.' },
 ]
 const controls = [
-  { title: 'Who may wake an agent', text: 'Customs rules per channel, project, repository or person. Agents can’t change them.', href: 'docs/guides/customs/' },
-  { title: 'Sealed secrets', text: 'Keys are sealed at rest. A hosted slot reaches its model through the port’s gateway, so the key never enters the container.', href: 'docs/guides/hosting/secrets/' },
-  { title: 'Controlled network', text: 'Each hosted slot reaches only the hosts on its list and its repositories, never private addresses.', href: 'docs/guides/hosting/network/' },
-  { title: 'Usage per agent', text: 'The gateway meters hosted agents’ tokens per agent, model and day.', href: 'docs/guides/hosting/network/' },
-  { title: 'Versioned configuration', text: 'Each agent is one document with its history: instructions, skills, MCP servers, machine.', href: 'docs/reference/agent-config/' },
-  { title: 'A person in the loop', text: 'Before deploying, deleting or spending, the agent asks and waits. Logins and 2FA stay with people.', href: 'docs/guides/approvals/' },
-]
-const flow = [
-  { step: 'Arrive', text: 'A ship docks: a Slack mention, a pull request comment, a Jira comment, a WhatsApp message or a POST.' },
-  { step: 'Customs', text: 'The dock’s rules allow it, deny it or hold it for you.' },
-  { step: 'Route', text: '@name, the chat’s agent, the only one, or the default.' },
-  { step: 'Work', text: 'The agent’s session gets the message, with its kit.' },
-  { step: 'Reply', text: 'It answers in the same thread with the port’s MCP tools: reply, history.' },
+  { title: 'Who may wake an agent', text: 'Customs rules per channel, project, repository or person. New conversations wait for you by default.', href: 'docs/guides/customs/' },
+  { title: 'Sealed secrets', text: 'Keys are sealed at rest. A hosted agent reaches its model through the port’s gateway, so the key never enters its container.', href: 'docs/guides/hosting/secrets/' },
+  { title: 'Controlled network', text: 'A hosted agent reaches only the hosts on its list and its repositories, never private addresses.', href: 'docs/guides/hosting/network/' },
+  { title: 'Usage per agent', text: 'The gateway counts hosted agents’ tokens per agent, model and day.', href: 'docs/guides/hosting/network/' },
+  { title: 'Versioned configuration', text: 'Every change to an agent is a new version you can read back: instructions, skills, MCP servers, machine.', href: 'docs/reference/agent-config/' },
+  { title: 'A person in the loop', text: 'Before deploying, deleting or spending, the agent asks with numbered options and waits. Logins and 2FA stay with people.', href: 'docs/guides/approvals/' },
 ]
 ---
 <!doctype html>
@@ -94,10 +88,10 @@ const flow = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Seaport — A port for your AI agents</title>
-    <meta name="description" content="Your company's AI agents, defined once and called with @name from Slack, GitHub, Jira, email, WhatsApp or your own systems. Customs decides who may wake them; they run on a laptop or hosted by the port." />
-    <meta property="og:title" content="Seaport — A port for your AI agents" />
-    <meta property="og:description" content="Messages arrive. Customs decides. Your agents do the work." />
+    <title>Seaport — Your team’s AI agents, on your servers</title>
+    <meta name="description" content="Seaport runs your company's AI agents on your servers. People call them with @name in Slack, GitHub, Jira, email or WhatsApp; your rules decide who may." />
+    <meta property="og:title" content="Seaport — Your team’s AI agents, on your servers" />
+    <meta property="og:description" content="Define each agent once and call it with @name in Slack, GitHub, Jira, email or WhatsApp. It runs on your servers." />
     <meta property="og:type" content="website" />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" href={u('favicon.svg')} type="image/svg+xml" />
@@ -114,7 +108,7 @@ const flow = [
     <header class="header">
       <nav class="wrap navigation" aria-label="Main navigation">
         <a class="brand" href={u('')} aria-label="Seaport home"><img src={mark.src} width="28" height="28" alt="" />Seaport</a>
-        <div class="nav-links"><a href="#what">What it is</a><a href="#use-cases">Use cases</a><a href="#start">Get started</a><a href="#hosting">Hosting</a><a href={u('docs/')}>Documentation</a></div>
+        <div class="nav-links"><a href="#how">How it works</a><a href="#use-cases">Use cases</a><a href="#control">Control</a><a href="#start">Get started</a><a href={u('docs/')}>Docs</a></div>
         <div class="nav-actions">
           <button id="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch theme"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></svg></button>
           <a class="github-link" href={repository}>GitHub <span aria-hidden="true">↗</span></a>
@@ -122,151 +116,207 @@ const flow = [
       </nav>
     </header>
     <main id="main">
-      <section class="hero wrap" aria-labelledby="hero-title">
+      <!-- 1. What it is -->
+      <section class="hero" aria-labelledby="hero-title"><div class="wrap hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="signal" aria-hidden="true"></span> A port for your AI agents</p>
-          <h1 id="hero-title">Messages arrive.<br /><span>Your agents work them.</span></h1>
-          <p class="hero-description">Call your company’s agents with @name from Slack, GitHub, Jira, email, WhatsApp or your own systems, and wake them with alerts and webhooks.<br class="desktop-break" /> Decide who gets through. Run each agent on a laptop, or let the port host it.</p>
-          <div class="install-box" aria-label="Install command">
-            <div class="install-bar"><span class="mono">connector + CLI · Go 1.26</span><button class="copy" type="button" data-copy="go install github.com/Abraxas-365/seaport/cmd/seaport@latest">Copy</button></div>
-            <pre><code><span class="prompt">$</span> go install github.com/Abraxas-365/seaport/cmd/seaport@latest</code></pre>
-          </div>
-          <div class="actions"><a class="button primary" href={u('docs/tutorials/first-port/')}>Your first port <span aria-hidden="true">→</span></a><a class="button secondary" href={u('docs/')}>Read the docs <span aria-hidden="true">↗</span></a></div>
-          <p class="hero-note">Go server <span aria-hidden="true">/</span> Postgres <span aria-hidden="true">/</span> Any ACP agent</p>
+          <p class="eyebrow"><span class="signal" aria-hidden="true"></span> Self-hosted AI agents for software teams</p>
+          <h1 id="hero-title">Your team calls its AI agents with <span>@name</span> in Slack, GitHub and Jira.</h1>
+          <p class="hero-description">Seaport is a server you run. You define each agent once, with its instructions, skills, tools and model, and people call it where they already work: Slack, GitHub, Jira, email, WhatsApp or your own systems. You decide who may call which agent.</p>
+          <div class="actions"><a class="button primary" href="#use-cases">See the use cases <span aria-hidden="true">↓</span></a><a class="button secondary" href="#start">Run it on your computer</a></div>
+          <p class="hero-note">Go server <span aria-hidden="true">/</span> Postgres <span aria-hidden="true">/</span> rness, Claude Code or any ACP agent</p>
         </div>
-      </section>
-
-      <section class="showcase wrap" aria-label="The Seaport web app">
-        <figure class="browser">
-          <div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">127.0.0.1:8740/inbox</span></div>
-          <Image src={inbox} widths={[960, 1440, 2160]} sizes="(max-width: 1160px) 100vw, 1160px" alt="The Seaport inbox: conversations on the left, a chat where the agent pm answers a customer about a ticket on the right." loading="eager" />
-          <figcaption>The web app’s inbox, live over server-sent events. The interface is in Spanish; the documentation names every page in English. Sample data.</figcaption>
+        <figure class="mock slack" aria-label="Example: a manager asks the agent pm about the sprint in Slack">
+          <div class="mock-bar"><span class="mock-tool">Slack</span><span>Thread · # payments-team</span></div>
+          <div class="mock-body">
+            <div class="msg"><span class="avatar" aria-hidden="true">MR</span><div><p class="msg-head"><strong>Marta Ríos</strong><time>9:41</time></p><p><span class="mention">@pm</span> how is sprint 14 going?</p></div></div>
+            <div class="msg"><span class="avatar bot" aria-hidden="true">SP</span><div><p class="msg-head"><strong>Seaport</strong><span class="tag">APP</span><time>9:41</time></p>
+              <p>Sprint 14, day 7 of 10:</p>
+              <ul><li>9 of 14 stories done, 31 of 47 points.</li><li><b>ACME-142</b> failed QA: the total is wrong with a coupon. The fix is in review in <b>acme/web#212</b>.</li><li>Risk: <b>ACME-150</b> is blocked waiting for the payments sandbox key.</li></ul>
+            </div></div>
+          </div>
+          <figcaption>An example exchange. Names and data are fictional.</figcaption>
         </figure>
-      </section>
-
-      <div class="provider-strip"><div class="wrap provider-inner"><p>Channels in, agents out.</p><ul aria-label="Supported channels and agents"><li>Slack</li><li>GitHub</li><li>Jira</li><li>Email</li><li>WhatsApp</li><li>Webhooks</li><li>Datadog</li><li>HTTP api docks</li><li>rness</li><li>Claude Code</li><li>Any ACP agent</li></ul></div></div>
-
-      <section id="what" class="section wrap" aria-labelledby="what-title">
-        <div class="section-heading"><div><p class="eyebrow">What is Seaport</p><h2 id="what-title">Channels bring the ships.<br /><span>Your crew does the work.</span></h2></div><p>Seaport sits between the places people already work, chat apps, code review, issue trackers, and the AI agents that answer. It stores every message, decides which ones may wake an agent, picks the right agent, and hands it the tools to reply.</p></div>
-        <div class="feature-grid">{features.map(feature => <article class="feature"><span class="feature-number">{feature.number} /</span><h3><a href={feature.href}>{feature.title}<span aria-hidden="true">↗</span></a></h3><p>{feature.text}</p><span class="feature-tags">{feature.tags}</span></article>)}</div>
-        <ol class="flow" aria-label="The life of a message">{flow.map((item, i) => <li><span class="flow-number">{String(i + 1).padStart(2, '0')}</span><strong>{item.step}</strong><p>{item.text}</p></li>)}</ol>
-        <p class="split-note"><strong>Channels bring the ships.</strong> Customs decides. <span>Your agents do the work.</span></p>
-      </section>
-
-      <section id="use-cases" class="section cases-section" aria-labelledby="cases-title"><div class="wrap">
-        <div class="section-heading"><div><p class="eyebrow">Use cases</p><h2 id="cases-title">Seven agents on a Jira board,<br /><span>from backlog to production.</span></h2></div><p>An example team of seven agents, defined once in the port. Each works only on the docks it is assigned to, and at each column of the board a person decides what happens next.</p></div>
-        <ol class="board" aria-label="Agents along a software story">{board.map(item => <li><span class="board-column">{item.column}</span><strong class="mono">{item.agent}</strong><p>{item.text}</p><span class="board-channel">{item.channels.join(' · ')}</span></li>)}</ol>
-        <p class="board-note"><strong class="mono">@pm</strong> follows the whole board and answers in chat how the sprint is going. What happens in production goes back to the backlog.</p>
-        <div class="case-grid">{cases.map((item, i) => <article class="case"><span class="case-kicker mono">{String(i + 1).padStart(2, '0')} / {item.agent}</span><h3>{item.title}</h3><p>{item.text}</p><div class="case-uses"><span class="mono">Uses</span><ul>{item.uses.map(([label, href]) => <li><a href={u(href)}>{label}</a></li>)}</ul></div></article>)}</div>
-        <p class="step-foot">Start with one stage and add agents without changing the earlier ones: review first (@stories, @reviewer), then functional QA (@refiner, @qa), then operations (@pm, @ops). <a class="text-link" href={u('docs/explanation/use-cases/')}>How to set up each case →</a></p>
       </div></section>
 
+      <div class="provider-strip"><div class="wrap provider-inner">
+        <div><p>People call agents from</p><ul aria-label="Channels"><li>Slack</li><li>GitHub</li><li>Jira</li><li>Email</li><li>WhatsApp</li><li>HTTP</li></ul></div>
+        <div><p>Alerts that wake them</p><ul aria-label="Triggers"><li>Webhooks</li><li>Datadog</li><li>Schedules</li></ul></div>
+        <div><p>Agents that run</p><ul aria-label="Agents"><li>rness</li><li>Claude Code</li><li>Any ACP agent</li></ul></div>
+      </div></div>
+
+      <!-- 2. How it works -->
+      <section id="how" class="section wrap" aria-labelledby="how-title">
+        <div class="section-heading"><div><p class="eyebrow">How it works</p><h2 id="how-title">From a message to an answer in three steps.</h2></div><p>Seaport sits between the tools your team uses and the AI agents that answer. Every message is kept in your Postgres, answered or not, and you see it in the web app.</p></div>
+        <ol class="steps">{steps.map((step, i) => <li><span class="step-index">{i + 1}</span><h3>{step.title}</h3><p>{step.text}</p></li>)}</ol>
+        <figure class="browser wide">
+          <div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">seaport.example.com/inbox</span></div>
+          <Image src={inbox} widths={[960, 1440, 2160]} sizes="(max-width: 1160px) 100vw, 1160px" alt="The Seaport inbox: conversations on the left and, on the right, a chat where the agent pm answers about the sprint." />
+          <figcaption>The web app’s inbox, live. The interface is in Spanish; the documentation names every page in English. Sample data.</figcaption>
+        </figure>
+        <p class="glossary">The documentation uses a port vocabulary: a <strong>dock</strong> is a channel (a Slack app, a GitHub App, a mailbox), <strong>customs</strong> are the rules on who may call an agent, and the <strong>crew</strong> is your agents. <a class="text-link" href={u('docs/explanation/concepts/')}>Concepts →</a></p>
+      </section>
+
+      <!-- 3. Use cases -->
+      <section id="use-cases" class="section cases-section" aria-labelledby="cases-title"><div class="wrap">
+        <div class="section-heading"><div><p class="eyebrow">Use cases</p><h2 id="cases-title">One software story, seven agents, from backlog to production.</h2></div><p>An example team: each agent is defined once in the port and works only where it is assigned. At each column of the board a person decides what happens next.</p></div>
+        <ol class="board" aria-label="Agents along a software story">{board.map(item => <li><span class="board-column">{item.column}</span><strong class="mono">{item.agent}</strong><p>{item.text}</p><span class="board-channel">{item.channel}</span></li>)}</ol>
+
+        <article class="showcase-case">
+          <div class="case-copy">
+            <p class="case-kicker mono">Backlog · Jira · @stories</p>
+            <h3>A story is checked before the team spends time refining it.</h3>
+            <p>The product owner mentions <code>@stories</code> on the issue. The agent compares the story with the backlog, the decisions the team keeps in a shared note, and the code in the repository, and answers with a comment on the issue.</p>
+            <ul class="uses" aria-label="What it uses"><li><a href={u('docs/guides/jira/')}>Jira dock</a></li><li><a href={u('docs/guides/vaults/')}>Shared memory</a></li><li><a href={u('docs/guides/hosting/hosted-agents/')}>Repository in the agent’s machine</a></li></ul>
+          </div>
+          <figure class="mock jira" aria-label="Example: the agent stories comments on a Jira issue">
+            <div class="mock-bar"><span class="mock-tool">Jira</span><span>ACME-151</span><span class="status">Backlog</span></div>
+            <div class="mock-body">
+              <p class="mock-title">Export payments to CSV</p>
+              <div class="msg"><span class="avatar" aria-hidden="true">AT</span><div><p class="msg-head"><strong>Ana Torres</strong><time>2 hours ago</time></p><p><span class="mention">@stories</span> please review this story before refinement.</p></div></div>
+              <div class="msg"><span class="avatar bot" aria-hidden="true">SP</span><div><p class="msg-head"><strong>Seaport Bot</strong><time>2 hours ago</time></p>
+                <p>Three things before refinement:</p>
+                <ol><li><b>ACME-118</b> asks for the same export for invoices. Merge or link them.</li><li>In March the team decided that exports go through the reports service (note <i>exports</i> in the <i>decisions</i> vault).</li><li>It changes <code>reconciliation/</code>, which has no tests.</li></ol>
+                <p>Next step: <span class="mention">@refiner</span> for the acceptance criteria.</p>
+              </div></div>
+            </div>
+          </figure>
+        </article>
+
+        <article class="showcase-case flip">
+          <div class="case-copy">
+            <p class="case-kicker mono">Code review · GitHub · @reviewer</p>
+            <h3>The pull request gets a review against the story’s criteria.</h3>
+            <p>A developer mentions <code>@reviewer</code>, or a label runs a GitHub Actions workflow that calls it. The agent reviews as the GitHub App’s bot, with a verdict and comments on the lines of the diff.</p>
+            <ul class="uses" aria-label="What it uses"><li><a href={u('docs/guides/github/')}>GitHub dock</a></li><li><a href={u('docs/guides/github/')}>GitHub Action, no secrets</a></li><li><a href={u('docs/guides/linked-conversations/')}>Issue and PR as one conversation</a></li></ul>
+          </div>
+          <figure class="mock github" aria-label="Example: the agent reviewer requests changes on a pull request">
+            <div class="mock-bar"><span class="mock-tool">GitHub</span><span>acme/web</span><span class="status open">Open</span></div>
+            <div class="mock-body">
+              <p class="mock-title">Apply the coupon before tax <span>#212</span></p>
+              <div class="msg"><span class="avatar" aria-hidden="true">LP</span><div><p class="msg-head"><strong>lucia-p</strong><time>commented 14 minutes ago</time></p><p><span class="mention">@reviewer</span> ready for review, closes ACME-142.</p></div></div>
+              <div class="msg"><span class="avatar bot" aria-hidden="true">SP</span><div><p class="msg-head"><strong>acme-seaport</strong><span class="tag">BOT</span><span class="verdict">requested changes</span><time>9 minutes ago</time></p>
+                <p>Criterion 3 of ACME-142 isn’t met: the coupon is still applied after tax.</p>
+                <div class="diff"><p class="diff-file">src/checkout/total.ts</p><pre><span class="ln">47</span>  const tax = rates.for(order.region)
+<span class="ln del">48</span>- <span>const total = subtotal * (1 + tax) - coupon</span></pre><p class="diff-note">Apply the coupon to the subtotal first: <code>(subtotal - coupon) * (1 + tax)</code>.</p></div>
+              </div></div>
+            </div>
+          </figure>
+        </article>
+
+        <article class="showcase-case">
+          <div class="case-copy">
+            <p class="case-kicker mono">Production · alert + Slack · @ops</p>
+            <h3>An alarm at 3 a.m. gets investigated, and a person approves the fix.</h3>
+            <p>A CloudWatch alarm reaches a webhook dock (or a Datadog monitor a Datadog dock). <code>@ops</code> reads the metrics and logs with read-only credentials, posts the probable cause in the on-call channel and asks before acting. Who answered is recorded.</p>
+            <ul class="uses" aria-label="What it uses"><li><a href={u('docs/guides/webhooks/')}>Webhook dock</a></li><li><a href={u('docs/guides/destinations/')}>Destinations</a></li><li><a href={u('docs/guides/approvals/')}>Approvals</a></li></ul>
+          </div>
+          <figure class="mock slack" aria-label="Example: the agent ops reports an alarm in Slack and asks how to proceed">
+            <div class="mock-bar"><span class="mock-tool">Slack</span><span>Thread · # oncall</span></div>
+            <div class="mock-body">
+              <div class="msg"><span class="avatar bot" aria-hidden="true">SP</span><div><p class="msg-head"><strong>Seaport</strong><span class="tag">APP</span><time>3:12</time></p>
+                <p>Alarm <b>payments-api 5xx &gt; 5%</b> since 3:06.</p>
+                <p>Probable cause: v2.41, deployed at 3:04, lowered the database pool to 5. The logs show <code>too many connections</code>.</p>
+                <ol class="options"><li>Roll back to v2.40</li><li>Page the payments team</li><li>Nothing for now</li></ol>
+              </div></div>
+              <div class="msg reply"><span class="avatar" aria-hidden="true">LG</span><div><p class="msg-head"><strong>Luis Gómez</strong><time>3:15</time></p><p>1</p></div></div>
+              <div class="msg reply"><span class="avatar bot" aria-hidden="true">SP</span><div><p class="msg-head"><strong>Seaport</strong><span class="tag">APP</span><time>3:19</time></p><p>Rolled back to v2.40. 5xx down to 0.3% at 3:18.</p></div></div>
+            </div>
+          </figure>
+        </article>
+
+        <h3 class="more-title">The other steps of the story</h3>
+        <ul class="more-cases">{moreCases.map(item => <li><a href={useCases(item.anchor)}><span class="mono more-number">{item.number}</span><span class="more-copy"><strong>{item.title} <span class="mono">{item.agent}</span></strong><span>{item.text}</span></span><span class="more-arrow" aria-hidden="true">→</span></a></li>)}</ul>
+        <p class="step-foot">Start with one stage and add agents later without changing the earlier ones. <a class="text-link" href={useCases()}>How to set up each case →</a></p>
+      </div></section>
+
+      <!-- 4. Why -->
+      <section id="why" class="section wrap" aria-labelledby="why-title">
+        <div class="section-heading"><div><p class="eyebrow">Why Seaport</p><h2 id="why-title">One place for your agents instead of an assistant per tool.</h2></div><p>Assistants built into GitHub, Slack or Jira each work inside their own tool. Seaport keeps your agents in one place you run, and lets them work across those tools.</p></div>
+        <div class="compare" role="table" aria-label="An assistant per tool compared with Seaport">
+          <div class="compare-row compare-head" role="row"><span role="columnheader"></span><span role="columnheader">An assistant per tool</span><span role="columnheader">Seaport</span></div>
+          {compare.map(row => <div class="compare-row" role="row"><strong role="rowheader">{row.topic}</strong><span role="cell">{row.other}</span><span role="cell">{row.seaport}</span></div>)}
+        </div>
+        <p class="note">The assistant in your editor still helps whoever writes the code. Seaport is for the work around it: stories, reviews, QA, questions and alarms.</p>
+      </section>
+
+      <!-- 5. Control -->
+      <section id="control" class="section control-section" aria-labelledby="control-title"><div class="wrap">
+        <div class="split">
+          <div>
+            <p class="eyebrow">Control</p>
+            <h2 id="control-title">Six controls for whoever runs the port.</h2>
+            <p class="section-description">Anyone can write to a channel. Each channel’s rules allow, deny or hold new conversations, matched by Slack channel, repository, Jira project, person or number, and agents can’t change them. Held messages are kept, not dropped: allow a conversation and what it sent in the last day goes to the agent.</p>
+            <pre class="tree" aria-label="Customs commands"><span class="cm"># new conversations wait for you</span>
+<span class="dir">$</span> seaport customs default ask
+<span class="cm"># repositories of acme may call agents</span>
+<span class="dir">$</span> seaport customs allow "acme/*"
+<span class="cm"># never people outside the organization</span>
+<span class="dir">$</span> seaport customs deny github:outsider</pre>
+          </div>
+          <figure class="browser"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">Aduana · Customs</span></div><Image src={customs} widths={[720, 1080, 1440]} sizes="(max-width: 1000px) 100vw, 600px" alt="The customs page: a pending conversation waiting for a decision, the channel's default, group mode and rules." /></figure>
+        </div>
+        <div class="control-grid">{controls.map(item => <a class="card" href={u(item.href)}><h3>{item.title} <span aria-hidden="true">↗</span></h3><p>{item.text}</p></a>)}</div>
+        <div class="link-row"><a class="text-link" href={u('docs/explanation/security-model/')}>Security model →</a><a class="text-link" href={u('docs/guides/customs/')}>Customs guide →</a></div>
+      </div></section>
+
+      <!-- 6. Where it runs -->
+      <section id="hosting" class="section wrap" aria-labelledby="hosting-title">
+        <div class="section-heading"><div><p class="eyebrow">Where agents run</p><h2 id="hosting-title">On a laptop, on a team server, or hosted by the port.</h2></div><p>An agent’s definition lives in the port, versioned. Whatever runs it applies the latest version and picks up changes on its own.</p></div>
+        <div class="run-grid">
+          <a class="card" href={u('docs/guides/connector/')}><span class="mono card-kicker">CONNECTED</span><h3>Your machine or server <span aria-hidden="true">↗</span></h3><p><code>seaport connect</code> runs rness, Claude Code or any ACP agent and dials out to the port, so the machine needs no public address. One session per conversation, resumed after restarts.</p></a>
+          <a class="card" href={u('docs/guides/hosting/hosted-agents/')}><span class="mono card-kicker">HOSTED</span><h3>A container per slot on the port <span aria-hidden="true">↗</span></h3><p>Started when messages arrive and stopped when idle. Repositories cloned with a git worktree per conversation, your harness configuration, and a managed Chromium where people sign in to sites from the web app.</p></a>
+        </div>
+        <div class="split config-split">
+          <div class="code-panel big"><div class="panel-bar"><span class="panel-label">agent.yaml</span><span class="panel-caption">the machine of a hosted agent</span></div><Code code={env} lang="yaml" theme="css-variables" /></div>
+          <figure class="browser"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">Agentes · Agents</span></div><Image src={agents} widths={[720, 1080, 1440]} sizes="(max-width: 1000px) 100vw, 600px" alt="The agent library: six agents (ops, pm, qa, refiner, reviewer, stories), each with its description and the docks it works on." /></figure>
+        </div>
+        <p class="note">Sign-in is one setting, <code>SEAPORT_AUTH</code>: none on your own computer, an admin token on a server, or accounts and organizations through IAMKit. Several replicas can share one Postgres. <a class="text-link" href={u('docs/guides/operations/deploy/')}>Deploy guide →</a></p>
+      </section>
+
+      <!-- 7. Get started -->
       <section id="start" class="install-section" aria-labelledby="start-title"><div class="wrap">
-        <div class="section-heading"><div><p class="eyebrow">Get started</p><h2 id="start-title">From install<br />to first reply.</h2></div><p>One binary is the port (<code>seaport serve</code>), its admin CLI and the agent connector (<code>seaport connect</code>). Everything lives in Postgres. No model key is needed to try it.</p></div>
+        <div class="section-heading"><div><p class="eyebrow">Get started</p><h2 id="start-title">Install, start the port, connect an agent.</h2></div><p>One binary is the port (<code>seaport serve</code>), its admin CLI and the agent connector (<code>seaport connect</code>). Everything is stored in Postgres. An <code>api</code> dock needs no Slack, GitHub or model account to try it.</p></div>
         <ol class="steps-grid">
           <li class="step">
-            <span class="step-number">01 / Install</span>
-            <h3>Take the binary.</h3>
+            <span class="step-number">1 / Install</span>
             <div class="tabs" role="tablist" aria-label="Installation method">{installs.map((item, i) => <button type="button" role="tab" id={`tab-${item.id}`} aria-controls={`panel-${item.id}`} aria-selected={i === 0 ? 'true' : 'false'} tabindex={i === 0 ? 0 : -1}>{item.label}</button>)}</div>
             {installs.map((item, i) => <div class="tab-panel code-panel" role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden={i !== 0}><button class="copy floating" type="button" data-copy={item.code}>Copy</button><Code code={item.code} lang="sh" theme="css-variables" /><p class="code-note">{item.note}</p></div>)}
-            <p class="step-foot">Install it on the server that runs the port and on every machine that runs an agent. <a class="text-link" href={u('docs/guides/installation/')}>Install guide →</a></p>
+            <p class="step-foot">On the server that runs the port and on every machine that runs an agent. <a class="text-link" href={u('docs/guides/installation/')}>Install guide →</a></p>
           </li>
           <li class="step">
-            <span class="step-number">02 / Run</span>
-            <h3>Start the port.</h3>
+            <span class="step-number">2 / Run</span>
             <div class="code-panel"><Code code={run} lang="sh" theme="css-variables" /></div>
-            <p class="step-foot">Going beyond your computer? Use <code>token</code> mode, or the deploy stack with HTTPS. <a class="text-link" href={u('docs/tutorials/first-port/')}>Your first port →</a></p>
+            <p class="step-foot">For a server, use <code>token</code> mode or the deploy stack with HTTPS. <a class="text-link" href={u('docs/tutorials/first-port/')}>Your first port →</a></p>
           </li>
           <li class="step">
-            <span class="step-number">03 / Connect</span>
-            <h3>Put an agent to work.</h3>
+            <span class="step-number">3 / Connect</span>
             <div class="code-panel"><Code code={connect} lang="sh" theme="css-variables" /></div>
-            <p class="step-foot">The connector dials out: the agent’s machine needs no public address. <a class="text-link" href={u('docs/tutorials/first-agent/')}>Your first agent →</a></p>
+            <p class="step-foot">Slack, GitHub, Jira, webhook and Datadog call the port by webhook, so it needs a public <code>https</code> URL. <a class="text-link" href={u('docs/tutorials/first-agent/')}>Your first agent →</a></p>
           </li>
         </ol>
-        <p class="step-foot">Slack, GitHub, Jira, webhook and Datadog docks are called by webhook, so the port needs a public <code>https</code> URL. Guides: <a class="text-link" href={u('docs/guides/slack/')}>Slack</a> · <a class="text-link" href={u('docs/guides/github/')}>GitHub</a> · <a class="text-link" href={u('docs/guides/jira/')}>Jira</a> · <a class="text-link" href={u('docs/guides/email/')}>email</a> · <a class="text-link" href={u('docs/guides/whatsapp/')}>WhatsApp</a> · <a class="text-link" href={u('docs/guides/webhooks/')}>webhooks</a> · <a class="text-link" href={u('docs/guides/datadog/')}>Datadog</a> · <a class="text-link" href={u('docs/guides/api-docks/')}>api docks</a>.</p>
-        <p class="warning"><strong>Heads-up:</strong> the WhatsApp channel links a number through an unofficial client (whatsmeow). Numbers that send in bursts get banned, which is why outbound limits are on by default. Slack, GitHub and Jira use their official APIs. <a href={u('docs/guides/whatsapp/')}>WhatsApp guide</a>.</p>
       </div></section>
-
-      <section class="section wrap make-section" aria-labelledby="customs-title">
-        <div>
-          <p class="eyebrow">Customs</p>
-          <h2 id="customs-title">Anyone can write.<br /><span>You decide who gets through.</span></h2>
-          <p class="section-description">Each dock asks, allows or denies new conversations, matches them against rules (a number like <code>+34*</code>, a Slack channel, a repository, a Jira project, a GitHub handle like <code>github:outsider</code>), and wakes agents in groups only when they are mentioned. Held messages are never dropped: allow a chat and what it sent in the last day goes to the agent.</p>
-          <pre class="tree" aria-label="Customs commands"><span class="cm"># add -dock &lt;id&gt; when the port has several docks</span>
-<span class="dir">$</span> seaport customs default ask           <span class="cm">new conversations wait for you</span>
-<span class="dir">$</span> seaport customs allow "acme/*"        <span class="cm">these repositories may wake it</span>
-<span class="dir">$</span> seaport customs deny github:outsider   <span class="cm">never people outside the repo</span>
-<span class="dir">$</span> seaport customs groups mentions       <span class="cm">groups: only @mentions</span></pre>
-          <div class="link-row"><a class="text-link" href={u('docs/guides/customs/')}>The customs guide →</a><a class="text-link" href={u('docs/explanation/security-model/')}>Security model →</a></div>
-        </div>
-        <figure class="browser small"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">Aduana · Customs</span></div><Image src={customs} widths={[720, 1080, 1440]} sizes="(max-width: 1000px) 100vw, 600px" alt="The customs page: a pending chat waiting for a decision, the dock's default (ask, allow, deny), group mode and rules." /></figure>
-      </section>
-
-      <section class="section wrap delegate-section" aria-labelledby="profile-title">
-        <figure class="browser small"><div class="window-bar"><span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="address">Agentes · @pm</span></div><Image src={agentProfile} widths={[720, 1080, 1440]} sizes="(max-width: 1000px) 100vw, 600px" alt="The profile of the agent pm: instructions, model, reasoning effort, harness permissions and skills." /></figure>
-        <div>
-          <p class="eyebrow">Profiles</p>
-          <h2 id="profile-title">Shape what agents know.<br /><span>From one place.</span></h2>
-          <p class="section-description">An agent’s instructions, skills, MCP servers, secrets, model and effort live in the port, versioned. Whatever runs the agent, your laptop or a hosted slot, applies them. Save a change and each connection finishes its turn, restarts the harness with it and resumes its sessions.</p>
-          <p class="note">Secrets are sealed at rest, never shown again, and handed only to the agent’s own connections.</p>
-          <div class="link-row"><a class="text-link" href={u('docs/guides/profiles/')}>Profiles guide →</a><a class="text-link" href={u('docs/reference/agent-profile/')}>Profile reference →</a></div>
-        </div>
-      </section>
-
-      <section id="hosting" class="section wrap make-section" aria-labelledby="hosting-title">
-        <div>
-          <p class="eyebrow">Let the port host them</p>
-          <h2 id="hosting-title">No laptop left open.<br /><span>Hardened slots instead.</span></h2>
-          <p class="section-description">The port can run rness or Claude Code itself, in a container per slot, started when messages arrive and stopped when idle. Each conversation works in its own git worktree.</p>
-          <ul class="checks">
-            <li><strong>Model gateway.</strong> Slots call Anthropic, OpenAI, OpenRouter, Groq or DeepSeek through the port: the key never enters the container, and usage is metered per agent, model and day.</li>
-            <li><strong>Egress allowlist.</strong> Slots reach only the hosts you list and their repos, never private addresses.</li>
-            <li><strong>Your harness config.</strong> Upload your <code>~/.rness</code> or <code>~/.claude</code> as a versioned home.</li>
-            <li><strong>Credentials on demand.</strong> Git asks the port each time; no token on disk.</li>
-            <li><strong>A managed browser.</strong> Chromium beside the agent. You sign in to sites from the web app’s live viewer, and the agent keeps the session.</li>
-          </ul>
-          <div class="link-row"><a class="text-link" href={u('docs/guides/hosting/hosted-agents/')}>Hosted agents →</a><a class="text-link" href={u('docs/guides/hosting/network/')}>Gateway and egress →</a><a class="text-link" href={u('docs/guides/hosting/browser/')}>Browser →</a></div>
-        </div>
-        <div class="code-panel big"><div class="panel-bar"><span class="panel-label">agent.yaml</span><span class="panel-caption">YAML</span></div><Code code={env} lang="yaml" theme="css-variables" /></div>
-      </section>
-
-      <section class="section wrap" aria-labelledby="control-title">
-        <div class="section-heading"><div><p class="eyebrow">Control</p><h2 id="control-title">Six checks between a message<br /><span>and what an agent may do.</span></h2></div><p>The port is one binary and a Postgres database on a server you run. The rules below are set by whoever runs it; agents can’t change them.</p></div>
-        <div class="control-grid">{controls.map(item => <a class="mode-card" href={u(item.href)}><h3>{item.title} <span aria-hidden="true">↗</span></h3><p>{item.text}</p></a>)}</div>
-      </section>
-
-      <section class="section wrap" aria-labelledby="modes-title">
-        <div class="section-heading"><div><p class="eyebrow">From one laptop to many organizations</p><h2 id="modes-title">One binary.<br />Three modes.</h2></div><p>Only the start-up setting <code>SEAPORT_AUTH</code> differs. Inside, Seaport is always multi-tenant, so moving between modes needs no data migration.</p></div>
-        <div class="mode-grid">
-          <a class="mode-card" href={u('docs/tutorials/first-port/')}><span class="mono card-kicker">01 / NONE</span><h3>Your computer <span aria-hidden="true">↗</span></h3><p>No login, no tokens. Loopback only: refuses other addresses and anything relayed by a proxy or tunnel.</p></a>
-          <a class="mode-card" href={u('docs/guides/operations/deploy/')}><span class="mono card-kicker">02 / TOKEN</span><h3>One owner, a server <span aria-hidden="true">↗</span></h3><p>A static admin token; agents sign in with crew tokens. The deploy stack adds HTTPS and backups.</p></a>
-          <a class="mode-card" href={u('docs/guides/operations/iam-mode/')}><span class="mono card-kicker">03 / IAM</span><h3>Many organizations <span aria-hidden="true">↗</span></h3><p>Accounts, organizations, roles and permissions through IAMKit. Every row belongs to one organization.</p></a>
-          <a class="mode-card" href={u('docs/guides/operations/several-processes/')}><span class="mono card-kicker">04 / SCALE</span><h3>Several processes <span aria-hidden="true">↗</span></h3><p>Replicas coordinate through Postgres: events, crew presence and WhatsApp dock ownership. Webhook channels run on any replica.</p></a>
-        </div>
-      </section>
 
       <section class="section wrap status-section" aria-labelledby="status-title">
-        <div><p class="eyebrow">Know what you’re adopting</p><h2 id="status-title">Early-stage software.<br /><span>Honest about it.</span></h2></div>
+        <div><p class="eyebrow">Before you adopt it</p><h2 id="status-title">Early-stage software, with its limits written down.</h2></div>
         <div class="status-grid">
-          <article><span class="mono card-kicker">SOURCE</span><h3>Read the code.</h3><p>A Go server with a hexagonal layout whose rules are enforced by architecture tests, and a React web app embedded in the binary.</p><a class="text-link" href={u('docs/architecture/')}>Architecture →</a></article>
-          <article><span class="mono card-kicker">LIMITS</span><h3>Read the caveats.</h3><p>Eight channels; WhatsApp through an unofficial client; GitHub and Jira messages arrive without files; the web app speaks Spanish. Formats may still change.</p><a class="text-link" href={u('docs/project/known-limitations/')}>Known limitations →</a></article>
-          <article><span class="mono card-kicker">TRUST</span><h3>Know the boundaries.</h3><p>Customs is the gate; agents can’t change it. Secrets are sealed; hosted slots are hardened containers behind an egress allowlist.</p><a class="text-link" href={u('docs/explanation/security-model/')}>Security model →</a></article>
+          <article><span class="mono card-kicker">LIMITS</span><h3>Known limitations</h3><p>Eight channels and no Teams dock (bridge it through an <code>api</code> dock). WhatsApp goes through an unofficial client, so a number can be banned. The web app is in Spanish. Formats may still change.</p><a class="text-link" href={u('docs/project/known-limitations/')}>Known limitations →</a></article>
+          <article><span class="mono card-kicker">REQUIREMENTS</span><h3>What it needs</h3><p>A server with Postgres 16. Docker on that server for hosted agents. A public <code>https</code> URL for the channels that call by webhook. Your own model keys or subscriptions.</p><a class="text-link" href={u('docs/guides/installation/')}>Installation →</a></article>
+          <article><span class="mono card-kicker">SOURCE</span><h3>Read the code</h3><p>A Go server whose layout rules are checked by architecture tests, and a React web app embedded in the binary.</p><a class="text-link" href={u('docs/architecture/')}>Architecture →</a></article>
         </div>
       </section>
 
-      <section class="section wrap faq-section" aria-labelledby="faq-title"><div><p class="eyebrow">A few useful answers</p><h2 id="faq-title">Before you start.</h2></div><div class="faq-list">
-        <details><summary>Which channels can people use to reach an agent?</summary><p>Slack (mentions, threads and DMs), GitHub (pull requests and issues, or a workflow step), Jira (issues and comments), email (a mailbox over IMAP and SMTP), WhatsApp (a linked number) and <code>api</code> docks for your own systems. Webhook and Datadog docks only trigger: an alert or an event wakes an agent, which answers on another dock. One agent can work on several at once. <a href={u('docs/explanation/concepts/')}>Concepts</a>.</p></details>
-        <details><summary>What do I need to try it?</summary><p>Only your computer. An <code>api</code> dock has nothing behind it: you post messages over HTTP and read the replies from the history or the live event stream. <a href={u('docs/tutorials/first-port/')}>Your first port</a> uses one.</p></details>
+      <section class="section wrap faq-section" aria-labelledby="faq-title"><div><p class="eyebrow">Questions</p><h2 id="faq-title">Before you start.</h2></div><div class="faq-list">
+        <details><summary>Which channels can people use to reach an agent?</summary><p>Slack (mentions, threads and DMs), GitHub (pull requests and issues, or a workflow step), Jira (issue comments), email (a mailbox over IMAP and SMTP), WhatsApp (a linked number) and <code>api</code> docks for your own systems. Webhook and Datadog docks only wake an agent, which answers on another channel. One agent can work on several. <a href={u('docs/explanation/concepts/')}>Concepts</a>.</p></details>
+        <details><summary>What do I need to try it?</summary><p>Only your computer and Docker for Postgres. An <code>api</code> dock has nothing behind it: you post messages over HTTP and read the replies. <a href={u('docs/tutorials/first-port/')}>Your first port</a> uses one.</p></details>
         <details><summary>Which agents can I connect?</summary><p>Any agent that speaks the Agent Client Protocol (ACP): rness, Claude Code through claude-agent-acp, and others. The agent answers with Seaport’s MCP tools; for agents without HTTP MCP, <code>-auto-reply</code> sends their final text. <a href={u('docs/guides/connector/')}>The connector</a>.</p></details>
-        <details><summary>Does the agent’s machine need a public address?</summary><p>No. <code>seaport connect</code> dials out to the port over a WebSocket, like a tunnel, and reconnects on its own.</p></details>
-        <details><summary>Who pays for the model?</summary><p>You do, with your own keys or subscriptions. A connected agent uses whatever its harness is configured with; a hosted one calls its providers (Anthropic, OpenAI, OpenRouter, Groq, DeepSeek) through the port’s gateway with keys you store as the agent’s secrets, or signs in to a Claude subscription. <a href={u('docs/guides/hosting/network/')}>Model gateway</a>.</p></details>
-        <details><summary>Can strangers make my agent do things?</summary><p>Only if customs lets their conversation in. New conversations wait for you by default, a rule can deny people outside a GitHub repository, groups wake the agent only on mentions, and the agent can’t change customs. <a href={u('docs/guides/customs/')}>Customs</a>.</p></details>
+        <details><summary>Where do messages and data go?</summary><p>Messages, files and agent configuration are stored in your Postgres and your blob store. The agent sends its prompts to the model provider you configure, as any agent does. Slack, GitHub and the other channels keep their copy as usual. <a href={u('docs/explanation/security-model/')}>Security model</a>.</p></details>
+        <details><summary>Who pays for the model?</summary><p>You do, with your own keys or subscriptions. A connected agent uses whatever its harness is configured with; a hosted one calls Anthropic, OpenAI, OpenRouter, Groq or DeepSeek through the port’s gateway with keys stored as the agent’s secrets, or signs in to a Claude subscription. <a href={u('docs/guides/hosting/network/')}>Model gateway</a>.</p></details>
+        <details><summary>Is WhatsApp safe to use?</summary><p>The WhatsApp channel links a number through an unofficial client (whatsmeow), and numbers that send in bursts get banned. Outbound limits are on by default; use a number you can afford to lose. Slack, GitHub and Jira use their official APIs. <a href={u('docs/guides/whatsapp/')}>WhatsApp guide</a>.</p></details>
       </div></section>
 
-      <section class="closing wrap" aria-labelledby="closing-title"><p class="eyebrow">Messages arrive. Customs decides. Your agents work them.</p><h2 id="closing-title">Open your port.<br /><span>Put your crew to work.</span></h2><div class="actions"><a class="button primary" href={u('docs/tutorials/first-port/')}>Your first port <span aria-hidden="true">→</span></a><a class="button secondary" href={u('docs/')}>Read the documentation <span aria-hidden="true">↗</span></a></div></section>
+      <section class="closing wrap" aria-labelledby="closing-title"><h2 id="closing-title">Try it on your computer with an <span>api</span> dock.</h2><p>No Slack, GitHub or model account needed: the first tutorial sends messages over HTTP.</p><div class="actions"><a class="button primary" href={u('docs/tutorials/first-port/')}>Your first port <span aria-hidden="true">→</span></a><a class="button secondary" href={u('docs/')}>Read the documentation <span aria-hidden="true">↗</span></a></div></section>
     </main>
-    <footer class="footer"><div class="wrap footer-inner"><div><a class="brand" href={u('')}><img src={mark.src} width="22" height="22" alt="" />Seaport</a><p>A port for your AI agents.</p></div><nav aria-label="Footer navigation"><a href={u('docs/')}>Documentation</a><a href={u('docs/guides/installation/')}>Install</a><a href={u('docs/reference/http-api/')}>API</a><a href={u('docs/project/known-limitations/')}>Known limitations</a><a href={u('docs/contributing/')}>Contributing</a><a href={repository}>GitHub</a></nav><span class="footer-note">Channels bring the ships. Your crew does the work.</span></div></footer>
+    <footer class="footer"><div class="wrap footer-inner"><div><a class="brand" href={u('')}><img src={mark.src} width="22" height="22" alt="" />Seaport</a><p>Your team’s AI agents, on your servers.</p></div><nav aria-label="Footer navigation"><a href={u('docs/')}>Documentation</a><a href={u('docs/explanation/use-cases/')}>Use cases</a><a href={u('docs/guides/installation/')}>Install</a><a href={u('docs/reference/http-api/')}>API</a><a href={u('docs/project/known-limitations/')}>Known limitations</a><a href={u('docs/contributing/')}>Contributing</a><a href={repository}>GitHub</a></nav></div></footer>
     <script>
       const toggle = document.querySelector<HTMLButtonElement>('#theme-toggle')!
       function labelTheme() {

@@ -4,7 +4,7 @@ Seaport keeps your company's AI agents in one place and lets people call them fr
 
 These pages describe the current `main` branch, which tracks the latest [release](https://github.com/Abraxas-365/seaport/releases). Seaport is early-stage software: formats and APIs may still change. Read the [known limitations](project/known-limitations.md) before relying on it.
 
-![The Seaport inbox, with an agent answering a customer](assets/screenshots/inbox.png)
+![The Seaport inbox, with an agent answering a question about the sprint](assets/screenshots/inbox.png)
 
 ## Choose a path
 
