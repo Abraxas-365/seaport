@@ -30,6 +30,8 @@ Two switches, one per side:
 
 With both on, every slot of the agent starts Chromium at start (headed on a virtual display, CDP on loopback, profile in the state volume under `browser/`), and each session of the harness gets the MCP server `browser` with the DevTools tools: `navigate_page`, `click`, `fill`, `take_snapshot`, `take_screenshot` and the rest. The Seaport MCP adds `ask_takeover`.
 
+The browser tools read and write files only in the slot's workspace (`/workspace`, with every conversation's worktree), the agent's home, the temp directory and `/tmp`. A screenshot saved there with `take_screenshot`'s `filePath` can go back to the conversation with `seaport reply <conversation_id> -file PATH "text"`.
+
 Chromium runs headed, not headless, because sites refuse a headless browser far more often: Google's sign-in refuses a headless Chromium at the first step and lets a headed one through. An image built by an older Seaport has no Xvfb; its slots run Chromium headless and log a warning until you rebuild its machine (`seaport agents build <agent> -force`, then restart the slots).
 
 An agent with the switch on but hosted on a machine without a browser (or run by `seaport connect` on someone's machine) gets no browser; the connector logs a warning and goes on.

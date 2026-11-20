@@ -144,8 +144,13 @@ func (b *Browser) Stop() {
 }
 
 // MCPServer is the ACP stdio entry of the browser MCP for the harness
-// (nil when the image has no browser MCP).
-func (b *Browser) MCPServer() (name, command string, args []string, ok bool) {
+// (nil when the image has no browser MCP). chrome-devtools-mcp reads and
+// writes local files (take_screenshot's filePath, upload_file, traces)
+// only under its workspace roots, which a client gives through MCP's roots
+// capability (rness doesn't) or --workspace; with neither it allows only
+// the temp directory, so every path the agent works in is refused. Roots
+// from the client add to these. The roots are browserRoots(cwd).
+func (b *Browser) MCPServer(cwd string) (name, command string, args []string, ok bool) {
 	if b == nil {
 		return "", "", nil, false
 	}
@@ -154,7 +159,39 @@ func (b *Browser) MCPServer() (name, command string, args []string, ok bool) {
 		return "", "", nil, false
 	}
 	// No telemetry from a slot: no usage statistics, no CrUX lookups.
-	return BrowserMCPName, BrowserMCP, []string{"--browserUrl", b.URL, "--no-usage-statistics", "--no-performance-crux"}, true
+	return BrowserMCPName, BrowserMCP, browserMCPArgs(b.URL, browserRoots(cwd, os.Getenv("HOME"), os.TempDir())), true
+}
+
+// browserMCPArgs are chrome-devtools-mcp's flags: the engine's CDP base,
+// no telemetry and one --workspace per root.
+func browserMCPArgs(cdp string, roots []string) []string {
+	args := []string{"--browserUrl", cdp, "--no-usage-statistics", "--no-performance-crux"}
+	for _, root := range roots {
+		args = append(args, "--workspace", root)
+	}
+	return args
+}
+
+// browserRoots are the directories the browser MCP may read and write:
+// the agent's working directory (a hosted slot's workspace, with every
+// thread's worktree under it), its home, the temp directory and /tmp
+// (which agents reach for even when TMPDIR points elsewhere). Relative and
+// empty entries are dropped and duplicates kept once. The agent's own
+// tools reach all of them already, so this widens nothing it can do.
+func browserRoots(cwd, home, temp string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, dir := range []string{cwd, home, temp, "/tmp"} {
+		if dir == "" || !filepath.IsAbs(dir) {
+			continue
+		}
+		dir = filepath.Clean(dir)
+		if !seen[dir] {
+			seen[dir] = true
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // waitReady polls /json/version.

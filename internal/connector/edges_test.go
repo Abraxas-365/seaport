@@ -444,7 +444,7 @@ func TestBrowserHelpers(t *testing.T) {
 	}
 	var nilBrowser *Browser
 	nilBrowser.Stop()
-	if _, _, _, ok := nilBrowser.MCPServer(); ok {
+	if _, _, _, ok := nilBrowser.MCPServer("/workspace"); ok {
 		t.Fatal("nil browser has no MCP")
 	}
 	b := &Browser{URL: "http://127.0.0.1:9", done: make(chan struct{})}
