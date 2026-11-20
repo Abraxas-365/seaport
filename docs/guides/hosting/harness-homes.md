@@ -79,7 +79,7 @@ The archive is stored sealed in the blob store, which needs a secret key. Withou
 - **rness:** keeps `require("seaport")` as the first line of `init.lua`.
 - **Claude Code:** adds the marketplaces that `settings.json` declares under `extraKnownMarketplaces` (GitHub or HTTPS git sources only; a local directory is refused), and installs the plugins that `enabledPlugins` turns on. Plugins from Anthropic's official marketplace need no declaration. A plugin that fails to install fails the build, and the build needs network access to those hosts.
 
-**At start.** The slot seeds its state volume from the image: changed files are replaced, and files your previous home had and the new one doesn't are deleted. What the harness wrote itself (sessions, sign-in, memory) is left alone.
+**At start.** The slot seeds its state volume from the image: changed files are replaced, and files your previous home had and the new one doesn't are deleted. What the harness wrote itself (sessions, sign-in, memory, rness's image store) is left alone.
 
 > [!WARNING]
 > An uploaded file replaces the base image's file of the same name entirely. If you upload an rness `init.lua`, it must still load the providers (`require("providers")`), or the slot fails with `unknown provider 'anthropic'`.

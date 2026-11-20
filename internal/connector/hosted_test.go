@@ -156,6 +156,57 @@ func TestLinkState(t *testing.T) {
 	}
 }
 
+// rness's sessions name the images they saw by id in its image store, so
+// the store survives a restart with the sessions: a fresh home finds the
+// sessions, images, memory and sign-in written before it, and the image's
+// own files (init.lua) stay the image's.
+func TestLinkStateRness(t *testing.T) {
+	write := func(p, v string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(v), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(p string) string {
+		raw, _ := os.ReadFile(p)
+		return string(raw)
+	}
+	cfg := HostedConfig{Harness: hosting.HarnessRness, Home: t.TempDir(), State: t.TempDir()}
+	write(filepath.Join(cfg.Home, ".rness", "init.lua"), "image")
+	if err := linkState(cfg); err != nil {
+		t.Fatal(err)
+	}
+	written := map[string]string{
+		".rness/sessions/S1/session.v1.jsonl": "events",
+		".rness/images/objects/ab/ab12":       "png",
+		".rness/images/admissions/d/ab12":     "",
+		".rness/memory/notes.md":              "memory",
+		".rness/credentials.json":             `{"anthropic":1}`,
+	}
+	for p, v := range written {
+		write(filepath.Join(cfg.Home, p), v)
+	}
+	if got := read(filepath.Join(cfg.State, "rness", "images", "objects", "ab", "ab12")); got != "png" {
+		t.Fatalf("image not in the state volume: %q", got)
+	}
+	cfg.Home = t.TempDir()
+	write(filepath.Join(cfg.Home, ".rness", "init.lua"), "image-v2")
+	if err := linkState(cfg); err != nil {
+		t.Fatal(err)
+	}
+	for p, v := range written {
+		if got := read(filepath.Join(cfg.Home, p)); got != v {
+			t.Fatalf("%s after restart: %q, want %q", p, got, v)
+		}
+	}
+	if got := read(filepath.Join(cfg.Home, ".rness", "init.lua")); got != "image-v2" {
+		t.Fatalf("the image's init.lua: %q", got)
+	}
+}
+
 // A persistent workspace keeps the agent's own work in its home across
 // restarts: what the image shipped there is moved in once, what the agent
 // wrote through the link is there after a restart; an ephemeral one

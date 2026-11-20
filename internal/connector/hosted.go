@@ -334,9 +334,13 @@ type statePath struct {
 }
 
 var harnessState = map[string][]statePath{
-	// rness keeps its memory vault (the memory plugin) across restarts too.
+	// rness keeps its memory vault (the memory plugin) across restarts too,
+	// and its image store: a session names the images it saw (screenshots,
+	// images sent to it) by id there, and fails every turn once they are
+	// gone.
 	hosting.HarnessRness: {
 		{home: ".rness/sessions", state: "rness/sessions", dir: true},
+		{home: ".rness/images", state: "rness/images", dir: true},
 		{home: ".rness/memory", state: "rness/memory", dir: true},
 		{home: ".rness/credentials.json", state: "rness/credentials.json"},
 	},
