@@ -310,4 +310,154 @@ func TestIdleAndOutdatedSlots(t *testing.T) {
 		s := p.slot(pm.ID, 1)
 		return s.State == hosting.SlotStopped && strings.Contains(s.Detail, "idle")
 	})
+
+	// A machine edit whose build fails: the slot stays on its machine,
+	// outdated, and idle_stop still stops it.
+	if code := p.admin(http.MethodPost, hostPath+"/slots/1/start", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("start again: %d", code)
+	}
+	eventually(t, "running again", func() bool { return p.slot(pm.ID, 1).State == hosting.SlotRunning })
+	rt.results <- "fail:apt: no package nope"
+	machine["packages"] = []string{"nope"}
+	p.setMachine(pm.ID, "rness", machine)
+	eventually(t, "the new build failed", func() bool {
+		var b hosting.Build
+		return p.admin(http.MethodGet, "/api/v1/agents/"+pm.ID.String()+"/build", nil, &b) == http.StatusOK && b.State == hosting.BuildFailed
+	})
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotRunning || !s.Outdated || s.Image != "sha256:v3" {
+		t.Fatalf("after a failed build: %+v", s)
+	}
+	if _, err := db.Exec(`UPDATE agent_slots SET active_at = now() - interval '2 minutes'`); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "outdated, stopped when idle", func() bool {
+		s := p.slot(pm.ID, 1)
+		return s.State == hosting.SlotStopped && strings.Contains(s.Detail, "idle")
+	})
+}
+
+// A hosted agent's image is built ahead of its work. After an upgrade (a
+// new base image, so a new build) work wakes the agent on its previous
+// image at once while the new one builds; once it is built the idle slot
+// restarts on it. A previous image the engine no longer has isn't used.
+func TestWarmBuilds(t *testing.T) {
+	rt := &fakeRuntime{results: make(chan string, 1)}
+	base := func(tag string) func(*config.Server) {
+		return func(c *config.Server) { c.ImageRness = "registry.test/seaport-rness:" + tag }
+	}
+	opts := bootstrap.Options{Runtime: rt, SupervisePeriod: 200 * time.Millisecond}
+	p := startPortWith(t, base("1"), opts)
+	pm := p.agent("pm")
+	p.setMachine(pm.ID, "rness", map[string]any{})
+	hostPath := "/api/v1/agents/" + pm.ID.String() + "/hosting"
+	buildPath := "/api/v1/agents/" + pm.ID.String() + "/build"
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{}, nil); code != http.StatusOK {
+		t.Fatalf("host: %d", code)
+	}
+	built := func(p *port, image string) func() bool {
+		return func() bool {
+			var b hosting.Build
+			return p.admin(http.MethodGet, buildPath, nil, &b) == http.StatusOK && b.State == hosting.BuildReady && b.Image == image
+		}
+	}
+
+	// Hosted with no work: the supervisor builds its image anyway, and
+	// starts nothing.
+	rt.results <- "sha256:v1"
+	eventually(t, "built ahead of work", built(p, "sha256:v1"))
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotStopped {
+		t.Fatalf("a warm build started the slot: %+v", s)
+	}
+	// A start finds it built (the results channel is empty: a build would
+	// hang the start).
+	if code := p.admin(http.MethodPost, hostPath+"/slots/1/start", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("start: %d", code)
+	}
+	eventually(t, "running on v1", func() bool {
+		s := p.slot(pm.ID, 1)
+		return s.State == hosting.SlotRunning && s.Image == "sha256:v1"
+	})
+	if code := p.admin(http.MethodPost, hostPath+"/slots/1/stop", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("stop: %d", code)
+	}
+	eventually(t, "stopped", func() bool { return p.slot(pm.ID, 1).State == hosting.SlotStopped })
+	p.stop()
+
+	// The upgrade: a new base image. The supervisor starts the new build
+	// (it waits on results); work wakes the slot on its previous image
+	// without waiting for it.
+	p = joinPort(t, base("2"), opts)
+	eventually(t, "the new build started", func() bool {
+		var b hosting.Build
+		return p.admin(http.MethodGet, buildPath, nil, &b) == http.StatusOK && b.State == hosting.BuildBuilding &&
+			b.Base == "registry.test/seaport-rness:2"
+	})
+	d := p.openDock("support")
+	p.assignAs(adminToken, d.ID, pm.ID, true)
+	p.inject(d, "51900", "w1", "hola")
+	eventually(t, "woken on the previous image", func() bool {
+		s := p.slot(pm.ID, 1)
+		return s.State == hosting.SlotRunning && s.Image == "sha256:v1"
+	})
+	if s := p.slot(pm.ID, 1); s.Outdated {
+		t.Fatalf("outdated before the new image is built: %+v", s)
+	}
+	// Built while the agent works: outdated, but kept running while it has
+	// work.
+	rt.results <- "sha256:v2"
+	eventually(t, "the new image built", built(p, "sha256:v2"))
+	eventually(t, "outdated", func() bool { return p.slot(pm.ID, 1).Outdated })
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotRunning || s.Image != "sha256:v1" {
+		t.Fatalf("restarted while it had work: %+v", s)
+	}
+	// Idle: restarted on the new image.
+	db := testDB(t)
+	if _, err := db.Exec(`UPDATE ships SET status = 'handled' WHERE agent_id = $1 AND status IN ('queued', 'claimed')`, pm.ID); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "restarted on v2", func() bool {
+		s := p.slot(pm.ID, 1)
+		return s.State == hosting.SlotRunning && s.Image == "sha256:v2" && !s.Outdated
+	})
+	if code := p.admin(http.MethodPost, hostPath+"/slots/1/stop", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("stop: %d", code)
+	}
+	eventually(t, "stopped again", func() bool { return p.slot(pm.ID, 1).State == hosting.SlotStopped })
+	p.stop()
+
+	// Another upgrade, and the engine pruned the previous image: a start
+	// waits for the new build.
+	rt.mu.Lock()
+	rt.pruned = map[string]bool{"sha256:v2": true}
+	rt.mu.Unlock()
+	p = joinPort(t, base("3"), opts)
+	if code := p.admin(http.MethodPost, hostPath+"/slots/1/start", nil, nil); code != http.StatusAccepted {
+		t.Fatalf("start after the prune: %d", code)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotStarting {
+		t.Fatalf("started without its image: %+v", s)
+	}
+	rt.results <- "sha256:v3"
+	eventually(t, "running on v3", func() bool {
+		s := p.slot(pm.ID, 1)
+		return s.State == hosting.SlotRunning && s.Image == "sha256:v3"
+	})
+	p.stop()
+
+	// The build an agent wants may have no row yet (the supervisor records
+	// every agent's, then builds one at a time): its running slot reads as
+	// not outdated (no NULL). A port with the runtime off runs no
+	// supervisor, so nothing records another build meanwhile.
+	if _, err := db.Exec(`UPDATE agent_hosting h SET build_digest = 'not-built', build_machine = s.machine_digest
+		FROM agent_slots s WHERE s.organization_id = h.organization_id AND s.agent_id = h.agent_id AND h.agent_id = $1 AND s.idx = 1`,
+		pm.ID); err != nil {
+		t.Fatal(err)
+	}
+	off := joinPort(t, base("3"), bootstrap.Options{})
+	var h hosting.Hosted
+	if code := off.admin(http.MethodGet, hostPath, nil, &h); code != http.StatusOK || len(h.Slots) != 1 ||
+		h.Slots[0].State != hosting.SlotRunning || h.Slots[0].Outdated {
+		t.Fatalf("a wanted build with no row: %d %+v", code, h)
+	}
 }

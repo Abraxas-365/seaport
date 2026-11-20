@@ -124,6 +124,17 @@ func (r *Runtime) Build(ctx context.Context, req hosting.BuildRequest, log io.Wr
 	return id, nil
 }
 
+func (r *Runtime) HasImage(ctx context.Context, image string) (bool, error) {
+	_, err := r.api.ImageInspect(ctx, image)
+	if cerrdefs.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errx.Wrap(err, "inspect image", errx.TypeExternal)
+	}
+	return true, nil
+}
+
 // base makes sure the base image is here (pulling it when missing or
 // forced) and is Seaport's base for the spec's harness.
 func (r *Runtime) base(ctx context.Context, req hosting.BuildRequest, log io.Writer) error {

@@ -121,6 +121,10 @@ type Runtime interface {
 	// id. It pulls a missing base and refuses one that isn't Seaport's base
 	// for the spec's harness (LabelBase, LabelHarness).
 	Build(ctx context.Context, req BuildRequest, log io.Writer) (string, error)
+	// HasImage says whether the engine still has image (an id Build
+	// answered): a start may run on a slot's previous image only while it
+	// is there (it may have been pruned).
+	HasImage(ctx context.Context, image string) (bool, error)
 	// Start runs a slot's container (replacing a leftover one) with
 	// Seaport's fixed rules: uid 1000, read-only root, no capabilities,
 	// no new privileges, resource limits; its state volume (and workspace
@@ -215,6 +219,15 @@ type Repository interface {
 	// lists every slot of every organization with its agent's work
 	// (system: the supervisor).
 	Supervise(ctx context.Context) ([]Supervised, error)
+	// HostedMachines lists every organization's hosted agents (live, with
+	// a machine) with their current harness and machine and the build last
+	// recorded as theirs (system: the supervisor builds ahead of work).
+	HostedMachines(ctx context.Context) ([]HostedMachine, error)
+	// WantBuild records digest (BuildRequest.Digest) as the build the
+	// agent's config of machine (Spec.Digest) needs on this port: a
+	// running slot of that machine whose image isn't that build's, once
+	// ready, is outdated (no error when the agent is no longer hosted).
+	WantBuild(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, digest, machine string) error
 	// MarkViewer records that a person has the running slot's browser
 	// viewer open (open, refreshed every ViewerBeat) or left it (no error
 	// when the slot is gone or not running).

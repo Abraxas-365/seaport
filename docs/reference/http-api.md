@@ -594,7 +594,7 @@ Builds, homes and hosted agents. What a hosted agent runs is its [config](agent-
 
 Modes are exclusive: `POST /crew/tokens` for a hosted agent is `409 CONFLICT` (stop hosting it first), as is hosting an agent that has live tokens.
 
-A slot: `index`, `state` (`stopped`, `starting`, `running`, `stopping`, `failed`), `detail`, `image`, `config_version` (the config version it started on), `outdated` (its machine is no longer the agent's current one; it is restarted once idle), `started_at`, `active_at`, `updated_at`. A build: `digest`, `agent_id` (the agent that asked for it last), `state` (`building`, `ready`, `failed`), `base`, `image`, `detail`, `log` (the tail, on the build route only), `started_at`, `finished_at`, `updated_at`.
+A slot: `index`, `state` (`stopped`, `starting`, `running`, `stopping`, `failed`), `detail`, `image`, `config_version` (the config version it started on), `outdated` (its machine is no longer the agent's current one, or it runs another image than the agent's current build, which is ready; it is restarted once idle and the new image is built), `started_at`, `active_at`, `updated_at`. A build: `digest`, `agent_id` (the agent that asked for it last), `state` (`building`, `ready`, `failed`), `base`, `image`, `detail`, `log` (the tail, on the build route only), `started_at`, `finished_at`, `updated_at`.
 
 Builds, slots and hosted runs need `SEAPORT_RUNTIME=docker`; with it `off` they are refused. See [Hosted agents](../guides/hosting/hosted-agents.md) and [Harness homes](../guides/hosting/harness-homes.md).
 

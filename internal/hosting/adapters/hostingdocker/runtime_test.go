@@ -107,6 +107,13 @@ func TestBuild(t *testing.T) {
 	if err != nil || again != id || !strings.Contains(log.String(), "already built") {
 		t.Fatalf("again: %q %v %s", again, err, log.String())
 	}
+	// HasImage answers by the id Build answered (a slot's previous image).
+	if ok, err := r.HasImage(ctx, id); err != nil || !ok {
+		t.Fatalf("has the built image: %v %v", ok, err)
+	}
+	if ok, err := r.HasImage(ctx, "sha256:"+strings.Repeat("0", 64)); err != nil || ok {
+		t.Fatalf("has a missing image: %v %v", ok, err)
+	}
 
 	other := req
 	other.Spec.Harness = hosting.HarnessClaudeCode

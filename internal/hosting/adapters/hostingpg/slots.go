@@ -27,11 +27,14 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 		Harness   string                `db:"harness"`
 		Machine   []byte                `db:"machine"`
 		Digest    string                `db:"machine_digest"`
+		Previous  string                `db:"previous"`
 	}
 	// cur locks the row first: a concurrent start waits, then sees it
 	// starting and claims nothing. What it runs is the agent's current
 	// config (a hosted agent's config always has a machine: Host refuses
 	// one without, and saving a config can't drop it while hosted).
+	// previous is the image a slot of the agent last ran on this machine
+	// (a start whose build isn't ready runs on it: SlotStart.Previous).
 	err = tx.GetContext(ctx, &row, `WITH cur AS (
 			SELECT token_id FROM agent_slots WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 FOR UPDATE)
 		UPDATE agent_slots s SET state = 'starting', detail = 'starting', run = $4, token_id = NULL, viewer_at = NULL, updated_at = now()
@@ -43,7 +46,10 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 		  AND (s.state IN ('stopped', 'failed') OR (s.state = 'starting' AND s.updated_at < now() - make_interval(secs => $5::float8)))
 		  AND (NOT $6::bool OR NOT EXISTS (SELECT 1 FROM agent_slots o WHERE o.organization_id = s.organization_id
 		        AND o.agent_id = s.agent_id AND o.idx <> s.idx AND o.state IN ('starting', 'running')))
-		RETURNING cur.token_id AS old_token, a.name, p.version, p.harness, p.machine, p.machine_digest`,
+		RETURNING cur.token_id AS old_token, a.name, p.version, p.harness, p.machine, p.machine_digest,
+		  COALESCE((SELECT o.image FROM agent_slots o WHERE o.organization_id = s.organization_id AND o.agent_id = s.agent_id
+		    AND o.image <> '' AND o.machine_digest <> '' AND o.machine_digest = p.machine_digest
+		    ORDER BY o.started_at DESC NULLS LAST LIMIT 1), '') AS previous`,
 		org, agentID, slot, run, hosting.StartStale.Seconds(), wake)
 	if pgerr.IsNoRows(err) {
 		h, herr := hosted(ctx, tx, org, agentID)
@@ -65,7 +71,7 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 		return hosting.SlotStart{}, false, err
 	}
 	out := hosting.SlotStart{Run: run, AgentName: row.AgentName, Spec: hosting.Normalize(spec),
-		ConfigVersion: row.Version, Digest: row.Digest}
+		ConfigVersion: row.Version, Digest: row.Digest, Previous: row.Previous}
 	if row.OldToken != nil {
 		out.OldToken = *row.OldToken
 	}
@@ -185,7 +191,7 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 			FROM ships WHERE status IN ('queued', 'claimed') AND agent_id IS NOT NULL GROUP BY organization_id, agent_id)
 		SELECT s.organization_id, s.agent_id, s.idx, s.state, s.run, s.updated_at, s.active_at, s.started_at,
 		  COALESCE(p.machine->>'idle_stop', '') AS idle_stop,
-		  (s.state = 'running' AND s.machine_digest IS DISTINCT FROM COALESCE(p.machine_digest, '')) AS outdated,
+		  `+slotOutdated+` AS outdated, `+buildReady+` AS build_ready,
 		  COALESCE(w.queued, 0) AS queued, COALESCE(w.claimed, 0) AS claimed,
 		  (s.state = 'running' AND EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
 		    AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
@@ -197,11 +203,31 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		JOIN agent_hosting h ON h.organization_id = s.organization_id AND h.agent_id = s.agent_id
 		JOIN agents a ON a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
 		LEFT JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
+		LEFT JOIN hosting_builds b ON b.organization_id = h.organization_id AND b.digest = h.build_digest
 		LEFT JOIN work w ON w.organization_id = s.organization_id AND w.agent_id = s.agent_id
 		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
 		return nil, pgerr.Map(err, "list slots to supervise")
 	}
 	return out, pgerr.Map(tx.Commit(), "commit supervise")
+}
+
+func (r *Repository) HostedMachines(ctx context.Context) ([]hosting.HostedMachine, error) {
+	out := []hosting.HostedMachine{}
+	err := r.db.SelectContext(ctx, &out, `SELECT h.organization_id, h.agent_id, p.harness, p.machine, p.machine_digest,
+		  h.build_digest, h.build_machine
+		FROM agent_hosting h
+		JOIN agents a ON a.organization_id = h.organization_id AND a.id = h.agent_id AND a.deleted_at IS NULL
+		JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
+		WHERE p.machine IS NOT NULL AND p.machine <> 'null'::jsonb AND p.harness <> ''
+		ORDER BY h.organization_id, h.agent_id`)
+	return out, pgerr.Map(err, "list hosted machines")
+}
+
+func (r *Repository) WantBuild(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, digest, machine string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE agent_hosting SET build_digest = $3, build_machine = $4
+		WHERE organization_id = $1 AND agent_id = $2 AND (build_digest, build_machine) IS DISTINCT FROM ($3, $4)`,
+		org, agentID, digest, machine)
+	return pgerr.Map(err, "record the agent's build")
 }
 
 func (r *Repository) MarkViewer(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, slot int, open bool) error {

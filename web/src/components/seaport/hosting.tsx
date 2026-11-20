@@ -35,7 +35,7 @@ export function SlotRow({
         {slotLabel[slot.state]}
       </StatusBadge>
       {outdated && (
-        <StatusBadge tone="info" dot={false} title="La máquina cambió: reinicia con la configuración actual al quedar libre">
+        <StatusBadge tone="info" dot={false} title="Hay una imagen nueva (cambió la máquina o se actualizó Seaport): reinicia con ella al quedar libre">
           Desactualizada
         </StatusBadge>
       )}

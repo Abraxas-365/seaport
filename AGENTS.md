@@ -665,6 +665,22 @@ net/http mux; only `/healthz` answers 405.
   shutdown (`App.Close` → `hosted.Close` cancels and waits, before the
   bus closes). Routes `POST|GET /api/v1/agents/{id}/build` (the agent's
   current config; `seaport agents build`); `agent.build` events carry no log.
+- Warm builds (`hostingsvc/warm.go`, migration 00048): a release changes
+  the base tag, so every hosted agent needs a new build although its
+  machine digest is the same. The supervisor's round first runs `warm`
+  (at most once per period): `HostedMachines` (system-wide, every org)
+  gives each hosted agent's current config, `WantBuild` records the build
+  it needs (`agent_hosting.build_digest` + `build_machine`, the machine
+  digest it was worked out for, so a config saved since doesn't match),
+  and it claims one missing build at a time per process (`builds.warming`)
+  in the background, then `Wake`s the agent. A build it claimed that failed
+  waits `warmRetry` before it tries again (`builds.tried`, per process).
+  Meanwhile a start runs on `SlotStart.Previous` (the newest image a slot
+  of the agent ran on the same machine digest, read by `BeginStart`) when
+  `Runtime.HasImage` says the engine has it, and the build goes on in the
+  background (`imageFor`); a failed new build also falls back to it. The
+  slot is then outdated once the wanted build is ready (`slotOutdated` in
+  `hostingpg`), and restarts once idle.
 - Slot runs (`hosting/run.go`, migration 00017; `hostingsvc/slots.go`,
   `supervisor.go`): a slot is stopped → starting → running → stopping →
   stopped (or failed). `BeginStart` claims a stopped/failed slot under
@@ -683,10 +699,12 @@ net/http mux; only `/healthz` answers 405.
   `ship.Notifier` through `bootstrap.fanout`): it wakes a hosted agent with
   queued ships and no slot up (lowest stopped slot, else a failed one
   after 5 min; one at a time per agent), fails a running slot whose
-  container is gone or exited, restarts an idle outdated one (`Slot.Outdated`:
-  its `machine_digest` isn't the agent's current config's, so only a
-  machine change; an instructions edit just changes the kit revision and
-  the connector restarts its harness in place), stops one
+  container is gone or exited, restarts an idle outdated one once the
+  agent's build is ready (`Supervised.BuildReady`; `Slot.Outdated`:
+  its `machine_digest` isn't the agent's current config's, or it runs that
+  machine on another image than the agent's wanted build, ready: a new
+  release's base or a forced build; an instructions edit just changes the
+  kit revision and the connector restarts its harness in place), stops one
   idle past `idle_stop` (a live sign-in on the slot's run counts as work:
   `Supervised.Signing`, and so does an open browser viewer: `Supervised.Viewing`,
   `agent_slots.viewer_at` beaten every `hosting.ViewerBeat` by the process
