@@ -285,6 +285,11 @@ The machine's fields are described in [Agent config](agent-config.md).
 | Supervisor period | 15 s | `hosting.SupervisePeriod` | No |
 | Unused images removed every | 1 h | `hosting.ImageGCEvery` | `SEAPORT_IMAGE_GC=off` turns it off |
 | Image too new to be removed | 1 h | `hosting.ImageGCGrace` | No |
+| Alerts looked at every | 30 s | `hosting.AlertEvery` | No |
+| Alert notice that couldn't be sent is retried after | 5 min | `hosting.AlertRetry` | No |
+| Build that raises a "slow build" alert | 45 min | `hosting.BuildSlow` | No |
+| Wait that raises a "conversations waiting" alert | 10 min (1 min to 24 h) | `hosting.DefaultAlertWait` | Per agent (`wait`) |
+| Resolved alerts kept | 30 days | `hosting.AlertKeep` | No |
 | Egress allowlist cache | 30 s | `hosting.EgressCacheFor` | No |
 | Recorded denial per slot and host | once a minute | `hosting.DenialEvery` | No |
 | Denied hosts listed per slot | 50 | `hosting.MaxDenials` | No |

@@ -164,6 +164,33 @@ func (r *Repository) UpdateHosting(ctx context.Context, org identity.Organizatio
 	if n, _ := res.RowsAffected(); n == 0 {
 		return hosting.Hosted{}, errx.NotFound("the agent is not hosted")
 	}
+	if a := in.Alerts; a != nil {
+		// Alerts going elsewhere (or off) forget the ones still to tell:
+		// what is still wrong is raised again where they go now.
+		var dockID *identity.DockID
+		if !a.Off {
+			dockID = &a.Dock
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM hosting_alerts a USING agent_hosting h
+			WHERE h.organization_id = a.organization_id AND h.agent_id = a.agent_id
+			  AND a.organization_id = $1 AND a.agent_id = $2 AND a.done_at IS NULL
+			  AND (h.alert_dock IS DISTINCT FROM $3 OR h.alert_destination <> $4)`, org, agentID, dockID, a.Destination); err != nil {
+			return hosting.Hosted{}, pgerr.Map(err, "forget alerts")
+		}
+		var err error
+		if a.Off {
+			_, err = tx.ExecContext(ctx, `UPDATE agent_hosting SET alert_dock = NULL, alert_destination = '', alert_error = ''
+				WHERE organization_id = $1 AND agent_id = $2`, org, agentID)
+		} else {
+			wait, _ := hosting.ParseAlertWait(a.Wait) // Validate checked it
+			_, err = tx.ExecContext(ctx, `UPDATE agent_hosting SET alert_dock = $3, alert_destination = $4,
+				alert_wait_seconds = $5, alert_error = '' WHERE organization_id = $1 AND agent_id = $2`,
+				org, agentID, a.Dock, a.Destination, int(wait/time.Second))
+		}
+		if err != nil {
+			return hosting.Hosted{}, pgerr.Map(err, "update alerts")
+		}
+	}
 	h, err := hosted(ctx, tx, org, agentID)
 	if err != nil {
 		return h, err
@@ -176,6 +203,19 @@ type hostedRow struct {
 	Autoscale bool             `db:"autoscale"`
 	UpdatedBy string           `db:"updated_by"`
 	UpdatedAt time.Time        `db:"updated_at"`
+	// Alerts (alert_dock NULL: off).
+	AlertDock        *identity.DockID `db:"alert_dock"`
+	AlertDestination string           `db:"alert_destination"`
+	AlertWait        int              `db:"alert_wait_seconds"`
+	AlertError       string           `db:"alert_error"`
+}
+
+func (r hostedRow) alerts() *hosting.Alerts {
+	if r.AlertDock == nil {
+		return nil
+	}
+	return &hosting.Alerts{DockID: *r.AlertDock, Destination: r.AlertDestination,
+		Wait: hosting.FormatAlertWait(time.Duration(r.AlertWait) * time.Second), Error: r.AlertError}
 }
 
 // slotColumns read a slot (alias s) with outdated (slotOutdated).
@@ -222,7 +262,8 @@ func hosted(ctx context.Context, q sqlx.QueryerContext, org identity.Organizatio
 // set), live agents only, with their slots.
 func hostedWhere(ctx context.Context, q sqlx.QueryerContext, org identity.OrganizationID, agentID *identity.AgentID) ([]hosting.Hosted, error) {
 	var rows []hostedRow
-	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT h.agent_id, h.autoscale, h.updated_by, h.updated_at
+	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT h.agent_id, h.autoscale, h.updated_by, h.updated_at,
+		  h.alert_dock, h.alert_destination, h.alert_wait_seconds, h.alert_error
 		FROM agent_hosting h JOIN agents a ON a.organization_id = h.organization_id AND a.id = h.agent_id
 		WHERE h.organization_id = $1 AND ($2::uuid IS NULL OR h.agent_id = $2) AND a.deleted_at IS NULL
 		ORDER BY a.name`, org, agentID); err != nil {
@@ -264,7 +305,7 @@ func hostedWhere(ctx context.Context, q sqlx.QueryerContext, org identity.Organi
 	}
 	for _, row := range rows {
 		h := hosting.Hosted{Agent: row.Agent, UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt, Slots: byAgent[row.Agent],
-			Working: counts[row.Agent][0], Waiting: counts[row.Agent][1], Autoscale: row.Autoscale}
+			Working: counts[row.Agent][0], Waiting: counts[row.Agent][1], Autoscale: row.Autoscale, Alerts: row.alerts()}
 		if h.Slots == nil {
 			h.Slots = []hosting.Slot{}
 		}

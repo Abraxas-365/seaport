@@ -484,6 +484,12 @@
     },
     "hosted": {
       "agent_id": "00000000-0000-4000-8000-000000000005",
+      "alerts": {
+        "destination": "ops",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "error": "",
+        "wait": "10m"
+      },
       "autoscale": true,
       "slots": [
         {
@@ -1303,6 +1309,12 @@
     },
     "slot.updated": {
       "agent_id": "00000000-0000-4000-8000-000000000005",
+      "alerts": {
+        "destination": "ops",
+        "dock_id": "00000000-0000-4000-8000-000000000001",
+        "error": "",
+        "wait": "10m"
+      },
       "autoscale": true,
       "slots": [
         {

@@ -97,6 +97,8 @@ type Options struct {
 	SupervisePeriod time.Duration
 	// ImageGCEvery overrides hosting.ImageGCEvery (tests).
 	ImageGCEvery time.Duration
+	// AlertEvery overrides hosting.AlertEvery (tests).
+	AlertEvery time.Duration
 	// SweepInterval overrides config.SweepInterval (tests).
 	SweepInterval time.Duration
 	// EgressLookup resolves the egress proxy's hosts (tests).
@@ -332,6 +334,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	notify.bind(hosted)
+	hosted.Service.BindAlerts(alerter{docks: docks.Service, ships: ships.Service}, cfg.PublicURL, opts.AlertEvery)
 	agents.Service.BindMachines(hosted.Service)
 	agents.Service.BindHosting(hosted.Service)
 	done := make(chan struct{})

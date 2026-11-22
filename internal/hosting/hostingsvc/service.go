@@ -25,6 +25,7 @@ type Service struct {
 	homes  homes
 	// viewers are the browser viewers open in this process.
 	viewers viewers
+	alerts  *alerts
 }
 
 func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, events event.Publisher, builder Builder, run Slots, home Homes) (*Service, error) {
@@ -36,7 +37,7 @@ func New(repo hosting.Repository, agents agent.Queries, limits hosting.Limits, e
 		return nil, err
 	}
 	return &Service{repo: repo, agents: agents, limits: limits, events: events, builds: newBuilds(builder),
-		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}, homes: h}, nil
+		slots: &slots{cfg: run, poke: make(chan struct{}, 1)}, homes: h, alerts: &alerts{}}, nil
 }
 
 var (
@@ -186,6 +187,9 @@ func (s *Service) UpdateHosting(ctx context.Context, org identity.OrganizationID
 		return hosting.Hosted{}, errx.InvalidField("agent_id", "agent_id is required")
 	}
 	if err := input.Validate(); err != nil {
+		return hosting.Hosted{}, err
+	}
+	if err := s.checkAlerts(ctx, org, input.Alerts); err != nil {
 		return hosting.Hosted{}, err
 	}
 	h, err := s.repo.UpdateHosting(ctx, org, agentID, input)

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   agentNamePattern,
+  alertWaitMinutes,
   claudeAccess,
   cleanMachine,
   concurrencyAdvice,
@@ -20,6 +21,17 @@ import {
   workSummary,
 } from "./machine"
 import type { Machine } from "./types"
+
+describe("alertWaitMinutes", () => {
+  it("reads the API's waits and refuses anything else", () => {
+    expect(alertWaitMinutes("10m")).toBe(10)
+    expect(alertWaitMinutes("1h")).toBe(60)
+    expect(alertWaitMinutes("1h30m")).toBe(90)
+    expect(alertWaitMinutes("")).toBeNull()
+    expect(alertWaitMinutes("10")).toBeNull()
+    expect(alertWaitMinutes("soon")).toBeNull()
+  })
+})
 
 describe("secret references", () => {
   it("reads ${NAME} and refuses anything else", () => {

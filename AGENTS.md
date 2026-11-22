@@ -723,7 +723,23 @@ net/http mux; only `/healthz` answers 405.
   machine doesn't sign in, a sign-in on it is `done`, or the agent has the
   harness's `hosting.SignInFallbacks` env secret); every running slot but
   the agent's lowest is an extra and stops after `hosting.ScaleDownAfter`
-  idle instead of `idle_stop`. Inside, `seaport
+  idle instead of `idle_stop`. Alerts (migration 00050, `hosting/alert.go`,
+  `hostingsvc/alerts.go`, `hostingpg/alerts.go`; `agent_hosting.alert_*`,
+  `PATCH /agents/{id}/hosting {"alerts"}`, `seaport agents alerts`): the
+  owner names a dock destination (checked by `hosting.Alerter.Check` =
+  `bootstrap.alerter`: the dock opens conversations and takes replies);
+  every `AlertEvery` per process the supervisor runs `Repository.Alerts`
+  (system-wide, one transaction): `alertConditions` (slot failed or
+  starting again, the wanted build failed/building, building past
+  `BuildSlow`, a thread waiting `alert_wait_seconds`) raise one
+  `hosting_alerts` row per kind + key (unique open index, `ON CONFLICT DO
+  NOTHING`), a cleared one is resolved (done at once if never told), then
+  due ones are claimed (`send_after` = now + `AlertRetry`, `SKIP LOCKED`).
+  Notices are outbound ships of the port (`ship.Commands.Open` at the
+  destination; the resolved one `Send`s into the notice's conversation,
+  else opens again); `AlertSent` records it or the error
+  (`Alerts.Error`, published with `slot.updated` when it changes).
+  Changing or turning off alerts deletes the ones still to tell. Inside, `seaport
   agent-run` (`connector.Hosted`) reads `GET /crew/workspace` (slot tokens
   only; repo credentials resolved by `Kits.Reveal`, see `secretCalls`),
   links the harness's sessions/sign-in into the state volume, clones or

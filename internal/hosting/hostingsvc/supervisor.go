@@ -26,8 +26,9 @@ func (s *Service) Wake(identity.OrganizationID, identity.AgentID) {
 // on Wake) it builds the images hosted agents need ahead of their work
 // (warm), wakes hosted agents with work and no slot up, stops idle
 // slots, restarts outdated idle ones once their image is built, fails
-// slots whose container died or whose start or stop was interrupted, and
-// removes what the runtime keeps of slots that no longer exist. Every
+// slots whose container died or whose start or stop was interrupted,
+// removes what the runtime keeps of slots that no longer exist, removes
+// unused images and tells people the alerts of agents that need one. Every
 // process runs one: each step is a conditional transition, so two never
 // act on one slot.
 func (s *Service) Supervise(ctx context.Context) {
@@ -62,6 +63,7 @@ func (s *Service) supervise(ctx context.Context, orphans map[string]bool) error 
 	// round already sees a build that was ready.
 	s.warm(ctx, time.Now())
 	s.collectImages(time.Now())
+	s.sendAlerts(time.Now())
 	rows, err := s.repo.Supervise(ctx)
 	if err != nil {
 		return err

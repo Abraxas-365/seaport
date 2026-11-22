@@ -39,16 +39,24 @@ type Hosted struct {
 	// slot idle for ScaleDownAfter (HostingPatch). Off, the agent runs one
 	// slot at a time unless a person starts more.
 	Autoscale bool `json:"autoscale"`
+	// Alerts is where the supervisor tells a person that the agent needs
+	// one (a failed slot or build, a slow build, conversations waiting
+	// too long); nil: off.
+	Alerts *Alerts `json:"alerts"`
 }
 
 // HostingPatch changes how a hosted agent is run (nil fields stay).
 type HostingPatch struct {
 	Autoscale *bool
+	Alerts    *AlertsPatch
 }
 
 func (p HostingPatch) Validate() error {
-	if p.Autoscale == nil {
-		return errx.Validation("nothing to change: give autoscale")
+	if p.Autoscale == nil && p.Alerts == nil {
+		return errx.Validation("nothing to change: give autoscale or alerts")
+	}
+	if p.Alerts != nil {
+		return p.Alerts.Validate()
 	}
 	return nil
 }

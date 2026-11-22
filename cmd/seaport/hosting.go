@@ -17,7 +17,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
-// hostCmd is `seaport agents host|unhost|autoscale|slots|start|stop|logs|usage|egress|login|account ...`.
+// hostCmd is `seaport agents host|unhost|autoscale|alerts|slots|start|stop|logs|usage|egress|login|account ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
 	case "login":
@@ -194,6 +194,8 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			fmt.Fprintf(stdout, "agent %s: autoscale off\n", ag.Name)
 		}
 		return nil
+	case "alerts":
+		return alertsCmd(ctx, a, args)
 	}
 	// slots [<agent>]
 	var hosted []hosting.Hosted
@@ -312,5 +314,62 @@ func signIn(ctx context.Context, a *admin, ag agent.Agent, idx int) error {
 		return errx.External("the sign-in failed: " + l.Detail)
 	}
 	fmt.Fprintf(stdout, "%s is signed in; its agent restarts with the account once idle\n", hosting.SlotName(ag.Name, idx))
+	return nil
+}
+
+// alertsCmd is `seaport agents alerts <agent> [<dock-id>:<destination>
+// [-wait 10m] | off]`: where the hosted agent's alerts go (nothing named:
+// show it).
+func alertsCmd(ctx context.Context, a *admin, args []string) error {
+	const usage = "usage: seaport agents alerts <agent> [<dock-id>:<destination> [-wait 10m] | off]"
+	if len(args) < 1 {
+		return errx.Validation(usage)
+	}
+	var body map[string]any
+	switch {
+	case len(args) == 1:
+	case args[1] == "off":
+		if len(args) != 2 {
+			return errx.Validation(usage)
+		}
+		body = map[string]any{"alerts": nil}
+	default:
+		fs := flag.NewFlagSet("agents alerts", flag.ContinueOnError)
+		wait := fs.String("wait", "", "tell when a conversation has waited this long (default 10m; 1m to 24h)")
+		if err := fs.Parse(args[2:]); err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
+			return errx.Validation(usage)
+		}
+		dockID, dest, ok := strings.Cut(args[1], ":")
+		if !ok || dockID == "" || dest == "" {
+			return errx.Validation("the destination must be <dock-id>:<destination name> (see seaport dock destinations <dock-id>)")
+		}
+		body = map[string]any{"alerts": map[string]string{"dock_id": dockID, "destination": dest, "wait": *wait}}
+	}
+	ag, err := findAgent(ctx, a, args[0])
+	if err != nil {
+		return err
+	}
+	path := "/api/v1/agents/" + ag.ID.String() + "/hosting"
+	var h hosting.Hosted
+	if body == nil {
+		err = a.do(ctx, http.MethodGet, path, nil, &h)
+	} else {
+		err = a.do(ctx, http.MethodPatch, path, body, &h)
+	}
+	if err != nil {
+		return err
+	}
+	if h.Alerts == nil {
+		fmt.Fprintf(stdout, "agent %s: alerts off\n", ag.Name)
+		return nil
+	}
+	fmt.Fprintf(stdout, "agent %s: alerts to %s:%s when a slot or its image fails, a build takes over %s or a conversation waits %s\n",
+		ag.Name, h.Alerts.DockID, h.Alerts.Destination, hosting.FormatAlertWait(hosting.BuildSlow), h.Alerts.Wait)
+	if h.Alerts.Error != "" {
+		fmt.Fprintf(stdout, "the last notice couldn't be sent: %s\n", h.Alerts.Error)
+	}
 	return nil
 }

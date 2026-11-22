@@ -61,6 +61,17 @@ func (c Channel) Replies() bool {
 	return false
 }
 
+// Opens: the channel can open a conversation at a destination (post a
+// first message there: Messenger.Open). WhatsApp, Slack and api do; the
+// others refuse.
+func (c Channel) Opens() bool {
+	switch c {
+	case ChannelWhatsApp, ChannelAPI, ChannelSlack:
+		return true
+	}
+	return false
+}
+
 // Status is the link state of a dock.
 type Status string
 
