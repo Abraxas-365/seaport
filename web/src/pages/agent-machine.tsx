@@ -10,6 +10,7 @@ import {
   Hammer,
   HardDrive,
   KeyRound,
+  MessagesSquare,
   Pencil,
   Plus,
   Server,
@@ -21,11 +22,13 @@ import {
   asSecretRef,
   blankRepo,
   claudeAccess,
+  concurrencyAdvice,
   envProblem,
   envText,
   harnessLabel,
   idleStopPattern,
   keyNameFor,
+  maxConcurrency,
   modelsProblem,
   parseEnv,
   providers,
@@ -50,7 +53,7 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { ChipInput, ChoiceCards, Mono, SecretPicker, SegmentedChoice, type ChoiceOption } from "@/components/seaport"
+import { ChipInput, ChoiceCards, Mono, SecretPicker, SegmentedChoice, toneClasses, type ChoiceOption } from "@/components/seaport"
 import { HomeSection } from "@/pages/agent-home"
 
 const placeholderMuted = "placeholder:text-muted-foreground/50"
@@ -386,6 +389,21 @@ export function MachineSections({
         </Field>
       </ConfigSection>
 
+      <ConfigSection
+        icon={MessagesSquare}
+        title="Conversaciones a la vez"
+        yaml="machine.concurrency"
+        description="Cuántos chats atiende cada instancia en paralelo. Los demás esperan en cola, sin perderse."
+      >
+        <ConcurrencyField
+          value={m.concurrency}
+          size={m.resources?.size ?? ""}
+          browser={!!m.browser?.engine}
+          readOnly={readOnly}
+          onChange={(concurrency) => set({ concurrency })}
+        />
+      </ConfigSection>
+
       <Advanced open={advancedTouched(m)}>
         <ConfigSection
           icon={Globe}
@@ -603,6 +621,53 @@ function EnvVarsField({
         {problem ||
           "NOMBRE=valor por línea, para todas las instancias. Nada secreto: una credencial es un secreto con «Variable de entorno»."}
       </FieldDescription>
+    </Field>
+  )
+}
+
+/**
+ * machine.concurrency: a number with what it means for the people writing,
+ * and a warning when it is a lot for the instance's size or its browser.
+ */
+export function ConcurrencyField({
+  value,
+  size,
+  browser,
+  readOnly,
+  onChange,
+}: {
+  value: number
+  size: string
+  browser: boolean
+  readOnly: boolean
+  onChange: (n: number) => void
+}) {
+  const ok = Number.isInteger(value) && value >= 1 && value <= maxConcurrency
+  const advice = ok ? concurrencyAdvice(value, size, browser) : null
+  return (
+    <Field data-invalid={!ok}>
+      <FieldLabel htmlFor="machine-concurrency">Por instancia</FieldLabel>
+      <Input
+        id="machine-concurrency"
+        type="number"
+        min={1}
+        max={maxConcurrency}
+        step={1}
+        value={Number.isFinite(value) ? value : ""}
+        readOnly={readOnly}
+        onChange={(e) => onChange(e.target.value === "" ? Number.NaN : Number(e.target.value))}
+        className="w-24 font-mono"
+        aria-describedby="machine-concurrency-help"
+      />
+      <FieldDescription id="machine-concurrency-help">
+        {advice ? advice.note : `Entre 1 y ${maxConcurrency}.`} Cada conversación tiene su propia sesión, y un mensaje
+        nuevo en un chat que ya se está atendiendo entra en ese mismo turno.
+      </FieldDescription>
+      {advice?.warn && (
+        <p role="note" className={cn("rounded-lg px-3 py-2 text-sm", toneClasses.warning.soft)}>
+          {advice.warn}
+        </p>
+      )}
     </Field>
   )
 }

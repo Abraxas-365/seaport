@@ -130,16 +130,20 @@ export const handlers: { [K in EventType]: (qc: QueryClient, data: EventMap[K]) 
   "ship.created": (qc, ship) => {
     upsertShip(qc, ship)
     qc.invalidateQueries({ queryKey: keys.inboxAll })
+    if (ship.agent_id) qc.invalidateQueries({ queryKey: keys.hosted(ship.agent_id), exact: true }) // its waiting count
   },
   "ship.updated": (qc, ship) => {
     upsertShip(qc, ship)
     qc.invalidateQueries({ queryKey: keys.inboxAll })
+    if (ship.agent_id) qc.invalidateQueries({ queryKey: keys.hosted(ship.agent_id), exact: true })
   },
   "delivery.changed": (qc, ev) => {
     deliveryChanged(ev)
     if (ev.conversation_id) qc.invalidateQueries({ queryKey: keys.ships(ev.conversation_id) })
     else qc.invalidateQueries({ queryKey: ["ships"] })
     qc.invalidateQueries({ queryKey: keys.inboxAll })
+    // Conversations move from waiting to working (the event names no agent).
+    qc.invalidateQueries({ queryKey: keys.hosting, predicate: (q) => q.queryKey.length === 2 })
   },
   "ship.turn": (qc, turn) => {
     const key = keys.turns(turn.conversation_id)

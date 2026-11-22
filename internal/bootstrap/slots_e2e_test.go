@@ -121,7 +121,7 @@ func TestHostedSlots(t *testing.T) {
 	var ws hosting.Workspace
 	if code := p.call(http.MethodGet, "/crew/workspace", slotToken, nil, &ws); code != http.StatusOK || ws.Slot != "pm-1" ||
 		ws.Harness != "rness" || !ws.Persistent || len(ws.Repos) != 1 || ws.Repos[0].Token != "ghp_slot_secret" ||
-		ws.Repos[0].Path != "app" || ws.Repos[0].OnStart != "make deps" {
+		ws.Repos[0].Path != "app" || ws.Repos[0].OnStart != "make deps" || ws.Concurrency != hosting.DefaultConcurrency {
 		t.Fatalf("workspace: %d %+v", code, ws)
 	}
 	// (a hosted agent has no people's tokens: another agent's is refused too)
@@ -159,6 +159,33 @@ func TestHostedSlots(t *testing.T) {
 	next(t, events, hosting.EventSlotsUpdated, slotState(1, hosting.SlotRunning))
 	if !rt.running(ref1) {
 		t.Fatal("woken slot not running")
+	}
+	// Its conversations: one waiting (no connector claims it here), and a
+	// second message of the same chat is still one conversation.
+	p.inject(d, "51900", "w2", "¿sigues?")
+	other := p.inject(d, "51901", "w3", "hola")
+	if code := p.admin(http.MethodGet, hostPath, nil, &h); code != http.StatusOK || h.Working != 0 || h.Waiting != 2 {
+		t.Fatalf("hosted counts: %d working %d waiting %d", code, h.Working, h.Waiting)
+	}
+	// A claimed one is in work (as a connector's claim leaves it).
+	db := testDB(t)
+	if _, err := db.Exec(`UPDATE ships SET status = 'claimed', claimed_until = now() + interval '1 hour', claimed_by = 'e2e-session'
+		WHERE id = $1`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if code := p.admin(http.MethodGet, hostPath, nil, &h); code != http.StatusOK || h.Working != 1 || h.Waiting != 1 {
+		t.Fatalf("hosted counts with one claimed: %d working %d waiting %d", code, h.Working, h.Waiting)
+	}
+	if _, err := db.Exec(`UPDATE ships SET status = 'queued', claimed_until = NULL, claimed_by = NULL
+		WHERE id = $1`, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The machine's concurrency reaches the slot through its workspace.
+	machine["concurrency"] = 5
+	p.setMachine(pm.ID, "rness", machine)
+	running := rt.lastStart().Env[hosting.EnvToken]
+	if code := p.call(http.MethodGet, "/crew/workspace", running, nil, &ws); code != http.StatusOK || ws.Concurrency != 5 {
+		t.Fatalf("workspace concurrency: %d %+v", code, ws)
 	}
 
 	// The container dies: the slot fails with the runtime's detail, and

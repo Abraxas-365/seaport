@@ -74,11 +74,12 @@ machine:
     size: M
   workspace: persistent
   idle_stop: 1h
+  concurrency: 3
 ```
 
 `machine.home: ./claude-home` is a directory, relative to the file: `config apply` uploads it first and saves its digest. Anything that starts with `sha256:` is taken as a digest already uploaded. See [Home](#home).
 
-`config show` prints the resolved config, so `resources` has the size and no CPU or memory when a size is set, and the defaults the port fills in appear (`repo_config`, `workspace`, `idle_stop`, `models.anthropic: subscription` where it applies).
+`config show` prints the resolved config, so `resources` has the size and no CPU or memory when a size is set, and the defaults the port fills in appear (`repo_config`, `workspace`, `idle_stop`, `concurrency`, `models.anthropic: subscription` where it applies).
 
 ## Machine
 
@@ -99,6 +100,7 @@ Every field of `machine`. All of them are optional: the port fills the defaults 
 | `resources` | object | size `S` | | CPUs and memory of a slot. See [Resources](#resources). |
 | `workspace` | string | `persistent` | `persistent` or `ephemeral` | Whether what the agent keeps on disk survives between runs. |
 | `idle_stop` | string | `30m` | `1m` to `168h`, whole minutes, or `0` | How long a slot may stay idle before it stops. |
+| `concurrency` | integer | `2` | `1` to `32` | How many conversations each slot works at once; the rest wait in the queue. See [concurrency](#concurrency). |
 
 ### harness
 
@@ -138,6 +140,12 @@ In both, the harness's configuration comes from the image (a new image replaces 
 ### idle_stop
 
 `"30m"`, `"2h"`, `"1h30m"`. A slot with no work for that long stops, and new work starts it again. `0` (or `never`) never stops it. The value must be whole minutes between one minute and 168 hours (7 days). The port stores it in canonical form.
+
+### concurrency
+
+How many conversations one slot works at the same time, each in its own harness session. A conversation past that number waits in the queue, oldest first, until one of those in work finishes its turn. A message in a conversation already in work joins its running turn and takes no other place. `0` or no value is the default, `2`, and the port stores the number. The agent works up to `concurrency` × slots conversations at once.
+
+The conversations of a slot share its CPU, memory, browser and (without repos) `/workspace`, so a high number on a small size makes every turn slower. As a guide, size `S` takes 2, `M` 4 and `L` 8. A change makes running slots outdated; they restart with it once idle, on the same image. See [Conversations at once](../guides/hosting/hosted-agents.md#conversations-at-once).
 
 ## Repo
 
@@ -260,7 +268,8 @@ The same config as the JSON body of a save:
     "models": { "anthropic": "${ANTHROPIC_KEY}" },
     "network": { "egress": ["registry.npmjs.org"] },
     "resources": { "size": "M" },
-    "idle_stop": "1h"
+    "idle_stop": "1h",
+    "concurrency": 3
   }
 }
 ```

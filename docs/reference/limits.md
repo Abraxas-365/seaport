@@ -167,6 +167,7 @@ Image storage is on unless `SEAPORT_BLOB_URL=off`. Images of other types are rep
 | Default `concurrency` when a hello omits it | 4 | `crew.DefaultConcurrency` | No |
 | Default of `seaport connect --concurrency` | 2 | flag default in `cmd/seaport` | `--concurrency` |
 | Maximum `concurrency` | 32 | `crew.MaxConcurrency` | No |
+| Default `machine.concurrency` of a hosted agent's slots | 2 | `hosting.DefaultConcurrency` | Per agent, in its config |
 | WebSocket frame | 4 MiB | `crew.MaxFrame` | No |
 | Items in one `activity` frame | 32 | `crew.MaxActivityItems` | No |
 | Encoded items of one `activity` frame | 6000 bytes | `crew.MaxActivityBytes` | No |

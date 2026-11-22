@@ -48,6 +48,53 @@ export const asSecretRef = (name: string) => `\${${name}}`
 /** Idle stop: minutes and/or hours, or 0/never. */
 export const idleStopPattern = /^(0|never|(\d+h)?(\d+m)?)$/
 
+/** Conversations each instance works at once (hosting.DefaultConcurrency,
+ * crew.MaxConcurrency). */
+export const defaultConcurrency = 2
+export const maxConcurrency = 32
+
+/** Up to how many conversations at once each size takes comfortably: past
+ * it the turns slow each other down (one harness, the instance's CPU and
+ * memory). A hint, not a limit. */
+const comfortable: Record<string, number> = { S: 2, M: 4, L: 8 }
+
+/**
+ * What a concurrency means for the people writing, and a warning when it is
+ * a lot for the instance: `note` explains the value, `warn` (or "") is why
+ * it may be too many.
+ */
+export function concurrencyAdvice(n: number, size: string, browser: boolean): { note: string; warn: string } {
+  const note =
+    n === 1
+      ? "Una conversación a la vez: si escriben dos personas, la segunda espera a que el agente termine con la primera."
+      : `Hasta ${n} conversaciones avanzan en paralelo; la número ${n + 1} espera en cola hasta que una termine su turno.`
+  const fits = comfortable[size]
+  const warns: string[] = []
+  if (fits && n > fits) warns.push(`Más de ${fits} a la vez en tamaño ${size} se reparten CPU y memoria y cada turno va más lento.`)
+  if (!fits && n > 8) warns.push("Muchas a la vez comparten la CPU y la memoria de la instancia.")
+  if (browser && n > 2) warns.push("Hay un solo navegador por instancia: dos conversaciones usándolo a la vez se pisan.")
+  return { note, warn: warns.join(" ") }
+}
+
+/**
+ * The line over a hosted agent's instances: the conversations in work and
+ * waiting, against how many it works at once (instances × concurrency).
+ */
+export function workSummary(working: number, waiting: number, instances: number, concurrency: number): string {
+  const per = concurrency || defaultConcurrency
+  const cap = instances * per
+  const capacity =
+    instances === 1
+      ? `Atiende hasta ${per} a la vez.`
+      : `Atiende hasta ${cap} a la vez (${instances} instancias × ${per}).`
+  if (!working && !waiting) return `Sin conversaciones pendientes. ${capacity}`
+  const chats = (n: number) => `${n} ${n === 1 ? "conversación" : "conversaciones"}`
+  const now = `Atendiendo ${chats(working)}${waiting ? ` · ${waiting} en cola` : ""}. ${capacity}`
+  if (waiting && working >= cap)
+    return `${now} Las que esperan entran cuando una termine su turno; para atender más a la vez, sube «Conversaciones a la vez» en la configuración o añade instancias.`
+  return now
+}
+
 /** A repo URL the machine takes: https, a host and a path. */
 export const repoURLPattern = /^https:\/\/[^\s/@?#]+\/[^\s?#]+$/
 
@@ -196,6 +243,7 @@ export function newMachine(over: Partial<Machine> = {}): Machine {
     resources: { size: "S", cpus: 0, memory_mb: 0 },
     workspace: "persistent",
     idle_stop: "30m",
+    concurrency: defaultConcurrency,
     ...over,
   }
 }
@@ -214,6 +262,7 @@ export function fullMachine(m: Machine): Machine {
     network: { egress: m.network?.egress ?? [] },
     browser: { engine: m.browser?.engine ?? "" },
     resources: m.resources ?? d.resources,
+    concurrency: m.concurrency || defaultConcurrency, // a machine saved before the field
   }
 }
 
@@ -244,6 +293,8 @@ export function machineProblem(harness: Harness | "", m: Machine): string {
   const env = envProblem(m.env ?? {})
   if (env) return env
   if (!idleStopPattern.test(m.idle_stop.trim())) return "Detener sin trabajo: como 30m o 2h, o 0."
+  if (!Number.isInteger(m.concurrency) || m.concurrency < 1 || m.concurrency > maxConcurrency)
+    return `Conversaciones a la vez: entre 1 y ${maxConcurrency}.`
   for (const r of m.repos ?? []) {
     if (!repoURLPattern.test(r.url.trim())) return `Repo ${r.url || "sin URL"}: debe ser https.`
     if (r.credential && !secretRefPattern.test(r.credential)) return `Repo ${r.url}: la credencial nombra un secreto.`

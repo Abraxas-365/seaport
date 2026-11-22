@@ -65,7 +65,9 @@ func TestSpecValidate(t *testing.T) {
 				s.Env["V_"+strconv.Itoa(i)] = "x"
 			}
 		},
-		"browser engine": func(s *hosting.Spec) { s.Browser.Engine = "firefox" },
+		"browser engine":  func(s *hosting.Spec) { s.Browser.Engine = "firefox" },
+		"concurrency":     func(s *hosting.Spec) { s.Concurrency = -1 },
+		"concurrency max": func(s *hosting.Spec) { s.Concurrency = 33 },
 	}
 	for name, mutate := range bad {
 		s := ok
@@ -94,7 +96,7 @@ func TestNormalize(t *testing.T) {
 		Models: hosting.Models{"anthropic": hosting.Subscription}, Env: map[string]string{},
 		RepoConfig: hosting.RepoConfigTrust, Workspace: hosting.WorkspacePersistent,
 		Network:   hosting.Network{Egress: []string{"example.com"}},
-		Resources: hosting.Resources{Size: "S", CPUs: 1, MemoryMB: 2048}, IdleStop: "30m"}}
+		Resources: hosting.Resources{Size: "S", CPUs: 1, MemoryMB: 2048}, IdleStop: "30m", Concurrency: hosting.DefaultConcurrency}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalize:\n got %+v\nwant %+v", got, want)
 	}
@@ -109,6 +111,19 @@ func TestNormalize(t *testing.T) {
 	}
 	if n := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{IdleStop: "never"}}); n.IdleStop != "0" {
 		t.Fatalf("never: %q", n.IdleStop)
+	}
+	five := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{Concurrency: 5}})
+	if five.Concurrency != 5 {
+		t.Fatalf("concurrency: %d", five.Concurrency)
+	}
+	// A slot reads it at start, so another value is another machine: its
+	// slots are outdated and restart once idle.
+	if five.Digest() == got.Digest() {
+		t.Fatal("concurrency must change the machine digest")
+	}
+	if hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{Concurrency: hosting.DefaultConcurrency}}).Digest() !=
+		hosting.Normalize(hosting.Spec{Harness: "rness"}).Digest() {
+		t.Fatal("the default concurrency, said or not, is one machine")
 	}
 	n := hosting.Normalize(hosting.Spec{Harness: "rness", Machine: hosting.Machine{Models: hosting.Models{"OpenAI": " ${K} ", "groq": ""},
 		Env: map[string]string{" TZ ": "UTC"}}})

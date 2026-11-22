@@ -68,7 +68,7 @@ If a steered message arrives just as the turn ends and the harness can't take it
 
 ## Concurrency
 
-`-concurrency` is how many conversations this connection works at the same time. A single conversation is always worked one turn at a time, so more concurrency helps only with several active chats. A higher number uses more of your machine and your model's rate limits. Pick what the harness and your API quota can take.
+`-concurrency` is how many conversations this connection works at the same time. A single conversation is always worked one turn at a time, so more concurrency helps only with several active chats. A higher number uses more of your machine and your model's rate limits. Pick what the harness and your API quota can take. A hosted agent's slots take it from the machine's `concurrency` instead, see [Conversations at once](hosting/hosted-agents.md#conversations-at-once).
 
 A failed turn (the harness errors, the model refuses) gives its messages back to the port, after a pause that grows with each failure in a row, so they are retried.
 

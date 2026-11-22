@@ -28,6 +28,12 @@ type Hosted struct {
 	Slots     []Slot           `json:"slots"`
 	UpdatedBy string           `json:"updated_by"`
 	UpdatedAt time.Time        `json:"updated_at"`
+	// Working counts the agent's conversations being worked now (threads
+	// with a delivery open) and Waiting the ones queued behind them (a
+	// message queued and nothing of the thread in work): each slot works
+	// at most its machine's concurrency at once, the rest wait their turn.
+	Working int `json:"working"`
+	Waiting int `json:"waiting"`
 }
 
 // Slot is one stable instance of a hosted agent (<agent>-<index>): its

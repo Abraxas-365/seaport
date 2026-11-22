@@ -4,6 +4,7 @@ import {
   agentNamePattern,
   claudeAccess,
   cleanMachine,
+  concurrencyAdvice,
   configSecrets,
   emptyConfig,
   fullMachine,
@@ -16,6 +17,7 @@ import {
   secretNameOk,
   secretRefName,
   signsIn,
+  workSummary,
 } from "./machine"
 import type { Machine } from "./types"
 
@@ -99,6 +101,36 @@ describe("machine", () => {
       machineProblem("rness", newMachine({ repos: [{ url: "git@example.com:a/b", ref: "", path: "", credential: "", on_start: "" }] })),
     ).toMatch(/https/)
     expect(machineProblem("rness", newMachine())).toBe("")
+    expect(machineProblem("rness", newMachine({ concurrency: 0 }))).toMatch(/entre 1 y 32/)
+    expect(machineProblem("rness", newMachine({ concurrency: 33 }))).toMatch(/entre 1 y 32/)
+    expect(machineProblem("rness", newMachine({ concurrency: 2.5 }))).toMatch(/entre 1 y 32/)
+    expect(machineProblem("rness", newMachine({ concurrency: 32 }))).toBe("")
+  })
+
+  it("fills the default concurrency of a machine saved before the field", () => {
+    expect(newMachine().concurrency).toBe(2)
+    expect(fullMachine({ ...newMachine(), concurrency: 0 }).concurrency).toBe(2)
+    expect(fullMachine(newMachine({ concurrency: 5 })).concurrency).toBe(5)
+  })
+
+  it("explains a concurrency and warns when it is a lot for the instance", () => {
+    expect(concurrencyAdvice(1, "S", false)).toEqual({ note: expect.stringMatching(/la segunda espera/), warn: "" })
+    const two = concurrencyAdvice(2, "S", false)
+    expect(two.note).toMatch(/Hasta 2 .* la número 3 espera en cola/)
+    expect(two.warn).toBe("")
+    expect(concurrencyAdvice(4, "M", false).warn).toBe("")
+    expect(concurrencyAdvice(5, "M", false).warn).toMatch(/Más de 4 a la vez en tamaño M/)
+    expect(concurrencyAdvice(3, "L", true).warn).toMatch(/un solo navegador/)
+    expect(concurrencyAdvice(8, "", false).warn).toBe("") // custom resources
+    expect(concurrencyAdvice(9, "", false).warn).toMatch(/comparten la CPU/)
+  })
+
+  it("sums up a hosted agent's conversations against what it works at once", () => {
+    expect(workSummary(0, 0, 1, 2)).toBe("Sin conversaciones pendientes. Atiende hasta 2 a la vez.")
+    expect(workSummary(1, 0, 1, 2)).toBe("Atendiendo 1 conversación. Atiende hasta 2 a la vez.")
+    expect(workSummary(2, 3, 1, 2)).toMatch(/^Atendiendo 2 conversaciones · 3 en cola\. .*sube «Conversaciones a la vez»/)
+    expect(workSummary(2, 1, 2, 2)).toBe("Atendiendo 2 conversaciones · 1 en cola. Atiende hasta 4 a la vez (2 instancias × 2).")
+    expect(workSummary(0, 0, 1, 0)).toMatch(/hasta 2 a la vez/) // a machine saved before the field
   })
 
   it("parses env lines and refuses the slot's own variables", () => {

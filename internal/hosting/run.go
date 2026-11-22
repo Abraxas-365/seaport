@@ -235,6 +235,9 @@ type Workspace struct {
 	// machine has none). The slot starts it with the agent's profile
 	// (BrowserDir in the state volume) when the agent's kit asks for one.
 	Browser string `json:"browser,omitempty"`
+	// Concurrency is how many conversations the slot works at once (the
+	// machine's, normalized; 0 from an older port: DefaultConcurrency).
+	Concurrency int `json:"concurrency"`
 }
 
 // WorkspaceRepo is a repo to clone or fetch, its token resolved.

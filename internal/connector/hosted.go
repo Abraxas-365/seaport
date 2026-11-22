@@ -116,9 +116,13 @@ func Hosted(ctx context.Context, cfg HostedConfig) error {
 		return err
 	}
 	trees := &worktrees{root: cfg.Workspace, repos: ws.Repos}
+	concurrency := ws.Concurrency
+	if concurrency <= 0 { // an older port
+		concurrency = hosting.DefaultConcurrency
+	}
 	err = Run(ctx, Config{
 		Reload: reload,
-		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: 2, Deliver: DeliverSteer,
+		Server: cfg.Server, Token: cfg.Token, AgentName: cfg.Slot, Concurrency: concurrency, Deliver: DeliverSteer,
 		Mode: h.mode, Cwd: cfg.Workspace, Command: h.command, SessionMeta: h.meta, Workdir: trees.dir, MCPURL: relay + "/mcp",
 		SessionsFile: filepath.Join(cfg.State, "connector", "sessions.json"),
 		Protect:      protected(), KitEnv: true,

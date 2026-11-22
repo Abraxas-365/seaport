@@ -247,6 +247,7 @@ machine:                            # where it runs when the port hosts it
   network:
     egress: [registry.npmjs.org]    # + the repos' hosts
   idle_stop: 30m
+  concurrency: 2                    # conversations each slot works at once; the rest wait their turn
 ```
 
 The agent is the whole configuration: there is no environment to create or share. Agents with the same machine share one built image.
