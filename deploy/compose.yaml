@@ -82,6 +82,8 @@ services:
       # Base images ("": ghcr.io/abraxas-365/seaport-<harness> of this release)
       SEAPORT_IMAGE_RNESS: ${SEAPORT_IMAGE_RNESS:-}
       SEAPORT_IMAGE_CLAUDE_CODE: ${SEAPORT_IMAGE_CLAUDE_CODE:-}
+      # off keeps every image (on: unused agent images and old bases go hourly)
+      SEAPORT_IMAGE_GC: ${SEAPORT_IMAGE_GC:-}
       SEAPORT_MAX_SLOTS: ${SEAPORT_MAX_SLOTS:-10}
       SEAPORT_MAX_SCHEDULES: ${SEAPORT_MAX_SCHEDULES:-100}
       SEAPORT_MAX_VAULTS: ${SEAPORT_MAX_VAULTS:-64}
