@@ -12,6 +12,7 @@ type Config = {
     models: Record<string, string>
     env: Record<string, string>
     network: { egress: string[] }
+    concurrency: number
   } | null
 }
 
@@ -68,6 +69,10 @@ test("a hosted agent made from the wizard takes its model key, names it in its m
   const hosted = await api.get<{ slots: unknown[] }>(`/api/v1/agents/${id}/hosting`)
   expect(hosted.slots).toHaveLength(1)
 
+  // Dónde corre says what it is working on against what it takes at once.
+  await page.getByRole("tab", { name: "Dónde corre" }).click()
+  await expect(page.getByTestId("hosted-work")).toHaveText("Sin conversaciones pendientes. Atiende hasta 2 a la vez.")
+
   // The key is in use: it can't be deleted while the machine names it.
   await page.getByRole("tab", { name: "Secretos" }).click()
   const list = page.getByRole("list", { name: "Secretos" })
@@ -80,6 +85,18 @@ test("a hosted agent made from the wizard takes its model key, names it in its m
   await expect(claude.getByRole("radio", { name: /Clave de API/ })).toHaveAttribute("aria-checked", "true")
   await expect(page.getByRole("combobox", { name: "Anthropic" })).toHaveText("ANTHROPIC_KEY")
   await expect(page.getByRole("switch", { name: "Máquina" })).toHaveCount(0)
+
+  // Conversations at once: 2 by default; past what the size takes it warns.
+  const concurrency = page.getByLabel("Por instancia")
+  await expect(concurrency).toHaveValue("2")
+  await expect(page.getByText(/la número 3 espera en cola/)).toBeVisible()
+  await concurrency.fill("6")
+  await expect(page.getByText(/Más de 2 a la vez en tamaño S/)).toBeVisible()
+  await concurrency.fill("40")
+  await expect(pages.agents.save()).toBeDisabled()
+  await concurrency.fill("3")
+  await pages.agents.save().click()
+  await expect.poll(async () => (await config(api, id)).machine?.concurrency).toBe(3)
 
   // Claude through each instance's account instead: the key is no longer named.
   await expect(page.getByText("Otros proveedores")).toHaveCount(0)

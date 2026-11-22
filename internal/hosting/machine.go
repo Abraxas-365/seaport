@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Abraxas-365/seaport/internal/crew"
 	"github.com/Abraxas-365/seaport/internal/errx"
 )
 
@@ -71,6 +72,11 @@ const (
 
 // DefaultIdleStop stops a slot after this long without work.
 const DefaultIdleStop = 30 * time.Minute
+
+// DefaultConcurrency is how many conversations a slot works at once when
+// the machine doesn't say (Machine.Concurrency); at most
+// crew.MaxConcurrency.
+const DefaultConcurrency = 2
 
 var (
 	// a Debian package, optionally pinned (name=version)
@@ -157,6 +163,11 @@ type Machine struct {
 	// IdleStop stops a slot after this long without work ("30m", "2h";
 	// "0": never).
 	IdleStop string `json:"idle_stop"`
+	// Concurrency is how many conversations each slot works at once (its
+	// connector's hello.concurrency): the next ones wait queued until one
+	// of those finishes its turn. One harness process serves them all, so
+	// they share the slot's CPU, memory and browser. 0: DefaultConcurrency.
+	Concurrency int `json:"concurrency"`
 }
 
 // Repo is a git repository cloned into the workspace at start.
@@ -317,6 +328,10 @@ func (s Machine) Validate() error {
 	}
 	if _, err := ParseIdleStop(s.IdleStop); err != nil {
 		return err
+	}
+	if s.Concurrency < 0 || s.Concurrency > crew.MaxConcurrency {
+		return errx.InvalidField("concurrency", "concurrency must be between 1 and "+strconv.Itoa(crew.MaxConcurrency)+
+			" conversations at once (0 or empty: "+strconv.Itoa(DefaultConcurrency)+")")
 	}
 	return nil
 }
@@ -543,6 +558,10 @@ func normalizeMachine(s Machine) Machine {
 	}
 	d, _ := ParseIdleStop(s.IdleStop)
 	out.IdleStop = formatIdleStop(d)
+	out.Concurrency = s.Concurrency
+	if out.Concurrency == 0 {
+		out.Concurrency = DefaultConcurrency
+	}
 	return out
 }
 

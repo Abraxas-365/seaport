@@ -46,7 +46,7 @@ import {
   useUsage,
 } from "@/lib/hooks"
 import { formatFull, formatRelative } from "@/lib/format"
-import { harnessLabel, signsIn } from "@/lib/machine"
+import { defaultConcurrency, harnessLabel, signsIn, workSummary } from "@/lib/machine"
 import { keys } from "@/lib/query"
 import { Perm } from "@/lib/permissions.gen"
 import type { AgentProfile, CrewToken, Hosted, IssuedCrewToken, LibraryAgent, Slot } from "@/lib/types"
@@ -162,6 +162,14 @@ function HostedPanel({
         <CardContent className="space-y-4">
           {!runtime && <RuntimeOff />}
           {write && <SlotsForm agent={agent} hosted={hosted} />}
+          <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="hosted-work">
+            {workSummary(
+              hosted.working ?? 0,
+              hosted.waiting ?? 0,
+              hosted.slots.length,
+              profile.machine?.concurrency ?? defaultConcurrency,
+            )}
+          </p>
           <Slots
             agent={agent}
             hosted={hosted}

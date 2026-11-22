@@ -760,6 +760,14 @@ export interface Hosted {
   slots: Slot[]
   updated_by: string
   updated_at: string
+  /**
+   * Working counts the agent's conversations being worked now (threads
+   * with a delivery open) and Waiting the ones queued behind them (a
+   * message queued and nothing of the thread in work): each slot works
+   * at most its machine's concurrency at once, the rest wait their turn.
+   */
+  working: number
+  waiting: number
 }
 
 /** InboxItem is a conversation with its preview. */
@@ -963,6 +971,13 @@ export interface Machine {
    * "0": never).
    */
   idle_stop: string
+  /**
+   * Concurrency is how many conversations each slot works at once (its
+   * connector's hello.concurrency): the next ones wait queued until one
+   * of those finishes its turn. One harness process serves them all, so
+   * they share the slot's CPU, memory and browser. 0: DefaultConcurrency.
+   */
+  concurrency: number
 }
 
 /**

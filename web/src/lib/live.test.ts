@@ -180,6 +180,22 @@ describe("ship events", () => {
     expect(invalidated(qc, keys.ships("a")) && invalidated(qc, keys.ships("b"))).toBe(true)
   })
 
+  it("delivery.changed refetches every hosted agent's conversation counts, not the hosting status", () => {
+    seed(keys.hosted("a"))
+    seed(keys.hosting)
+    apply("delivery.changed")
+    expect(invalidated(qc, keys.hosted("a"))).toBe(true)
+    expect(invalidated(qc, keys.hosting)).toBe(false)
+  })
+
+  it("ship.created refetches its agent's conversation counts only", () => {
+    seed(keys.hosted("agent-a"))
+    seed(keys.hosted("other"))
+    apply("ship.created", { ...eventData("ship.created"), agent_id: "agent-a" })
+    expect(invalidated(qc, keys.hosted("agent-a"))).toBe(true)
+    expect(invalidated(qc, keys.hosted("other"))).toBe(false)
+  })
+
   it("ship.turn prepends the turn once", () => {
     const turn = eventData("ship.turn")
     const key = keys.turns(turn.conversation_id)

@@ -64,6 +64,7 @@ machine:
   resources: {size: M}
   workspace: persistent
   idle_stop: 30m
+  concurrency: 2              # conversations each slot works at once; the rest wait
 ```
 
 Fields, with their limits:
@@ -84,6 +85,7 @@ Fields, with their limits:
 | `resources` | `size: S`, `M` or `L`, or `cpus` and `memory_mb`. |
 | `workspace` | `persistent` (default) or `ephemeral`. |
 | `idle_stop` | Idle time before a slot stops. |
+| `concurrency` | How many conversations each slot works at once, `1` to `32` (default `2`). See [Conversations at once](#conversations-at-once). |
 
 A machine can't hold secrets. `credential` and `models.<provider>` name one of the agent's own secrets as `${NAME}`. Seaport checks that the secret exists each time you save the config, and the secret can't be deleted while the machine names it. Saving the config, and with it the secrets it names, needs `agents:write`; see [Variables and secrets](secrets.md) and [Permissions](../../reference/permissions.md). The full schema is in [Agent config](../../reference/agent-config.md).
 
@@ -190,6 +192,29 @@ You rarely start slots by hand. Every Seaport process runs a supervisor that che
 - **Cleans up** starts and stops that stalled, and containers that no slot row owns.
 
 `idle_stop` takes whole minutes or hours between `1m` and `168h` (`30m`, `2h`). `0` or `never` keeps slots running. The default is `30m`. The next message wakes the agent again, and its conversations resume from the state volume.
+
+## Conversations at once
+
+`concurrency` is how many conversations each slot works at the same time. The default is `2`, the limit `32`.
+
+Say five people write to a WhatsApp dock at once and the agent has one slot with `concurrency: 2`:
+
+1. The agent answers two of them in parallel, each conversation in its own harness session.
+2. The other three wait in the queue, oldest first. Nothing is lost and nobody gets an error: they just get their answer later.
+3. When one of the two finishes its turn, the next waiting conversation starts.
+
+A new message in a conversation the agent is already working on doesn't take another place: it goes into the running turn (see [Steer or queue](../connector.md#steer-or-queue)). A thread of [linked conversations](../linked-conversations.md) is one conversation here.
+
+Every conversation of a slot runs in the same container, with one harness process, so they share:
+
+- **CPU and memory.** Each turn runs tools, builds, tests; more of them at once make each one slower. As a guide, size `S` takes 2 comfortably, `M` 4 and `L` 8.
+- **The browser.** A slot has one [managed browser](browser.md). Two conversations using it at the same time step on each other's tabs.
+- **The workspace.** With repos, each conversation has its own worktree. Without them, all of them work in `/workspace` itself.
+- **Model limits.** Every turn calls the model; a Claude subscription's limits are reached sooner.
+
+To answer more people at once, raise `concurrency` (within what the size takes) or give the agent more slots (`seaport agents host pm -slots 2`; each slot adds its own `concurrency`, with its own sessions and volumes). A changed `concurrency` makes the running slots outdated: each one restarts with it once idle, on the same image (nothing is rebuilt).
+
+The **Dónde corre** tab shows how many conversations the agent is working on and how many are waiting, next to how many it can take at once.
 
 ## Workspace and repos
 

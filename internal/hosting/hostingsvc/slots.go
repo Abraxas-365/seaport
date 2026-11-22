@@ -462,7 +462,7 @@ func (s *Service) OpenWorkspace(ctx context.Context, org identity.OrganizationID
 	}
 	w := hosting.Workspace{Slot: hosting.SlotName(a.Name, slot), Harness: spec.Harness, RepoConfig: spec.RepoConfig,
 		Persistent: spec.Workspace == hosting.WorkspacePersistent, SignIn: spec.SignsIn(), Browser: spec.Browser.Engine,
-		Repos: make([]hosting.WorkspaceRepo, 0, len(spec.Repos))}
+		Concurrency: spec.Concurrency, Repos: make([]hosting.WorkspaceRepo, 0, len(spec.Repos))}
 	for _, r := range spec.Repos {
 		repo := hosting.WorkspaceRepo{URL: r.URL, Ref: r.Ref, Path: r.Path, OnStart: r.OnStart}
 		if n := r.CredentialName(); n != "" {

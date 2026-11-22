@@ -219,8 +219,30 @@ func hostedWhere(ctx context.Context, q sqlx.QueryerContext, org identity.Organi
 	for _, s := range slots {
 		byAgent[s.Agent] = append(byAgent[s.Agent], s.Slot)
 	}
+	// Conversations (threads) in work and waiting, per agent: a thread with
+	// a ship claimed is being worked; one with only queued ships waits.
+	var work []struct {
+		Agent   identity.AgentID `db:"agent_id"`
+		Working int              `db:"working"`
+		Waiting int              `db:"waiting"`
+	}
+	if err := sqlx.SelectContext(ctx, q, &work, `WITH t AS (
+			SELECT s.agent_id, bool_or(s.status = 'claimed') AS working
+			FROM ships s JOIN conversations c ON c.organization_id = s.organization_id AND c.id = s.conversation_id
+			WHERE s.organization_id = $1 AND ($2::uuid IS NULL OR s.agent_id = $2) AND s.agent_id IS NOT NULL
+			  AND s.status IN ('queued', 'claimed')
+			GROUP BY s.agent_id, c.thread_id)
+		SELECT agent_id, count(*) FILTER (WHERE working) AS working, count(*) FILTER (WHERE NOT working) AS waiting
+		FROM t GROUP BY agent_id`, org, agentID); err != nil {
+		return nil, pgerr.Map(err, "count hosted agents' conversations")
+	}
+	counts := map[identity.AgentID][2]int{}
+	for _, w := range work {
+		counts[w.Agent] = [2]int{w.Working, w.Waiting}
+	}
 	for _, row := range rows {
-		h := hosting.Hosted{Agent: row.Agent, UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt, Slots: byAgent[row.Agent]}
+		h := hosting.Hosted{Agent: row.Agent, UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt, Slots: byAgent[row.Agent],
+			Working: counts[row.Agent][0], Waiting: counts[row.Agent][1]}
 		if h.Slots == nil {
 			h.Slots = []hosting.Slot{}
 		}

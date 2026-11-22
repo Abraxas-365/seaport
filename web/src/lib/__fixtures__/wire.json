@@ -135,6 +135,7 @@
         "browser": {
           "engine": "chromium"
         },
+        "concurrency": 3,
         "env": {
           "TZ": "UTC"
         },
@@ -172,7 +173,7 @@
         "setup": "echo ready",
         "workspace": "persistent"
       },
-      "machine_digest": "e486983eb3715beb906270fa5563daa5bc4149bc0174b355a4e5393b657b7f26",
+      "machine_digest": "3bdf00f412e3f36b3e1c2c105cccd0babb08e685a672d372624767e919edd7ca",
       "machine_secrets": [
         "ANTHROPIC_KEY",
         "GIT_TOKEN"
@@ -497,7 +498,9 @@
         }
       ],
       "updated_at": "2030-01-02T03:01:00Z",
-      "updated_by": "admin"
+      "updated_by": "admin",
+      "waiting": 1,
+      "working": 2
     },
     "inbox_item": {
       "access": "auto",
@@ -1313,7 +1316,9 @@
         }
       ],
       "updated_at": "2030-01-02T03:01:00Z",
-      "updated_by": "admin"
+      "updated_by": "admin",
+      "waiting": 1,
+      "working": 2
     },
     "vault.created": {
       "created_at": "2030-01-02T03:00:00Z",

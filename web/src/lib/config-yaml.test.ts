@@ -41,6 +41,7 @@ machine:
     size: M
   workspace: persistent
   idle_stop: 30m
+  concurrency: 2
 `)
   })
 

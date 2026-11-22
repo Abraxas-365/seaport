@@ -152,7 +152,7 @@ func wireFixtures() map[string]any {
 		Repos:  []hosting.Repo{{URL: "https://example.com/org/repo.git", Ref: "main", Path: "repo", Credential: "${GIT_TOKEN}", OnStart: "make deps"}},
 		Models: hosting.Models{"anthropic": "${ANTHROPIC_KEY}"}, Env: map[string]string{"TZ": "UTC"}, Network: hosting.Network{Egress: []string{"example.com", "*.example.org"}},
 		Browser: hosting.Browser{Engine: "chromium"}, Resources: hosting.Resources{Size: "M", CPUs: 2, MemoryMB: 4096},
-		Workspace: "persistent", IdleStop: "30m"}
+		Workspace: "persistent", IdleStop: "30m", Concurrency: 3}
 	machineJSON, err := json.Marshal(machine)
 	if err != nil {
 		panic(err)
@@ -171,7 +171,8 @@ func wireFixtures() map[string]any {
 
 	hosted := hosting.Hosted{Agent: agentID, UpdatedBy: "admin", UpdatedAt: at(1),
 		Slots: []hosting.Slot{{Index: 1, State: "running", Detail: "", Image: "sha256:0123456789abcdef",
-			ConfigVersion: 3, Outdated: false, StartedAt: ptr(at(0)), ActiveAt: ptr(at(2)), UpdatedAt: at(2)}}}
+			ConfigVersion: 3, Outdated: false, StartedAt: ptr(at(0)), ActiveAt: ptr(at(2)), UpdatedAt: at(2)}},
+		Working: 2, Waiting: 1}
 
 	customs := conversation.Customs{
 		Policy: conversation.Policy{Dock: dockID, Default: conversation.DefaultAsk, GroupMode: conversation.GroupMentions},
