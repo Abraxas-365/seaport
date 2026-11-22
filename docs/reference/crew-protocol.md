@@ -93,7 +93,10 @@ A batch of queued messages of one conversation, handed to the agent.
     "read_only": [ "…" ],
     "no_history": [ "…" ],
     "ships": [
-      { "id": "…", "conversation_id": "…", "direction": "in", "sender_name": "Ana", "text": "Hi", "status": "claimed", "…": "…" }
+      { "id": "…", "conversation_id": "…", "direction": "in", "sender_name": "Ana", "text": "Hi", "status": "claimed", "attempts": 1, "…": "…" }
+    ],
+    "earlier": [
+      { "id": "…", "conversation_id": "…", "direction": "out", "agent_id": "…", "delivery_id": "…", "text": "Hello Ana", "status": "sent", "…": "…" }
     ]
   }
 }
@@ -105,6 +108,8 @@ A batch of queued messages of one conversation, handed to the agent.
 - `delivery.no_history` names the doors whose dock keeps earlier messages from agents (its [`history` switch](../guides/agents-and-routing.md#what-agents-may-read) is off): `history` there is refused. Absent when every door allows it.
 - `delivery.approvals` lists the agent's [approvals](../guides/approvals.md) that matter to this delivery: the ones still pending in its conversations and the ones answered by (or waking the agent with) its ships. Each has `id`, `text`, `options`, `status`, `answer` and `answered_by`. Absent when there are none. A wake-up for an answer, cancellation or expiry arrives as an inbound ship from `system:approval` (`@agent [approval <id>] answered "X" by Y. Question: …`).
 - `delivery.ships` are the ships (messages) of the batch, with their `attachments` metadata. Fetch an attachment from `GET /crew/attachments/{id}` or with the MCP `attachment` tool. An attachment with `withheld: true` belongs to a dock whose `attachments` switch is off: it is named, but fetching it answers `403`.
+- `ships[].attempts` counts the deliveries the ship was handed over in. More than `1` means an earlier turn with it didn't finish (the connection dropped or the turn failed): the agent may have replied or acted already. Ships that joined a delivery after the agent's turn ended don't count.
+- `delivery.earlier` is the thread's newest other messages, oldest first: handled and held inbound ones (group chatter that didn't call the agent, messages from before the chat was allowed) and sent replies, of the agent or of people from the web. Doors in `no_history` are left out. At most 30 messages and 24000 characters (see [Limits](limits.md)); each outbound one names the `agent_id` and the `delivery_id` that sent it (none for a person's). It catches up a session that missed part of the thread (another connection or slot worked it, or its session couldn't be resumed). Absent on `steer` frames and when there is nothing.
 - A thread (a conversation and the ones linked with it) has at most one delivery in flight, so the agent never gets two prompts for one matter at once.
 - A delivery is a lease. The port renews it while the connection lives, and puts the ships back in the queue when the connection ends or the lease runs out.
 

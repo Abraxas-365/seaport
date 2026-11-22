@@ -426,6 +426,21 @@ net/http mux; only `/healthz` answers 405.
   `Join` the open delivery (same lock, same delivery id) and go out as
   `steer` frames; their ack must name the handled `ship_ids` and every other
   ship still claimed by the delivery is requeued.
+- Catch-up (migration 00051, `shipsvc.earlier`, `connector/catchup`):
+  `Claim` and `Join` add one to `ships.attempts` (an ack's requeue of
+  joined ships takes it back: never seen), and `Delivery.Retried()` (a
+  ship with attempts > 1) opens the prompt with `retriedNote`. A claim
+  (not a steer) carries `Delivery.Earlier` (`Repository.Earlier`: the
+  thread's newest handled/sent ships and those held with
+  `ship.EarlierHolds`, doors with history only, `ship.MaxEarlier`/
+  `MaxEarlierShip`/`MaxEarlierText`, withheld files as for its ships).
+  An agent's outbound ship records the delivery it was working in the
+  thread (`delivery_id`). The connector keeps per session a `seenMark`
+  in `sessions.json` (newest `created_at` handed with a delivery, the
+  ships steered into its last turn, its last deliveries):
+  a new session gets all of Earlier, a resumed one what is newer and not
+  its own reply, an older file's session (no mark) nothing; the mark
+  moves after a turn (only past Earlier when the turn failed).
 - Linked conversations (`conversation/thread.go`, migration 00028): every
   conversation has a `thread_id` (= its own id until linked; `identity.ThreadID`).
   `Link` (`POST /conversations/{id}/links`, `seaport thread link`) gives

@@ -59,3 +59,13 @@ func StripControl(s string) string {
 		return r
 	}, s)
 }
+
+// Cut keeps at most max characters of s (max ≥ 1), the last one "…" when
+// it cut.
+func Cut(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max-1]) + "…"
+}

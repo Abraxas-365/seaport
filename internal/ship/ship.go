@@ -58,7 +58,22 @@ const (
 	// MaxRerouteChats bounds the conversations one assignment releases
 	// (those with the newest held ships).
 	MaxRerouteChats = 50
+	// MaxEarlier bounds Delivery.Earlier (the thread's newest messages).
+	MaxEarlier = 30
+	// MaxEarlierShip is the most characters of one message in
+	// Delivery.Earlier (longer ones are cut, ending in "…").
+	MaxEarlierShip = 2000
+	// MaxEarlierText bounds the characters of Delivery.Earlier together
+	// (the oldest are left out first).
+	MaxEarlierText = 24000
 )
+
+// EarlierHolds are the hold reasons of the held messages a delivery shows
+// as context (Delivery.Earlier): group chatter that didn't call the agent,
+// messages from before the chat was allowed or while no agent was on the
+// dock. A denied sender's or chat's messages stay out.
+var EarlierHolds = []string{conversation.HoldNotMentioned, conversation.HoldPending,
+	agent.HoldNoAgent, agent.HoldNotCalled, agent.HoldAgentGone}
 
 // Release says which held ships of a conversation Repository.ReleaseHeld
 // routes again: held with one of Reasons since Since; with Fresh, only
@@ -85,12 +100,19 @@ type Ship struct {
 	// that sent it (nil: sent by a person).
 	Agent *identity.AgentID `db:"agent_id" json:"agent_id,omitempty"`
 	// HoldReason says why a held ship was held (customs or routing).
-	HoldReason   string               `db:"hold_reason" json:"hold_reason,omitempty"`
+	HoldReason string `db:"hold_reason" json:"hold_reason,omitempty"`
+	// Delivery: inbound, the delivery that holds (or handled) it;
+	// outbound, the delivery its agent was working when it sent it (nil:
+	// sent outside a delivery, or by a person).
 	Delivery     *identity.DeliveryID `db:"delivery_id" json:"delivery_id,omitempty"`
 	ClaimedUntil *time.Time           `db:"claimed_until" json:"-"`
-	Error        string               `db:"error" json:"error,omitempty"`
-	SentAt       time.Time            `db:"sent_at" json:"sent_at"`
-	CreatedAt    time.Time            `db:"created_at" json:"created_at"`
+	// Attempts counts the deliveries an inbound ship was handed to an
+	// agent in (a dropped connection or a failed turn gives it back; ships
+	// that joined a delivery but never reached the agent don't count).
+	Attempts  int       `db:"attempts" json:"attempts,omitempty"`
+	Error     string    `db:"error" json:"error,omitempty"`
+	SentAt    time.Time `db:"sent_at" json:"sent_at"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	// Attachments: the files that came with it, in order (metadata only).
 	Attachments []Attachment `db:"-" json:"attachments,omitempty"`
 }
@@ -276,6 +298,20 @@ type Delivery struct {
 	// approval.go).
 	Approvals []Approval `json:"approvals,omitempty"`
 	Ships     []Ship     `json:"ships"`
+	// Earlier are the thread's newest other messages, oldest first (at
+	// most MaxEarlier, MaxEarlierText; a person's reply sent while the
+	// agent was away may be newer than Ships): handled or held inbound
+	// ones and sent outbound ones, of the doors with history only, so a
+	// session that never saw part of the thread (another slot worked it,
+	// a resume failed, people replied from the web) can catch up. Only on
+	// a claim; a steer's session is already working the thread.
+	Earlier []Ship `json:"earlier,omitempty"`
+}
+
+// Retried: some ship of the delivery was handed to an agent before, in a
+// turn that didn't finish (the connection dropped or the turn failed).
+func (d Delivery) Retried() bool {
+	return slices.ContainsFunc(d.Ships, func(s Ship) bool { return s.Attempts > 1 })
 }
 
 // CanReply: the crew may answer on this door of the delivery.

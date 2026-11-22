@@ -150,6 +150,8 @@ Comments and workflow messages are cut to `text.MaxMessage`. Files an agent send
 | Held messages released when a chat is allowed or an agent is assigned | newest 50 per chat | `ship.MaxRelease` | No |
 | Age of held messages that get released | 24 h | `ship.ReleaseWindow` | No |
 | Chats released when an agent is assigned | 50 (newest held first) | `ship.MaxRerouteChats` | No |
+| Earlier messages a delivery carries for catch-up | 30, 24000 characters together (oldest left out first) | `ship.MaxEarlier`, `ship.MaxEarlierText` | No |
+| One earlier message's text | 2000 characters (longer ones are cut) | `ship.MaxEarlierShip` | No |
 | Rules per dock | 1000 | `conversation.MaxRules` | No |
 | Rule pattern | 256 characters | `conversation.MaxPattern` | No |
 | Slack: markdown per message | 12000 characters (longer replies are split) | `dockslack.MaxMarkdown` | No |
