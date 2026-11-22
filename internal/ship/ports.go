@@ -195,6 +195,12 @@ type Repository interface {
 	ThreadHistory(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
 	// HistoryOf lists the ships of these conversations, newest first.
 	HistoryOf(ctx context.Context, organization identity.OrganizationID, conversations []identity.ConversationID, page query.Pagination) (query.Paginated[Ship], error)
+	// Earlier lists the newest ships of these conversations a delivery
+	// shows as context (Delivery.Earlier), newest first, at most limit:
+	// handled inbound, sent outbound and inbound held with one of the
+	// held reasons (EarlierHolds). Queued and claimed ones (the delivery's
+	// own) never are.
+	Earlier(ctx context.Context, organization identity.OrganizationID, conversations []identity.ConversationID, held []string, limit int) ([]Ship, error)
 	// SaveTurn inserts a turn (created false when its delivery has one).
 	SaveTurn(ctx context.Context, organization identity.OrganizationID, turn Turn) (created bool, err error)
 	Turns(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, page query.Pagination) (query.Paginated[Turn], error)

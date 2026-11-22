@@ -57,6 +57,17 @@ The connector keeps one harness **session per thread**: each chat has its own co
 
 After a restart, the connector resumes the saved session of a thread when the harness can resume sessions. If it can't, it logs a warning and starts a new session; the agent can still read the chat with `history`.
 
+## Catching up on a thread
+
+A session doesn't always see every message of its thread. Another connection or a hosted agent's other slot may have worked it, a session that couldn't be resumed starts empty, people reply from Seaport's web, and group messages that didn't call the agent are held. Each delivery carries the thread's newest earlier messages (at most 30), and the connector puts what the session missed before the new ones:
+
+- A new session gets them under **Earlier in this conversation**.
+- A resumed session gets what came after its last turn, under **Since your last turn here**, leaving out its own replies. When nothing came, nothing is added.
+
+Each line names who wrote it: the sender, `you` (this agent), `another agent`, or `a person, from Seaport`. A held message says why it wasn't handed over. The connector records in `sessions.json` how far each session has seen its thread; a file written by an older connector has no such mark, so those sessions get no catch-up until their next turn. Doors whose dock keeps [history from agents](agents-and-routing.md#what-agents-may-read) are left out.
+
+When a delivery's messages were handed over before in a turn that didn't finish (the connection dropped or the turn failed), the prompt opens with a note: the agent checks what it already did or replied before acting or answering again.
+
 ## Steer or queue
 
 Only one delivery per thread is in flight at a time, so a session never gets two prompts at once. What about a message that arrives while the agent is already working on that conversation (or on one linked with it)?

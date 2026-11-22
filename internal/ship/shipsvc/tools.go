@@ -2,6 +2,8 @@ package shipsvc
 
 import (
 	"context"
+	"slices"
+	"unicode/utf8"
 
 	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
@@ -9,6 +11,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 	"github.com/Abraxas-365/seaport/internal/query"
 	"github.com/Abraxas-365/seaport/internal/ship"
+	"github.com/Abraxas-365/seaport/internal/text"
 )
 
 // Agent tools: a dock's switches (dock.Tools) of what agents may read
@@ -131,6 +134,44 @@ func (s *Service) noHistory(ctx context.Context, org identity.OrganizationID, do
 		if !t.History {
 			out = append(out, c.ID)
 		}
+	}
+	return out, nil
+}
+
+// earlier reads Delivery.Earlier: the newest messages of the delivery's
+// doors with history on (d.NoHistory filled), oldest first, each cut at
+// ship.MaxEarlierShip and the oldest left out past ship.MaxEarlierText,
+// with files withheld as for the delivery's own ships.
+func (s *Service) earlier(ctx context.Context, org identity.OrganizationID, d ship.Delivery, cache toolsCache) ([]ship.Ship, error) {
+	doors := d.Thread
+	if len(doors) == 0 {
+		doors = []conversation.Conversation{d.Conversation}
+	}
+	var convs []identity.ConversationID
+	for _, c := range doors {
+		if d.HasHistory(c.ID) {
+			convs = append(convs, c.ID)
+		}
+	}
+	newest, err := s.repo.Earlier(ctx, org, convs, ship.EarlierHolds, ship.MaxEarlier)
+	if err != nil {
+		return nil, errx.Wrap(err, "earlier messages", errx.TypeInternal)
+	}
+	budget := ship.MaxEarlierText
+	keep := 0
+	for i := range newest {
+		newest[i].Text = text.Cut(newest[i].Text, ship.MaxEarlierShip)
+		n := utf8.RuneCountInString(newest[i].Text)
+		if n > budget {
+			break
+		}
+		budget -= n
+		keep++
+	}
+	out := newest[:keep]
+	slices.Reverse(out)
+	if err := s.withhold(ctx, org, out, cache); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

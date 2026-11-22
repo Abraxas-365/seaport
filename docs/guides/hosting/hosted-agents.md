@@ -225,6 +225,8 @@ Every conversation of a slot runs in the same container, with one harness proces
 
 To answer more people at once, raise `concurrency` (within what the size takes) or give the agent more slots (`seaport agents host pm -slots 2`; each slot adds its own `concurrency`, with its own sessions and volumes) and turn on [autoscale](#autoscale). A changed `concurrency` makes the running slots outdated: each one restarts with it once idle, on the same image (nothing is rebuilt).
 
+With several slots, the next turn of a conversation may land on a slot whose session never saw it, or saw only part of it. The delivery brings the conversation's newest earlier messages, so that slot picks up where the other left off (see [Catching up on a thread](../connector.md#catching-up-on-a-thread)). The same happens when a slot restarts mid-turn: the messages come back to whichever slot takes them next, with a note that the earlier turn didn't finish.
+
 The **Dónde corre** tab shows how many conversations the agent is working on and how many are waiting, next to how many it can take at once.
 
 ### Autoscale

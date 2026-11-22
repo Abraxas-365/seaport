@@ -205,7 +205,7 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 	if len(ships) == 0 {
 		return ship.Delivery{}, false, nil
 	}
-	d, err := s.delivery(ctx, org, id, convID, ships)
+	d, err := s.delivery(ctx, org, id, convID, ships, true)
 	if err != nil {
 		// The claim committed: give its ships back even when ctx is what
 		// failed (the connection closing), or they stay claimed until the
@@ -224,8 +224,9 @@ func (s *Service) Claim(ctx context.Context, org identity.OrganizationID, input 
 }
 
 // delivery assembles a delivery: the door of its oldest ship and the
-// doors of that door's thread.
-func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id identity.DeliveryID, convID identity.ConversationID, ships []ship.Ship) (ship.Delivery, error) {
+// doors of that door's thread; a claim's (earlier) also the thread's
+// newest messages before it.
+func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id identity.DeliveryID, convID identity.ConversationID, ships []ship.Ship, earlier bool) (ship.Delivery, error) {
 	doors, err := s.convs.Thread(ctx, org, convID)
 	if err != nil {
 		return ship.Delivery{}, errx.Wrap(err, "find claimed conversation", errx.TypeInternal)
@@ -249,6 +250,11 @@ func (s *Service) delivery(ctx context.Context, org identity.OrganizationID, id 
 	}
 	if err := s.withhold(ctx, org, d.Ships, cache); err != nil {
 		return ship.Delivery{}, err
+	}
+	if earlier {
+		if d.Earlier, err = s.earlier(ctx, org, d, cache); err != nil {
+			return ship.Delivery{}, err
+		}
 	}
 	if len(ships) > 0 && ships[0].Agent != nil {
 		d.Approvals, err = s.repo.DeliveryApprovals(ctx, org, convID, *ships[0].Agent, idsOf(ships), s.now())
@@ -296,7 +302,7 @@ func (s *Service) Join(ctx context.Context, org identity.OrganizationID, input s
 	if len(ships) == 0 {
 		return ship.Delivery{}, false, nil
 	}
-	d, err := s.delivery(ctx, org, input.Delivery, convID, ships)
+	d, err := s.delivery(ctx, org, input.Delivery, convID, ships, false)
 	if err != nil {
 		return ship.Delivery{}, false, err
 	}

@@ -17,7 +17,7 @@ import (
 )
 
 const columns = `id, organization_id, conversation_id, direction, external_id, sender_id, sender_name, text, status,
-	agent_id, hold_reason, delivery_id, claimed_until, error, sent_at, created_at`
+	agent_id, hold_reason, delivery_id, claimed_until, attempts, error, sent_at, created_at`
 
 const attachmentColumns = `organization_id, id, ship_id, position, kind, mime, size, name, sha256, blob_key`
 
@@ -189,9 +189,13 @@ func (r *Repository) CreateOutbound(ctx context.Context, org identity.Organizati
 	if err := admit(counts); err != nil {
 		return s, err
 	}
+	// An agent's reply names the delivery it is working in the thread, so
+	// a session can tell its own replies from another slot's (Earlier).
 	err = tx.GetContext(ctx, &s, `
-		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, text, status, agent_id, sent_at)
-		VALUES ($1, $5, $2, 'out', $3, $4, 'pending', $6, now())
+		INSERT INTO ships (id, organization_id, conversation_id, direction, external_id, text, status, agent_id, delivery_id, sent_at)
+		VALUES ($1, $5, $2, 'out', $3, $4, 'pending', $6,
+			(SELECT delivery_id FROM ships WHERE organization_id = $5 AND status = 'claimed' AND agent_id = $6
+			   AND `+inThread("$5", "$2")+` LIMIT 1), now())
 		RETURNING `+columns, id, in.Conversation, externalID, in.Text, org, in.Agent)
 	if err != nil {
 		return s, pgerr.MapWith(err, "create outbound ship", messages)
@@ -330,7 +334,7 @@ func (r *Repository) Claim(ctx context.Context, org identity.OrganizationID, age
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH claimed AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6, attempts = attempts + 1
 			WHERE `+claimable+`
 			RETURNING `+columns+`)
 		SELECT * FROM claimed ORDER BY sent_at, created_at, id`, conv, delivery, until, org, agentID, session)
@@ -375,7 +379,7 @@ func (r *Repository) Join(ctx context.Context, org identity.OrganizationID, deli
 	ships := []ship.Ship{}
 	err = tx.SelectContext(ctx, &ships, `
 		WITH joined AS (
-			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6
+			UPDATE ships SET status = 'claimed', delivery_id = $2, claimed_until = $3, claimed_by = $6, attempts = attempts + 1
 			WHERE `+claimable+`
 			RETURNING `+columns+`)
 		SELECT * FROM joined ORDER BY sent_at, created_at, id`, conv, delivery, until, org, open.Agent, open.Session)
@@ -421,8 +425,10 @@ func (r *Repository) Ack(ctx context.Context, org identity.OrganizationID, deliv
 	if n, _ := res.RowsAffected(); n == 0 {
 		return 0, pgerr.MapWith(pgerr.ErrNoRows, "ack delivery", pgerr.Messages{NotFound: "delivery not found or no longer claimed"})
 	}
-	// Ships joined after the agent's turn ended were never seen: requeue.
-	res, err = tx.ExecContext(ctx, `UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL
+	// Ships joined after the agent's turn ended were never seen: requeue
+	// (and their join doesn't count as an attempt).
+	res, err = tx.ExecContext(ctx, `UPDATE ships SET status = 'queued', delivery_id = NULL, claimed_until = NULL, claimed_by = NULL,
+		attempts = greatest(attempts - 1, 0)
 		WHERE organization_id = $2 AND delivery_id = $1 AND status = 'claimed'`, delivery, org)
 	if err != nil {
 		return 0, pgerr.Map(err, "requeue unhandled ships")
@@ -599,6 +605,25 @@ func (r *Repository) HistoryOf(ctx context.Context, org identity.OrganizationID,
 		ids[i] = id.String()
 	}
 	return r.history(ctx, org, ids, "conversation_id = ANY($2::uuid[])", page)
+}
+
+func (r *Repository) Earlier(ctx context.Context, org identity.OrganizationID, convs []identity.ConversationID, held []string, limit int) ([]ship.Ship, error) {
+	out := []ship.Ship{}
+	if len(convs) == 0 || limit <= 0 {
+		return out, nil
+	}
+	ids := make([]string, len(convs))
+	for i, id := range convs {
+		ids[i] = id.String()
+	}
+	err := r.db.SelectContext(ctx, &out, `SELECT `+columns+` FROM ships
+		WHERE organization_id = $1 AND conversation_id = ANY($2::uuid[])
+		  AND (status IN ('handled', 'sent') OR (status = 'held' AND hold_reason = ANY($3::text[])))
+		ORDER BY sent_at DESC, created_at DESC, id DESC LIMIT $4`, org, ids, held, limit)
+	if err != nil {
+		return nil, pgerr.Map(err, "earlier ships")
+	}
+	return out, r.attach(ctx, r.db, org, out)
 }
 
 // history lists ships of scope (a condition on $1 = org, $2 = arg).

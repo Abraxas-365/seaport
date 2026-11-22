@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -423,6 +424,8 @@ type job struct {
 
 	mu      sync.Mutex
 	handled []identity.ShipID
+	// steered are the ships the running turn took mid-turn.
+	steered []ship.Ship
 	done    bool
 }
 
@@ -491,6 +494,7 @@ func (j *job) steerLoop(ctx context.Context, cfg Config, agent *Agent) {
 				for _, s := range d.Ships {
 					j.handled = append(j.handled, s.ID)
 				}
+				j.steered = append(j.steered, d.Ships...)
 				slog.Info("steered into the running turn", "delivery", d.ID, "ships", len(d.Ships))
 			}
 			j.mu.Unlock()
@@ -523,15 +527,16 @@ func filesDir(ctx context.Context, agent *Agent, thread identity.ThreadID, ships
 	return dir
 }
 
-// finish ends the job and returns the ships the agent saw.
-func (j *job) finish() []identity.ShipID {
+// finish ends the job and returns the ships the agent saw (by id, and
+// those it took mid-turn).
+func (j *job) finish() ([]identity.ShipID, []ship.Ship) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if !j.done {
 		j.done = true
 		close(j.stop)
 	}
-	return append([]identity.ShipID(nil), j.handled...)
+	return append([]identity.ShipID(nil), j.handled...), append([]ship.Ship(nil), j.steered...)
 }
 
 // work prompts the agent with one delivery and acks the ships it saw, or
@@ -539,16 +544,28 @@ func (j *job) finish() []identity.ShipID {
 func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.Frame)) {
 	d := j.d
 	id := d.ID
-	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "thread", d.Conversation.Thread, "title", d.Conversation.Title)
-	log.Info("delivery received", "ships", len(d.Ships))
-	images, ok := gather(ctx, cfg, agent.TakesImages(), filesDir(ctx, agent, d.Conversation.Thread, d.Ships), d.Ships)
+	thread := d.Conversation.Thread
+	log := slog.With("delivery", id, "conversation", d.Conversation.ID, "thread", thread, "title", d.Conversation.Title)
+	log.Info("delivery received", "ships", len(d.Ships), "earlier", len(d.Earlier), "retried", d.Retried())
+	images, ok := gather(ctx, cfg, agent.TakesImages(), filesDir(ctx, agent, thread, d.Ships), d.Ships)
+	// How far the thread's session has seen it decides what of Earlier
+	// it is told (opening the session Prompt then uses).
+	seen, err := agent.Seen(ctx, thread)
+	if err != nil {
+		log.Warn("could not open the thread's session", "err", err)
+	}
 	// What the agent does goes to the port's live view as it happens; the
 	// last of it is sent before the ack or release.
 	f := newFeed(id, send)
-	answer, err := agent.Prompt(ctx, d.Conversation.Thread, j.prelude+diskLine(cfg.Disk)+Prompt(d, cfg.AutoReply, ok), images, f)
-	handled := j.finish()
+	answer, err := agent.Prompt(ctx, thread, j.prelude+diskLine(cfg.Disk)+prompt(d, cfg.AutoReply, ok, catchUp(d, seen), agent.Self()), images, f)
+	handled, steered := j.finish()
 	f.close()
 	if err != nil {
+		if seen != nil {
+			// The prompt reached the session: what Earlier showed it is
+			// seen (the delivery's ships come back in the next one).
+			agent.Saw(thread, seen.through(id, d.Earlier))
+		}
 		// Turns failing in a row (the agent can't open sessions, its model
 		// refuses...) wait longer each time before the ships come back.
 		pause := agent.failed()
@@ -561,6 +578,11 @@ func work(ctx context.Context, cfg Config, agent *Agent, j *job, send func(crew.
 		return
 	}
 	agent.succeeded()
+	base := seenMark{}
+	if seen != nil {
+		base = *seen
+	}
+	agent.Saw(thread, base.through(id, d.Earlier, d.Ships).steered(steered))
 	if cfg.AutoReply && strings.TrimSpace(answer) != "" {
 		if conv, ok := answerDoor(d); ok {
 			send(crew.Frame{Type: crew.FrameReply, ConversationID: &conv, Text: strings.TrimSpace(answer)})
@@ -669,10 +691,101 @@ func writeShips(b *strings.Builder, ships []ship.Ship, doors map[identity.Conver
 }
 
 // Prompt renders a delivery as the agent's prompt (ok: the attachments
-// that go with it as images).
+// that go with it as images), for a session that has seen the thread.
 func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
+	return prompt(d, autoReply, ok, catchUpOf{}, identity.AgentID{})
+}
+
+// catchUpOf is what of Delivery.Earlier a session is shown before the
+// delivery's messages.
+type catchUpOf struct {
+	heading string
+	ships   []ship.Ship
+}
+
+// Catch-up headings.
+const (
+	earlierHeading = "Earlier in this conversation (context; you may not have seen it, and it was already answered or wasn't for you):"
+	sinceHeading   = "Since your last turn here (other agents, people replying from Seaport, messages not handed to you):"
+	retriedNote    = "[seaport] Some of the messages below were handed to you before, in a turn that didn't finish " +
+		"(the connection dropped or the turn failed). Check what was already done or replied before you act or answer again."
+)
+
+// catchUp picks what of d.Earlier the thread's session is shown, from how
+// far it has seen the thread (seen; nil: unknown, a sessions file of an
+// older connector, so nothing): a new session gets all of it, a resumed one
+// what is newer than its mark, not steered into its last turn and not a
+// reply of its own turns.
+func catchUp(d ship.Delivery, seen *seenMark) catchUpOf {
+	if seen == nil || len(d.Earlier) == 0 {
+		return catchUpOf{}
+	}
+	if seen.Created.IsZero() {
+		return catchUpOf{heading: earlierHeading, ships: d.Earlier}
+	}
+	var out []ship.Ship
+	for _, s := range d.Earlier {
+		if !s.CreatedAt.After(seen.Created) || slices.Contains(seen.Steered, s.ID) {
+			continue
+		}
+		if s.Direction == ship.DirectionOut && s.Delivery != nil && slices.Contains(seen.Mine, *s.Delivery) {
+			continue
+		}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return catchUpOf{}
+	}
+	return catchUpOf{heading: sinceHeading, ships: out}
+}
+
+// writeEarlier renders catch-up messages, one "- " line each (so they
+// never read as the delivery's own messages), naming who sent each:
+// the sender, "you" for this agent's replies, another agent's or a
+// person's reply from Seaport, and why a held one wasn't handed over.
+func writeEarlier(b *strings.Builder, c catchUpOf, doors map[identity.ConversationID]string, self identity.AgentID) {
+	if len(c.ships) == 0 {
+		return
+	}
+	b.WriteString(c.heading + "\n")
+	for _, s := range c.ships {
+		from := s.SenderName
+		if from == "" {
+			from = s.SenderID
+		}
+		if from == "" && s.Direction == ship.DirectionOut {
+			switch {
+			case s.Agent != nil && !self.IsZero() && *s.Agent == self:
+				from = "you"
+			case s.Agent != nil:
+				from = "another agent"
+			default:
+				from = "a person, from Seaport"
+			}
+		}
+		door := ""
+		if name, found := doors[s.Conversation]; found {
+			door = "(" + name + ") "
+		}
+		note := ""
+		if s.Status == ship.StatusHeld {
+			note = " [not handed to you: " + s.HoldReason + "]"
+		}
+		fmt.Fprintf(b, "- [%s] %s%s: %s%s\n", s.SentAt.Local().Format("2006-01-02 15:04"), door, from, s.Text, note)
+		writeAttachments(b, s, nil)
+	}
+	b.WriteString("\nNew message(s):\n")
+}
+
+// prompt renders a delivery as the agent's prompt, after the catch-up
+// its session gets (self: the agent this process runs, so its own
+// replies read as "you").
+func prompt(d ship.Delivery, autoReply bool, ok shown, catch catchUpOf, self identity.AgentID) string {
 	c := d.Conversation
 	var b strings.Builder
+	if d.Retried() {
+		b.WriteString(retriedNote + "\n\n")
+	}
 	fmt.Fprintf(&b, "[seaport] New %s message(s)\n", c.Channel)
 	fmt.Fprintf(&b, "conversation_id: %s\n", c.ID)
 	title := c.Title
@@ -705,7 +818,9 @@ func Prompt(d ship.Delivery, autoReply bool, ok shown) string {
 		}
 	}
 	b.WriteString("\n")
-	writeShips(&b, d.Ships, doorLabels(d), ok)
+	labels := doorLabels(d)
+	writeEarlier(&b, catch, labels, self)
+	writeShips(&b, d.Ships, labels, ok)
 	writeApprovals(&b, d.Approvals)
 	b.WriteString("\n")
 	if c.Channel == dock.ChannelGitHub {

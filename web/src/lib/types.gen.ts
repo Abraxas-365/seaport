@@ -519,6 +519,16 @@ export interface Delivery {
    */
   approvals?: Approval[]
   ships: Ship[]
+  /**
+   * Earlier are the thread's newest other messages, oldest first (at
+   * most MaxEarlier, MaxEarlierText; a person's reply sent while the
+   * agent was away may be newer than Ships): handled or held inbound
+   * ones and sent outbound ones, of the doors with history only, so a
+   * session that never saw part of the thread (another slot worked it,
+   * a resume failed, people replied from the web) can catch up. Only on
+   * a claim; a steer's session is already working the thread.
+   */
+  earlier?: Ship[]
 }
 
 /** DeliveryEvent is the payload of EventDelivery. */
@@ -1247,7 +1257,18 @@ export interface Ship {
   agent_id?: ID
   /** HoldReason says why a held ship was held (customs or routing). */
   hold_reason?: string
+  /**
+   * Delivery: inbound, the delivery that holds (or handled) it;
+   * outbound, the delivery its agent was working when it sent it (nil:
+   * sent outside a delivery, or by a person).
+   */
   delivery_id?: ID
+  /**
+   * Attempts counts the deliveries an inbound ship was handed to an
+   * agent in (a dropped connection or a failed turn gives it back; ships
+   * that joined a delivery but never reached the agent don't count).
+   */
+  attempts?: number
   error?: string
   sent_at: string
   created_at: string

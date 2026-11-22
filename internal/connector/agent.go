@@ -19,6 +19,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
 	"github.com/Abraxas-365/seaport/internal/identity"
+	"github.com/Abraxas-365/seaport/internal/ship"
 	acp "github.com/coder/acp-go-sdk"
 )
 
@@ -268,6 +269,14 @@ func (a *Agent) Prompt(ctx context.Context, thread identity.ThreadID, text strin
 // (promptCapabilities.image; rness refuses them otherwise).
 func (a *Agent) TakesImages() bool { return a.caps.PromptCapabilities.Image }
 
+// Self is the library agent this process runs (zero without a kit).
+func (a *Agent) Self() identity.AgentID {
+	if a.kit == nil {
+		return identity.AgentID{}
+	}
+	return a.kit.Agent
+}
+
 // steerMethod is rness's ACP extension that adds input to the turn an
 // in-flight session/prompt is running (advertised as
 // agentCapabilities._meta.rness.steer).
@@ -428,7 +437,7 @@ func (a *Agent) sessionFor(ctx context.Context, thread identity.ThreadID) (acp.S
 			err = errx.Business("agent can't resume sessions")
 		}
 		if err == nil {
-			a.remember(key, savedSession{ID: saved.ID, Instructions: saved.Instructions}, false)
+			a.remember(key, saved, false)
 			a.setMode(ctx, saved.ID, modes)
 			a.configure(ctx, saved.ID, options)
 			a.planBrief(saved.ID, saved.Instructions)
@@ -441,7 +450,7 @@ func (a *Agent) sessionFor(ctx context.Context, thread identity.ThreadID) (acp.S
 	if err != nil {
 		return "", errx.Wrap(err, "agent new session", errx.TypeExternal)
 	}
-	fresh := savedSession{ID: resp.SessionId}
+	fresh := savedSession{ID: resp.SessionId, Seen: &seenMark{}}
 	if a.kit != nil && (a.wire.prompt == "" || a.wire.Supported()) {
 		// the system prompt (or nothing) hands the instructions over
 		h := instructionsHash(a.wire.prompt)
@@ -614,6 +623,98 @@ func (a *Agent) sessionsKey() string {
 type savedSession struct {
 	ID           acp.SessionId `json:"id"`
 	Instructions *string       `json:"instructions,omitempty"`
+	// Seen is the newest message of the thread the session was shown in
+	// a turn that succeeded (zero: a new session, shown nothing yet; nil:
+	// unknown, a file of an older connector).
+	Seen *seenMark `json:"seen,omitempty"`
+}
+
+// seenMark is how far a session has seen its thread: the creation time
+// of the newest message it was handed with a delivery (zero: none yet, a
+// new session), the ships its last turn took mid-turn (newer than that,
+// but seen), and its own recent deliveries, whose replies it sent itself.
+type seenMark struct {
+	Created time.Time `json:"created"`
+	// Steered are the ships the last turn that succeeded took mid-turn
+	// (at most maxSteered).
+	Steered []identity.ShipID `json:"steered,omitempty"`
+	// Mine are the session's newest deliveries (at most maxMine).
+	Mine []identity.DeliveryID `json:"mine,omitempty"`
+}
+
+// maxMine bounds seenMark.Mine: a reply older than the last few turns
+// is older than the mark anyway.
+const maxMine = 16
+
+// maxSteered bounds seenMark.Steered (one shown again is harmless).
+const maxSteered = 64
+
+// mine is m with delivery added to Mine.
+func (m seenMark) mine(delivery identity.DeliveryID) seenMark {
+	m.Mine = append(slices.Clone(m.Mine), delivery)
+	if len(m.Mine) > maxMine {
+		m.Mine = m.Mine[len(m.Mine)-maxMine:]
+	}
+	return m
+}
+
+// through is m moved past the ships the session was handed with the
+// delivery (shown). The time mark doesn't move past ships steered in
+// mid-turn: a message held meanwhile, older than one of them, is still
+// to show.
+func (m seenMark) through(delivery identity.DeliveryID, shown ...[]ship.Ship) seenMark {
+	for _, ships := range shown {
+		for _, s := range ships {
+			if s.CreatedAt.After(m.Created) {
+				m.Created = s.CreatedAt
+			}
+		}
+	}
+	return m.mine(delivery)
+}
+
+// steered is m with the ships the turn took mid-turn as Steered.
+func (m seenMark) steered(ships []ship.Ship) seenMark {
+	m.Steered = nil
+	for _, s := range ships {
+		m.Steered = append(m.Steered, s.ID)
+	}
+	if len(m.Steered) > maxSteered {
+		m.Steered = m.Steered[len(m.Steered)-maxSteered:]
+	}
+	return m
+}
+
+// Seen opens the thread's session (as Prompt does) and says how far it
+// has seen the thread (nil: unknown).
+func (a *Agent) Seen(ctx context.Context, thread identity.ThreadID) (*seenMark, error) {
+	if _, err := a.sessionFor(ctx, thread); err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessions[thread.String()]
+	if s.Seen == nil {
+		return nil, nil
+	}
+	m := *s.Seen
+	return &m, nil
+}
+
+// Saw records, after a turn that succeeded, how far the thread's session
+// has seen it.
+func (a *Agent) Saw(thread identity.ThreadID, m seenMark) {
+	key := thread.String()
+	a.mu.Lock()
+	s, ok := a.sessions[key]
+	if !ok {
+		a.mu.Unlock()
+		return
+	}
+	s.Seen = &m
+	a.sessions[key] = s
+	a.mu.Unlock()
+	a.saveSessions()
 }
 
 func (s *savedSession) UnmarshalJSON(b []byte) error {
