@@ -4,8 +4,11 @@
 package hostinghttp
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
@@ -191,11 +194,54 @@ func (h *Handler) host(c fiber.Ctx) error {
 }
 
 type hostingPatch struct {
-	Autoscale *bool `json:"autoscale"`
+	Autoscale *bool        `json:"autoscale"`
+	Alerts    alertsChange `json:"alerts"`
+}
+
+// alertsChange is the patch's "alerts": absent (unchanged), null (off) or
+// where they go.
+type alertsChange struct {
+	set bool
+	to  *alertsBody
+}
+
+type alertsBody struct {
+	DockID      identity.DockID `json:"dock_id"`
+	Destination string          `json:"destination"`
+	Wait        string          `json:"wait"`
+}
+
+func (a *alertsChange) UnmarshalJSON(b []byte) error {
+	a.set = true
+	if string(bytes.TrimSpace(b)) == "null" {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields() // like the body's own fields (httpx.DecodeJSON)
+	a.to = &alertsBody{}
+	if err := dec.Decode(a.to); err != nil {
+		if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+			field = "alerts." + strings.Trim(field, `"`)
+			return errx.InvalidField(field, `unknown field "`+field+`"`)
+		}
+		return errx.InvalidField("alerts", "alerts must be null or {\"dock_id\", \"destination\", \"wait\"}")
+	}
+	return nil
+}
+
+func (a alertsChange) patch() *hosting.AlertsPatch {
+	switch {
+	case !a.set:
+		return nil
+	case a.to == nil:
+		return &hosting.AlertsPatch{Off: true}
+	}
+	return &hosting.AlertsPatch{Dock: a.to.DockID, Destination: a.to.Destination, Wait: a.to.Wait}
 }
 
 // updateHosting is PATCH /api/v1/agents/{id}/hosting: how the hosted
-// agent is run ({"autoscale": true}).
+// agent is run ({"autoscale": true}, {"alerts": {"dock_id", "destination",
+// "wait"}} or {"alerts": null}).
 func (h *Handler) updateHosting(c fiber.Ctx) error {
 	org, err := httpx.Organization(c)
 	if err != nil {
@@ -209,7 +255,7 @@ func (h *Handler) updateHosting(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	out, err := h.commands.UpdateHosting(c.Context(), org, id, hosting.HostingPatch{Autoscale: req.Autoscale})
+	out, err := h.commands.UpdateHosting(c.Context(), org, id, hosting.HostingPatch{Autoscale: req.Autoscale, Alerts: req.Alerts.patch()})
 	if err != nil {
 		return err
 	}

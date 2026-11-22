@@ -5,7 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { keys } from "@/lib/query"
 import { newMachine } from "@/lib/machine"
 import { Perm } from "@/lib/permissions.gen"
-import type { AgentProfile, AgentSecret, CrewStatus, Dock, Hosted, HostingStatus, LibraryAgent } from "@/lib/types"
+import type {
+  AgentProfile,
+  AgentSecret,
+  CrewStatus,
+  Destination,
+  Dock,
+  Hosted,
+  HostingStatus,
+  LibraryAgent,
+} from "@/lib/types"
 import { page } from "@/test/query"
 import { renderAt, seededClient, stubNetwork } from "@/test/render"
 import { apiData } from "@/test/wire"
@@ -137,5 +146,93 @@ describe("AgentPage", () => {
     renderAt(<AgentPage />, qc, at(a.id, "#secretos"))
     expect(screen.queryByRole("button", { name: /Clonar/ })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Eliminar/ })).not.toBeInTheDocument()
+  })
+
+  describe("alerts", () => {
+    const dock = apiData<Dock>("dock")
+    const destinations: Destination[] = [
+      { dock_id: dock.id, name: "ops", target: "C0123456789", title: "#ops", created_at: "2030-01-02T03:00:00Z" },
+    ]
+
+    /** Answers PATCH /hosting with the hosted agent the body makes, recording the bodies. */
+    function patches(a: LibraryAgent) {
+      const bodies: unknown[] = []
+      let stored = apiData<Hosted>("hosted")
+      vi.stubGlobal("fetch", async (path: string, init?: RequestInit) => {
+        if (init?.method !== "PATCH" || path !== `/api/v1/agents/${a.id}/hosting`)
+          return new Promise<Response>(() => {})
+        const body = JSON.parse(String(init.body)) as { alerts?: Hosted["alerts"] }
+        bodies.push(body)
+        stored = { ...stored, alerts: body.alerts ? { ...body.alerts, error: "" } : null }
+        return new Response(JSON.stringify(stored), { status: 200, headers: { "Content-Type": "application/json" } })
+      })
+      return bodies
+    }
+
+    it("says where they go and saves a new wait", async () => {
+      const { qc, a } = seeded()
+      qc.setQueryData(keys.destinations(dock.id), destinations)
+      const bodies = patches(a)
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      expect(screen.getByTestId("alerts-now")).toHaveTextContent("Ahora: Support (Slack) · ops")
+      expect(screen.getByTestId("alerts-now")).toHaveTextContent("más de 10 minutos")
+      const save = screen.getByRole("button", { name: /Guardar avisos/ })
+      expect(save).toBeDisabled()
+
+      const user = userEvent.setup()
+      const wait = screen.getByLabelText(/Avisar si una conversación espera/)
+      await user.clear(wait)
+      await user.type(wait, "0")
+      expect(screen.getByText(/Entre 1 y 1440 minutos/)).toBeInTheDocument()
+      expect(save).toBeDisabled()
+      await user.clear(wait)
+      await user.type(wait, "90")
+      expect(screen.getByText("1 h 30 min")).toBeInTheDocument()
+      await user.click(save)
+      expect(bodies).toEqual([{ alerts: { dock_id: dock.id, destination: "ops", wait: "90m" } }])
+      expect(await screen.findByText(/más de 1 h 30 min/)).toBeInTheDocument()
+    })
+
+    it("turns them off", async () => {
+      const { qc, a } = seeded()
+      qc.setQueryData(keys.destinations(dock.id), destinations)
+      const bodies = patches(a)
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      await userEvent.click(screen.getByRole("button", { name: /Apagar avisos/ }))
+      expect(bodies).toEqual([{ alerts: null }])
+      expect(await screen.findByText(/Sin avisos/)).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: /Apagar avisos/ })).not.toBeInTheDocument()
+    })
+
+    it("shows why the last notice failed", () => {
+      const { qc, a } = seeded()
+      const hosted = apiData<Hosted>("hosted")
+      qc.setQueryData(keys.hosted(a.id), { ...hosted, alerts: { ...hosted.alerts!, error: "the dock is unlinked" } })
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      expect(screen.getByRole("alert")).toHaveTextContent("No se pudo enviar el último aviso: the dock is unlinked")
+    })
+
+    it("offers only docks that open conversations", () => {
+      const { qc, a } = seeded()
+      qc.setQueryData(keys.docks, page<Dock>([{ ...dock, channel: "email" }]))
+      qc.setQueryData(keys.hosted(a.id), { ...apiData<Hosted>("hosted"), alerts: null })
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      expect(screen.getByText(/Ningún muelle puede abrir conversaciones/)).toBeInTheDocument()
+    })
+
+    it("is read-only without hosting:write", () => {
+      const held = [Perm.AgentsRead, Perm.HostingRead, Perm.CrewRead, Perm.DocksRead]
+      const { qc, a } = seeded({ held })
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      expect(screen.getByTestId("alerts-now")).toHaveTextContent("ops")
+      expect(screen.queryByRole("button", { name: /Guardar avisos/ })).not.toBeInTheDocument()
+    })
+
+    it("is hidden from a reader when they are off", () => {
+      const { qc, a } = seeded({ held: [Perm.AgentsRead, Perm.HostingRead, Perm.CrewRead, Perm.DocksRead] })
+      qc.setQueryData(keys.hosted(a.id), { ...apiData<Hosted>("hosted"), alerts: null })
+      renderAt(<AgentPage />, qc, at(a.id, "#donde"))
+      expect(screen.queryByTestId("alerts-now")).not.toBeInTheDocument()
+    })
   })
 })

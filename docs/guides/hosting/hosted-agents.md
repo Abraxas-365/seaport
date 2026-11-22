@@ -241,6 +241,28 @@ seaport agents autoscale pm on
 
 The switch is also on the **Dónde corre** tab (**Encender más instancias cuando hay cola**) and in the API (`PATCH /api/v1/agents/{id}/hosting` with `{"autoscale": true}`).
 
+### Alerts
+
+The port can tell a person when a hosted agent needs one. Name a [destination](../destinations.md) of a WhatsApp, Slack or api dock and the agent's alerts are posted there:
+
+```bash
+seaport dock destinations 0b6f2c1e-4d1a-4c55-9a51-3f7e5b8f2d10
+seaport agents alerts pm 0b6f2c1e-4d1a-4c55-9a51-3f7e5b8f2d10:oncall -wait 15m
+```
+
+An alert is posted when:
+
+- **A slot fails**: its container exited, or it couldn't start. The notice carries the reason; Seaport starts the slot again when there is work.
+- **The agent's image fails to build**, with the build's reason. Slots keep running on the previous image when they have one.
+- **The image has been building for 45 minutes.**
+- **A conversation has waited** `-wait` (default 10 minutes, from 1 minute to 24 hours) for the agent.
+
+Each condition is posted once while it lasts, so a slot that keeps failing or a queue that keeps waiting sends nothing new. When it clears, a **Resuelto** notice follows in the same conversation (in a Slack thread, the same thread). A condition that clears before its notice could be sent posts nothing.
+
+If a notice can't be sent (the dock is unlinked, or its replies are off), the **Dónde corre** tab shows why and the port tries again every 5 minutes. Turn alerts off with `seaport agents alerts pm off`; pointing them elsewhere drops the notices still to send, and conditions still open are posted to the new place. Deleting the dock turns them off.
+
+The **Dónde corre** tab has the same setting (**Avisos**), and so does the API (`PATCH /api/v1/agents/{id}/hosting` with `{"alerts": {"dock_id": "…", "destination": "oncall", "wait": "15m"}}`, or `{"alerts": null}` to turn them off).
+
 ## Workspace and repos
 
 Repos are cloned into `/workspace` when a slot starts. If the workspace is persistent and the repo is already there, Seaport fetches instead and leaves your agent's work untouched. A failed `on_start` is logged and the start goes on.

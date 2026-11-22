@@ -5,7 +5,7 @@
 
 export type * from "./types.gen"
 
-import type { AgentProfile, Hosted, ID, Page, WireEvents } from "./types.gen"
+import type { AgentProfile, Hosted, HostedAlerts, ID, Page, WireEvents } from "./types.gen"
 
 /** The list envelope of the API (query.Paginated; a Go generic, so by hand). */
 export interface Paginated<T> {
@@ -46,6 +46,15 @@ export interface HostingStatus {
   agents: Hosted[]
   /** This port runs hosted agents (SEAPORT_RUNTIME isn't off). */
   runtime: boolean
+}
+
+/**
+ * PATCH /agents/{id}/hosting (hostinghttp's request, unexported in Go): a
+ * field left out is unchanged; `alerts: null` turns alerts off.
+ */
+export interface HostingPatch {
+  autoscale?: boolean
+  alerts?: Pick<HostedAlerts, "dock_id" | "destination" | "wait"> | null
 }
 
 /**

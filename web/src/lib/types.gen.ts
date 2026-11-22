@@ -775,6 +775,22 @@ export interface Hosted {
    * slot at a time unless a person starts more.
    */
   autoscale: boolean
+  /**
+   * Alerts is where the supervisor tells a person that the agent needs
+   * one (a failed slot or build, a slow build, conversations waiting
+   * too long); nil: off.
+   */
+  alerts: HostedAlerts | null
+}
+
+/** HostedAlerts is where a hosted agent's alerts go (Hosted.Alerts; nil: off). */
+export interface HostedAlerts {
+  dock_id: ID
+  destination: string
+  /** Wait raises AlertWaiting ("10m", "1h"; DefaultAlertWait). */
+  wait: string
+  /** Error is why the last notice couldn't be sent ("" once one went). */
+  error: string
 }
 
 /** InboxItem is a conversation with its preview. */

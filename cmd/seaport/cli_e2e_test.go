@@ -1108,6 +1108,23 @@ func TestCLIAgentConfig(t *testing.T) {
 	if msg := p.fails("agents", "autoscale", "api", "maybe"); !strings.Contains(msg, "on|off") {
 		t.Errorf("autoscale maybe: %q", msg)
 	}
+	// alerts: a destination of a dock that opens conversations
+	oncall := p.addDock("api", "oncall")
+	p.ok("dock", "destination", "set", oncall, "ops", "ops-feed")
+	mustContain(t, "alerts shown off", p.ok("agents", "alerts", "api"), "agent api: alerts off")
+	mustContain(t, "alerts on", p.ok("agents", "alerts", "api", oncall+":ops", "-wait", "15m"),
+		"alerts to "+oncall+":ops", "takes over 45m", "waits 15m")
+	mustContain(t, "alerts shown", p.ok("agents", "alerts", "api"), "alerts to "+oncall+":ops", "waits 15m")
+	if msg := p.fails("agents", "alerts", "api", oncall+":nope"); !strings.Contains(msg, "destination") {
+		t.Errorf("alerts to an unknown destination: %q", msg)
+	}
+	if msg := p.fails("agents", "alerts", "api", oncall+":ops", "-wait", "30s"); !strings.Contains(msg, "whole minutes") {
+		t.Errorf("alerts wait 30s: %q", msg)
+	}
+	if msg := p.fails("agents", "alerts", "api", "ops"); !strings.Contains(msg, "<dock-id>:<destination name>") {
+		t.Errorf("alerts without a dock: %q", msg)
+	}
+	mustContain(t, "alerts off", p.ok("agents", "alerts", "api", "off"), "agent api: alerts off")
 	p.ok("agents", "add", "bare")
 	if msg := p.fails("agents", "host", "bare"); !strings.Contains(msg, "no harness and machine") {
 		t.Errorf("host without a machine: %q", msg)

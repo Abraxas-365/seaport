@@ -47,6 +47,7 @@ import {
   useUsage,
 } from "@/lib/hooks"
 import { formatFull, formatRelative } from "@/lib/format"
+import { AlertsCard } from "@/pages/agent-alerts"
 import { defaultConcurrency, harnessLabel, signsIn, workSummary } from "@/lib/machine"
 import { keys } from "@/lib/query"
 import { Perm } from "@/lib/permissions.gen"
@@ -186,6 +187,7 @@ function HostedPanel({
           <Denials agent={agent} />
         </CardContent>
       </Card>
+      {(write || hosted.alerts) && <AlertsCard agent={agent} hosted={hosted} write={write} />}
       <BuildCard agent={agent} write={write} runtime={runtime} />
     </div>
   )

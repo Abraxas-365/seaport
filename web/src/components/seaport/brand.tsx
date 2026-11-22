@@ -56,6 +56,18 @@ export const channelReplies: Record<Channel, boolean> = {
   datadog: false,
 }
 
+/** Whether a channel can open a conversation at a destination (mirrors dock.Channel.Opens). */
+export const channelOpens: Record<Channel, boolean> = {
+  whatsapp: true,
+  api: true,
+  github: false,
+  jira: false,
+  slack: true,
+  webhook: false,
+  email: false,
+  datadog: false,
+}
+
 /** GitHub's mark (lucide has no brand icons). */
 export function GitHubMark({ className, ...props }: React.ComponentProps<"svg">) {
   return (

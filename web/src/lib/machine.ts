@@ -48,6 +48,17 @@ export const asSecretRef = (name: string) => `\${${name}}`
 /** Idle stop: minutes and/or hours, or 0/never. */
 export const idleStopPattern = /^(0|never|(\d+h)?(\d+m)?)$/
 
+/** The wait of a hosted agent's alerts, in minutes (hosting.MinAlertWait…MaxAlertWait). */
+export const defaultAlertWait = 10
+export const maxAlertWait = 24 * 60
+
+/** Minutes of an alert wait as the API writes it ("10m", "1h", "1h30m"); null if it isn't one. */
+export function alertWaitMinutes(wait: string): number | null {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?$/.exec(wait.trim())
+  if (!m || (!m[1] && !m[2])) return null
+  return Number(m[1] ?? 0) * 60 + Number(m[2] ?? 0)
+}
+
 /** Conversations each instance works at once (hosting.DefaultConcurrency,
  * crew.MaxConcurrency). */
 export const defaultConcurrency = 2

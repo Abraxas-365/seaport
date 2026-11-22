@@ -136,6 +136,7 @@ func Spec() wire.Spec {
 			"MachineResources": of[hosting.Resources](),
 			"Build":            of[hosting.Build](),
 			"Hosted":           of[hosting.Hosted](),
+			"HostedAlerts":     of[hosting.Alerts](),
 			"Slot":             of[hosting.Slot](),
 			"SlotLog":          of[hosting.SlotLog](),
 			"SlotLogin":        of[hosting.Login](),

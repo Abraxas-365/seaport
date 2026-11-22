@@ -21,8 +21,9 @@ type Commands interface {
 	Host(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Host) (Hosted, error)
 	// Unhost stops hosting it (Conflict while a slot is not stopped).
 	Unhost(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
-	// UpdateHosting changes how the hosted agent is run (autoscale);
-	// NotFound when it isn't hosted.
+	// UpdateHosting changes how the hosted agent is run (autoscale, where
+	// its alerts go: the destination must exist on a dock that opens
+	// conversations, Alerter.Check); NotFound when it isn't hosted.
 	UpdateHosting(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input HostingPatch) (Hosted, error)
 	// StartBuild starts building the image of the agent's current config
 	// in the background (agent.build events follow) and answers the build.
@@ -176,6 +177,21 @@ type Viewers interface {
 	ViewerChanged(organization identity.OrganizationID, agent identity.AgentID, slot int, viewer string)
 }
 
+// Alerter sends hosted agents' alerts to people through a dock (bootstrap:
+// the ship and dock services), as the port (no agent): what people answer
+// there reaches the dock's agents like any message.
+type Alerter interface {
+	// Check: the dock has the destination, takes replies and its channel
+	// opens conversations (NotFound, Business). A dock that is unlinked
+	// for now passes: sends fail until it links again (Alerts.Error).
+	Check(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, destination string) error
+	// Open posts text at the destination as a new conversation and
+	// answers it.
+	Open(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, destination, text string) (identity.ConversationID, error)
+	// Reply posts text in a conversation an alert opened.
+	Reply(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID, text string) error
+}
+
 type Repository interface {
 	// Host upserts the agent's hosting and makes its slots 1..input.Slots,
 	// atomically, under the organization's hosting lock and the agent's
@@ -221,6 +237,20 @@ type Repository interface {
 	// database has no such build or the build's image is another one
 	// (rebuilt).
 	ForgetBuild(ctx context.Context, organization identity.OrganizationID, digest, image string) (remove bool, err error)
+
+	// Alerts raises, resolves and claims the hosted agents' alerts (system:
+	// the supervisor, every organization; see alert.go): it opens an alert
+	// for each condition of an agent with alerts on that has none open,
+	// resolves open ones whose condition cleared (or whose agent's alerts
+	// went off: those, and alerts resolved before their notice went, are
+	// never told), deletes resolved ones older than AlertKeep, and answers
+	// the notices due (not sent, AlertRetry after the last try), each
+	// claimed for AlertRetry so one process sends it.
+	Alerts(ctx context.Context) ([]Alert, error)
+	// AlertSent records a notice's outcome (sent: where it went; failed:
+	// the error, kept on the agent's hosting as Alerts.Error until one
+	// goes) and answers whether the hosting's Alerts.Error changed.
+	AlertSent(ctx context.Context, organization identity.OrganizationID, sent AlertSent) (changed bool, err error)
 
 	// BeginStart makes the caller a slot's starter: stopped or failed (or
 	// starting but stale: no progress for StartStale) → starting, in one
