@@ -128,6 +128,14 @@ type Runtime interface {
 	// answered): a start may run on a slot's previous image only while it
 	// is there (it may have been pruned).
 	HasImage(ctx context.Context, image string) (bool, error)
+	// Images lists the images carrying LabelBase: Seaport's base images
+	// and every image built FROM them.
+	Images(ctx context.Context) ([]Image, error)
+	// RemoveImage removes an image by id, or one repo:tag of it, never
+	// forcing, with its untagged parents: Conflict while a container or a
+	// child image uses it, no error when it is already gone. deleted is
+	// false when only a tag went (another tag or a child keeps it).
+	RemoveImage(ctx context.Context, ref string) (deleted bool, err error)
 	// Start runs a slot's container (replacing a leftover one) with
 	// Seaport's fixed rules: uid 1000, read-only root, no capabilities,
 	// no new privileges, resource limits; its state volume (and workspace
@@ -198,6 +206,21 @@ type Repository interface {
 	// with detail (image empty).
 	FinishBuild(ctx context.Context, organization identity.OrganizationID, digest, image, detail, log string) (Build, error)
 	Build(ctx context.Context, organization identity.OrganizationID, digest string) (Build, error)
+	// KeptImages is what the database still needs of the engine's images
+	// (system: the image collector): the last images of slots that are up
+	// (starting, running, stopping), a down slot's last image while its
+	// agent's wanted build isn't ready (a start's fallback), the ready
+	// builds hosted agents want, every build it knows and the images
+	// agents' current machines name.
+	KeptImages(ctx context.Context) (KeptImages, error)
+	// ForgetBuild deletes the ready build digest whose image is image
+	// before that image is removed, so no start takes it for built.
+	// remove = false when the image is needed again (KeptImages has it),
+	// a slot of the organization is starting (it may have read the build)
+	// or the build is building again; true, deleting nothing, when the
+	// database has no such build or the build's image is another one
+	// (rebuilt).
+	ForgetBuild(ctx context.Context, organization identity.OrganizationID, digest, image string) (remove bool, err error)
 
 	// BeginStart makes the caller a slot's starter: stopped or failed (or
 	// starting but stale: no progress for StartStale) → starting, in one

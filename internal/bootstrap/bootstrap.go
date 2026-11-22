@@ -95,6 +95,8 @@ type Options struct {
 	Runtime hosting.Runtime
 	// SupervisePeriod overrides hosting.SupervisePeriod (tests).
 	SupervisePeriod time.Duration
+	// ImageGCEvery overrides hosting.ImageGCEvery (tests).
+	ImageGCEvery time.Duration
 	// SweepInterval overrides config.SweepInterval (tests).
 	SweepInterval time.Duration
 	// EgressLookup resolves the egress proxy's hosts (tests).
@@ -307,6 +309,7 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),
+		KeepImages: cfg.KeepImages, ImageGCEvery: opts.ImageGCEvery,
 		Network: cfg.RuntimeNetwork, ExtraHosts: hostGateway(cfg), SupervisePeriod: opts.SupervisePeriod, Viewers: crew.Hub,
 		GatewayURLs: cfg.GatewayURLs, SecretKey: secretKey}
 	if blobs != nil {

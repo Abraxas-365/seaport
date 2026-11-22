@@ -126,6 +126,9 @@ type Server struct {
 	// them): SEAPORT_IMAGE_RNESS, SEAPORT_IMAGE_CLAUDE_CODE; default the
 	// published ones at this release's version (ghcr.io/abraxas-365/…).
 	ImageRness, ImageClaudeCode string
+	// KeepImages turns off the removal of unused agent images and old base
+	// tags (SEAPORT_IMAGE_GC=off; on by default).
+	KeepImages bool
 	// How slot containers reach the port: SEAPORT_AGENT_URL (default
 	// SEAPORT_PUBLIC_URL; on one host e.g.
 	// http://host.docker.internal:8740), on the Docker network
@@ -227,6 +230,7 @@ func LoadServer() (Server, error) {
 		// empty: bootstrap fills BaseImage(harness, Version)
 		ImageRness:         strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_RNESS")),
 		ImageClaudeCode:    strings.TrimSpace(os.Getenv("SEAPORT_IMAGE_CLAUDE_CODE")),
+		KeepImages:         isOff(os.Getenv("SEAPORT_IMAGE_GC")),
 		AgentURL:           strings.TrimRight(os.Getenv("SEAPORT_AGENT_URL"), "/"),
 		RuntimeNetwork:     env("SEAPORT_RUNTIME_NETWORK", "bridge"),
 		RuntimeHostGateway: os.Getenv("SEAPORT_RUNTIME_HOST_GATEWAY") != "false",

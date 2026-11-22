@@ -61,6 +61,7 @@ func (s *Service) supervise(ctx context.Context, orphans map[string]bool) error 
 	// Build the hosted agents' images ahead of their work first, so this
 	// round already sees a build that was ready.
 	s.warm(ctx, time.Now())
+	s.collectImages(time.Now())
 	rows, err := s.repo.Supervise(ctx)
 	if err != nil {
 		return err

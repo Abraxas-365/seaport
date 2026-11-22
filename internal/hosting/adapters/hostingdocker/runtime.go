@@ -103,6 +103,7 @@ func (r *Runtime) Build(ctx context.Context, req hosting.BuildRequest, log io.Wr
 		Labels: map[string]string{
 			hosting.LabelOrganization: req.Organization.String(),
 			hosting.LabelDigest:       req.Digest(),
+			hosting.LabelBuilder:      req.Port,
 		},
 	})
 	if err != nil {
@@ -133,6 +134,43 @@ func (r *Runtime) HasImage(ctx context.Context, image string) (bool, error) {
 		return false, errx.Wrap(err, "inspect image", errx.TypeExternal)
 	}
 	return true, nil
+}
+
+func (r *Runtime) Images(ctx context.Context) ([]hosting.Image, error) {
+	res, err := r.api.ImageList(ctx, client.ImageListOptions{Filters: client.Filters{}.Add("label", hosting.LabelBase)})
+	if err != nil {
+		return nil, errx.Wrap(err, "list images", errx.TypeExternal)
+	}
+	out := make([]hosting.Image, 0, len(res.Items))
+	for _, img := range res.Items {
+		var tags []string
+		for _, t := range img.RepoTags {
+			if t != "<none>:<none>" {
+				tags = append(tags, t)
+			}
+		}
+		out = append(out, hosting.Image{ID: img.ID, Tags: tags, Labels: img.Labels,
+			Created: time.Unix(img.Created, 0), Size: img.Size})
+	}
+	return out, nil
+}
+
+func (r *Runtime) RemoveImage(ctx context.Context, ref string) (bool, error) {
+	res, err := r.api.ImageRemove(ctx, ref, client.ImageRemoveOptions{PruneChildren: true})
+	switch {
+	case cerrdefs.IsNotFound(err):
+		return false, nil
+	case cerrdefs.IsConflict(err):
+		return false, errx.Conflict("image " + ref + " is in use")
+	case err != nil:
+		return false, errx.Wrap(err, "remove image", errx.TypeExternal)
+	}
+	for _, d := range res.Items {
+		if d.Deleted != "" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // base makes sure the base image is here (pulling it when missing or

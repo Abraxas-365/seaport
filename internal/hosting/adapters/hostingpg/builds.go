@@ -117,3 +117,74 @@ func (r *Repository) Build(ctx context.Context, org identity.OrganizationID, dig
 	}
 	return row.build(), nil
 }
+
+// keptImages: an image a slot that is up (starting, running, stopping)
+// ran last; a down slot's last image while its agent's wanted build of
+// that machine isn't ready (a start runs on it meanwhile: BeginStart's
+// previous; once it is ready a start takes the build); a ready build a
+// hosted agent wants.
+const keptImages = `SELECT s.image FROM agent_slots s
+	WHERE s.image <> '' AND (s.state IN ('starting', 'running', 'stopping') OR NOT EXISTS (
+	  SELECT 1 FROM agent_hosting h JOIN hosting_builds b
+	    ON b.organization_id = h.organization_id AND b.digest = h.build_digest AND b.state = 'ready'
+	  WHERE h.organization_id = s.organization_id AND h.agent_id = s.agent_id AND h.build_machine = s.machine_digest))
+	UNION
+	SELECT b.image FROM agent_hosting h JOIN hosting_builds b
+	  ON b.organization_id = h.organization_id AND b.digest = h.build_digest
+	WHERE b.state = 'ready' AND b.image <> ''`
+
+func (r *Repository) KeptImages(ctx context.Context) (hosting.KeptImages, error) {
+	out := hosting.KeptImages{Images: []string{}, Builds: []hosting.BuildKey{}, Pinned: []string{}}
+	if err := r.db.SelectContext(ctx, &out.Images, keptImages); err != nil {
+		return out, pgerr.Map(err, "list kept images")
+	}
+	if err := r.db.SelectContext(ctx, &out.Builds, `SELECT organization_id, digest FROM hosting_builds`); err != nil {
+		return out, pgerr.Map(err, "list builds")
+	}
+	// Every agent's current machine image, hosted or not (it may be hosted
+	// again; deleted agents' don't count).
+	err := r.db.SelectContext(ctx, &out.Pinned, `SELECT DISTINCT p.machine->>'image' FROM agents a
+		JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
+		WHERE a.deleted_at IS NULL AND p.machine IS NOT NULL AND jsonb_typeof(p.machine) = 'object'
+		  AND COALESCE(p.machine->>'image', '') <> ''`)
+	return out, pgerr.Map(err, "list pinned images")
+}
+
+func (r *Repository) ForgetBuild(ctx context.Context, org identity.OrganizationID, digest, image string) (bool, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return false, pgerr.Map(err, "begin forget build")
+	}
+	defer func() { _ = tx.Rollback() }()
+	// The build's row first (a claim waits), then whether anything needs
+	// the image again since the collector looked.
+	var state, current string
+	err = tx.QueryRowxContext(ctx, `SELECT state, image FROM hosting_builds
+		WHERE organization_id = $1 AND digest = $2 FOR UPDATE`, org, digest).Scan(&state, &current)
+	if pgerr.IsNoRows(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, pgerr.Map(err, "lock build")
+	}
+	if state == hosting.BuildBuilding {
+		return false, nil // building it again: the tag will point at the new image
+	}
+	var needed bool
+	// A start in progress in the organization may be about to run it (it
+	// read the build before it records its image): wait for the next run.
+	if err := tx.GetContext(ctx, &needed, `SELECT $1::text IN (`+keptImages+`)
+		OR EXISTS (SELECT 1 FROM agent_slots WHERE organization_id = $2 AND state = 'starting')`, image, org); err != nil {
+		return false, pgerr.Map(err, "check kept image")
+	}
+	if needed {
+		return false, nil
+	}
+	if current == image || current == "" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM hosting_builds WHERE organization_id = $1 AND digest = $2`,
+			org, digest); err != nil {
+			return false, pgerr.Map(err, "forget build")
+		}
+	}
+	return true, pgerr.Map(tx.Commit(), "commit forget build")
+}
