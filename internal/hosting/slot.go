@@ -34,6 +34,23 @@ type Hosted struct {
 	// at most its machine's concurrency at once, the rest wait their turn.
 	Working int `json:"working"`
 	Waiting int `json:"waiting"`
+	// Autoscale: the supervisor starts another slot when a conversation
+	// waits ScaleAfter with every running slot full, and stops an extra
+	// slot idle for ScaleDownAfter (HostingPatch). Off, the agent runs one
+	// slot at a time unless a person starts more.
+	Autoscale bool `json:"autoscale"`
+}
+
+// HostingPatch changes how a hosted agent is run (nil fields stay).
+type HostingPatch struct {
+	Autoscale *bool
+}
+
+func (p HostingPatch) Validate() error {
+	if p.Autoscale == nil {
+		return errx.Validation("nothing to change: give autoscale")
+	}
+	return nil
 }
 
 // Slot is one stable instance of a hosted agent (<agent>-<index>): its

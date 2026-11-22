@@ -74,7 +74,7 @@ func (s *Service) StartSlot(ctx context.Context, org identity.OrganizationID, in
 	if err := s.checkSecrets(ctx, org, input.Agent); err != nil {
 		return hosting.Hosted{}, err
 	}
-	start, claimed, err := s.repo.BeginStart(ctx, org, input.Agent, input.Index, false)
+	start, claimed, err := s.repo.BeginStart(ctx, org, input.Agent, input.Index, hosting.StartManual)
 	if err != nil {
 		return hosting.Hosted{}, errx.Wrap(err, "start slot", errx.TypeInternal)
 	}

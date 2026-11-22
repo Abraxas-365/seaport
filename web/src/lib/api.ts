@@ -349,6 +349,8 @@ export const api = {
   hosting: () => request<HostingStatus>("GET", `${v1}/hosting`),
   hosted: (agent: string) => request<Hosted>("GET", `${v1}/agents/${agent}/hosting`),
   host: (agent: string, slots: number) => request<Hosted>("PUT", `${v1}/agents/${agent}/hosting`, { slots }),
+  updateHosting: (agent: string, patch: { autoscale?: boolean }) =>
+    request<Hosted>("PATCH", `${v1}/agents/${agent}/hosting`, patch),
   unhost: (agent: string) => request<void>("DELETE", `${v1}/agents/${agent}/hosting`),
   slotAction: (agent: string, slot: number, action: "start" | "stop") =>
     request<Hosted>("POST", `${v1}/agents/${agent}/hosting/slots/${slot}/${action}`),

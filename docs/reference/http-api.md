@@ -579,8 +579,9 @@ Builds, homes and hosted agents. What a hosted agent runs is its [config](agent-
 | `GET` | `/homes/{digest}/archive` | `agents:read` | The home as a tar. |
 | `GET` | `/homes/{digest}/files/{path…}` | `agents:read` | One file of the home. |
 | `GET` | `/hosting` | `hosting:read` | `{"agents":[…],"runtime":"off"\|"docker"}`: every hosted agent. |
-| `GET` | `/agents/{id}/hosting` | `hosting:read` | The agent's hosting: `agent_id`, `slots`, `updated_by`, `updated_at`, and `working`/`waiting`: its conversations being worked now and those queued behind them. |
+| `GET` | `/agents/{id}/hosting` | `hosting:read` | The agent's hosting: `agent_id`, `slots`, `updated_by`, `updated_at`, `autoscale`, and `working`/`waiting`: its conversations being worked now and those queued behind them. |
 | `PUT` | `/agents/{id}/hosting` | `hosting:write` | Body `{"slots":1}`. Hosts the agent on its config's machine, or changes its slots. `422 BUSINESS` when its config has no harness and machine; `409 CONFLICT` while the agent has live crew tokens for people's machines (revoke them first). |
+| `PATCH` | `/agents/{id}/hosting` | `hosting:write` | Body `{"autoscale":true}`. How the hosted agent runs: with `autoscale` on, another of its slots starts when a conversation has waited a minute with every running slot full, and an extra slot idle for 5 minutes stops. The agent's hosting; `404` when it isn't hosted. |
 | `DELETE` | `/agents/{id}/hosting` | `hosting:write` | `204`. Running slots must be stopped first. |
 | `GET` | `/agents/{id}/hosting/egress` | `hosting:read` | `{"denials":[{"slot","host","count","last_seen"}]}`. |
 | `POST` | `/agents/{id}/hosting/slots/{slot}/start` | `hosting:write` | `202` with the agent's hosting. |

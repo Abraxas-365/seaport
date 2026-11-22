@@ -181,6 +181,22 @@ func (s *Service) Unhost(ctx context.Context, org identity.OrganizationID, agent
 	return nil
 }
 
+func (s *Service) UpdateHosting(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, input hosting.HostingPatch) (hosting.Hosted, error) {
+	if agentID.IsZero() {
+		return hosting.Hosted{}, errx.InvalidField("agent_id", "agent_id is required")
+	}
+	if err := input.Validate(); err != nil {
+		return hosting.Hosted{}, err
+	}
+	h, err := s.repo.UpdateHosting(ctx, org, agentID, input)
+	if err != nil {
+		return hosting.Hosted{}, errx.Wrap(err, "update hosting", errx.TypeInternal)
+	}
+	s.events.Publish(org, hosting.EventSlotsUpdated, h)
+	s.Wake(org, agentID) // autoscale on: look at the queue now
+	return h, nil
+}
+
 func (s *Service) Hosted(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID) (hosting.Hosted, error) {
 	if agentID.IsZero() {
 		return hosting.Hosted{}, errx.InvalidField("agent_id", "agent_id is required")

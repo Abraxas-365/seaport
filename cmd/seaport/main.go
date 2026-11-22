@@ -111,6 +111,7 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents home pull <agent> <dir>   download its home
   seaport agents host <agent> [-slots N]   run the agent on the port, on its config's machine
   seaport agents unhost <agent>
+  seaport agents autoscale <agent> on|off   start more slots when conversations wait
   seaport agents slots [<agent>]        hosted agents and the state of their slots
   seaport agents start|stop <agent>[-<n>]   start or stop a hosted slot (1 by default;
                                         new work also wakes a stopped agent)

@@ -40,6 +40,7 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Get("/api/v1/hosting", httpx.RequireFunc(permission.HostingRead, h.hostedAgents))
 	r.Get("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingRead, h.hosted))
 	r.Put("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingWrite, h.host))
+	r.Patch("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingWrite, h.updateHosting))
 	r.Delete("/api/v1/agents/:id/hosting", httpx.RequireFunc(permission.HostingWrite, h.unhost))
 	r.Post("/api/v1/agents/:id/hosting/slots/:slot/start", httpx.RequireFunc(permission.HostingWrite, h.startSlot))
 	r.Post("/api/v1/agents/:id/hosting/slots/:slot/stop", httpx.RequireFunc(permission.HostingWrite, h.stopSlot))
@@ -183,6 +184,32 @@ func (h *Handler) host(c fiber.Ctx) error {
 		}
 	}
 	out, err := h.commands.Host(c.Context(), p.Organization, id, hosting.Host{Slots: req.Slots, By: by(p)})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, out)
+}
+
+type hostingPatch struct {
+	Autoscale *bool `json:"autoscale"`
+}
+
+// updateHosting is PATCH /api/v1/agents/{id}/hosting: how the hosted
+// agent is run ({"autoscale": true}).
+func (h *Handler) updateHosting(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseAgentID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	var req hostingPatch
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	out, err := h.commands.UpdateHosting(c.Context(), org, id, hosting.HostingPatch{Autoscale: req.Autoscale})
 	if err != nil {
 		return err
 	}

@@ -768,6 +768,13 @@ export interface Hosted {
    */
   working: number
   waiting: number
+  /**
+   * Autoscale: the supervisor starts another slot when a conversation
+   * waits ScaleAfter with every running slot full, and stops an extra
+   * slot idle for ScaleDownAfter (HostingPatch). Off, the agent runs one
+   * slot at a time unless a person starts more.
+   */
+  autoscale: boolean
 }
 
 /** InboxItem is a conversation with its preview. */

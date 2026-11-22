@@ -172,7 +172,7 @@ func wireFixtures() map[string]any {
 	hosted := hosting.Hosted{Agent: agentID, UpdatedBy: "admin", UpdatedAt: at(1),
 		Slots: []hosting.Slot{{Index: 1, State: "running", Detail: "", Image: "sha256:0123456789abcdef",
 			ConfigVersion: 3, Outdated: false, StartedAt: ptr(at(0)), ActiveAt: ptr(at(2)), UpdatedAt: at(2)}},
-		Working: 2, Waiting: 1}
+		Working: 2, Waiting: 1, Autoscale: true}
 
 	customs := conversation.Customs{
 		Policy: conversation.Policy{Dock: dockID, Default: conversation.DefaultAsk, GroupMode: conversation.GroupMentions},

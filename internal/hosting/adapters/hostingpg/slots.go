@@ -2,6 +2,7 @@ package hostingpg
 
 import (
 	"context"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/hosting"
@@ -13,7 +14,7 @@ import (
 // sharing the database (and the Docker engine) never both start or stop
 // one slot.
 
-func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, slot int, wake bool) (hosting.SlotStart, bool, error) {
+func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, slot int, mode hosting.StartMode) (hosting.SlotStart, bool, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return hosting.SlotStart{}, false, pgerr.Map(err, "begin start slot")
@@ -35,6 +36,17 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 	// one without, and saving a config can't drop it while hosted).
 	// previous is the image a slot of the agent last ran on this machine
 	// (a start whose build isn't ready runs on it: SlotStart.Previous).
+	// $6: the other slots' states that keep this one from starting (a wake
+	// needs none up, autoscale none starting; a person's start, none).
+	var others []string
+	switch mode {
+	case hosting.StartWake:
+		others = []string{hosting.SlotStarting, hosting.SlotRunning}
+	case hosting.StartScale:
+		others = []string{hosting.SlotStarting}
+	default:
+		others = []string{}
+	}
 	err = tx.GetContext(ctx, &row, `WITH cur AS (
 			SELECT token_id FROM agent_slots WHERE organization_id = $1 AND agent_id = $2 AND idx = $3 FOR UPDATE)
 		UPDATE agent_slots s SET state = 'starting', detail = 'starting', run = $4, token_id = NULL, viewer_at = NULL, updated_at = now()
@@ -44,13 +56,13 @@ func (r *Repository) BeginStart(ctx context.Context, org identity.OrganizationID
 		  AND a.organization_id = s.organization_id AND a.id = s.agent_id AND a.deleted_at IS NULL
 		  AND p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
 		  AND (s.state IN ('stopped', 'failed') OR (s.state = 'starting' AND s.updated_at < now() - make_interval(secs => $5::float8)))
-		  AND (NOT $6::bool OR NOT EXISTS (SELECT 1 FROM agent_slots o WHERE o.organization_id = s.organization_id
-		        AND o.agent_id = s.agent_id AND o.idx <> s.idx AND o.state IN ('starting', 'running')))
+		  AND NOT EXISTS (SELECT 1 FROM agent_slots o WHERE o.organization_id = s.organization_id
+		        AND o.agent_id = s.agent_id AND o.idx <> s.idx AND o.state = ANY($6::text[]))
 		RETURNING cur.token_id AS old_token, a.name, p.version, p.harness, p.machine, p.machine_digest,
 		  COALESCE((SELECT o.image FROM agent_slots o WHERE o.organization_id = s.organization_id AND o.agent_id = s.agent_id
 		    AND o.image <> '' AND o.machine_digest <> '' AND o.machine_digest = p.machine_digest
 		    ORDER BY o.started_at DESC NULLS LAST LIMIT 1), '') AS previous`,
-		org, agentID, slot, run, hosting.StartStale.Seconds(), wake)
+		org, agentID, slot, run, hosting.StartStale.Seconds(), others)
 	if pgerr.IsNoRows(err) {
 		h, herr := hosted(ctx, tx, org, agentID)
 		if herr != nil {
@@ -168,31 +180,49 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		return nil, pgerr.Map(err, "begin supervise")
 	}
 	defer func() { _ = tx.Rollback() }()
-	// Agents with work keep their running slots active, and so does a
-	// sign-in under way on the slot's run (it takes no work until signed
-	// in) or a person in the slot's browser viewer: idle_stop must not stop
-	// a slot under either.
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_slots s SET active_at = now()
-		WHERE s.state = 'running' AND (EXISTS (SELECT 1 FROM ships sh WHERE sh.organization_id = s.organization_id
-		  AND sh.agent_id = s.agent_id AND sh.status IN ('queued', 'claimed'))
-		  OR EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
-		  AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
-		  AND l.state IN ('starting', 'waiting', 'verifying')
-		  AND l.updated_at > now() - make_interval(secs => $1::float8))
-		  OR s.viewer_at > now() - make_interval(secs => $2::float8))`,
-		hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
-		return nil, pgerr.Map(err, "touch active slots")
-	}
 	out := []hosting.Supervised{}
-	if err := tx.SelectContext(ctx, &out, `WITH work AS (
-			SELECT organization_id, agent_id,
-			  count(*) FILTER (WHERE status = 'queued') AS queued,
-			  count(*) FILTER (WHERE status = 'claimed') AS claimed
-			FROM ships WHERE status IN ('queued', 'claimed') AND agent_id IS NOT NULL GROUP BY organization_id, agent_id)
+	// threads: the agents' conversations with work (a ship claimed: in
+	// work; only queued: waiting, since its oldest queued ship). mine: the
+	// ships each running slot's own connections claimed (crew_connections.
+	// credential is the token id). Signing: a sign-in under way on the
+	// slot's run (it takes no work until signed in); viewing: a person in
+	// its browser viewer. Unattended: its machine doesn't sign in to a
+	// subscription, a sign-in on the slot finished (the tokens stay in its
+	// state volume), or the agent has its harness's fallback env secret.
+	if err := tx.SelectContext(ctx, &out, `WITH threads AS (
+			SELECT sh.organization_id, sh.agent_id,
+			  count(*) FILTER (WHERE sh.status = 'queued') AS queued,
+			  count(*) FILTER (WHERE sh.status = 'claimed') AS claimed,
+			  min(sh.created_at) FILTER (WHERE sh.status = 'queued') AS since
+			FROM ships sh JOIN conversations c ON c.organization_id = sh.organization_id AND c.id = sh.conversation_id
+			WHERE sh.status IN ('queued', 'claimed') AND sh.agent_id IS NOT NULL
+			GROUP BY sh.organization_id, sh.agent_id, c.thread_id),
+		work AS (
+			SELECT organization_id, agent_id, sum(queued) AS queued, sum(claimed) AS claimed,
+			  count(*) FILTER (WHERE claimed > 0) AS working, count(*) FILTER (WHERE claimed = 0) AS waiting,
+			  min(since) FILTER (WHERE claimed = 0) AS waiting_since
+			FROM threads GROUP BY organization_id, agent_id),
+		mine AS (
+			SELECT sl.organization_id, sl.agent_id, sl.idx, count(*) AS n
+			FROM agent_slots sl
+			JOIN crew_connections cc ON cc.organization_id = sl.organization_id AND cc.credential = sl.token_id::text
+			JOIN ships sh ON sh.organization_id = sl.organization_id AND sh.claimed_by = cc.session AND sh.status = 'claimed'
+			WHERE sl.state = 'running' AND sl.token_id IS NOT NULL
+			GROUP BY sl.organization_id, sl.agent_id, sl.idx)
 		SELECT s.organization_id, s.agent_id, s.idx, s.state, s.run, s.updated_at, s.active_at, s.started_at,
 		  COALESCE(p.machine->>'idle_stop', '') AS idle_stop,
 		  `+slotOutdated+` AS outdated, `+buildReady+` AS build_ready,
 		  COALESCE(w.queued, 0) AS queued, COALESCE(w.claimed, 0) AS claimed,
+		  COALESCE(w.working, 0) AS working, COALESCE(w.waiting, 0) AS waiting, w.waiting_since,
+		  COALESCE(m.n, 0) AS slot_claimed,
+		  COALESCE((p.machine->>'concurrency')::int, 0) AS concurrency,
+		  h.autoscale,
+		  (COALESCE(p.machine->'models'->>'anthropic', '') <> $3
+		    OR EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
+		      AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.state = $4)
+		    OR EXISTS (SELECT 1 FROM agent_secrets x WHERE x.organization_id = s.organization_id
+		      AND x.agent_id = s.agent_id AND x.env
+		      AND x.name = CASE p.harness WHEN $5 THEN $6 WHEN $7 THEN $8 END)) AS unattended,
 		  (s.state = 'running' AND EXISTS (SELECT 1 FROM slot_logins l WHERE l.organization_id = s.organization_id
 		    AND l.agent_id = s.agent_id AND l.idx = s.idx AND l.run = s.run
 		    AND l.state IN ('starting', 'waiting', 'verifying')
@@ -205,8 +235,37 @@ func (r *Repository) Supervise(ctx context.Context) ([]hosting.Supervised, error
 		LEFT JOIN agent_profiles p ON p.organization_id = a.organization_id AND p.agent_id = a.id AND p.version = a.profile_version
 		LEFT JOIN hosting_builds b ON b.organization_id = h.organization_id AND b.digest = h.build_digest
 		LEFT JOIN work w ON w.organization_id = s.organization_id AND w.agent_id = s.agent_id
-		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds()); err != nil {
+		LEFT JOIN mine m ON m.organization_id = s.organization_id AND m.agent_id = s.agent_id AND m.idx = s.idx
+		ORDER BY s.organization_id, s.agent_id, s.idx`, hosting.LoginStale.Seconds(), hosting.ViewerStale.Seconds(),
+		hosting.Subscription, hosting.LoginDone,
+		hosting.HarnessClaudeCode, hosting.SignInFallbacks[hosting.HarnessClaudeCode],
+		hosting.HarnessRness, hosting.SignInFallbacks[hosting.HarnessRness]); err != nil {
 		return nil, pgerr.Map(err, "list slots to supervise")
+	}
+	// A busy slot stays active (idle_stop and ScaleDownAfter count from
+	// its last busy round): Supervised.Idle.
+	var orgs, agents []string
+	var idxs []int
+	for _, row := range out {
+		if row.State == hosting.SlotRunning && !row.Idle() {
+			orgs = append(orgs, row.Organization.String())
+			agents = append(agents, row.Agent.String())
+			idxs = append(idxs, row.Index)
+		}
+	}
+	if len(idxs) > 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_slots s SET active_at = now()
+			FROM unnest($1::uuid[], $2::uuid[], $3::int[]) AS b(org, agent, idx)
+			WHERE s.organization_id = b.org AND s.agent_id = b.agent AND s.idx = b.idx AND s.state = 'running'`,
+			orgs, agents, idxs); err != nil {
+			return nil, pgerr.Map(err, "touch active slots")
+		}
+		now := time.Now()
+		for i := range out {
+			if out[i].State == hosting.SlotRunning && !out[i].Idle() {
+				out[i].ActiveAt = &now
+			}
+		}
 	}
 	return out, pgerr.Map(tx.Commit(), "commit supervise")
 }

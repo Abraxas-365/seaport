@@ -21,6 +21,9 @@ type Commands interface {
 	Host(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input Host) (Hosted, error)
 	// Unhost stops hosting it (Conflict while a slot is not stopped).
 	Unhost(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
+	// UpdateHosting changes how the hosted agent is run (autoscale);
+	// NotFound when it isn't hosted.
+	UpdateHosting(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input HostingPatch) (Hosted, error)
 	// StartBuild starts building the image of the agent's current config
 	// in the background (agent.build events follow) and answers the build.
 	// An image already built or building is answered as it is unless
@@ -177,6 +180,8 @@ type Repository interface {
 	// Unhost deletes the hosting and its slots (Conflict while one is not
 	// stopped; NotFound when it is not hosted).
 	Unhost(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) error
+	// UpdateHosting stores a HostingPatch (NotFound when not hosted).
+	UpdateHosting(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, input HostingPatch) (Hosted, error)
 	Hosted(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID) (Hosted, error)
 	HostedAgents(ctx context.Context, organization identity.OrganizationID) ([]Hosted, error)
 
@@ -196,10 +201,11 @@ type Repository interface {
 
 	// BeginStart makes the caller a slot's starter: stopped or failed (or
 	// starting but stale: no progress for StartStale) → starting, in one
-	// statement, so only one process starts it. With wake, only when no
-	// other slot of the agent is starting or running. Answers what the
-	// start needs and claimed = false when another caller has it.
-	BeginStart(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, wake bool) (start SlotStart, claimed bool, err error)
+	// statement, so only one process starts it. StartWake claims it only
+	// when no other slot of the agent is starting or running, StartScale
+	// only when none is starting. Answers what the start needs and
+	// claimed = false when another caller has it.
+	BeginStart(ctx context.Context, organization identity.OrganizationID, agent identity.AgentID, slot int, mode StartMode) (start SlotStart, claimed bool, err error)
 	// StartProgress records a start's progress (detail; the run's token
 	// when not zero) and keeps it fresh; Conflict once the slot is no
 	// longer starting run (stopped meanwhile).

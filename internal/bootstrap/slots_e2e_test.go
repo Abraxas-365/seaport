@@ -246,6 +246,106 @@ func TestHostedSlots(t *testing.T) {
 
 var errNoEngine = errx.External("the Docker engine is unreachable")
 
+// Autoscale: with it on, a conversation waiting ScaleAfter while every
+// running slot works all it can starts another slot, only one that can
+// work unattended (a subscription slot needs a sign-in, or the harness's
+// fallback key); the extra slot stops once idle ScaleDownAfter, the
+// lowest keeps running.
+func TestAutoscaleSlots(t *testing.T) {
+	rt := &fakeRuntime{results: make(chan string, 4)}
+	p := startPortWith(t, func(c *config.Server) {
+		c.SecretKey = "e2e-autoscale-secrets-key-0123456789abcdef"
+		c.ImageRness = "registry.test/seaport-rness:1"
+	}, bootstrap.Options{Runtime: rt, SupervisePeriod: 200 * time.Millisecond})
+	pm := p.agent("pm")
+	// rness with no providers signs in to a subscription.
+	p.setMachine(pm.ID, "rness", map[string]any{"concurrency": 1})
+	hostPath := "/api/v1/agents/" + pm.ID.String() + "/hosting"
+	if code := p.admin(http.MethodPut, hostPath, map[string]any{"slots": 2}, nil); code != http.StatusOK {
+		t.Fatalf("host: %d", code)
+	}
+	var h hosting.Hosted
+	if code := p.admin(http.MethodPatch, hostPath, map[string]any{}, nil); code != http.StatusBadRequest {
+		t.Fatalf("empty patch: %d", code)
+	}
+	if code := p.admin(http.MethodPatch, "/api/v1/agents/"+p.agent("other").ID.String()+"/hosting",
+		map[string]any{"autoscale": true}, nil); code != http.StatusNotFound {
+		t.Fatalf("patch an agent that isn't hosted: %d", code)
+	}
+
+	// Work wakes slot 1; its connection takes the first conversation.
+	rt.results <- "sha256:v1"
+	d := p.openDock("support")
+	p.assignAs(adminToken, d.ID, pm.ID, true)
+	p.inject(d, "51901", "a1", "hola")
+	eventually(t, "slot 1 woken", func() bool { return p.slot(pm.ID, 1).State == hosting.SlotRunning })
+	c1 := p.dialCrewAs(rt.lastStart().Env[hosting.EnvToken], crew.Frame{Type: crew.FrameHello, Agent: "pm-1", Concurrency: 1})
+	f1 := c1.read()
+	if f1.Type != crew.FrameDelivery {
+		t.Fatalf("slot 1 delivery: %+v", f1)
+	}
+
+	// A second conversation waits (well past ScaleAfter): autoscale off,
+	// nothing starts.
+	p.inject(d, "51902", "b1", "buenas")
+	db := testDB(t)
+	if _, err := db.Exec(`UPDATE ships SET created_at = now() - interval '2 minutes' WHERE agent_id = $1 AND status = 'queued'`, pm.ID); err != nil {
+		t.Fatal(err)
+	}
+	stays := func(what string) {
+		t.Helper()
+		time.Sleep(700 * time.Millisecond)
+		if s := p.slot(pm.ID, 2); s.State != hosting.SlotStopped {
+			t.Fatalf("%s: slot 2 %s (%s)", what, s.State, s.Detail)
+		}
+	}
+	stays("autoscale off")
+
+	// On, but slot 2 would wait for a person to sign it in.
+	if code := p.admin(http.MethodPatch, hostPath, map[string]any{"autoscale": true}, &h); code != http.StatusOK || !h.Autoscale ||
+		h.Working != 1 || h.Waiting != 1 {
+		t.Fatalf("autoscale on: %d %+v", code, h)
+	}
+	stays("a slot that needs a sign-in")
+
+	// With the harness's fallback key it can work unattended: it starts and
+	// takes the waiting conversation.
+	if code := p.admin(http.MethodPut, "/api/v1/agents/"+pm.ID.String()+"/secrets/ANTHROPIC_API_KEY",
+		map[string]any{"value": "sk-test", "env": true}, nil); code != http.StatusOK {
+		t.Fatalf("set fallback secret: %d", code)
+	}
+	eventually(t, "slot 2 started by autoscale", func() bool { return p.slot(pm.ID, 2).State == hosting.SlotRunning })
+	c2 := p.dialCrewAs(rt.lastStart().Env[hosting.EnvToken], crew.Frame{Type: crew.FrameHello, Agent: "pm-2", Concurrency: 1})
+	f2 := c2.read()
+	if f2.Type != crew.FrameDelivery || f2.Delivery.Conversation.ID == f1.Delivery.Conversation.ID {
+		t.Fatalf("slot 2 delivery: %+v", f2)
+	}
+
+	// Done: the extra slot stops once idle ScaleDownAfter (not before);
+	// slot 1 keeps running.
+	c1.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f1.Delivery.ID})
+	c2.send(crew.Frame{Type: crew.FrameAck, DeliveryID: &f2.Delivery.ID})
+	eventually(t, "both idle", func() bool {
+		var h hosting.Hosted
+		return p.admin(http.MethodGet, hostPath, nil, &h) == http.StatusOK && h.Working == 0 && h.Waiting == 0
+	})
+	time.Sleep(500 * time.Millisecond)
+	if s := p.slot(pm.ID, 2); s.State != hosting.SlotRunning {
+		t.Fatalf("extra slot stopped before ScaleDownAfter: %s (%s)", s.State, s.Detail)
+	}
+	if _, err := db.Exec(`UPDATE agent_slots SET active_at = now() - make_interval(secs => $2::float8) - interval '1 second'
+		WHERE agent_id = $1`, pm.ID, hosting.ScaleDownAfter.Seconds()); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "extra slot stopped", func() bool {
+		s := p.slot(pm.ID, 2)
+		return s.State == hosting.SlotStopped && strings.Contains(s.Detail, "autoscale")
+	})
+	if s := p.slot(pm.ID, 1); s.State != hosting.SlotRunning {
+		t.Fatalf("the lowest slot stopped: %s (%s)", s.State, s.Detail)
+	}
+}
+
 // An idle running slot whose machine is outdated restarts on the new one
 // (an instructions edit doesn't restart it); one idle past idle_stop is
 // stopped.

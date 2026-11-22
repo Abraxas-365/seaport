@@ -150,8 +150,30 @@ func (r *Repository) Unhost(ctx context.Context, org identity.OrganizationID, ag
 	return pgerr.Map(tx.Commit(), "commit unhost agent")
 }
 
+func (r *Repository) UpdateHosting(ctx context.Context, org identity.OrganizationID, agentID identity.AgentID, in hosting.HostingPatch) (hosting.Hosted, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return hosting.Hosted{}, pgerr.Map(err, "begin update hosting")
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, `UPDATE agent_hosting SET autoscale = COALESCE($3, autoscale)
+		WHERE organization_id = $1 AND agent_id = $2`, org, agentID, in.Autoscale)
+	if err != nil {
+		return hosting.Hosted{}, pgerr.Map(err, "update hosting")
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return hosting.Hosted{}, errx.NotFound("the agent is not hosted")
+	}
+	h, err := hosted(ctx, tx, org, agentID)
+	if err != nil {
+		return h, err
+	}
+	return h, pgerr.Map(tx.Commit(), "commit update hosting")
+}
+
 type hostedRow struct {
 	Agent     identity.AgentID `db:"agent_id"`
+	Autoscale bool             `db:"autoscale"`
 	UpdatedBy string           `db:"updated_by"`
 	UpdatedAt time.Time        `db:"updated_at"`
 }
@@ -200,7 +222,7 @@ func hosted(ctx context.Context, q sqlx.QueryerContext, org identity.Organizatio
 // set), live agents only, with their slots.
 func hostedWhere(ctx context.Context, q sqlx.QueryerContext, org identity.OrganizationID, agentID *identity.AgentID) ([]hosting.Hosted, error) {
 	var rows []hostedRow
-	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT h.agent_id, h.updated_by, h.updated_at
+	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT h.agent_id, h.autoscale, h.updated_by, h.updated_at
 		FROM agent_hosting h JOIN agents a ON a.organization_id = h.organization_id AND a.id = h.agent_id
 		WHERE h.organization_id = $1 AND ($2::uuid IS NULL OR h.agent_id = $2) AND a.deleted_at IS NULL
 		ORDER BY a.name`, org, agentID); err != nil {
@@ -242,7 +264,7 @@ func hostedWhere(ctx context.Context, q sqlx.QueryerContext, org identity.Organi
 	}
 	for _, row := range rows {
 		h := hosting.Hosted{Agent: row.Agent, UpdatedBy: row.UpdatedBy, UpdatedAt: row.UpdatedAt, Slots: byAgent[row.Agent],
-			Working: counts[row.Agent][0], Waiting: counts[row.Agent][1]}
+			Working: counts[row.Agent][0], Waiting: counts[row.Agent][1], Autoscale: row.Autoscale}
 		if h.Slots == nil {
 			h.Slots = []hosting.Slot{}
 		}

@@ -181,6 +181,14 @@ func (s Machine) SignsIn() bool {
 	return strings.TrimSpace(s.Models[ProviderAnthropic]) == Subscription
 }
 
+// SignInFallbacks: per harness, the env secret that signs it in without a
+// person (a long-lived OAuth token, or a key): an agent that has it can
+// start a new slot unattended (autoscale).
+var SignInFallbacks = map[string]string{
+	HarnessClaudeCode: "CLAUDE_CODE_OAUTH_TOKEN",
+	HarnessRness:      "ANTHROPIC_API_KEY",
+}
+
 // subscriptionHosts are what a signed-in harness reaches itself: the
 // Anthropic API and the token refresh.
 var subscriptionHosts = []string{"api.anthropic.com", "platform.claude.com"}

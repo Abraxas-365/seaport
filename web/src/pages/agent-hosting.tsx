@@ -43,6 +43,7 @@ import {
   useStartBuild,
   useStartLogin,
   useUnhost,
+  useUpdateHosting,
   useUsage,
 } from "@/lib/hooks"
 import { formatFull, formatRelative } from "@/lib/format"
@@ -61,11 +62,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import {
   AccountBadge,
   BrowserViewer,
@@ -162,6 +164,9 @@ function HostedPanel({
         <CardContent className="space-y-4">
           {!runtime && <RuntimeOff />}
           {write && <SlotsForm agent={agent} hosted={hosted} />}
+          {(write || hosted.autoscale) && (
+            <AutoscaleSwitch agent={agent} hosted={hosted} profile={profile} write={write} />
+          )}
           <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="hosted-work">
             {workSummary(
               hosted.working ?? 0,
@@ -183,6 +188,42 @@ function HostedPanel({
       </Card>
       <BuildCard agent={agent} write={write} runtime={runtime} />
     </div>
+  )
+}
+
+/** Autoscale: more instances start when conversations wait. */
+function AutoscaleSwitch({
+  agent,
+  hosted,
+  profile,
+  write,
+}: {
+  agent: LibraryAgent
+  hosted: Hosted
+  profile: AgentProfile
+  write: boolean
+}) {
+  const update = useUpdateHosting(agent.id)
+  const one = hosted.slots.length < 2
+  return (
+    <Field orientation="horizontal">
+      <FieldContent>
+        <FieldLabel htmlFor="hosting-autoscale">Encender más instancias cuando hay cola</FieldLabel>
+        <FieldDescription>
+          Si una conversación espera más de un minuto con todas las instancias encendidas ocupadas, se enciende otra
+          (hasta {hosted.slots.length}). Una instancia de más que lleva 5 minutos sin trabajo se apaga.
+          {signsIn(profile.harness, profile.machine?.models) &&
+            " Solo se encienden solas las instancias que ya iniciaron sesión en la suscripción una vez."}
+          {one && " Necesita al menos 2 instancias."}
+        </FieldDescription>
+      </FieldContent>
+      <Switch
+        id="hosting-autoscale"
+        checked={hosted.autoscale}
+        disabled={!write || update.isPending}
+        onCheckedChange={(autoscale) => update.mutate({ autoscale })}
+      />
+    </Field>
   )
 }
 
