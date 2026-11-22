@@ -183,6 +183,24 @@ type Supervised struct {
 	// Queued and Claimed count the agent's ships waiting and in work.
 	Queued  int `db:"queued"`
 	Claimed int `db:"claimed"`
+	// Working and Waiting count the agent's conversations (threads) in
+	// work and queued behind them (as Hosted's); WaitingSince is when the
+	// oldest ship of a waiting one arrived.
+	Working      int        `db:"working"`
+	Waiting      int        `db:"waiting"`
+	WaitingSince *time.Time `db:"waiting_since"`
+	// SlotClaimed counts the ships claimed by this slot's own connections
+	// (its run's token): the slot is working.
+	SlotClaimed int `db:"slot_claimed"`
+	// Concurrency is the machine's (0: DefaultConcurrency).
+	Concurrency int `db:"concurrency"`
+	// Autoscale: the agent's hosting starts more slots when its
+	// conversations wait (Hosted.Autoscale).
+	Autoscale bool `db:"autoscale"`
+	// Unattended: the slot can work without a person signing it in (its
+	// machine doesn't sign in, a sign-in on it finished, or the agent has
+	// a fallback key secret). Autoscale starts only such slots.
+	Unattended bool `db:"unattended"`
 	// Signing: a sign-in is under way on the slot's run (live, reported
 	// within LoginStale). The slot is busy: neither stopped nor restarted.
 	Signing bool `db:"signing"`
@@ -190,6 +208,45 @@ type Supervised struct {
 	// ViewerStale). Busy too, like Signing.
 	Viewing bool `db:"viewing"`
 }
+
+// SlotConcurrency is how many conversations each slot of the agent works
+// at once.
+func (s Supervised) SlotConcurrency() int {
+	if s.Concurrency <= 0 {
+		return DefaultConcurrency
+	}
+	return s.Concurrency
+}
+
+// Idle: the slot works no conversation, none of its agent's waits for a
+// slot, and nobody signs it in or uses its browser. (A message queued
+// behind a conversation another slot works keeps that slot busy, not
+// this one.)
+func (s Supervised) Idle() bool {
+	return s.SlotClaimed == 0 && s.Waiting == 0 && !s.Signing && !s.Viewing
+}
+
+// Autoscale timing: a conversation waits ScaleAfter with every running
+// slot of its agent full before another slot starts; an extra slot idle
+// for ScaleDownAfter stops (the agent's lowest running slot follows its
+// machine's idle_stop).
+const (
+	ScaleAfter     = time.Minute
+	ScaleDownAfter = 5 * time.Minute
+)
+
+// StartMode says who starts a slot (Repository.BeginStart).
+type StartMode int
+
+const (
+	// StartManual: a person, or a restart; whatever the agent's other
+	// slots do.
+	StartManual StartMode = iota
+	// StartWake: the agent has work and no slot starting or running.
+	StartWake
+	// StartScale: autoscale; no other slot of the agent is starting.
+	StartScale
+)
 
 // Ref is the slot's reference.
 func (s Supervised) Ref() SlotRef {

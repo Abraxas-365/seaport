@@ -185,8 +185,8 @@ Starting uses the agent's image, or its previous one while a new image builds (s
 You rarely start slots by hand. Every Seaport process runs a supervisor that checks every 15 seconds and when new work is queued:
 
 - **Builds** the image each hosted agent's current config needs, in the background, before any message asks for it.
-- **Wakes** a hosted agent that has queued ships and no slot up. It starts the lowest stopped slot, or a failed one after 5 minutes, one at a time per agent.
-- **Stops** a running slot that has been idle longer than `idle_stop`. A slot being [signed in](claude-subscriptions.md), or with a person in its [browser viewer](browser.md#the-viewer), isn't idle.
+- **Wakes** a hosted agent that has queued ships and no slot up. It starts the lowest stopped slot, or a failed one after 5 minutes, one at a time per agent. With [autoscale](#autoscale) it also starts another slot when conversations wait with every running slot full.
+- **Stops** a running slot that has been idle longer than `idle_stop` (an extra slot autoscale started: after 5 minutes). A slot being [signed in](claude-subscriptions.md), or with a person in its [browser viewer](browser.md#the-viewer), isn't idle.
 - **Restarts** an idle slot that is outdated, once the agent's image is built: its machine is no longer the agent's current one, or it runs another image than the agent's current build (after an upgrade or a forced build). `seaport agents slots` marks it. Slots a change of instructions leaves alone.
 - **Fails** a running slot whose container is gone or exited.
 - **Cleans up** starts and stops that stalled, and containers that no slot row owns.
@@ -212,9 +212,23 @@ Every conversation of a slot runs in the same container, with one harness proces
 - **The workspace.** With repos, each conversation has its own worktree. Without them, all of them work in `/workspace` itself.
 - **Model limits.** Every turn calls the model; a Claude subscription's limits are reached sooner.
 
-To answer more people at once, raise `concurrency` (within what the size takes) or give the agent more slots (`seaport agents host pm -slots 2`; each slot adds its own `concurrency`, with its own sessions and volumes). A changed `concurrency` makes the running slots outdated: each one restarts with it once idle, on the same image (nothing is rebuilt).
+To answer more people at once, raise `concurrency` (within what the size takes) or give the agent more slots (`seaport agents host pm -slots 2`; each slot adds its own `concurrency`, with its own sessions and volumes) and turn on [autoscale](#autoscale). A changed `concurrency` makes the running slots outdated: each one restarts with it once idle, on the same image (nothing is rebuilt).
 
 The **Dónde corre** tab shows how many conversations the agent is working on and how many are waiting, next to how many it can take at once.
+
+### Autoscale
+
+On its own the supervisor wakes one slot per agent; the others start only when you start them. With autoscale on, the extra slots follow the queue:
+
+```bash
+seaport agents autoscale pm on
+```
+
+- **Up.** When a conversation has waited a minute and every running slot works as many conversations as its `concurrency` allows, the next stopped slot starts (one start at a time, up to the agent's slot count). A conversation waiting for another reason, such as an older message owed to another agent, starts nothing.
+- **Down.** An extra slot that has had no conversation for 5 minutes stops. The agent's lowest running slot is not an extra: it follows `idle_stop` as usual.
+- **Sign-in.** A slot of a machine that [signs in to a Claude subscription](claude-subscriptions.md) needs a person the first time, so autoscale starts it only once it has been signed in, or when the agent has the harness's fallback secret (`CLAUDE_CODE_OAUTH_TOKEN` for Claude Code, `ANTHROPIC_API_KEY` for rness, with `env` on). Sign in each slot once and autoscale can use it from then on.
+
+The switch is also on the **Dónde corre** tab (**Encender más instancias cuando hay cola**) and in the API (`PATCH /api/v1/agents/{id}/hosting` with `{"autoscale": true}`).
 
 ## Workspace and repos
 

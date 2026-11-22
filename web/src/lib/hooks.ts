@@ -947,6 +947,15 @@ export function useHost(agent: string) {
   })
 }
 
+export function useUpdateHosting(agent: string) {
+  const changed = useHostingChanged(agent)
+  return useMutation({
+    mutationFn: (patch: { autoscale?: boolean }) => api.updateHosting(agent, patch),
+    onSuccess: (h) => changed(h),
+    onError: fail("No se pudo cambiar el alojamiento"),
+  })
+}
+
 export function useUnhost(agent: string) {
   const changed = useHostingChanged(agent)
   return useMutation({

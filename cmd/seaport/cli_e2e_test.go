@@ -1103,6 +1103,11 @@ func TestCLIAgentConfig(t *testing.T) {
 	mustContain(t, "no hosted", p.ok("agents", "slots"), "no hosted agents")
 	mustContain(t, "host", p.ok("agents", "host", "api", "-slots", "2"), "agent api hosted with 2 slot(s)")
 	mustContain(t, "slots", p.ok("agents", "slots", "api"), "SLOT", "CONFIG", "api-1", "api-2", "stopped")
+	mustContain(t, "autoscale on", p.ok("agents", "autoscale", "api", "on"), "autoscale on (up to 2 slot(s)")
+	mustContain(t, "autoscale off", p.ok("agents", "autoscale", "api", "off"), "autoscale off")
+	if msg := p.fails("agents", "autoscale", "api", "maybe"); !strings.Contains(msg, "on|off") {
+		t.Errorf("autoscale maybe: %q", msg)
+	}
 	p.ok("agents", "add", "bare")
 	if msg := p.fails("agents", "host", "bare"); !strings.Contains(msg, "no harness and machine") {
 		t.Errorf("host without a machine: %q", msg)

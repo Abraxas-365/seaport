@@ -148,6 +148,7 @@ These commands need `SEAPORT_RUNTIME=docker` on the port for anything that build
 | `seaport agents build <agent> [-force] [-wait=false]` | Builds the image of the agent's machine and follows the log until it ends; a failed build is an error. Builds are keyed by content, so an agent whose machine builds the same image as another's, or whose config changed only its instructions, builds nothing. `-force` builds again even if built (pulls the base anew). `-wait=false` returns once the build starts. |
 | `seaport agents host <agent> [-slots N]` | Runs the agent on the port, on its config's machine (the config needs a harness and a machine). `-slots` is the number of instances (default 1; each keeps its own sessions and workspace). Refused while the agent has live crew tokens. |
 | `seaport agents unhost <agent>` | Stops hosting it (running slots must be stopped first). |
+| `seaport agents autoscale <agent> on\|off` | With it on, another of the agent's slots starts when a conversation has waited a minute with every running slot full (up to its slot count), and an extra slot idle for 5 minutes stops. A slot that signs in to a subscription starts only once it has been signed in. |
 | `seaport agents slots [<agent>]` | Table of hosted slots: slot, config version, state, detail. |
 | `seaport agents start <agent>[-<n>]` | Starts a slot (1 by default). New work also wakes a stopped agent. |
 | `seaport agents stop <agent>[-<n>]` | Stops a slot. |

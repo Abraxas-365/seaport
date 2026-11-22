@@ -559,6 +559,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/hosting", "GET /api/v1/hosting", nil, permission.HostingRead},
 		{"GET", "/api/v1/agents/" + ag + "/hosting", "GET /api/v1/agents/{id}/hosting", nil, permission.HostingRead},
 		{"PUT", "/api/v1/agents/" + ag + "/hosting", "PUT /api/v1/agents/{id}/hosting", map[string]int{"slots": 1}, permission.HostingWrite},
+		{"PATCH", "/api/v1/agents/" + ag + "/hosting", "PATCH /api/v1/agents/{id}/hosting", map[string]bool{"autoscale": false}, permission.HostingWrite},
 		{"DELETE", "/api/v1/agents/" + ag + "/hosting", "DELETE /api/v1/agents/{id}/hosting", nil, permission.HostingWrite},
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/start", "POST /api/v1/agents/{id}/hosting/slots/{slot}/start", nil, permission.HostingWrite},
 		{"POST", "/api/v1/agents/" + ag + "/hosting/slots/1/stop", "POST /api/v1/agents/{id}/hosting/slots/{slot}/stop", nil, permission.HostingWrite},

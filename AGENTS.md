@@ -711,7 +711,19 @@ net/http mux; only `/healthz` answers 405.
   relaying it, fresh within `ViewerStale`, migration 00044; both touch
   `active_at`), ends stale starts/stops, and removes runtime
   slots with no row after two rounds; each step is a conditional
-  transition (`BeginStop(run)` only stops that run). Inside, `seaport
+  transition (`BeginStop(run)` only stops that run). A slot is idle
+  (`Supervised.Idle`) when its own connections (`crew_connections.credential`
+  = its `token_id`) claim nothing and none of the agent's conversations
+  waits; busy slots get `active_at` = now each round. Autoscale (migration
+  00049, `agent_hosting.autoscale`, `PATCH /agents/{id}/hosting`,
+  `seaport agents autoscale`): `scaleUp` starts the next slot
+  (`BeginStart` with `hosting.StartScale`: no other slot starting) when a
+  conversation (thread) has waited `hosting.ScaleAfter` and `Working` ≥
+  running slots × concurrency, only a `Supervised.Unattended` slot (its
+  machine doesn't sign in, a sign-in on it is `done`, or the agent has the
+  harness's `hosting.SignInFallbacks` env secret); every running slot but
+  the agent's lowest is an extra and stops after `hosting.ScaleDownAfter`
+  idle instead of `idle_stop`. Inside, `seaport
   agent-run` (`connector.Hosted`) reads `GET /crew/workspace` (slot tokens
   only; repo credentials resolved by `Kits.Reveal`, see `secretCalls`),
   links the harness's sessions/sign-in into the state volume, clones or

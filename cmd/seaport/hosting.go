@@ -17,7 +17,7 @@ import (
 	"github.com/Abraxas-365/seaport/internal/identity"
 )
 
-// hostCmd is `seaport agents host|unhost|slots|start|stop|logs|usage|egress|login|account ...`.
+// hostCmd is `seaport agents host|unhost|autoscale|slots|start|stop|logs|usage|egress|login|account ...`.
 func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 	switch sub {
 	case "login":
@@ -174,6 +174,25 @@ func hostCmd(ctx context.Context, a *admin, sub string, args []string) error {
 			return err
 		}
 		fmt.Fprintf(stdout, "agent %s is no longer hosted (connect it yourself: seaport connect)\n", ag.Name)
+		return nil
+	case "autoscale":
+		if len(args) != 2 || (args[1] != "on" && args[1] != "off") {
+			return errx.Validation("usage: seaport agents autoscale <agent> on|off")
+		}
+		ag, err := findAgent(ctx, a, args[0])
+		if err != nil {
+			return err
+		}
+		var h hosting.Hosted
+		if err := a.do(ctx, http.MethodPatch, "/api/v1/agents/"+ag.ID.String()+"/hosting",
+			map[string]any{"autoscale": args[1] == "on"}, &h); err != nil {
+			return err
+		}
+		if h.Autoscale {
+			fmt.Fprintf(stdout, "agent %s: autoscale on (up to %d slot(s) when conversations wait)\n", ag.Name, len(h.Slots))
+		} else {
+			fmt.Fprintf(stdout, "agent %s: autoscale off\n", ag.Name)
+		}
 		return nil
 	}
 	// slots [<agent>]
