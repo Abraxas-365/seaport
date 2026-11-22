@@ -22,6 +22,10 @@ type Builder struct {
 	Bases map[string]string
 	// Timeout bounds one build (default 30 minutes).
 	Timeout time.Duration
+	// KeepImages turns the unused-image collector off (SEAPORT_IMAGE_GC=off).
+	KeepImages bool
+	// GCEvery overrides hosting.ImageGCEvery (tests).
+	GCEvery time.Duration
 }
 
 // builds runs the background builds of a Service.
@@ -40,6 +44,10 @@ type builds struct {
 	tried map[string]time.Time
 	// warmedAt: the supervisor's last look at the hosted agents' images.
 	warmedAt time.Time
+	// collecting: the image collector runs in this process;
+	// collectedAt: when it last started.
+	collecting  atomic.Bool
+	collectedAt time.Time
 }
 
 func newBuilds(cfg Builder) *builds {
@@ -149,6 +157,14 @@ func (s *Service) runBuild(req hosting.BuildRequest) {
 			return
 		}
 		req.Home = home
+	}
+	// The image is labeled as this port's (LabelBuilder) so the image
+	// collector removes it once unused; a port whose id can't be read
+	// builds it unlabeled (the collector then goes by the build's record).
+	if port, err := s.portID(ctx); err == nil {
+		req.Port = port
+	} else {
+		slog.Warn("agent build: read the port's id", "digest", digest, "err", err)
 	}
 	done := make(chan struct{})
 	go func() {

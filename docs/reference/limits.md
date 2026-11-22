@@ -283,6 +283,8 @@ The machine's fields are described in [Agent config](agent-config.md).
 | Slot start with no progress is failed after | 2 min | `hosting.StartStale` | No |
 | Time an agent gets to finish on stop | 20 s | `hosting.StopTimeout` | No |
 | Supervisor period | 15 s | `hosting.SupervisePeriod` | No |
+| Unused images removed every | 1 h | `hosting.ImageGCEvery` | `SEAPORT_IMAGE_GC=off` turns it off |
+| Image too new to be removed | 1 h | `hosting.ImageGCGrace` | No |
 | Egress allowlist cache | 30 s | `hosting.EgressCacheFor` | No |
 | Recorded denial per slot and host | once a minute | `hosting.DenialEvery` | No |
 | Denied hosts listed per slot | 50 | `hosting.MaxDenials` | No |

@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,7 +81,7 @@ func TestBuild(t *testing.T) {
 	fakeBase(t, r, base, `io.seaport.base="1" io.seaport.harness="rness"`)
 
 	req := hosting.BuildRequest{Organization: identity.MustParseOrganizationID("00000000-0000-4000-8000-000000000001"),
-		Base: base, Spec: hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{
+		Base: base, Port: "port-" + suffix, Spec: hosting.Spec{Harness: hosting.HarnessRness, Machine: hosting.Machine{
 			Setup: "id -u > /opt/setup-uid\necho \"$HOME\" > /home/agent/made-by-setup\n"}}}
 	t.Cleanup(func() { remove(r, req.Tag()) })
 	var log bytes.Buffer
@@ -94,7 +95,7 @@ func TestBuild(t *testing.T) {
 	}
 	labels := img.Config.Labels
 	if labels[hosting.LabelDigest] != req.Digest() || labels[hosting.LabelOrganization] != req.Organization.String() ||
-		labels[hosting.LabelHarness] != "rness" || img.Config.User != "1000:1000" {
+		labels[hosting.LabelHarness] != "rness" || labels[hosting.LabelBuilder] != req.Port || img.Config.User != "1000:1000" {
 		t.Fatalf("labels/user: %+v %q", labels, img.Config.User)
 	}
 	out := run(t, r, req.Tag(), "cat /opt/setup-uid; stat -c %u /home/agent/made-by-setup; cat /home/agent/made-by-setup")
@@ -133,6 +134,73 @@ func TestBuild(t *testing.T) {
 	if _, err := r.Build(ctx, broken, &log); !errx.IsType(err, errx.TypeExternal) || !strings.Contains(log.String(), "about to fail") ||
 		!strings.Contains(err.Error(), "the setup script exited with code 3") {
 		t.Fatalf("broken setup: %v\n%s", err, log.String())
+	}
+}
+
+// Images lists Seaport-labeled images only (with their tags and labels);
+// RemoveImage untags while another tag keeps the image, deletes it with
+// its last tag, refuses one a container uses (Conflict) and takes a
+// missing one for done.
+func TestImagesAndRemoval(t *testing.T) {
+	r := dockerRuntime(t)
+	pullPlain(t, r)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	suffix := strings.ReplaceAll(identity.NewAgentID().String()[:8], "-", "")
+	repo := "seaport-test-gc-" + suffix
+	fakeBase(t, r, repo+":1", `io.seaport.base="1" io.seaport.harness="rness" io.seaport.test="`+suffix+`"`)
+	if _, err := r.api.ImageTag(ctx, client.ImageTagOptions{Source: repo + ":1", Target: repo + ":2"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { remove(r, repo+":2") })
+
+	images, err := r.Images(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mine hosting.Image
+	for _, img := range images {
+		if img.Labels[hosting.LabelBase] == "" {
+			t.Fatalf("listed an image without %s: %+v", hosting.LabelBase, img)
+		}
+		if img.Labels["io.seaport.test"] == suffix {
+			mine = img
+		}
+		if strings.Contains(strings.Join(img.Tags, ","), plainImage) {
+			t.Fatalf("listed %s", plainImage)
+		}
+	}
+	slices.Sort(mine.Tags)
+	if !slices.Equal(mine.Tags, []string{repo + ":1", repo + ":2"}) || mine.Size <= 0 || time.Since(mine.Created) > time.Hour {
+		t.Fatalf("listed: %+v", mine)
+	}
+
+	// A container of it: refused, by tag (the last one) and by id.
+	if deleted, err := r.RemoveImage(ctx, repo+":1"); err != nil || deleted {
+		t.Fatalf("untag one of two: %v %v", deleted, err)
+	}
+	c, err := r.api.ContainerCreate(ctx, client.ContainerCreateOptions{Image: repo + ":2",
+		Config: &container.Config{Entrypoint: []string{"true"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RemoveImage(ctx, mine.ID); !errx.IsType(err, errx.TypeConflict) {
+		t.Fatalf("in use by id: %v", err)
+	}
+	if _, err := r.RemoveImage(ctx, repo+":2"); !errx.IsType(err, errx.TypeConflict) {
+		t.Fatalf("in use by its last tag: %v", err)
+	}
+	if _, err := r.api.ContainerRemove(ctx, c.ID, client.ContainerRemoveOptions{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := r.RemoveImage(ctx, repo+":2"); err != nil || !deleted {
+		t.Fatalf("last tag: %v %v", deleted, err)
+	}
+	if ok, _ := r.HasImage(ctx, mine.ID); ok {
+		t.Fatal("still there")
+	}
+	if deleted, err := r.RemoveImage(ctx, mine.ID); err != nil || deleted {
+		t.Fatalf("already gone: %v %v", deleted, err)
 	}
 }
 

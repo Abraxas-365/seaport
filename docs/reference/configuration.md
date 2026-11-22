@@ -172,6 +172,7 @@ Settings for [hosted agents](../guides/hosting/hosted-agents.md). The machine's 
 | `SEAPORT_RUNTIME_HOST_GATEWAY` | `true` | Maps `host.docker.internal` to the host in slots (Linux engines don't by themselves). Only the exact value `false` turns it off. |
 | `SEAPORT_IMAGE_RNESS` | `ghcr.io/abraxas-365/seaport-rness:<tag>` | Base image for `rness` agents whose machine has no `image`. `<tag>` is the release's version (for example `0.7.0`), or `latest` for development builds. |
 | `SEAPORT_IMAGE_CLAUDE_CODE` | `ghcr.io/abraxas-365/seaport-claude-code:<tag>` | The same for `claude-code`. |
+| `SEAPORT_IMAGE_GC` | on | `off` keeps every image. On, the supervisor removes, about once an hour, agent images no slot runs and no hosted agent wants, and older tags of the two base images above (an image less than an hour old, one a container uses, or one an agent's machine names stays). See [Hosted agents](../guides/hosting/hosted-agents.md#disk-space). |
 | `SEAPORT_HOST_MAX_CPUS` | `4` | Most CPUs one slot may ask for (`0` = no limit). |
 | `SEAPORT_HOST_MAX_MEMORY_MB` | `8192` | Most memory (MB) one slot may ask for (`0` = no limit). |
 | `SEAPORT_MAX_SLOTS` | `10` | Slots per organization (`0` = no limit). |

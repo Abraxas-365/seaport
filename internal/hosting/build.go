@@ -67,6 +67,9 @@ type BuildRequest struct {
 	// Home is the normalized tar of Machine.Home (ReadHome), baked into the
 	// home (HomeContext in the build context).
 	Home []byte
+	// Port is the building deployment's id (LabelBuilder; not in the
+	// digest: ports sharing an engine share an image).
+	Port string
 }
 
 // BuildAgent is the input of Commands.StartBuild.

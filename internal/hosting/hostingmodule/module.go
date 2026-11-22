@@ -48,6 +48,10 @@ type Config struct {
 	Runtime hosting.Runtime
 	// Bases maps a harness to its base image.
 	Bases map[string]string
+	// KeepImages turns the unused-image collector off; ImageGCEvery
+	// overrides hosting.ImageGCEvery (tests).
+	KeepImages   bool
+	ImageGCEvery time.Duration
 	// Network and ExtraHosts wire slot containers (hostingdocker.Config).
 	Network    string
 	ExtraHosts []string
@@ -92,7 +96,7 @@ func New(ctx context.Context, db *sqlx.DB, agents agent.Queries, cfg Config, eve
 		m.docker, runtime = d, d
 	}
 	svc, err := hostingsvc.New(hostingpg.New(db), agents, cfg.Limits, events,
-		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases},
+		hostingsvc.Builder{Runtime: runtime, Bases: cfg.Bases, KeepImages: cfg.KeepImages, GCEvery: cfg.ImageGCEvery},
 		hostingsvc.Slots{Credentials: cfg.Credentials, Kits: cfg.Kits, URL: cfg.AgentURL, Period: cfg.SupervisePeriod, Viewers: cfg.Viewers},
 		hostingsvc.Homes{Blobs: cfg.Blobs, SecretKey: cfg.SecretKey})
 	if err != nil {

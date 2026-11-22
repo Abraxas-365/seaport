@@ -70,7 +70,7 @@ You don't have to rebuild by hand. Once the new version is up, its supervisor bu
 - A message to an agent whose slots are stopped starts a slot on the image it ran before (same machine, previous base), so it answers right away.
 - A slot that is running keeps running. Once the new image is ready, the slot shows as outdated and restarts on it as soon as it is idle.
 
-An agent with no previous image (never started, or the engine pruned it) waits for its build on the first message. To build one agent now and follow the log:
+An agent with no previous image (never started, or the engine pruned it) waits for its build on the first message. Once an agent's new image is ready and no slot runs the old one, the supervisor removes the old image and the previous release's base images (see [Disk space](../hosting/hosted-agents.md#disk-space)). To build one agent now and follow the log:
 
 ```sh
 seaport agents build pm

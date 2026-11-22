@@ -137,6 +137,17 @@ seaport agents build pm -wait=false   # start it and return
 
 A forced build that makes a different image marks running slots outdated, so they restart on it once idle. A build that stops reporting for a minute is treated as dead, and the next caller may start it again.
 
+### Disk space
+
+Every release brings a new base image, and so a new image for every hosted agent, several GB each. With Docker as the runtime, the supervisor removes what nothing needs about once an hour:
+
+- An agent image this port built that no slot is up on and no hosted agent wants. A stopped slot's last image stays until its agent's new image is ready, since a start runs on it until then. Its build record goes with it, so the next start that needs that image builds it again.
+- Other tags of the two base images the port uses (`SEAPORT_IMAGE_RNESS`, `SEAPORT_IMAGE_CLAUDE_CODE`), that is, older releases, and old base images left without a tag.
+
+It keeps any image less than an hour old, any image a container still uses (Docker refuses to remove it; the next round tries again) and the image an agent's machine names in `image:`. It removes images by their Seaport labels only, so your other images stay. Ports that share an engine each remove only their own builds: images are labeled `io.seaport.builder` with the port's id, and an older image without that label is removed only by the port whose database knows its build. Base tags are shared, though: a port removes the tags of other versions, so a port on another release that shares the engine pulls its base again on its next build. Set `SEAPORT_IMAGE_GC=off` on such ports to keep everything.
+
+Removal doesn't touch Docker's build cache. To reclaim that as well, run `docker builder prune` on the host.
+
 ## Host an agent
 
 Give the agent the secrets its machine names, save its config, then host it:

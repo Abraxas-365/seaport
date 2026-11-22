@@ -61,6 +61,7 @@ var systemWide = map[string]string{
 	"hosting.Repository.Supervise":      "the slot supervisor wakes, stops and reconciles the slots of every organization",
 	"hosting.Repository.HostedMachines": "the supervisor builds the images of every organization's hosted agents ahead of their work",
 	"hosting.Repository.PortID":         "the deployment's own id (labels its containers), not a tenant's",
+	"hosting.Repository.KeptImages":     "the image collector weighs the engine's images, which are no organization's, against every organization's slots and builds",
 	"schedule.Commands.FireDue":         "the runner of every process fires the due schedules of every organization",
 	"schedule.Repository.Due":           "the runner claims the due schedules of every organization",
 	"ship.Repository.UnwokenApprovals":  "approval sweeper retries the wakes that failed, in every organization",

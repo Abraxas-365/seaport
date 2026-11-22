@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Abraxas-365/seaport/internal/bootstrap"
 	"github.com/Abraxas-365/seaport/internal/config"
@@ -35,6 +36,92 @@ type fakeRuntime struct {
 	noBrowser bool
 	// pruned: images the engine no longer has (HasImage).
 	pruned map[string]bool
+	// images: what Images lists (keyed by id); inUse: ids RemoveImage
+	// refuses (a container uses them); removedImages: what it removed.
+	images        map[string]hosting.Image
+	inUse         map[string]bool
+	removedImages []string
+	// removeTries counts RemoveImage calls per ref (refused ones too).
+	removeTries map[string]int
+}
+
+// Images lists the images the test gave it.
+func (f *fakeRuntime) Images(context.Context) ([]hosting.Image, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]hosting.Image, 0, len(f.images))
+	for _, img := range f.images {
+		out = append(out, img)
+	}
+	return out, nil
+}
+
+// RemoveImage removes an image by id, or untags one repo:tag (deleting
+// the image with its last tag); in-use ones are a Conflict.
+func (f *fakeRuntime) RemoveImage(_ context.Context, ref string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.removeTries == nil {
+		f.removeTries = map[string]int{}
+	}
+	f.removeTries[ref]++
+	for id, img := range f.images {
+		i := slices.Index(img.Tags, ref)
+		if id != ref && i < 0 {
+			continue
+		}
+		if f.inUse[id] {
+			return false, errx.Conflict("image " + ref + " is in use")
+		}
+		f.removedImages = append(f.removedImages, ref)
+		if id != ref && len(img.Tags) > 1 {
+			img.Tags = slices.Delete(slices.Clone(img.Tags), i, i+1)
+			f.images[id] = img
+			return false, nil
+		}
+		delete(f.images, id)
+		if f.pruned == nil {
+			f.pruned = map[string]bool{}
+		}
+		f.pruned[id] = true
+		return true, nil
+	}
+	return false, nil
+}
+
+func (f *fakeRuntime) hasImage(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.images[id]
+	return ok
+}
+
+// ageImages makes every image older than the collector's grace.
+func (f *fakeRuntime) ageImages() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for id, img := range f.images {
+		img.Created = time.Now().Add(-2 * hosting.ImageGCGrace)
+		f.images[id] = img
+	}
+}
+
+func (f *fakeRuntime) removedImage(ref string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.removedImages, ref)
+}
+
+func (f *fakeRuntime) triesOf(ref string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.removeTries[ref]
+}
+
+func (f *fakeRuntime) image(id string) hosting.Image {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.images[id]
 }
 
 func (f *fakeRuntime) browserDown() bool {
@@ -203,6 +290,13 @@ func (f *fakeRuntime) Build(ctx context.Context, req hosting.BuildRequest, log i
 			fmt.Fprintln(log, msg)
 			return "", errx.External("the build failed: " + msg)
 		}
+		f.mu.Lock()
+		if f.images != nil { // the engine now has it, labeled as Build labels it
+			f.images[r] = hosting.Image{ID: r, Tags: []string{req.Tag()}, Created: time.Now(), Size: 100 << 20,
+				Labels: map[string]string{hosting.LabelBase: "1", hosting.LabelOrganization: req.Organization.String(),
+					hosting.LabelDigest: req.Digest(), hosting.LabelBuilder: req.Port}}
+		}
+		f.mu.Unlock()
 		return r, nil
 	}
 }
