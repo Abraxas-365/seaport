@@ -7,7 +7,7 @@ An agent's config has three parts:
 | Part | Fields | Used by |
 | :--- | :--- | :--- |
 | Harness | `harness` | Picks the base image of a hosted agent. A remote agent runs whatever command you give `seaport connect`; the harness is recorded for it. |
-| Profile | `instructions`, `skills`, `mcp_servers`, `approve`, `model`, `effort`, `browser`, `browser_assist`, `browser_detect`, `browser_ignore_hosts` | Both modes. Every field is in [Agent profile](agent-profile.md). |
+| Profile | `instructions`, `skills`, `mcp_servers`, `approve`, `model`, `effort`, `browser`, `browser_assist`, `browser_detect`, `browser_ignore_hosts`, `alarms` | Both modes. Every field is in [Agent profile](agent-profile.md). |
 | Machine | `machine` | Hosted agents only: image, tools, repositories, model access, network, resources and workspace. See [Machine](#machine). |
 
 Each change makes a new, immutable version, and the agent runs its current one. You edit the config in the web app (the agent's page: **Configuración** and **Dónde corre**), with `seaport agents config apply -f agent.yaml`, or with the API (`PUT /api/v1/agents/{id}/config`). Hosting needs `SEAPORT_RUNTIME=docker` on the port to build and run; see [Hosted agents](../guides/hosting/hosted-agents.md).
@@ -35,6 +35,7 @@ Each change makes a new, immutable version, and the agent runs its current one. 
 | `browser_assist` | string | empty | empty, `conversation` or a destination name | Needs `browser`. |
 | `browser_detect` | boolean | `false` | | Needs `browser`. |
 | `browser_ignore_hosts` | list of string | empty | 32 | Needs `browser`. |
+| `alarms` | boolean | `false` | | The agent may set [alarms](../guides/alarms.md) for itself. |
 | `machine` | object | none | 256 KiB as JSON (`agent.MaxMachine`) | Where a hosted agent runs. See [Machine](#machine). |
 
 A `machine` needs a `harness`. An agent the port hosts must keep both: the port refuses a save that drops them while it is hosted, and a save of `browser: true` whose machine has no browser engine.

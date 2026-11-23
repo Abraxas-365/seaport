@@ -28,6 +28,7 @@ export const sidebar = [
       page('guides/customs'),
       page('guides/linked-conversations'),
       page('guides/schedules'),
+      page('guides/alarms'),
       page('guides/destinations'),
       page('guides/messages-and-images'),
       page('guides/approvals'),

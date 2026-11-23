@@ -694,6 +694,7 @@ function SchedulesSection({ conversation: c }: { conversation: Conversation }) {
               key={s.id}
               schedule={s}
               agentName={nameOf(s.agent_id)}
+              setBy={nameOf(s.created_by)}
               now={now}
               busy={update.isPending || run.isPending}
               onToggle={write ? (enabled) => update.mutate({ id: s.id, enabled }) : undefined}

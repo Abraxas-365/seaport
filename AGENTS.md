@@ -1069,6 +1069,30 @@ net/http mux; only `/healthz` answers 405.
   evaluated is disabled. At most `SEAPORT_MAX_SCHEDULES` per organization,
   counted under `schedulepg.createLock` (`7_401_012`). Permissions
   `schedules:read|write`; events `schedule.created|updated|deleted|fired`.
+- Agent alarms (migration 00052, plan `~/.rness/plans/puerto/agent-alarms.md`,
+  `docs/guides/alarms.md`): an alarm is a schedule row with `run_at` (a
+  one-shot: `cron = ''`, CHECK `schedules_when`), `created_by` (the agent) and
+  `done_at`. The profile switch `alarms` (default off, `agent_profiles.alarms`,
+  `seaport agents profile set -alarms on`) registers the MCP tools
+  `set_alarm|alarms|cancel_alarm` (`crewmcp.addAlarms`, like `addTakeover`)
+  and is re-checked at fire time (`schedulesvc.fire`: off → the alarm is
+  closed without firing, logged). `Commands.SetAlarm` needs the agent on the
+  conversation's dock (else NotFound "conversation not found") and
+  `Repository.CreateAlarm` counts under `createLock`: `MaxAlarmsPerConversation`
+  3 and `MaxAlarmsPerAgent` 20 pending, `MaxAlarmsPerDay` 50 created in a
+  rolling 24 h (done ones count), then the org quota (pending only: done
+  rows never count); over limit is `QuotaExceeded` (422). `plan` fires a
+  one-shot up to `AlarmGrace` (1 h) late, else closes it unfired (`Advance.
+  Done`); `Due` marks it done (`enabled=false`, `done_at`) and purges rows
+  done more than `DoneKeep` (7 d) ago, `LIMIT 100` per claim. The message is
+  `@<agent> Alarm you set (<name>, set <created_at>): <note>` from
+  `system:schedule` ("Seaport · alarma <name>", handle `alarm:<agent>`). An
+  agent manages only its own alarms through the tools; people manage all
+  through the schedules API (`at`, `done=true`, `agent_id`), but an alarm's
+  agent stays its creator (`Update` refuses another `agent_id`, `Business`).
+  Names are unique among rows not done (`schedules_live_name`, partial; a
+  done one-shot frees its name). `Run` of a
+  one-shot posts without closing it. Same events as schedules.
 - Vaults (`vault`, migration 00037): an organization's shared memory. A vault
   (`vaults`, unique name `^[a-z0-9][a-z0-9_-]{0,63}$`, at most
   `SEAPORT_MAX_VAULTS` = 64 per organization, 0 = off, counted under

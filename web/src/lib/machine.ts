@@ -234,6 +234,7 @@ export const emptyConfig: ProfileInput = {
   browser_assist: "",
   browser_detect: false,
   browser_ignore_hosts: [],
+  alarms: false,
   harness: "",
   machine: null,
 }

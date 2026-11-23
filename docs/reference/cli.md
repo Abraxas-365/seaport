@@ -126,6 +126,7 @@ Flags of `profile set`:
 | `-effort E` | Reasoning effort, among the harness's options; `none` clears it. |
 | `-browser on\|off` | Whether the agent uses its machine's [managed browser](../guides/hosting/browser.md). |
 | `-browser-assist none\|conversation\|NAME` | Whom Seaport tells when the agent asks for a browser takeover: nobody, the conversation it is working, or a destination `NAME` of one of its docks. |
+| `-alarms on\|off` | Whether the agent may set [alarms](../guides/alarms.md) for itself (`set_alarm`). Off by default. |
 | `-browser-detect on\|off` | Whether the connector detects sign-in, captcha and 2FA pages in the browser and asks the takeover itself. |
 | `-browser-ignore HOSTS` | Comma-separated sites (and their subdomains) the detector leaves alone; `none` clears the list. |
 
@@ -182,13 +183,13 @@ A harness home is an uploaded `~/.claude` or `~/.rness` baked into the agent's i
 
 ## Schedules
 
-Prompts the port posts into a conversation on a cron timetable. See [Schedules](../guides/schedules.md).
+Prompts the port posts into a conversation on a cron timetable, or once at a set time. See [Schedules](../guides/schedules.md) and [Agent alarms](../guides/alarms.md).
 
 | Command | What it does |
 | :--- | :--- |
-| `seaport schedules [list [<conversation-id>]]` | Table of schedules (alias `schedule`, `cron`): ID, name, cron, zone, on, next, last, conversation. |
-| `seaport schedules add <conversation-id> <name> -cron "…" -text "…" [-timezone Z] [-agent A] [-disabled]` | Creates one. `-timezone` is an IANA name (default `UTC`); `-agent` names the agent to call. Prints the next three times. |
-| `seaport schedules edit <id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A\|none]` | Changes the fields given; `-agent none` clears the agent. |
+| `seaport schedules [list [<conversation-id>] [-done]]` | Table of schedules (alias `schedule`, `cron`): ID, name, when (the cron, `once`, or `alarm` for one an agent set), zone, on, next, last, conversation. `-done` also lists the one-shots that already ran (kept 7 days). |
+| `seaport schedules add <conversation-id> <name> (-cron "…" \| -at TIME) -text "…" [-timezone Z] [-agent A] [-disabled]` | Creates one. `-at` is an RFC 3339 time with offset (a one-shot, at least 30 seconds ahead) instead of `-cron`. `-timezone` is an IANA name (default `UTC`); `-agent` names the agent to call. Prints the next three times. |
+| `seaport schedules edit <id> [-name N] [-cron C \| -at T] [-timezone Z] [-text T] [-agent A\|none]` | Changes the fields given; `-agent none` clears the agent. `-at` moves a one-shot (and arms it again when it ran); a one-shot and a recurring schedule can't be converted into each other. |
 | `seaport schedules enable <id>` / `seaport schedules disable <id>` | Switches it on or off. |
 | `seaport schedules run <id>` | Posts its message now, through the same path as the runner (its next time doesn't change). |
 | `seaport schedules preview "<cron>" [-timezone Z]` | The next three times an expression runs, saving nothing. |

@@ -73,6 +73,7 @@ export type ProfileInput = Pick<
   | "browser_assist"
   | "browser_detect"
   | "browser_ignore_hosts"
+  | "alarms"
   | "harness"
   | "machine"
 >
@@ -81,7 +82,10 @@ export type ProfileInput = Pick<
 export interface ScheduleInput {
   conversation_id: ID
   name: string
+  /** the expression of a recurring schedule; empty with `at` */
   cron: string
+  /** the time of a one-shot (RFC 3339), instead of the cron */
+  at?: string
   timezone: string
   text: string
   agent_id?: ID

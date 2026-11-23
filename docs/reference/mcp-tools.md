@@ -47,6 +47,9 @@ An agent only sees the docks it is assigned to. A conversation of another dock a
 | `memory_read` | only with vaults | Reads one entry in full, with its version and who wrote it. |
 | `memory_save` | only with vaults | Creates an entry or saves a new version of one, in a vault the agent can write. |
 | `memory_delete` | only with vaults | Deletes an entry of a vault the agent can write. |
+| `set_alarm` | only with `alarms` on | Sets an alarm: a note the agent gets back in a conversation at a time, once or on a cron. |
+| `alarms` | only with `alarms` on | Lists the agent's pending alarms. |
+| `cancel_alarm` | only with `alarms` on | Cancels one of the agent's pending alarms. |
 | `ask_takeover` | only with the browser on | Asks the agent's people to take over the managed browser at a site: a sign-in, a captcha, a 2FA code, anything only a person may do. |
 
 ### reply
@@ -253,6 +256,38 @@ Result:
 ```
 
 `notified` says a person was told (now, or when this host was first asked: one notice per host); `done` says the person finished while the call waited (the takeover is gone). The takeover appears on the agent's page (`takeovers` of the agent, `agent.updated`); a person opens the browser viewer, does what the site asks, and presses **Listo**: the agent gets a system message `@agent [takeover app.example.com] a person is done (login) at app.example.com. Go on in the browser.` in the conversation the notice went to (else the one the call named). An agent keeps at most 8 open takeovers, one per host (a new one for the same host replaces the older and keeps its notice). A takeover nobody attends within 1 h (`agent.TakeoverTTL`) is swept: it leaves the page and the agent gets `@agent [takeover app.example.com] nobody came within 1h0m0s (login) at app.example.com. Go on without it, or ask again.` the same way. Errors: `host must be a site's DNS name`, `kind must be one of login, captcha, 2fa, other`, `say what the person must do when kind is other`, `wait_seconds must be between 0 and 290`, a conversation the agent can't see (not found), and `no agent: a takeover belongs to an agent` when the call has no agent. A notice that can't go out (the conversation isn't allowed, the dock's replies are off, no dock of the agent has the destination) is logged and the takeover stays in the web.
+
+### set_alarm
+
+Only added when the calling agent's current [profile](agent-profile.md) has `alarms` on. Sets an [alarm](../guides/alarms.md): at the time, Seaport posts the note into the conversation as `@agent Alarm you set (<name>, set <time>): <note>` (sender `system:schedule`).
+
+Arguments:
+
+| Name | Type | Required | Meaning |
+| :--- | :--- | :--- | :--- |
+| `conversation_id` | string | yes | The conversation the agent is working; it must be of a dock the agent is on (else `conversation not found`). |
+| `note` | string | yes | What the agent must do or check when it rings. At most 4000 characters. |
+| `in_minutes` | integer | one of three | Ring this many minutes from now: 1 to 43200 (30 days). |
+| `at` | string | one of three | Ring at this time, RFC 3339 with offset. 1 minute to 30 days ahead. |
+| `cron` | string | one of three | Ring on a cron expression, at most once every 5 minutes, until cancelled. |
+| `timezone` | string | no | IANA zone of `cron` (default `UTC`). |
+| `name` | string | no | A unique name; `<agent>-<8 hex>` when empty. |
+
+Result:
+
+```json
+{ "id": "…", "name": "deploy-check", "next_at": "2026-01-02T15:24:05Z", "recurring": false }
+```
+
+Errors: `alarms are off for this agent: …`, not exactly one of `in_minutes`, `at` and `cron`, a time outside 1 minute to 30 days ahead, a name already used, and `422 QUOTA_EXCEEDED` past 3 pending alarms in the conversation, 20 pending in all or 50 created in 24 hours (the message says which and what to do). See [Limits](limits.md).
+
+### alarms
+
+Lists the agent's pending alarms. Argument: `conversation_id` (optional: only that conversation's). Result: `{ "alarms": [{ "id", "name", "conversation_id", "next_at", "run_at", "cron", "timezone", "note" }] }` (`run_at` for a one-shot, `cron` and `timezone` for a recurring one).
+
+### cancel_alarm
+
+Cancels one pending alarm. Argument: `id` (required). Result: `{ "cancelled": true }`. Another agent's alarm, or a schedule a person made, is `not found`.
 
 ### Vaults
 

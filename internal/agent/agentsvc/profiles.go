@@ -212,10 +212,15 @@ func assemble(a agent.Agent, p agent.Profile, secrets []agent.SecretValue) (agen
 	// The revision hashes everything the connector runs with, skill bodies
 	// included (the harness may have read one), secrets resolved.
 	sum := sha256.New()
+	// Alarms is port-side (the MCP tools it registers), not in the Kit, but
+	// part of the revision: the connector restarts its harness, which
+	// reads the port's tool list again (omitted when off, so existing
+	// revisions don't change).
 	raw, _ := json.Marshal(struct {
 		Kit    agent.Kit
 		Skills []agent.Skill
-	}{k, p.Skills})
+		Alarms bool `json:",omitempty"`
+	}{k, p.Skills, p.Alarms})
 	sum.Write(raw)
 	k.Revision = hex.EncodeToString(sum.Sum(nil))[:16]
 	return k, nil

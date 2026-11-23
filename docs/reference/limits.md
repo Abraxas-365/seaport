@@ -13,7 +13,7 @@ Counted per organization. `0` turns a configurable quota off.
 | Docks | 10 | `config.Server.MaxDocks` | `SEAPORT_MAX_DOCKS` |
 | Agents connected at once (all processes) | 20 | `config.Server.MaxCrewConnections` | `SEAPORT_MAX_CREW_CONNECTIONS` |
 | Hosted-agent slots | 10 | `config.Server.MaxSlots` | `SEAPORT_MAX_SLOTS` |
-| Schedules | 100 | `config.Server.MaxSchedules` | `SEAPORT_MAX_SCHEDULES` |
+| Schedules (pending; done one-shots don't count) | 100 | `config.Server.MaxSchedules` | `SEAPORT_MAX_SCHEDULES` |
 | Vaults | 64 | `config.Server.MaxVaults` | `SEAPORT_MAX_VAULTS` |
 | Outbound messages per organization per hour | 1000 | `config.Server.SendOrgPerHour` | `SEAPORT_SEND_ORG_PER_HOUR` |
 | Active crew tokens | 100 | `crew.MaxTokens` | No |
@@ -23,6 +23,15 @@ Counted per organization. `0` turns a configurable quota off.
 | Slots per hosted agent | 10 | `hosting.MaxSlotsPerAgent` | No |
 | Destinations per dock | 64 | `dock.MaxDestinations` | No |
 | Conversations per thread | 16 | `conversation.MaxDoors` | No |
+| Pending alarms per agent in one conversation | 3 | `schedule.MaxAlarmsPerConversation` | No |
+| Pending alarms per agent | 20 | `schedule.MaxAlarmsPerAgent` | No |
+| Alarms an agent creates per rolling 24 hours (done ones count) | 50 | `schedule.MaxAlarmsPerDay` | No |
+| Alarm note | 4000 characters | `schedule.MaxAlarmNote` | No |
+| Earliest alarm from now | 1 minute | `schedule.MinAlarmDelay` | No |
+| Latest alarm from now | 30 days | `schedule.MaxAlarmAhead` | No |
+| Earliest one-shot schedule a person creates | 30 seconds | `schedule.MinOneShotDelay` | No |
+| How late a one-shot may still fire | 1 hour | `schedule.AlarmGrace` | No |
+| How long a done one-shot is kept | 7 days | `schedule.DoneKeep` | No |
 
 Slot tokens (the ones a running slot uses) aren't counted against `crew.MaxTokens`.
 

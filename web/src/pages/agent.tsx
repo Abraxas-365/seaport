@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router"
 import {
+  AlarmClock,
   ArrowLeft,
   Bot,
   AppWindow,
@@ -113,6 +114,7 @@ function inputOf(p: AgentProfile): ProfileInput {
     browser_assist: p.browser_assist ?? "",
     browser_detect: p.browser_detect ?? false,
     browser_ignore_hosts: p.browser_ignore_hosts ?? [],
+    alarms: p.alarms ?? false,
     harness: p.harness ?? "",
     machine: p.machine ? fullMachine(p.machine) : null,
   }
@@ -878,6 +880,26 @@ function ProfileFields({
           </FieldDescription>
         </Field>
       )}
+
+      <Field orientation="horizontal">
+        <FieldContent>
+          <FieldLabel htmlFor="profile-alarms">
+            <AlarmClock className="size-4" /> Alarmas
+          </FieldLabel>
+          <FieldDescription>
+            El agente puede ponerse alarmas a sí mismo (herramientas <Mono>set_alarm</Mono>, <Mono>alarms</Mono> y{" "}
+            <Mono>cancel_alarm</Mono>): Seaport le escribe su nota en la conversación a la hora indicada, en lugar de
+            que espere o consulte sin parar. Hasta 3 pendientes por conversación, 20 en total y 50 al día. Al
+            desactivarlo, las alarmas ya puestas no suenan.
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id="profile-alarms"
+          checked={p.alarms}
+          disabled={readOnly}
+          onCheckedChange={(alarms) => set({ alarms })}
+        />
+      </Field>
 
       <SkillsField skills={p.skills} readOnly={readOnly} onChange={(skills) => set({ skills })} />
       <ServersField servers={p.mcp_servers} readOnly={readOnly} onChange={(mcp_servers) => set({ mcp_servers })} />

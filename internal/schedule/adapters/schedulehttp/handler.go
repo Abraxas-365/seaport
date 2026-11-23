@@ -48,6 +48,16 @@ func (h *Handler) list(c fiber.Ctx) error {
 		}
 		f.Conversation = &id
 	}
+	if raw := c.Query("agent_id"); raw != "" {
+		id, err := identity.ParseAgentID(raw)
+		if err != nil {
+			return err
+		}
+		f.Agent = &id
+	}
+	if f.IncludeDone, err = done(c); err != nil {
+		return err
+	}
 	out, err := h.queries.List(c.Context(), org, f, page)
 	if err != nil {
 		return err
@@ -68,11 +78,21 @@ func (h *Handler) ofConversation(c fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	out, err := h.queries.List(c.Context(), org, schedule.Filter{Conversation: &id}, page)
+	includeDone, err := done(c)
+	if err != nil {
+		return err
+	}
+	out, err := h.queries.List(c.Context(), org, schedule.Filter{Conversation: &id, IncludeDone: includeDone}, page)
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(c, http.StatusOK, out)
+}
+
+// done reads ?done=1: also list the one-shots that already ran.
+func done(c fiber.Ctx) (bool, error) {
+	b, err := httpx.BoolQuery(c, "done")
+	return b != nil && *b, err
 }
 
 type createRequest struct {
@@ -80,9 +100,11 @@ type createRequest struct {
 	ConversationID identity.ConversationID `json:"conversation_id"`
 	AgentID        *identity.AgentID       `json:"agent_id"`
 	Cron           string                  `json:"cron"`
-	Timezone       string                  `json:"timezone"`
-	Text           string                  `json:"text"`
-	Enabled        *bool                   `json:"enabled"`
+	// At is the time of a one-shot schedule (RFC 3339), instead of Cron.
+	At       *time.Time `json:"at"`
+	Timezone string     `json:"timezone"`
+	Text     string     `json:"text"`
+	Enabled  *bool      `json:"enabled"`
 }
 
 func (h *Handler) create(c fiber.Ctx) error {
@@ -96,7 +118,7 @@ func (h *Handler) create(c fiber.Ctx) error {
 	}
 	enabled := req.Enabled == nil || *req.Enabled
 	out, err := h.commands.Create(c.Context(), org, schedule.Create{Name: req.Name, Conversation: req.ConversationID,
-		Agent: req.AgentID, Cron: req.Cron, Timezone: req.Timezone, Text: req.Text, Enabled: enabled})
+		Agent: req.AgentID, Cron: req.Cron, At: req.At, Timezone: req.Timezone, Text: req.Text, Enabled: enabled})
 	if err != nil {
 		return err
 	}
@@ -118,11 +140,13 @@ func (h *Handler) find(c fiber.Ctx) error {
 type updateRequest struct {
 	Name *string `json:"name"`
 	// AgentID: "" clears the agent, absent keeps it.
-	AgentID  *string `json:"agent_id"`
-	Cron     *string `json:"cron"`
-	Timezone *string `json:"timezone"`
-	Text     *string `json:"text"`
-	Enabled  *bool   `json:"enabled"`
+	AgentID *string `json:"agent_id"`
+	Cron    *string `json:"cron"`
+	// At moves a one-shot schedule (and arms it again when it had run).
+	At       *time.Time `json:"at"`
+	Timezone *string    `json:"timezone"`
+	Text     *string    `json:"text"`
+	Enabled  *bool      `json:"enabled"`
 }
 
 func (h *Handler) update(c fiber.Ctx) error {
@@ -134,7 +158,7 @@ func (h *Handler) update(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	in := schedule.Update{Name: req.Name, Cron: req.Cron, Timezone: req.Timezone, Text: req.Text, Enabled: req.Enabled}
+	in := schedule.Update{Name: req.Name, Cron: req.Cron, At: req.At, Timezone: req.Timezone, Text: req.Text, Enabled: req.Enabled}
 	if req.AgentID != nil {
 		var agent identity.AgentID
 		if *req.AgentID != "" {

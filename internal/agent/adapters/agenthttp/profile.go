@@ -51,6 +51,8 @@ type profileRequest struct {
 	// are the sites it leaves alone.
 	BrowserDetect      bool     `json:"browser_detect"`
 	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
+	// Alarms: the agent may set alarms for itself.
+	Alarms bool `json:"alarms"`
 	// Harness: rness | claude-code ("" = not set).
 	Harness string `json:"harness"`
 	// Machine is how the agent runs when hosted (hosting.Machine; null =
@@ -78,7 +80,7 @@ func (h *Handler) saveProfile(c fiber.Ctx) error {
 	out, err := h.commands.SaveProfile(c.Context(), p.Organization, id, agent.SaveProfile{Base: req.Base,
 		Instructions: req.Instructions, Skills: req.Skills, MCPServers: req.MCPServers, Approve: req.Approve,
 		Model: req.Model, Effort: req.Effort, Browser: req.Browser, BrowserAssist: req.BrowserAssist,
-		BrowserDetect: req.BrowserDetect, BrowserIgnoreHosts: req.BrowserIgnoreHosts, Harness: req.Harness, Machine: req.Machine, CreatedBy: by})
+		BrowserDetect: req.BrowserDetect, BrowserIgnoreHosts: req.BrowserIgnoreHosts, Alarms: req.Alarms, Harness: req.Harness, Machine: req.Machine, CreatedBy: by})
 	if err != nil {
 		return err
 	}

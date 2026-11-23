@@ -629,13 +629,24 @@ function Domain() {
           <ChatAvatar name="Luis" seed="c-luis" size="lg" status="info" pulse />
           <ChatAvatar name="María P" seed="c-maria" size="sm" />
         </Specimen>
-        <Specimen label="ScheduleRow (activa, desactivada)" className="space-y-2">
+        <Specimen label="ScheduleRow (activa, desactivada, alarma, hecha)" className="space-y-2">
           <ul className="space-y-2">
             <ScheduleRow now={now} schedule={sampleSchedule} agentName="pm" onToggle={() => {}} onRun={() => {}} onDelete={async () => {}} />
             <ScheduleRow
               now={now}
               schedule={{ ...sampleSchedule, id: "s2", name: "revisión semanal", cron: "0 8 * * 1", enabled: false, last_at: undefined }}
               onToggle={() => {}}
+            />
+            <ScheduleRow
+              now={now}
+              schedule={{ ...sampleSchedule, id: "s3", name: "deploy-check", cron: "", run_at: new Date(now + 20 * 60_000).toISOString(), next_at: new Date(now + 20 * 60_000).toISOString(), created_by: "a1", last_at: undefined }}
+              agentName="pm"
+              setBy="pm"
+              onToggle={() => {}}
+            />
+            <ScheduleRow
+              now={now}
+              schedule={{ ...sampleSchedule, id: "s4", name: "recordatorio", cron: "", run_at: new Date(now - 3_600_000).toISOString(), done_at: new Date(now - 3_500_000).toISOString(), enabled: false, last_at: undefined }}
             />
           </ul>
         </Specimen>

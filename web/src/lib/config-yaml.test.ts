@@ -26,6 +26,7 @@ instructions: |-
 model: claude-sonnet-5
 browser: true
 browser_detect: false
+alarms: false
 machine:
   packages:
     - git
