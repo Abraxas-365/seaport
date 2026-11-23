@@ -35,6 +35,9 @@ type Commands interface {
 	// and title of the one with that name (at most MaxDestinations).
 	PutDestination(ctx context.Context, organization identity.OrganizationID, input AddDestination) (Destination, error)
 	RemoveDestination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) error
+	// SetMirror sets the dock's mirror, or clears it (nil). The dock must
+	// not reply; the mirror is a destination of another dock that does.
+	SetMirror(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, input SetMirror) (Dock, error)
 }
 
 type Queries interface {
@@ -78,6 +81,9 @@ type Repository interface {
 	RemoveDestination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) error
 	Destinations(ctx context.Context, organization identity.OrganizationID, dock identity.DockID) ([]Destination, error)
 	Destination(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, name string) (Destination, error)
+	// SetMirror stores the dock's mirror (nil: none); a destination that
+	// doesn't exist is NotFound.
+	SetMirror(ctx context.Context, organization identity.OrganizationID, dock identity.DockID, mirror *Mirror) (Dock, error)
 }
 
 // Owners leases the docks of exclusive channels (Gateway.Exclusive) to

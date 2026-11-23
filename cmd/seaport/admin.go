@@ -190,6 +190,45 @@ func dockReplies(ctx context.Context, args []string) error {
 	return nil
 }
 
+const dockMirrorUsage = "usage: seaport dock mirror <dock-id> [<mirror dock-id>:<destination> | off]"
+
+// dockMirror shows a dock's mirror, sets it (a destination of another dock
+// that replies) or clears it. Only a dock that doesn't reply can have one.
+func dockMirror(ctx context.Context, args []string) error {
+	if len(args) < 1 || len(args) > 2 {
+		return errx.Validation(dockMirrorUsage)
+	}
+	a, err := newAdmin()
+	if err != nil {
+		return err
+	}
+	path := "/api/v1/docks/" + url.PathEscape(args[0])
+	var d dock.Dock
+	if len(args) == 1 {
+		if err := a.do(ctx, http.MethodGet, path, nil, &d); err != nil {
+			return err
+		}
+	} else {
+		req := map[string]any{"mirror": nil}
+		if args[1] != "off" {
+			target, dest, ok := strings.Cut(args[1], ":")
+			if !ok || target == "" || dest == "" {
+				return errx.Validation(dockMirrorUsage)
+			}
+			req["mirror"] = map[string]string{"dock_id": target, "destination": dest}
+		}
+		if err := a.do(ctx, http.MethodPut, path+"/mirror", req, &d); err != nil {
+			return err
+		}
+	}
+	if d.Mirror == nil {
+		fmt.Fprintf(stdout, "dock %s (%s) has no mirror\n", d.ID, d.Name)
+		return nil
+	}
+	fmt.Fprintf(stdout, "dock %s (%s) mirrors new threads to %s:%s\n", d.ID, d.Name, d.Mirror.Dock, d.Mirror.Destination)
+	return nil
+}
+
 const dockToolsUsage = "usage: seaport dock tools <dock-id> [history|conversations|attachments on|off ...]"
 
 // dockTools shows a dock's agent tool switches, or flips some

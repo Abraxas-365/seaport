@@ -132,6 +132,14 @@ type ApprovalLocker interface {
 	Lock(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (unlock func(), err error)
 }
 
+// MirrorLocker serializes, per conversation and across processes, the
+// check "is this a thread of one?" and the opening of the dock's mirror,
+// so two alerts of a new thread open one mirror.
+type MirrorLocker interface {
+	// Lock waits for the conversation's lock and returns its release.
+	Lock(ctx context.Context, organization identity.OrganizationID, conversation identity.ConversationID) (unlock func(), err error)
+}
+
 type Repository interface {
 	// CreateInbound stores an inbound ship (idempotent on its channel
 	// message id). With a hold reason (customs) it is held; else route

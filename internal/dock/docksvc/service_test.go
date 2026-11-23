@@ -146,6 +146,18 @@ func (r *memRepo) Destination(_ context.Context, _ identity.OrganizationID, id i
 	return d, nil
 }
 
+func (r *memRepo) SetMirror(_ context.Context, _ identity.OrganizationID, id identity.DockID, m *dock.Mirror) (dock.Dock, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.docks[id]
+	if !ok {
+		return dock.Dock{}, errx.NotFound("dock not found")
+	}
+	d.Mirror = m
+	r.docks[id] = d
+	return d, nil
+}
+
 // qrGateway is a WhatsApp-like gateway that always has a pairing code.
 type qrGateway struct{}
 

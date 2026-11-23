@@ -65,6 +65,24 @@ func (l *ApprovalLocker) Lock(ctx context.Context, _ identity.OrganizationID, co
 	return l.locks.Lock(ctx, approvalLock, conv.String())
 }
 
+// mirrorLock is the class of the per-conversation lock of mirror openings
+// (second key: hashtext(conversation id)).
+const mirrorLock = 7_401_017
+
+// MirrorLocker is ship.MirrorLocker over Postgres session advisory locks.
+type MirrorLocker struct{ locks *pglock.Locker }
+
+// NewMirrorLocker takes the locks on lockDB, a pool of its own (see pglock).
+func NewMirrorLocker(lockDB *sql.DB) *MirrorLocker {
+	return &MirrorLocker{locks: pglock.New(lockDB)}
+}
+
+var _ ship.MirrorLocker = (*MirrorLocker)(nil)
+
+func (l *MirrorLocker) Lock(ctx context.Context, _ identity.OrganizationID, conv identity.ConversationID) (func(), error) {
+	return l.locks.Lock(ctx, mirrorLock, conv.String())
+}
+
 var approvalMessages = pgerr.Messages{
 	Unique:     "this agent already has a pending approval in the conversation",
 	ForeignKey: "conversation or ship not found",

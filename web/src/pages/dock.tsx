@@ -57,7 +57,7 @@ import {
 import { Perm } from "@/lib/permissions.gen"
 import { formatFull, prettyHandle } from "@/lib/format"
 import type {
-  DatadogMirror,
+  DockMirror,
   Destination,
   Dock,
   DockTools,
@@ -278,7 +278,7 @@ function DockDetail({ dock }: { dock: Dock }) {
                     title="¿Cerrar el webhook de Datadog?"
                     description={
                       <>
-                        <p>Seaport olvida el secreto y el espejo: la dirección deja de responder.</p>
+                        <p>Seaport olvida el secreto: la dirección deja de responder.</p>
                         <p>Las conversaciones se conservan; al reconectar se genera un secreto nuevo.</p>
                       </>
                     }
@@ -393,6 +393,8 @@ function DockDetail({ dock }: { dock: Dock }) {
           </Card>
         )}
 
+        {(!channelReplies[dock.channel] || !dock.replies) && <MirrorCard dock={dock} write={write} />}
+
         {channelReplies[dock.channel] && dock.replies && <DestinationsCard dock={dock} write={write} />}
 
         {wa && <WhatsAppSeenCard dock={dock} write={write} />}
@@ -449,13 +451,15 @@ function RepliesCard({ dock, write }: { dock: Dock; write: boolean }) {
             <div className="text-xs text-muted-foreground">
               {dock.replies
                 ? "Las respuestas del agente se publican en este canal."
-                : "Las respuestas aquí se rechazan; los mensajes siguen llegando."}
+                : dock.mirror
+                  ? "Tiene un espejo: quítalo antes de activar las respuestas."
+                  : "Las respuestas aquí se rechazan; los mensajes siguen llegando."}
             </div>
           </div>
           <Switch
             aria-label="Permitir respuestas"
             checked={dock.replies}
-            disabled={!write || replies.isPending}
+            disabled={!write || replies.isPending || !!dock.mirror}
             onCheckedChange={(on) => replies.mutate({ id: dock.id, replies: on })}
           />
         </div>
@@ -1557,15 +1561,12 @@ function WebhookDockCard({ dock, write }: { dock: Dock; write: boolean }) {
   )
 }
 
-/** A Datadog dock: its URL, secret (shown once), the payload for Datadog and the mirror. */
+/** A Datadog dock: its URL, secret (shown once) and the payload for Datadog. Its mirror is the MirrorCard. */
 function DatadogDockCard({ dock, write }: { dock: Dock; write: boolean }) {
   const info = useDatadog(dock.id)
-  const docks = useDocks()
   const qc = useQueryClient()
   const { relink } = useDockAction()
   const [secret, setSecret] = React.useState<string>()
-  const [mirrorDock, setMirrorDock] = React.useState<string>()
-  const [busy, setBusy] = React.useState(false)
 
   if (dock.status !== "linked")
     return (
@@ -1590,27 +1591,11 @@ function DatadogDockCard({ dock, write }: { dock: Dock; write: boolean }) {
   if (info.isError) return <ErrorState error={info.error} onRetry={() => info.refetch()} />
   if (!info.data) return <Skeleton className="h-48 rounded-xl" />
   const dd = info.data
-  const candidates = (docks.data?.items ?? []).filter((d) => d.id !== dock.id && channelReplies[d.channel] && d.replies)
-  const pickedDock = mirrorDock ?? dd.mirror?.dock_id ?? ""
-  const mirrorName = docks.data?.items.find((d) => d.id === dd.mirror?.dock_id)?.name ?? dd.mirror?.dock_id
 
   const accept = (next: typeof dd) => {
     qc.setQueryData(keys.datadog(dock.id), { ...next, secret: undefined })
     if (next.secret) setSecret(next.secret)
   }
-  const save = async (mirror: DatadogMirror | null) => {
-    setBusy(true)
-    try {
-      accept(await api.saveDatadog(dock.id, { mirror }))
-      setMirrorDock(undefined)
-      toast.success(mirror ? "Espejo guardado" : "Espejo quitado")
-    } catch (err) {
-      toast.error("No se pudo guardar el espejo", { description: (err as Error).message })
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <Card>
       <CardHeader>
@@ -1619,8 +1604,8 @@ function DatadogDockCard({ dock, write }: { dock: Dock; write: boolean }) {
         </CardTitle>
         <CardDescription>
           Cada alerta de un monitor despierta al agente del equipo; las alertas de un mismo monitor y alcance son una
-          conversación (la recuperación llega al mismo hilo). El agente no responde aquí: lo hace en el espejo o en otra
-          puerta del hilo.
+          conversación (la recuperación llega al mismo hilo). El agente no responde aquí: lo hace en el espejo (más abajo) o
+          en otra puerta del hilo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -1677,56 +1662,83 @@ function DatadogDockCard({ dock, write }: { dock: Dock; write: boolean }) {
             </Button>
           </div>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
 
-        <div className="space-y-2">
-          <FieldLabel htmlFor="datadog-mirror-dock">Espejo</FieldLabel>
-          <p className="text-xs text-muted-foreground">
-            Un destino de otro muelle donde Seaport publica cada alerta nueva y el agente responde debajo: un canal de
-            Slack, un grupo de WhatsApp… Las recuperaciones llegan al mismo hilo.
+/**
+ * The mirror of a dock that only triggers: a destination of another dock
+ * (one that replies) where Seaport opens a conversation for each new thread,
+ * so people and the agent talk there.
+ */
+function MirrorCard({ dock, write }: { dock: Dock; write: boolean }) {
+  const docks = useDocks()
+  const { mirror: setMirror } = useDockAction()
+  const [mirrorDock, setMirrorDock] = React.useState<string>()
+  const busy = setMirror.isPending
+  const current = dock.mirror
+  const candidates = (docks.data?.items ?? []).filter((d) => d.id !== dock.id && channelReplies[d.channel] && d.replies)
+  const pickedDock = mirrorDock ?? current?.dock_id ?? ""
+  const mirrorName = docks.data?.items.find((d) => d.id === current?.dock_id)?.name ?? current?.dock_id
+
+  const save = (mirror: DockMirror | null) =>
+    setMirror.mutate({ id: dock.id, mirror }, { onSuccess: () => setMirrorDock(undefined) })
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Copy className="size-4" /> Espejo
+        </CardTitle>
+        <CardDescription>
+          Un destino de otro muelle donde Seaport publica cada hilo nuevo que llega aquí y el agente responde debajo: un
+          canal de Slack, un grupo de WhatsApp… Los mensajes siguientes del hilo llegan a la misma conversación.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {current && !mirrorDock && (
+          <p className="text-sm">
+            Ahora: <Mono>{mirrorName}</Mono> · <Mono>{current.destination}</Mono>
           </p>
-          {dd.mirror && !mirrorDock && (
-            <p className="text-sm">
-              Ahora: <Mono>{mirrorName}</Mono> · <Mono>{dd.mirror.destination}</Mono>
-            </p>
-          )}
-          {!dd.mirror && !mirrorDock && (
-            <p className="text-sm text-muted-foreground">Sin espejo: las alertas solo despiertan al agente.</p>
-          )}
-          {write && (
-            <div className="flex flex-wrap items-end gap-2">
-              <Select value={pickedDock} onValueChange={setMirrorDock}>
-                <SelectTrigger id="datadog-mirror-dock" className="w-56" aria-label="Muelle del espejo">
-                  <SelectValue placeholder="Elegir un muelle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {candidates.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {pickedDock && (
-                <MirrorDestinationPicker
-                  dock={pickedDock}
-                  current={dd.mirror}
-                  busy={busy}
-                  onPick={(name) => save({ dock_id: pickedDock, destination: name })}
-                />
-              )}
-              {dd.mirror && (
-                <Button size="sm" variant="ghost" onClick={() => save(null)} disabled={busy}>
-                  <X /> Quitar el espejo
-                </Button>
-              )}
-            </div>
-          )}
-          {write && candidates.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Ningún otro muelle puede responder. Crea uno (Slack, WhatsApp, API) y dale un destino.
-            </p>
-          )}
-        </div>
+        )}
+        {!current && !mirrorDock && (
+          <p className="text-sm text-muted-foreground">Sin espejo: los mensajes solo despiertan al agente.</p>
+        )}
+        {write && (
+          <div className="flex flex-wrap items-end gap-2">
+            <Select value={pickedDock} onValueChange={setMirrorDock}>
+              <SelectTrigger id="mirror-dock" className="w-56" aria-label="Muelle del espejo">
+                <SelectValue placeholder="Elegir un muelle" />
+              </SelectTrigger>
+              <SelectContent>
+                {candidates.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {pickedDock && (
+              <MirrorDestinationPicker
+                dock={pickedDock}
+                current={current}
+                busy={busy}
+                onPick={(name) => save({ dock_id: pickedDock, destination: name })}
+              />
+            )}
+            {current && (
+              <Button size="sm" variant="ghost" onClick={() => save(null)} disabled={busy}>
+                <X /> Quitar el espejo
+              </Button>
+            )}
+          </div>
+        )}
+        {write && candidates.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            Ningún otro muelle puede responder. Crea uno (Slack, WhatsApp, API) y dale un destino.
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -1740,7 +1752,7 @@ function MirrorDestinationPicker({
   onPick,
 }: {
   dock: string
-  current: DatadogMirror | null
+  current: DockMirror | undefined
   busy: boolean
   onPick: (name: string) => void
 }) {

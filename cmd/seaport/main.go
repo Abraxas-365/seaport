@@ -55,6 +55,9 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport dock relink <dock-id>
   seaport dock rename <dock-id> <name>
   seaport dock replies <dock-id> on|off  whether the crew may answer on it (off: a trigger; it still wakes the agent)
+  seaport dock mirror <dock-id> [<dock-id>:<destination> | off]
+                                        where each new thread of a trigger dock is opened (a destination of a dock
+                                        that replies); no argument shows it
   seaport dock tools <dock-id> [history|conversations|attachments on|off ...]
                                         what agents may read there besides the messages they get (no switches: show them)
   seaport dock whatsapp <dock-id> [react on|off] [emoji <emoji>] [read on|off]
@@ -255,7 +258,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	case "dock":
 		if len(rest) == 0 {
-			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|webhook|email|datadog|destinations|destination|open|unlink|delete")
+			return errx.Validation("usage: seaport dock add|list|relink|rename|replies|mirror|webhook|email|datadog|destinations|destination|open|unlink|delete")
 		}
 		switch rest[0] {
 		case "add":
@@ -272,6 +275,8 @@ func run(ctx context.Context, args []string) error {
 			return dockReplies(ctx, rest[1:])
 		case "tools":
 			return dockTools(ctx, rest[1:])
+		case "mirror":
+			return dockMirror(ctx, rest[1:])
 		case "webhook":
 			return dockWebhook(ctx, rest[1:])
 		case "datadog":

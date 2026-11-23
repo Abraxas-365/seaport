@@ -19,7 +19,7 @@ test("a Datadog dock mirrors its alerts into a Slack channel", async ({ ctx, pag
   await api.assignAgent(id)
   await api.allow(id)
 
-  await expect(page.getByText("Sin espejo: las alertas solo despiertan al agente.")).toBeVisible()
+  await expect(page.getByText("Sin espejo: los mensajes solo despiertan al agente.")).toBeVisible()
   await page.getByRole("combobox", { name: "Muelle del espejo" }).click()
   await page.getByRole("option", { name: slack.name }).click()
   await page.getByRole("combobox", { name: "Destino del espejo" }).click()

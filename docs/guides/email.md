@@ -65,6 +65,10 @@ The agent's `reply` is sent to the thread's recipients (above), with subject `Re
 
 A reply to a conversation with no stored email thread is refused. If SMTP refuses the password, the dock turns **logged out**.
 
+## Mirror
+
+A mailbox whose [replies are off](linked-conversations.md#docks-that-only-trigger) can have a [mirror](mirrors.md): each new thread is posted at a destination of another dock, where people and the agent talk.
+
 ## Connections and several processes
 
 An email dock is bound to one process, like WhatsApp: the process holding its lease keeps one IMAP connection open, and another takes over within about 30 s if it dies (see [several processes](operations/several-processes.md)). The connection waits with IMAP IDLE when the server offers it (new mail arrives within seconds) and otherwise polls every 60 s. A dropped connection is re-made with a growing pause (1 s up to 5 min), and the page shows the last error while it is down. IDLE is renewed every 20 minutes, since servers drop idle connections after about 30. A change of the folder's `UIDVALIDITY` (the server rebuilt it) restarts reading at the end. A message that fails to be taken in three times is logged and skipped so it can't block the mailbox.

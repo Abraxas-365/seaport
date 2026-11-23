@@ -53,6 +53,9 @@ type Deps struct {
 	// ApprovalLocks serializes the asks of a conversation (nil: asks of
 	// one conversation aren't serialized across processes).
 	ApprovalLocks ship.ApprovalLocker
+	// MirrorLocks serializes the opening of a conversation's mirror (nil:
+	// not serialized across processes).
+	MirrorLocks ship.MirrorLocker
 	// ApprovalPoll is how often a blocked ask looks for its answer (zero:
 	// ship.ApprovalPoll).
 	ApprovalPoll time.Duration
@@ -77,6 +80,7 @@ type Service struct {
 	limits    ship.Limits
 	media     media
 	locks     ship.ApprovalLocker
+	mirrors   ship.MirrorLocker
 	publicURL string
 	// approvalTTL and poll: see Deps.
 	approvalTTL, poll time.Duration
@@ -108,7 +112,7 @@ func New(d Deps) (*Service, error) {
 	}
 	return &Service{repo: d.Repo, convs: d.Conversations, messenger: d.Messenger, notifier: d.Notifier,
 		events: events, agents: d.Agents, docks: d.Docks, now: now, limits: limits, media: m,
-		approvalTTL: ttl, poll: poll, locks: d.ApprovalLocks, publicURL: strings.TrimRight(d.PublicURL, "/")}, nil
+		approvalTTL: ttl, poll: poll, locks: d.ApprovalLocks, mirrors: d.MirrorLocks, publicURL: strings.TrimRight(d.PublicURL, "/")}, nil
 }
 
 var (
@@ -129,6 +133,12 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 	conv := arrival.Conversation
 	if input.Own {
 		return s.record(ctx, org, conv, input)
+	}
+	// A new thread on a dock that only triggers is opened at its mirror
+	// before the message exists, so the agent wakes to both doors.
+	mirrored := false
+	if arrival.Hold == conversation.HoldNone && !ship.FromSeaport(input.SenderID) {
+		mirrored = s.mirror(ctx, org, conv, input)
 	}
 	said := input.Text // routing reads what the sender wrote, not our notes
 	route := func(team []agent.Member, previous identity.AgentID) (identity.AgentID, string) {
@@ -177,6 +187,7 @@ func (s *Service) Receive(ctx context.Context, org identity.OrganizationID, inpu
 			}
 		}
 	}
+	st.Mirrored = mirrored
 	return st, true, nil
 }
 

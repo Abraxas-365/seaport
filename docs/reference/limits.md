@@ -58,7 +58,13 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | `{{range}}` actions per field | 3, never nested | `dockwebhook.MaxRanges` | No |
 | One template field | 4096 characters | `dockwebhook.MaxTemplateField` | No |
 | Tags per message | 10 | `dockwebhook.MaxTags` | No |
-| Work of one event | 10 s | `dockwebhook.receiveWithin` | No |
+| Work of one event | 10 s, plus the mirror's | `dockwebhook.receiveWithin` | No |
+
+## Mirrors
+
+| Limit | Value | Constant | Configurable |
+| :--- | :--- | :--- | :--- |
+| Opening a dock's [mirror](../guides/mirrors.md) when a message arrives (past it the message is stored without one) | 30 s | `ship.MirrorWithin` | No |
 
 ## Datadog docks
 
@@ -67,8 +73,7 @@ Replies over a limit are refused with `429` and `Retry-After`. See [Configuratio
 | Webhook body | 1 MiB | `dockdatadog.MaxBody` | No |
 | Calls per dock | 60 a minute, burst 60 (`429` + `Retry-After`) | `dockdatadog.PerMinute` | No |
 | Tags kept as handles | 12 | `dockdatadog.MaxTags` | No |
-| Work of one alert | 10 s | `dockdatadog.receiveWithin` | No |
-| Opening the mirror | 30 s | `dockdatadog.mirrorWithin` | No |
+| Work of one alert | 10 s, plus the mirror's | `dockdatadog.receiveWithin` | No |
 
 ## Email docks
 

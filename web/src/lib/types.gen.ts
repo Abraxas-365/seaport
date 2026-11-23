@@ -471,8 +471,11 @@ export interface DatadogInfo {
   reachable: boolean
   /** Payload is the body to paste in Datadog's webhook integration. */
   payload: string
-  /** Mirror is where new alert threads are opened (null: nowhere). */
-  mirror: DatadogMirror | null
+  /**
+   * Mirror is where new alert threads are opened (null: nowhere): the
+   * dock's own mirror, see dock.Mirror.
+   */
+  mirror: DockMirror | null
   /**
    * HasSecret: the endpoint exists (a linked dock). The secret itself is
    * shown once, by the answer that made it (rotating), never read back.
@@ -480,15 +483,6 @@ export interface DatadogInfo {
   has_secret: boolean
   created_at?: string
   secret?: string
-}
-
-/**
- * DatadogMirror names the destination (phase 2) where each new alert thread is
- * opened: a dock that replies and one of its destinations.
- */
-export interface DatadogMirror {
-  dock_id: ID
-  destination: string
 }
 
 /**
@@ -596,6 +590,12 @@ export interface Dock {
   tools: DockTools
   created_at: string
   updated_at: string
+  /**
+   * Mirror is where Seaport opens a conversation for every new thread
+   * that arrives here (nil: nowhere). Only a dock that doesn't reply can
+   * have one; see Mirror.
+   */
+  mirror?: DockMirror
   /** QRCode is the current pairing code while linking (never stored). */
   qr_code?: string
 }
@@ -603,6 +603,19 @@ export interface Dock {
 /** DockDeleted is the payload of EventDeleted. */
 export interface DockDeleted {
   id: ID
+}
+
+/**
+ * DockMirror is the output of a dock that only triggers: a destination of
+ * another dock (one that replies). When a message starts a new thread on
+ * the dock, Seaport posts it at the destination (a new Slack thread, say)
+ * and links both conversations, so the agent's answer goes there and
+ * people answer there too. A dock that replies answers in place and has no
+ * mirror; turning its replies on is refused while it has one.
+ */
+export interface DockMirror {
+  dock_id: ID
+  destination: string
 }
 
 /**

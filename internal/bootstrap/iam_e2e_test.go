@@ -494,6 +494,7 @@ func TestIAMOrganizationsAndPermissions(t *testing.T) {
 		{"GET", "/api/v1/docks/" + dk + "/webhook", "GET /api/v1/docks/{id}/webhook", nil, permission.DocksRead},
 		{"PUT", "/api/v1/docks/" + dk + "/webhook", "PUT /api/v1/docks/{id}/webhook", map[string]any{"template": map[string]string{}}, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/webhook/secret", "POST /api/v1/docks/{id}/webhook/secret", nil, permission.DocksWrite},
+		{"PUT", "/api/v1/docks/" + dk + "/mirror", "PUT /api/v1/docks/{id}/mirror", map[string]any{"mirror": nil}, permission.DocksWrite},
 		{"GET", "/api/v1/docks/" + dk + "/datadog", "GET /api/v1/docks/{id}/datadog", nil, permission.DocksRead},
 		{"PUT", "/api/v1/docks/" + dk + "/datadog", "PUT /api/v1/docks/{id}/datadog", map[string]any{"mirror": nil}, permission.DocksWrite},
 		{"POST", "/api/v1/docks/" + dk + "/datadog/secret", "POST /api/v1/docks/{id}/datadog/secret", nil, permission.DocksWrite},

@@ -60,3 +60,17 @@ func TestApprovalCard(t *testing.T) {
 		t.Errorf("card:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+func TestFromSeaport(t *testing.T) {
+	for _, id := range []string{SystemSchedule, SystemApproval, SystemBrowser} {
+		if !FromSeaport(id) {
+			t.Errorf("%q is Seaport's own", id)
+		}
+	}
+	// A channel's own system sender (Datadog's alerts) comes from outside.
+	for _, id := range []string{"", "system:datadog", "cloudwatch", "+34600000000", "system:schedule2"} {
+		if FromSeaport(id) {
+			t.Errorf("%q is not Seaport's own", id)
+		}
+	}
+}

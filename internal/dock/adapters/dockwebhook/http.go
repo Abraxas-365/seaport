@@ -40,8 +40,9 @@ const MaxEvents = 20
 // many, then one a second); more are 429 with Retry-After.
 const PerMinute = 60
 
-// receiveWithin bounds the work of one event (Receive is quick).
-const receiveWithin = 10 * time.Second
+// receiveWithin bounds the work of one event: Receive is quick, but it may
+// open the dock's mirror first (ship.MirrorWithin).
+const receiveWithin = 10*time.Second + ship.MirrorWithin
 
 // Handler serves the webhook routes: the admin API of a webhook dock and
 // the public endpoint.
