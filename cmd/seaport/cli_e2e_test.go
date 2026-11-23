@@ -894,8 +894,22 @@ func TestCLISchedules(t *testing.T) {
 	id := firstID(t, out)
 
 	list := p.ok("cron", "list")
-	mustContain(t, "list", list, "ID", "CRON", "standup", "0 9 * * 1-5", "America/Lima", "true", id, conv)
+	mustContain(t, "list", list, "ID", "WHEN", "standup", "0 9 * * 1-5", "America/Lima", "true", id, conv)
 	mustContain(t, "list by conversation", p.ok("schedules", "list", conv), "standup")
+	// A one-shot (-at): listed as "once", moved with edit -at.
+	at := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	once := p.ok("schedules", "add", conv, "reminder", "-at", at, "-text", "una vez")
+	mustContain(t, "add one-shot", once, "schedule reminder created")
+	mustContain(t, "list one-shot", p.ok("schedules", "list", conv), "reminder", "once")
+	oneID := firstID(t, once)
+	mustContain(t, "move one-shot", p.ok("schedules", "edit", oneID, "-at", time.Now().Add(3*time.Hour).UTC().Format(time.RFC3339)), "schedule reminder saved")
+	if msg := p.fails("schedules", "add", conv, "both", "-cron", "@daily", "-at", at, "-text", "x"); msg == "" {
+		t.Error("cron and at together were accepted")
+	}
+	if msg := p.fails("schedules", "edit", oneID, "-cron", "@daily"); msg == "" {
+		t.Error("cron on a one-shot was accepted")
+	}
+	p.ok("schedules", "delete", oneID, "-yes") // the rest of the test counts one schedule
 	var page query.Paginated[struct {
 		Name  string `json:"name"`
 		Agent string `json:"agent_id"`

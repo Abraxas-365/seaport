@@ -132,7 +132,7 @@ func configBody(base int, harness string, p profileFile, machine any) map[string
 	}
 	return map[string]any{"base": base, "instructions": p.Instructions, "skills": p.Skills,
 		"mcp_servers": p.MCPServers, "approve": p.Approve, "model": p.Model, "effort": p.Effort, "browser": p.Browser,
-		"browser_assist": p.BrowserAssist, "browser_detect": p.BrowserDetect, "browser_ignore_hosts": p.BrowserIgnoreHosts,
+		"browser_assist": p.BrowserAssist, "browser_detect": p.BrowserDetect, "browser_ignore_hosts": p.BrowserIgnoreHosts, "alarms": p.Alarms,
 		"harness": harness, "machine": machine}
 }
 

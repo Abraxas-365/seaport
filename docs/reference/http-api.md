@@ -603,16 +603,16 @@ Builds, slots and hosted runs need `SEAPORT_RUNTIME=docker`; with it `off` they 
 
 | Method | Path | Permission | Body and response |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/schedules` | `schedules:read` | Paginated schedules. Filter `conversation_id`. |
-| `POST` | `/schedules` | `schedules:write` | Body `{"conversation_id","name","cron","timezone","text","agent_id","enabled"}` (`timezone` defaults to `UTC`, `enabled` to `true`, `agent_id` is optional). `201` with the schedule. `400` for an invalid or never-firing expression or an unknown time zone; `422` for an expression that fires more often than every 5 minutes, and `422 QUOTA_EXCEEDED` past `SEAPORT_MAX_SCHEDULES`; `409` for a name already used. |
+| `GET` | `/schedules` | `schedules:read` | Paginated schedules. Filters `conversation_id`, `agent_id` (the agent that set an alarm) and `done=true` (also the one-shots that already ran; hidden by default). |
+| `POST` | `/schedules` | `schedules:write` | Body `{"conversation_id","name","cron","timezone","text","agent_id","enabled"}` (`timezone` defaults to `UTC`, `enabled` to `true`, `agent_id` is optional). Give `at` (RFC 3339, at least 30 seconds ahead) instead of `cron` for a one-shot; exactly one of them. `201` with the schedule. `400` for an invalid or never-firing expression or an unknown time zone; `422` for an expression that fires more often than every 5 minutes, and `422 QUOTA_EXCEEDED` past `SEAPORT_MAX_SCHEDULES`; `409` for a name already used. |
 | `POST` | `/schedules/preview` | `schedules:read` | Body `{"cron","timezone"}`. `{"preview":[…]}`, the next three times; saves nothing. |
 | `GET` | `/schedules/{id}` | `schedules:read` | The schedule. |
-| `PATCH` | `/schedules/{id}` | `schedules:write` | Any of `name`, `cron`, `timezone`, `text`, `enabled`, `agent_id` (`""` clears it). `next_at` is recomputed. The schedule. |
+| `PATCH` | `/schedules/{id}` | `schedules:write` | Any of `name`, `cron`, `at`, `timezone`, `text`, `enabled`, `agent_id` (`""` clears it). `at` moves a one-shot and arms it again; `cron` on a one-shot (or `at` on a recurring one) is `422`. `next_at` is recomputed. The schedule. |
 | `DELETE` | `/schedules/{id}` | `schedules:write` | `204`. |
-| `POST` | `/schedules/{id}/run` | `schedules:write` | Posts the message now and answers the ship. The schedule's next time doesn't change. |
-| `GET` | `/conversations/{id}/schedules` | `schedules:read` | Paginated schedules of a conversation (`404` for one that isn't yours). |
+| `POST` | `/schedules/{id}/run` | `schedules:write` | Posts the message now and answers the ship. The schedule's next time doesn't change, and a one-shot isn't marked done. |
+| `GET` | `/conversations/{id}/schedules` | `schedules:read` | Paginated schedules of a conversation, `done=true` for the finished one-shots too (`404` for one that isn't yours). |
 
-A schedule: `id`, `conversation_id`, `agent_id` (absent: the dock's routing decides), `name`, `cron`, `timezone`, `text`, `enabled`, `next_at`, `last_at`, `last_ship_id`, `created_at`, `updated_at` and `preview` (the next three times, empty while it is switched off). See [Schedules](../guides/schedules.md).
+A schedule: `id`, `conversation_id`, `agent_id` (absent: the dock's routing decides), `name`, `cron` (empty for a one-shot), `run_at` and `done_at` (one-shots), `created_by` (the agent that set it: an alarm), `timezone`, `text`, `enabled`, `next_at`, `last_at`, `last_ship_id`, `created_at`, `updated_at` and `preview` (the next three times, empty while it is switched off). See [Schedules](../guides/schedules.md).
 
 ### Vaults
 

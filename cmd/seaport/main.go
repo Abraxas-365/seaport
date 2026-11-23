@@ -82,15 +82,16 @@ Admin (env: SEAPORT_URL, SEAPORT_ADMIN_TOKEN = the admin token, or an IAMKit API
   seaport agents config versions <agent>
   seaport agents profile [show] <agent> [-version N] [-json]   what its harness is told and given
   seaport agents profile set <agent> [-f profile.json] [-instructions-file F] [-skills-dir D]
-         [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E] [-browser on|off]
+         [-skill SKILL.md]... [-rm-skill NAME]... [-approve allow|reject|connector] [-model M] [-effort E] [-browser on|off] [-alarms on|off]
   seaport agents profile versions <agent>
   seaport agents secrets [list] <agent>
   seaport agents secrets set <agent> NAME [-env]   value from stdin; MCP headers and the machine
                                         (model keys, repo credentials) name it as ${NAME}
   seaport agents secrets rm <agent> NAME
-  seaport schedules [list [conversation-id]]   prompts the port posts into conversations at set times
-  seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..." [-timezone America/Lima] [-agent A] [-disabled]
-  seaport schedules edit <id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A|none]
+  seaport schedules [list [conversation-id] [-done]]   prompts the port posts into conversations at set times
+                                        (cron: recurring; -at: once; alarms agents set for themselves show as "alarm")
+  seaport schedules add <conversation-id> <name> (-cron "0 9 * * 1-5" | -at 2026-11-23T09:00:00-05:00) -text "..." [-timezone America/Lima] [-agent A] [-disabled]
+  seaport schedules edit <id> [-name N] [-cron C | -at T] [-timezone Z] [-text T] [-agent A|none]
   seaport schedules enable|disable <id>
   seaport schedules run <id>            post its message now (its schedule is untouched)
   seaport schedules preview "<cron>" [-timezone Z]   the next times an expression runs

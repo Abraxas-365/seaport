@@ -29,8 +29,18 @@ func schedules(ctx context.Context, args []string) error {
 	switch sub {
 	case "list":
 		path := "/api/v1/schedules?limit=100"
-		if len(args) > 0 {
-			path += "&conversation_id=" + url.QueryEscape(args[0])
+		fs := flag.NewFlagSet("schedules list", flag.ContinueOnError)
+		all := fs.Bool("done", false, "also the one-shots that already ran")
+		rest := args
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") { // [conversation-id] [-done]
+			path += "&conversation_id=" + url.QueryEscape(rest[0])
+			rest = rest[1:]
+		}
+		if err := fs.Parse(rest); err != nil {
+			return err
+		}
+		if *all {
+			path += "&done=true"
 		}
 		var page query.Paginated[schedule.Schedule]
 		if err := a.do(ctx, http.MethodGet, path, nil, &page); err != nil {
@@ -41,7 +51,7 @@ func schedules(ctx context.Context, args []string) error {
 			return nil
 		}
 		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tCRON\tZONE\tON\tNEXT\tLAST\tCONVERSATION")
+		fmt.Fprintln(w, "ID\tNAME\tWHEN\tZONE\tON\tNEXT\tLAST\tCONVERSATION")
 		for _, s := range page.Items {
 			last := "-"
 			if s.LastAt != nil {
@@ -51,15 +61,26 @@ func schedules(ctx context.Context, args []string) error {
 			if s.Enabled {
 				next = s.NextAt.Local().Format("2006-01-02 15:04")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%v\t%s\t%s\t%s\n", s.ID, s.Name, s.Cron, s.Timezone, s.Enabled, next, last, s.Conversation)
+			when := s.Cron
+			if s.RunAt != nil { // a one-shot (an alarm when an agent set it)
+				when = "once"
+				if s.CreatedBy != nil {
+					when = "alarm"
+				}
+				if s.DoneAt != nil {
+					when += " (done)"
+				}
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%v\t%s\t%s\t%s\n", s.ID, s.Name, when, s.Timezone, s.Enabled, next, last, s.Conversation)
 		}
 		return w.Flush()
 	case "add":
 		if len(args) < 2 {
-			return errx.Validation(`usage: seaport schedules add <conversation-id> <name> -cron "0 9 * * 1-5" -text "..." [-timezone America/Lima] [-agent <agent>] [-disabled]`)
+			return errx.Validation(`usage: seaport schedules add <conversation-id> <name> (-cron "0 9 * * 1-5" | -at 2026-11-23T09:00:00-05:00) -text "..." [-timezone America/Lima] [-agent <agent>] [-disabled]`)
 		}
 		fs := flag.NewFlagSet("schedules add", flag.ContinueOnError)
 		cron := fs.String("cron", "", "five-field cron expression (or @hourly, @daily, @weekly, @monthly)")
+		at := fs.String("at", "", "a one-shot at this time (RFC 3339 with offset), instead of -cron")
 		zone := fs.String("timezone", "UTC", "IANA time zone the expression is read in")
 		body := fs.String("text", "", "the message to post")
 		agentRef := fs.String("agent", "", "agent to call (default: the dock's routing)")
@@ -67,7 +88,13 @@ func schedules(ctx context.Context, args []string) error {
 		if err := fs.Parse(args[2:]); err != nil {
 			return err
 		}
-		req := map[string]any{"conversation_id": args[0], "name": args[1], "cron": *cron, "timezone": *zone, "text": *body, "enabled": !*disabled}
+		req := map[string]any{"conversation_id": args[0], "name": args[1], "timezone": *zone, "text": *body, "enabled": !*disabled}
+		if *at != "" {
+			req["at"] = *at
+		}
+		if *at == "" || *cron != "" { // both are sent when both are given: the port refuses that
+			req["cron"] = *cron
+		}
 		if *agentRef != "" {
 			ag, err := findAgent(ctx, a, *agentRef)
 			if err != nil {
@@ -84,11 +111,12 @@ func schedules(ctx context.Context, args []string) error {
 		return nil
 	case "edit":
 		if len(args) == 0 {
-			return errx.Validation("usage: seaport schedules edit <schedule-id> [-name N] [-cron C] [-timezone Z] [-text T] [-agent A|none]")
+			return errx.Validation("usage: seaport schedules edit <schedule-id> [-name N] [-cron C | -at T] [-timezone Z] [-text T] [-agent A|none]")
 		}
 		fs := flag.NewFlagSet("schedules edit", flag.ContinueOnError)
 		name := fs.String("name", "", "new name")
 		cron := fs.String("cron", "", "new cron expression")
+		at := fs.String("at", "", "new time of a one-shot (RFC 3339 with offset; arms it again when it ran)")
 		zone := fs.String("timezone", "", "new time zone")
 		body := fs.String("text", "", "new message")
 		agentRef := fs.String("agent", "", `agent to call ("none" clears it)`)
@@ -102,6 +130,8 @@ func schedules(ctx context.Context, args []string) error {
 				req["name"] = *name
 			case "cron":
 				req["cron"] = *cron
+			case "at":
+				req["at"] = *at
 			case "timezone":
 				req["timezone"] = *zone
 			case "text":

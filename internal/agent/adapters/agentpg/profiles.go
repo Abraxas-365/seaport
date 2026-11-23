@@ -33,6 +33,7 @@ type profileRow struct {
 	Assist       string    `db:"browser_assist"`
 	Detect       bool      `db:"browser_detect"`
 	IgnoreHosts  []byte    `db:"browser_ignore_hosts"`
+	Alarms       bool      `db:"alarms"`
 	Harness      string    `db:"harness"`
 	Machine      []byte    `db:"machine"`
 	Digest       string    `db:"machine_digest"`
@@ -43,11 +44,11 @@ type profileRow struct {
 
 // profileColumns read machine_secrets (text[]) as JSON: database/sql
 // scans no arrays.
-const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts, harness, machine, machine_digest, to_jsonb(machine_secrets) AS machine_secrets, created_by, created_at`
+const profileColumns = `version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts, alarms, harness, machine, machine_digest, to_jsonb(machine_secrets) AS machine_secrets, created_by, created_at`
 
 func (row profileRow) profile(id identity.AgentID) (agent.Profile, error) {
 	p := agent.Profile{Agent: id, Version: row.Version, Instructions: row.Instructions, Approve: row.Approve,
-		Model: row.Model, Effort: row.Effort, Browser: row.Browser, BrowserAssist: row.Assist, BrowserDetect: row.Detect,
+		Model: row.Model, Effort: row.Effort, Browser: row.Browser, BrowserAssist: row.Assist, BrowserDetect: row.Detect, Alarms: row.Alarms,
 		BrowserIgnoreHosts: []string{}, Harness: row.Harness, MachineDigest: row.Digest,
 		CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt}
 	if len(row.Machine) > 0 {
@@ -202,9 +203,9 @@ func (r *Repository) SaveProfile(ctx context.Context, org identity.OrganizationI
 			  AND p.instructions = $4 AND p.skills = $5::jsonb AND p.mcp_servers = $6::jsonb AND p.approve = $7
 			  AND p.model = $8 AND p.effort = $9 AND p.browser = $10 AND p.browser_assist = $11
 			  AND p.browser_detect = $12 AND p.browser_ignore_hosts = $13::jsonb AND p.harness = $14
-			  AND p.machine IS NOT DISTINCT FROM $15::jsonb AND p.home IS NOT DISTINCT FROM $16::text`,
+			  AND p.machine IS NOT DISTINCT FROM $15::jsonb AND p.home IS NOT DISTINCT FROM $16::text AND p.alarms = $17`,
 			org, id, current, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.BrowserAssist,
-			in.BrowserDetect, ignore, in.Harness, machine, home)
+			in.BrowserDetect, ignore, in.Harness, machine, home, in.Alarms)
 		switch {
 		case err == nil:
 			return row.profile(id)
@@ -214,11 +215,11 @@ func (r *Repository) SaveProfile(ctx context.Context, org identity.OrganizationI
 	}
 	if err := tx.GetContext(ctx, &row, `INSERT INTO agent_profiles
 		(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts,
-		 harness, machine, machine_digest, machine_secrets, home, created_by)
+		 harness, machine, machine_digest, machine_secrets, home, created_by, alarms)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-		 ARRAY(SELECT jsonb_array_elements_text($17::jsonb)), $18, $19) RETURNING `+profileColumns,
+		 ARRAY(SELECT jsonb_array_elements_text($17::jsonb)), $18, $19, $20) RETURNING `+profileColumns,
 		org, id, current+1, in.Instructions, skills, servers, in.Approve, in.Model, in.Effort, in.Browser, in.BrowserAssist, in.BrowserDetect, ignore,
-		in.Harness, machine, in.Checked.Digest, secrets, home, in.CreatedBy); err != nil {
+		in.Harness, machine, in.Checked.Digest, secrets, home, in.CreatedBy, in.Alarms); err != nil {
 		return agent.Profile{}, pgerr.MapWith(err, "insert profile", profileMessages)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agents SET profile_version = $3, updated_at = now()

@@ -295,8 +295,9 @@ export const api = {
   /** The browser viewer's WebSocket URL (CDP as it is; the session cookie authenticates). */
   browserSocket: (agent: string, slot: number) =>
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${v1}/agents/${agent}/hosting/slots/${slot}/browser`,
+  // done: the one-shots that already ran (kept DoneKeep, shown as "Hecha").
   schedules: (conversation: string) =>
-    request<Paginated<Schedule>>("GET", `${v1}/conversations/${conversation}/schedules${qs({ limit: 100 })}`),
+    request<Paginated<Schedule>>("GET", `${v1}/conversations/${conversation}/schedules${qs({ limit: 100, done: "true" })}`),
   createSchedule: (body: ScheduleInput) => request<Schedule>("POST", `${v1}/schedules`, body),
   updateSchedule: (id: string, body: Partial<Omit<ScheduleInput, "conversation_id">> & { agent_id?: string }) =>
     request<Schedule>("PATCH", `${v1}/schedules/${id}`, body),

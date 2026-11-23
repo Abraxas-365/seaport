@@ -305,9 +305,9 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 	convs.Service.Bind(ships.Service)
 	agents.Service.Bind(ships.Service.Takeovers(), ships.Service)
 	vaults := vaultmodule.New(db, agents.Service, docks.Service, convs.Service, bus, cfg.MaxVaults)
-	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service, vaults.Service)
 	schedules := schedulemodule.New(db, convs.Service, agents.Service, bus, cfg.MaxSchedules)
 	schedules.Bind(ships.Service)
+	crew.Bind(ships.Service, convs.Service, agents.Service, docks.Service, vaults.Service, schedules.Service)
 	hostCfg := hostingmodule.Config{
 		Limits: hosting.Limits{MaxCPUs: float64(cfg.HostMaxCPUs), MaxMemoryMB: cfg.HostMaxMemoryMB, MaxSlots: cfg.MaxSlots},
 		Docker: cfg.Runtime == config.RuntimeDocker, Runtime: opts.Runtime, Bases: baseImages(cfg),

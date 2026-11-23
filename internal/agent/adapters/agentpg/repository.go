@@ -159,9 +159,9 @@ func (r *Repository) Clone(ctx context.Context, org identity.OrganizationID, sou
 	if src.Version > 0 {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_profiles
 			(organization_id, agent_id, version, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts,
-			 harness, machine, machine_digest, machine_secrets, home, created_by)
+			 harness, machine, machine_digest, machine_secrets, home, created_by, alarms)
 			SELECT organization_id, $3, 1, instructions, skills, mcp_servers, approve, model, effort, browser, browser_assist, browser_detect, browser_ignore_hosts,
-			 harness, machine, machine_digest, machine_secrets, home, $5
+			 harness, machine, machine_digest, machine_secrets, home, $5, alarms
 			FROM agent_profiles WHERE organization_id = $1 AND agent_id = $2 AND version = $4`,
 			org, source, id, src.Version, in.CreatedBy); err != nil {
 			return a, pgerr.MapWith(err, "copy profile", profileMessages)

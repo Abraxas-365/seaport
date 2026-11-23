@@ -22,6 +22,7 @@ export function configYaml(c: ProfileInput): string {
     browser_assist: c.browser_assist,
     browser_detect: c.browser_detect,
     browser_ignore_hosts: c.browser_ignore_hosts,
+    alarms: c.alarms,
     machine,
   } as unknown as Record<string, Value>
   return lines(doc, 0).join("\n") + "\n"

@@ -98,7 +98,7 @@ The `data` of every event is JSON. The payload types are the same objects the ma
 | `slot.updated` | `seaport:hosting:read` | Hosted agent (`agent_id`, `slots`) | An agent was hosted or unhosted, its slot count changed, or one of its slots changed state. When the agent is no longer hosted the payload has no slots. |
 | `slot.browser` | `seaport:browser:use` | `{"agent_id","slot","state","by"}` | Someone opened (`state: opened`) or closed (`closed`) a slot's [browser viewer](../guides/hosting/browser.md); `by` is who. An audit trail: nothing of the stream is kept. |
 | `schedule.created` | `seaport:schedules:read` | [Schedule](http-api.md#schedules) | A schedule was created. |
-| `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, or the agent it names is gone). |
+| `schedule.updated` | `seaport:schedules:read` | Schedule | A schedule was changed, switched on or off, or disabled by the runner (its expression can't be evaluated, the agent it names is gone, or a one-shot was missed by more than an hour). Alarms use the same events. |
 | `schedule.deleted` | `seaport:schedules:read` | Schedule | A schedule was deleted. |
 | `schedule.fired` | `seaport:schedules:read` | Schedule | A schedule posted its message (by the runner or **run now**); `last_at` and `next_at` are current. |
 | `vault.created` | `seaport:vaults:read` | [Vault](http-api.md#vaults) | A vault was created. |

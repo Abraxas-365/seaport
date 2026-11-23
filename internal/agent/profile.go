@@ -85,6 +85,10 @@ type Profile struct {
 	// BrowserIgnoreHosts are sites (and their subdomains) the detector
 	// never asks a takeover for: a password field the agent never needs.
 	BrowserIgnoreHosts []string `json:"browser_ignore_hosts"`
+	// Alarms: the agent may set alarms for itself (MCP set_alarm, alarms,
+	// cancel_alarm): schedules that wake it later in a conversation it
+	// works. Off by default; an alarm already set does not fire while off.
+	Alarms bool `json:"alarms"`
 	// Harness is the agent program (rness | claude-code; "" = not set):
 	// a hosted agent's base image, a remote one's suggested command (the
 	// connector warns when hello.agent doesn't match).
@@ -167,6 +171,8 @@ type SaveProfile struct {
 	// lowercased and must be unique.
 	BrowserDetect      bool
 	BrowserIgnoreHosts []string
+	// Alarms lets the agent set alarms for itself.
+	Alarms bool
 	// Harness is "" (not set), rness or claude-code.
 	Harness string
 	// Machine is the hosting.Machine as JSON (nil: none; needs Harness).

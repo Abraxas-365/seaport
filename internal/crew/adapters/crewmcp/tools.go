@@ -41,6 +41,9 @@ type Deps struct {
 	// over its browser (ask_takeover; registered when the profile's
 	// browser is on).
 	Takeovers agent.Commands
+	// Alarms sets, lists and cancels the agent's alarms (set_alarm, alarms,
+	// cancel_alarm; registered when the profile has alarms on; nil: none).
+	Alarms AlarmDeps
 	// Docks lists the destinations the agent may open conversations at
 	// (nil: no open tool).
 	Docks dock.Queries
@@ -101,7 +104,8 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 			"option they choose; if it expires or is cancelled, do not do it. " +
 			"Long-term memory lives in vaults (when you have the vault tools): search it with memory_search before answering " +
 			"about the company, a customer or a past decision, and save durable facts with memory_save " +
-			"(one fact per entry, no secrets, nothing transient).",
+			"(one fact per entry, no secrets, nothing transient). " +
+			"When you have the alarm tools, use set_alarm to come back to a conversation later instead of waiting.",
 	})
 	t := tools{d: d}
 	mcp.AddTool(srv, &mcp.Tool{
@@ -146,6 +150,7 @@ func server(ctx context.Context, d Deps) *mcp.Server {
 	t.addSkill(ctx, srv)
 	t.addOpen(ctx, srv)
 	t.addTakeover(ctx, srv)
+	t.addAlarms(ctx, srv)
 	t.addVaults(ctx, srv)
 	return srv
 }

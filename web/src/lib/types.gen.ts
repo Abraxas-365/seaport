@@ -267,6 +267,12 @@ export interface AgentProfile {
    */
   browser_ignore_hosts: string[]
   /**
+   * Alarms: the agent may set alarms for itself (MCP set_alarm, alarms,
+   * cancel_alarm): schedules that wake it later in a conversation it
+   * works. Off by default; an alarm already set does not fire while off.
+   */
+  alarms: boolean
+  /**
    * Harness is the agent program (rness | claude-code; "" = not set):
    * a hosted agent's base image, a remote one's suggested command (the
    * connector warns when hello.agent doesn't match).
@@ -1188,7 +1194,8 @@ export interface Rule {
 
 /**
  * Schedule posts Text into Conversation whenever Cron matches (on the wall
- * clock of Timezone).
+ * clock of Timezone), or once at RunAt (a one-shot: Cron is empty). A
+ * one-shot set by an agent is an alarm (CreatedBy).
  */
 export interface Schedule {
   id: ID
@@ -1199,7 +1206,20 @@ export interface Schedule {
    */
   agent_id?: ID
   name: string
+  /** Cron is the expression; empty for a one-shot (RunAt is set then). */
   cron: string
+  /** RunAt is the time of a one-shot schedule (nil: it is recurring). */
+  run_at?: string
+  /**
+   * CreatedBy is the agent that set this schedule as an alarm (nil: a
+   * person created it).
+   */
+  created_by?: ID
+  /**
+   * DoneAt is when a one-shot fired or was missed (it is then disabled
+   * and stays visible for DoneKeep).
+   */
+  done_at?: string
   timezone: string
   text: string
   enabled: boolean
