@@ -386,7 +386,7 @@ func TestOneShotLifecycle(t *testing.T) {
 	if _, err := repo.Create(ctx, org, again, 0); err != nil {
 		t.Fatalf("a done one-shot's name is free: %v", err)
 	}
-	at := now.Add(2 * time.Hour)
+	at := now.Add(2 * time.Hour).Truncate(time.Microsecond) // Postgres keeps microseconds
 	on := true
 	if _, err := repo.Update(ctx, org, fire.ID, schedule.Update{At: &at, Enabled: &on}, at); !errx.IsType(err, errx.TypeConflict) {
 		t.Fatalf("re-arm with the name taken: %v", err)
