@@ -434,6 +434,10 @@
       "channel": "webhook",
       "created_at": "2030-01-02T03:00:00Z",
       "id": "00000000-0000-4000-8000-000000000014",
+      "mirror": {
+        "destination": "oncall",
+        "dock_id": "00000000-0000-4000-8000-000000000001"
+      },
       "name": "Alerts",
       "replies": false,
       "status": "linked",
@@ -466,6 +470,10 @@
           "channel": "webhook",
           "created_at": "2030-01-02T03:00:00Z",
           "id": "00000000-0000-4000-8000-000000000014",
+          "mirror": {
+            "destination": "oncall",
+            "dock_id": "00000000-0000-4000-8000-000000000001"
+          },
           "name": "Alerts",
           "replies": false,
           "status": "linked",

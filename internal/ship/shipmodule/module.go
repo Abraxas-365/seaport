@@ -53,7 +53,7 @@ func New(d Deps) (*Module, error) {
 	svc, err := shipsvc.New(shipsvc.Deps{Repo: shippg.New(d.DB), Conversations: d.Conversations,
 		Messenger: d.Messenger, Notifier: d.Notifier, Events: d.Events, Limits: &d.Limits, Agents: d.Agents, Docks: d.Docks,
 		Media: shipsvc.Media{Blobs: d.Blobs, SecretKey: d.SecretKey}, ApprovalTTL: d.ApprovalTTL, PublicURL: d.PublicURL,
-		ApprovalLocks: shippg.NewApprovalLocker(d.LockDB)})
+		ApprovalLocks: shippg.NewApprovalLocker(d.LockDB), MirrorLocks: shippg.NewMirrorLocker(d.LockDB)})
 	if err != nil {
 		return nil, err
 	}

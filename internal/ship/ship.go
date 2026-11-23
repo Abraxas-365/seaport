@@ -58,6 +58,10 @@ const (
 	// MaxRerouteChats bounds the conversations one assignment releases
 	// (those with the newest held ships).
 	MaxRerouteChats = 50
+	// MirrorWithin bounds the opening of a dock's mirror when a message
+	// arrives (a post to another channel): past it the message is stored
+	// without one.
+	MirrorWithin = 30 * time.Second
 	// MaxEarlier bounds Delivery.Earlier (the thread's newest messages).
 	MaxEarlier = 30
 	// MaxEarlierShip is the most characters of one message in
@@ -115,6 +119,9 @@ type Ship struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	// Attachments: the files that came with it, in order (metadata only).
 	Attachments []Attachment `db:"-" json:"attachments,omitempty"`
+	// Mirrored: Receive opened the dock's mirror for this message (never
+	// stored nor sent; only the result of that call).
+	Mirrored bool `db:"-" json:"-"`
 }
 
 // Summary is the inbox preview of one conversation's ships.

@@ -55,6 +55,7 @@ func Spec() wire.Spec {
 		Types: map[string]reflect.Type{
 			// docks
 			"Dock":        of[dock.Dock](),
+			"DockMirror":  of[dock.Mirror](),
 			"DockTools":   of[dock.Tools](),
 			"Destination": of[dock.Destination](),
 			"DockDeleted": of[dock.Deleted](),
@@ -70,7 +71,6 @@ func Spec() wire.Spec {
 			"WebhookTemplate":    of[dockwebhook.Template](),
 			"WebhookPreview":     of[dockwebhook.Message](),
 			"WebhookInfo":        of[dockwebhook.Info](),
-			"DatadogMirror":      of[dockdatadog.Mirror](),
 			"DatadogInfo":        of[dockdatadog.Info](),
 			"WhatsAppSettings":   of[dockwa.Settings](),
 			"EmailEndpoint":      of[dockemail.Endpoint](),

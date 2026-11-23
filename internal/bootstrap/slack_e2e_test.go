@@ -40,6 +40,12 @@ type fakeSlack struct {
 	reactions []string
 	uploads   []string
 	removed   bool
+	// uniqueTS makes every chat.postMessage answer a new ts (each post of
+	// a destination is then a thread of its own, as on Slack).
+	uniqueTS bool
+	// postDelay slows every chat.postMessage (a race window for tests of
+	// what must happen once).
+	postDelay time.Duration
 }
 
 const (
@@ -155,12 +161,17 @@ func (f *fakeSlack) bot(method string, r *http.Request, answer func(map[string]a
 	case "conversations.info":
 		answer(map[string]any{"channel": map[string]string{"name": "support"}})
 	case "chat.postMessage":
+		time.Sleep(f.postDelay)
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
 		f.posts = append(f.posts, body)
+		ts := "1700000100.000200"
+		if f.uniqueTS {
+			ts = "1700000100." + strconv.Itoa(100000+len(f.posts))
+		}
 		f.mu.Unlock()
-		answer(map[string]any{"ts": "1700000100.000200"})
+		answer(map[string]any{"ts": ts})
 	case "reactions.add":
 		f.mu.Lock()
 		f.reactions = append(f.reactions, r.Form.Get("channel")+"/"+r.Form.Get("timestamp")+":"+r.Form.Get("name"))

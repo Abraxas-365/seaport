@@ -3,9 +3,9 @@
 // /datadog/webhook/{dock}, with the dock's secret in a header. Each alert
 // is a message of the conversation of its monitor and scope, so a
 // recovery lands where the alert did. The dock only triggers: nothing is
-// posted to Datadog. With a mirror (a destination of a dock that
-// replies) Seaport itself opens a conversation there for every new alert
-// thread, linked to the alert's, and the agent and people talk there.
+// posted to Datadog. With a mirror (dock.Mirror: a destination of a dock
+// that replies) the ship service opens a conversation there for every new
+// alert thread, linked to the alert's, and the agent and people talk there.
 // Stateless: any process serves any Datadog dock.
 package dockdatadog
 
@@ -13,7 +13,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/Abraxas-365/seaport/internal/conversation"
 	"github.com/Abraxas-365/seaport/internal/dock"
 	"github.com/Abraxas-365/seaport/internal/errx"
 	"github.com/Abraxas-365/seaport/internal/identity"
@@ -28,21 +27,6 @@ type Receiver interface {
 	Receive(ctx context.Context, organization identity.OrganizationID, input ship.Inbound) (ship.Ship, bool, error)
 }
 
-// Opener opens the mirrored conversation (the ship domain, bound late).
-type Opener interface {
-	Open(ctx context.Context, organization identity.OrganizationID, input ship.Open) (ship.Ship, error)
-}
-
-// Conversations is the conversation domain (bound late): Arrive makes
-// the alert's conversation before its message exists, so the mirror can
-// be opened and linked first (the crew then wakes to a thread of two
-// doors, not to one that grows later); Thread says whether that
-// conversation is a thread of one (a new thread: mirrored).
-type Conversations interface {
-	Arrive(ctx context.Context, organization identity.OrganizationID, input conversation.Arrive) (conversation.Arrival, error)
-	Thread(ctx context.Context, organization identity.OrganizationID, conv identity.ConversationID) ([]conversation.Conversation, error)
-}
-
 // Config says where this port is (the URL Datadog calls).
 type Config struct {
 	PublicURL string
@@ -54,8 +38,6 @@ type Gateway struct {
 
 	mu       sync.Mutex
 	receiver Receiver
-	opener   Opener
-	convs    Conversations
 }
 
 // Open opens the sealed secret store (secretKey: SEAPORT_SECRET_KEY).
@@ -71,27 +53,20 @@ func Open(ctx context.Context, db *sqlx.DB, secretKey string, cfg Config) (*Gate
 	return &Gateway{store: store, cfg: cfg}, nil
 }
 
-// Bind hands inbound alerts and mirrored openings to the ship domain and
-// conversations to the conversation domain (built later); nil leaves one
-// as it was.
-func (g *Gateway) Bind(r Receiver, o Opener, c Conversations) {
+// Bind hands inbound alerts to the ship domain (built later); nil leaves
+// it as it was.
+func (g *Gateway) Bind(r Receiver) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if r != nil {
 		g.receiver = r
 	}
-	if o != nil {
-		g.opener = o
-	}
-	if c != nil {
-		g.convs = c
-	}
 }
 
-func (g *Gateway) bound() (Receiver, Opener, Conversations) {
+func (g *Gateway) bound() Receiver {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.receiver, g.opener, g.convs
+	return g.receiver
 }
 
 var _ dock.Gateway = (*Gateway)(nil)

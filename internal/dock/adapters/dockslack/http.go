@@ -493,8 +493,9 @@ func (h *Handler) events(c fiber.Ctx) error {
 	return httpx.JSON(c, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
-// forwardTimeout bounds the background work of one event.
-const forwardTimeout = 30 * time.Second
+// forwardTimeout bounds the background work of one event (which may open
+// the dock's mirror, ship.MirrorWithin).
+const forwardTimeout = 30*time.Second + ship.MirrorWithin
 
 // forward reads a routed event (asking Slack for names and images) and
 // hands it to the ship domain, on a context of its own.

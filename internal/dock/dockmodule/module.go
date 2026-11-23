@@ -169,7 +169,7 @@ func New(ctx context.Context, d Deps) (*Module, error) {
 	}
 	if dd != nil {
 		m.dd = dd
-		m.ddHTTP = dockdatadog.NewHandler(dd, svc)
+		m.ddHTTP = dockdatadog.NewHandler(dd, svc, svc)
 	}
 	return m, nil
 }
@@ -195,21 +195,12 @@ func (m *Module) BindReceiver(r Receiver) {
 		m.email.Bind(nil, r)
 	}
 	if m.dd != nil {
-		m.dd.Bind(r, nil, nil)
+		m.dd.Bind(r)
 	}
 	for _, g := range m.extra {
 		if b, ok := g.(interface{ BindReceiver(Receiver) }); ok {
 			b.BindReceiver(r)
 		}
-	}
-}
-
-// BindMirror gives Datadog docks what mirroring an alert needs: the
-// opener of conversations at destinations (the ship domain) and the
-// conversation domain, both built later.
-func (m *Module) BindMirror(o dockdatadog.Opener, c dockdatadog.Conversations) {
-	if m.dd != nil {
-		m.dd.Bind(nil, o, c)
 	}
 }
 

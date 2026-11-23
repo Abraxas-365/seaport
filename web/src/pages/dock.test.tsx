@@ -86,6 +86,40 @@ describe("a Datadog dock", () => {
   })
 })
 
+describe("the mirror card", () => {
+  const chat = (): Dock => ({ ...apiData<Dock>("dock"), id: "00000000-0000-4000-8000-000000000001" as Dock["id"], name: "Support" })
+
+  it("shows where a trigger dock's threads are opened", () => {
+    const dock = apiData<Dock>("dock_trigger")
+    renderDock(dock, (qc) => {
+      qc.setQueryData(keys.webhook(dock.id), webhookInfo())
+      qc.setQueryData(keys.docks, { items: [chat()], page: 1 })
+    })
+    expect(screen.getByText("Espejo")).toBeInTheDocument()
+    expect(screen.getByText("Support")).toBeInTheDocument()
+    expect(screen.getByText("oncall")).toBeInTheDocument()
+  })
+
+  it("says there is none, on a Datadog dock too", () => {
+    const dock: Dock = { ...apiData<Dock>("dock_trigger"), channel: "datadog", mirror: undefined }
+    renderDock(dock, (qc) => qc.setQueryData(keys.datadog(dock.id), datadogInfo()))
+    expect(screen.getByText(/Sin espejo/)).toBeInTheDocument()
+  })
+
+  it("is not on a dock that replies", () => {
+    const dock = { ...apiData<Dock>("dock"), channel: "api" as const, address: "" }
+    renderDock(dock, (qc) => qc.setQueryData(keys.destinations(dock.id), []))
+    expect(screen.queryByText("Espejo")).not.toBeInTheDocument()
+  })
+
+  it("keeps the replies switch off while the dock has a mirror", () => {
+    const dock: Dock = { ...apiData<Dock>("dock"), channel: "slack", replies: false, mirror: { dock_id: chat().id, destination: "oncall" } }
+    renderDock(dock)
+    expect(screen.getByRole("switch", { name: "Permitir respuestas" })).toBeDisabled()
+    expect(screen.getByText(/quítalo antes de activar las respuestas/)).toBeInTheDocument()
+  })
+})
+
 describe("a dock that replies", () => {
   it("has the replies card instead of the trigger-only notice", () => {
     const dock = { ...apiData<Dock>("dock"), channel: "api" as const, address: "" }

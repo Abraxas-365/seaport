@@ -14,7 +14,7 @@ A destination belongs to a dock and has a **name** (lowercase letters, digits, `
 | `whatsapp` | a phone `+34600000000`, or a group's JID (`…@g.us`; `seaport conversations` shows it for groups the number is in). |
 | `api` | the `chat_id` your system will read the conversation under. |
 | `github`, `jira`, `email` | not yet: these docks have no destinations. |
-| `webhook`, `datadog` | never: these docks only trigger. A Datadog dock's [mirror](datadog.md#mirror-the-alerts) is a destination of another dock. |
+| `webhook`, `datadog` | never: these docks only trigger. A trigger dock's [mirror](mirrors.md) is a destination of another dock. |
 
 In the web app, on the dock's page under **Destinos**, press **Añadir**. From the CLI:
 

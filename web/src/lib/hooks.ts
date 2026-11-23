@@ -20,6 +20,7 @@ import type {
   Channel,
   CustomsStatus,
   DefaultAccess,
+  DockMirror,
   DockTools,
   Effect,
   GroupMode,
@@ -189,7 +190,7 @@ export function useWebhook(dock: string, enabled = true) {
   return useQuery({ queryKey: keys.webhook(dock), queryFn: () => api.webhook(dock), enabled: enabled && can(Perm.DocksRead) })
 }
 
-/** A Datadog dock's endpoint and mirror (the secret never comes back from here). */
+/** A Datadog dock's endpoint and payload (the secret never comes back from here). */
 export function useDatadog(dock: string, enabled = true) {
   const can = useCan()
   return useQuery({ queryKey: keys.datadog(dock), queryFn: () => api.datadog(dock), enabled: enabled && can(Perm.DocksRead) })
@@ -419,6 +420,14 @@ export function useDockAction() {
         })
       },
       onError: fail("No se pudo cambiar"),
+    }),
+    mirror: useMutation({
+      mutationFn: ({ id, mirror }: { id: string; mirror: DockMirror | null }) => api.setDockMirror(id, mirror),
+      onSuccess: (d) => {
+        onDock(d)
+        toast.success(d.mirror ? "Espejo guardado" : "Espejo quitado")
+      },
+      onError: fail("No se pudo guardar el espejo"),
     }),
     tools: useMutation({
       mutationFn: ({ id, tools }: { id: string; tools: Partial<DockTools> }) => api.setDockTools(id, tools),

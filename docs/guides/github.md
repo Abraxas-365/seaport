@@ -71,6 +71,10 @@ Comments the App posts come back to Seaport by webhook. The echo of a reply Seap
 
 Formal reviews, line comments, labels and pushes are not `reply`'s job: agents do them with `gh` and git, as the App (next section).
 
+## Mirror
+
+With the dock's [replies off](linked-conversations.md#docks-that-only-trigger) it can have a [mirror](mirrors.md): each new pull request or issue thread is posted at a Slack channel (or another destination), and the agent answers there instead of on GitHub.
+
 ## Act on GitHub as the App
 
 An agent of the dock can get a token of the App for a repository the App is installed on, and use `gh` and git with it: a formal review with a verdict, comments on lines of the diff, labels, a branch with screenshots or a fix. The agent acts as `seaport-qa[bot]`, never as a person.

@@ -110,6 +110,9 @@ func (s *Service) Update(ctx context.Context, org identity.OrganizationID, id id
 		if !d.Channel.Replies() {
 			return dock.Dock{}, errx.Business(string(d.Channel) + " docks only trigger: nothing can be posted there")
 		}
+		if d.Mirror != nil {
+			return dock.Dock{}, errx.Business("this dock has a mirror: remove the mirror first, then turn its replies on")
+		}
 	}
 	d, err := s.repo.Update(ctx, org, id, input)
 	if err != nil {

@@ -17,7 +17,30 @@ import (
 // "tools.<field>" names).
 const columns = `id, organization_id, channel, name, address, status, replies,
 	tool_history AS "tools.history", tool_conversations AS "tools.conversations",
-	tool_attachments AS "tools.attachments", created_at, updated_at`
+	tool_attachments AS "tools.attachments", mirror_dock, mirror_destination, created_at, updated_at`
+
+// row is a dock as stored: the mirror is two nullable columns.
+type row struct {
+	dock.Dock
+	MirrorDock *identity.DockID `db:"mirror_dock"`
+	MirrorDest *string          `db:"mirror_destination"`
+}
+
+func (r row) dock() dock.Dock {
+	d := r.Dock
+	if r.MirrorDock != nil && r.MirrorDest != nil {
+		d.Mirror = &dock.Mirror{Dock: *r.MirrorDock, Destination: *r.MirrorDest}
+	}
+	return d
+}
+
+func docks(rows []row) []dock.Dock {
+	out := make([]dock.Dock, len(rows))
+	for i, r := range rows {
+		out[i] = r.dock()
+	}
+	return out
+}
 
 var messages = pgerr.Messages{NotFound: "dock not found"}
 
@@ -32,41 +55,41 @@ var _ dock.Repository = (*Repository)(nil)
 const createLock = 7_401_004
 
 func (r *Repository) Create(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Create, status dock.Status, limit int) (dock.Dock, error) {
-	var d dock.Dock
+	var d row
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return d, pgerr.Map(err, "begin create dock")
+		return dock.Dock{}, pgerr.Map(err, "begin create dock")
 	}
 	defer func() { _ = tx.Rollback() }()
 	if limit > 0 {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))`, createLock, org); err != nil {
-			return d, pgerr.Map(err, "lock docks")
+			return dock.Dock{}, pgerr.Map(err, "lock docks")
 		}
 		var n int
 		if err := tx.GetContext(ctx, &n, `SELECT count(*) FROM docks WHERE organization_id = $1`, org); err != nil {
-			return d, pgerr.Map(err, "count docks")
+			return dock.Dock{}, pgerr.Map(err, "count docks")
 		}
 		if n >= limit {
-			return d, errx.QuotaExceeded("docks", limit, "an organization can have at most "+strconv.Itoa(limit)+" docks; delete one first")
+			return dock.Dock{}, errx.QuotaExceeded("docks", limit, "an organization can have at most "+strconv.Itoa(limit)+" docks; delete one first")
 		}
 	}
 	if err := tx.GetContext(ctx, &d, `INSERT INTO docks (id, organization_id, channel, name, status)
 		VALUES ($1, $2, $3, $4, $5) RETURNING `+columns, id, org, in.Channel, in.Name, status); err != nil {
-		return d, pgerr.MapWith(err, "create dock", messages)
+		return dock.Dock{}, pgerr.MapWith(err, "create dock", messages)
 	}
-	return d, pgerr.Map(tx.Commit(), "commit dock")
+	return d.dock(), pgerr.Map(tx.Commit(), "commit dock")
 }
 
 func (r *Repository) Find(ctx context.Context, org identity.OrganizationID, id identity.DockID) (dock.Dock, error) {
-	var d dock.Dock
+	var d row
 	err := r.db.GetContext(ctx, &d, `SELECT `+columns+` FROM docks WHERE organization_id = $1 AND id = $2`, org, id)
-	return d, pgerr.MapWith(err, "find dock", messages)
+	return d.dock(), pgerr.MapWith(err, "find dock", messages)
 }
 
 func (r *Repository) Get(ctx context.Context, id identity.DockID) (dock.Dock, error) {
-	var d dock.Dock
+	var d row
 	err := r.db.GetContext(ctx, &d, `SELECT `+columns+` FROM docks WHERE id = $1`, id)
-	return d, pgerr.MapWith(err, "get dock", messages)
+	return d.dock(), pgerr.MapWith(err, "get dock", messages)
 }
 
 func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page query.Pagination) (query.Paginated[dock.Dock], error) {
@@ -74,15 +97,19 @@ func (r *Repository) List(ctx context.Context, org identity.OrganizationID, page
 	if err := r.db.GetContext(ctx, &out.Page.Total, `SELECT count(*) FROM docks WHERE organization_id = $1`, org); err != nil {
 		return out, pgerr.Map(err, "count docks")
 	}
-	err := r.db.SelectContext(ctx, &out.Items, `SELECT `+columns+` FROM docks WHERE organization_id = $1
+	var rows []row
+	err := r.db.SelectContext(ctx, &rows, `SELECT `+columns+` FROM docks WHERE organization_id = $1
 		ORDER BY created_at, id LIMIT $2 OFFSET $3`, org, page.Limit, page.Offset)
+	if err == nil {
+		out.Items = docks(rows)
+	}
 	return out, pgerr.Map(err, "list docks")
 }
 
 func (r *Repository) ListByStatus(ctx context.Context, status dock.Status) ([]dock.Dock, error) {
-	out := []dock.Dock{}
-	err := r.db.SelectContext(ctx, &out, `SELECT `+columns+` FROM docks WHERE status = $1 ORDER BY created_at, id`, status)
-	return out, pgerr.Map(err, "list docks by status")
+	var rows []row
+	err := r.db.SelectContext(ctx, &rows, `SELECT `+columns+` FROM docks WHERE status = $1 ORDER BY created_at, id`, status)
+	return docks(rows), pgerr.Map(err, "list docks by status")
 }
 
 func (r *Repository) SetStatus(ctx context.Context, id identity.DockID, status dock.Status) error {
@@ -95,7 +122,7 @@ func (r *Repository) SetLinked(ctx context.Context, id identity.DockID, address 
 }
 
 func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id identity.DockID, in dock.Update) (dock.Dock, error) {
-	var d dock.Dock
+	var d row
 	var t dock.ToolsPatch
 	if in.Tools != nil {
 		t = *in.Tools
@@ -105,7 +132,23 @@ func (r *Repository) Update(ctx context.Context, org identity.OrganizationID, id
 		tool_attachments = COALESCE($7, tool_attachments), updated_at = now()
 		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, in.Name, in.Replies,
 		t.History, t.Conversations, t.Attachments)
-	return d, pgerr.MapWith(err, "update dock", messages)
+	// The only check an update can break is docks_mirror_trigger_only
+	// (replies turned on while a mirror was set meanwhile).
+	return d.dock(), pgerr.MapWith(err, "update dock", pgerr.Messages{NotFound: messages.NotFound,
+		Check: "this dock has a mirror: remove the mirror first, then turn its replies on"})
+}
+
+func (r *Repository) SetMirror(ctx context.Context, org identity.OrganizationID, id identity.DockID, m *dock.Mirror) (dock.Dock, error) {
+	var mdock *identity.DockID
+	var mdest *string
+	if m != nil {
+		mdock, mdest = &m.Dock, &m.Destination
+	}
+	var d row
+	err := r.db.GetContext(ctx, &d, `UPDATE docks SET mirror_dock = $3, mirror_destination = $4, updated_at = now()
+		WHERE organization_id = $1 AND id = $2 RETURNING `+columns, org, id, mdock, mdest)
+	return d.dock(), pgerr.MapWith(err, "set dock mirror", pgerr.Messages{NotFound: "dock not found", ForeignKey: "that destination does not exist",
+		Check: "only a dock that doesn't reply can have a mirror, and not itself"})
 }
 
 func (r *Repository) Delete(ctx context.Context, org identity.OrganizationID, id identity.DockID) error {

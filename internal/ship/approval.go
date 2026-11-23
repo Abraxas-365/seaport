@@ -78,7 +78,22 @@ const (
 	// SystemBrowser wakes an agent whose browser takeover a person ended
 	// (shipsvc.Takeovers).
 	SystemBrowser = "system:browser"
+	// SystemSchedule is the sender of a schedule's message (equal to
+	// schedule.SenderID, checked by a test).
+	SystemSchedule = "system:schedule"
 )
+
+// FromSeaport: the message was put in the conversation by Seaport itself (a
+// schedule, an approval's answer, a browser takeover), not by the outside
+// world. Not every "system:" sender is: a dock's channel may name its own
+// (Datadog's alerts come from system:datadog).
+func FromSeaport(senderID string) bool {
+	switch senderID {
+	case SystemSchedule, SystemApproval, SystemBrowser:
+		return true
+	}
+	return false
+}
 
 // Approval is a question an agent asked people (see AskApproval).
 type Approval struct {

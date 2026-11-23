@@ -29,12 +29,9 @@ const WebhookPath = "/datadog/webhook/"
 // many, then one a second); more are 429 with Retry-After.
 const PerMinute = 60
 
-// receiveWithin bounds the work of one alert (Receive is quick).
-const receiveWithin = 10 * time.Second
-
-// mirrorWithin bounds the opening of the mirrored conversation (a post to
-// another channel).
-const mirrorWithin = 30 * time.Second
+// receiveWithin bounds the work of one alert: Receive is quick, but it may
+// open the dock's mirror first (ship.MirrorWithin).
+const receiveWithin = 10*time.Second + ship.MirrorWithin
 
 // SenderID is the sender of every alert (a rule `system:datadog` matches
 // them all).
@@ -45,11 +42,12 @@ const SenderID = "system:datadog"
 type Handler struct {
 	g     *Gateway
 	docks dock.Queries
+	cmds  dock.Commands
 	limit *httpx.RateLimit
 }
 
-func NewHandler(g *Gateway, docks dock.Queries) *Handler {
-	return &Handler{g: g, docks: docks, limit: httpx.NewRateLimit(1, PerMinute)}
+func NewHandler(g *Gateway, docks dock.Queries, cmds dock.Commands) *Handler {
+	return &Handler{g: g, docks: docks, cmds: cmds, limit: httpx.NewRateLimit(1, PerMinute)}
 }
 
 // Register mounts the admin routes (behind admin auth).
@@ -93,8 +91,9 @@ type Info struct {
 	Reachable bool   `json:"reachable"`
 	// Payload is the body to paste in Datadog's webhook integration.
 	Payload string `json:"payload"`
-	// Mirror is where new alert threads are opened (null: nowhere).
-	Mirror *Mirror `json:"mirror"`
+	// Mirror is where new alert threads are opened (null: nowhere): the
+	// dock's own mirror, see dock.Mirror.
+	Mirror *dock.Mirror `json:"mirror"`
 	// HasSecret: the endpoint exists (a linked dock). The secret itself is
 	// shown once, by the answer that made it (rotating), never read back.
 	HasSecret bool       `json:"has_secret"`
@@ -123,8 +122,8 @@ func (h *Handler) base(id identity.DockID) Info {
 	return Info{URL: h.g.cfg.PublicURL + WebhookPath + id.String(), Reachable: reachable(h.g.cfg.PublicURL), Payload: PayloadTemplate}
 }
 
-func (h *Handler) fill(out *Info, e Endpoint) {
-	out.HasSecret, out.Mirror = true, e.Mirror
+func (h *Handler) fill(out *Info, d dock.Dock, e Endpoint) {
+	out.HasSecret, out.Mirror = true, d.Mirror
 	created := e.CreatedAt
 	out.CreatedAt = &created
 }
@@ -152,31 +151,18 @@ func (h *Handler) info(c fiber.Ctx) error {
 	case err != nil:
 		return err
 	}
-	h.fill(&out, e)
+	h.fill(&out, d, e)
 	return httpx.JSON(c, http.StatusOK, out)
 }
 
 type saveRequest struct {
 	// Mirror names the destination new alert threads are opened at; null
 	// or absent clears it.
-	Mirror *Mirror `json:"mirror"`
+	Mirror *dock.Mirror `json:"mirror"`
 }
 
-func (r saveRequest) Validate() error {
-	if r.Mirror == nil {
-		return nil
-	}
-	if r.Mirror.Dock.IsZero() {
-		return errx.InvalidField("mirror.dock_id", "mirror.dock_id is required")
-	}
-	if err := dock.ValidDestinationName(r.Mirror.Destination); err != nil {
-		return errx.InvalidField("mirror.destination", "mirror.destination must be a destination name of that dock")
-	}
-	return nil
-}
-
-// save sets the mirror: a destination of a dock of this organization
-// that replies (a Datadog dock can't be its own mirror).
+// save sets the mirror through the dock service (the same rules as
+// PUT /docks/{id}/mirror: a destination of another dock that replies).
 func (h *Handler) save(c fiber.Ctx) error {
 	d, err := h.datadogDock(c)
 	if err != nil {
@@ -186,22 +172,8 @@ func (h *Handler) save(c fiber.Ctx) error {
 	if err := httpx.DecodeJSON(c, &req); err != nil {
 		return err
 	}
-	if err := req.Validate(); err != nil {
-		return err
-	}
-	if req.Mirror != nil {
-		target, err := h.docks.Find(c.Context(), d.Organization, req.Mirror.Dock)
-		if err != nil {
-			return errx.Wrap(err, "find mirror dock", errx.TypeInternal)
-		}
-		if !target.CanReply() {
-			return errx.Business("the mirror must be a dock that replies")
-		}
-		if _, err := h.docks.Destination(c.Context(), d.Organization, req.Mirror.Dock, req.Mirror.Destination); err != nil {
-			return errx.Wrap(err, "find mirror destination", errx.TypeInternal)
-		}
-	}
-	if err := h.g.store.SaveMirror(c.Context(), d.Organization, d.ID, req.Mirror); err != nil {
+	d, err = h.cmds.SetMirror(c.Context(), d.Organization, d.ID, dock.SetMirror{Mirror: req.Mirror})
+	if err != nil {
 		return err
 	}
 	e, err := h.g.store.Endpoint(c.Context(), d.ID)
@@ -209,7 +181,7 @@ func (h *Handler) save(c fiber.Ctx) error {
 		return err
 	}
 	out := h.base(d.ID)
-	h.fill(&out, e)
+	h.fill(&out, d, e)
 	return httpx.JSON(c, http.StatusOK, out)
 }
 
@@ -225,7 +197,7 @@ func (h *Handler) rotate(c fiber.Ctx) error {
 	}
 	out := h.base(d.ID)
 	if e, err := h.g.store.Endpoint(c.Context(), d.ID); err == nil {
-		h.fill(&out, e)
+		h.fill(&out, d, e)
 	}
 	out.Secret = secret
 	return httpx.JSON(c, http.StatusOK, out)
@@ -283,7 +255,7 @@ func (h *Handler) hook(c fiber.Ctx) error {
 	if !proven(e.secret, c) {
 		return errx.NotFound("unknown webhook")
 	}
-	receiver, opener, convs := h.g.bound()
+	receiver := h.g.bound()
 	if receiver == nil {
 		return errx.External("this port is starting; try again")
 	}
@@ -293,10 +265,6 @@ func (h *Handler) hook(c fiber.Ctx) error {
 	}
 	m := Render(p, time.Now())
 	in := inbound(id, m)
-	mirrored := false
-	if e.Mirror != nil && opener != nil && convs != nil {
-		mirrored = h.mirror(c.Context(), e, in, opener, convs)
-	}
 	ctx, cancel := context.WithTimeout(c.Context(), receiveWithin)
 	defer cancel()
 	s, created, err := receiver.Receive(ctx, e.Organization, in)
@@ -304,47 +272,7 @@ func (h *Handler) hook(c fiber.Ctx) error {
 		slog.Error("receive datadog alert", "dock", id, "chat", m.ChatID, "err", err)
 		return err
 	}
-	return httpx.JSON(c, http.StatusAccepted, map[string]any{"accepted": created, "mirrored": mirrored, "conversation_id": s.Conversation})
-}
-
-// mirror opens the alert's conversation at the mirror when the alert
-// starts a new thread: its conversation (made here, before the message,
-// by Arrive) is a thread of one — the first alert of a monitor and
-// scope, or one after the thread was unlinked. It happens before the
-// message is stored, so the crew wakes to the whole thread and its
-// session is keyed by the thread it keeps. A held alert (customs) opens
-// nothing: the owner didn't let it in. Seaport opens as itself (no
-// agent: the owner named the place). Failures are logged; the alert
-// still arrives.
-func (h *Handler) mirror(ctx context.Context, e Endpoint, in ship.Inbound, opener Opener, convs Conversations) bool {
-	ctx, cancel := context.WithTimeout(ctx, mirrorWithin)
-	defer cancel()
-	arrival, err := convs.Arrive(ctx, e.Organization, in.Arrival())
-	if err != nil {
-		slog.Error("mirror datadog alert: arrive", "dock", e.Dock, "chat", in.ChatID, "err", err)
-		return false
-	}
-	if arrival.Hold != conversation.HoldNone {
-		return false
-	}
-	doors, err := convs.Thread(ctx, e.Organization, arrival.Conversation.ID)
-	if err != nil {
-		slog.Error("mirror datadog alert: read thread", "dock", e.Dock, "conversation", arrival.Conversation.ID, "err", err)
-		return false
-	}
-	if len(doors) > 1 {
-		return false
-	}
-	if _, err := opener.Open(ctx, e.Organization, ship.Open{
-		Dock: e.Mirror.Dock, Destination: e.Mirror.Destination,
-		Text:     in.Text,
-		ThreadOf: arrival.Conversation.ID,
-	}); err != nil {
-		slog.Error("mirror datadog alert", "dock", e.Dock, "mirror", e.Mirror.Dock, "destination", e.Mirror.Destination,
-			"conversation", arrival.Conversation.ID, "err", err)
-		return false
-	}
-	return true
+	return httpx.JSON(c, http.StatusAccepted, map[string]any{"accepted": created, "mirrored": s.Mirrored, "conversation_id": s.Conversation})
 }
 
 // inbound is a rendered alert as the message the ship domain takes.

@@ -33,8 +33,10 @@ import (
 const (
 	// minSendGap spaces outbound messages per dock (anti-ban).
 	minSendGap = 1200 * time.Millisecond
-	// handlerTimeout bounds the work done for one WhatsApp event.
-	handlerTimeout = 30 * time.Second
+	// handlerTimeout bounds the work done for one WhatsApp event (a message
+	// of a dock that only triggers may open its mirror first,
+	// ship.MirrorWithin).
+	handlerTimeout = 30*time.Second + ship.MirrorWithin
 	// seenTimeout bounds the read receipt and reaction of one message.
 	seenTimeout = 30 * time.Second
 	// reactionWait: a reaction waits at most this long for its turn among

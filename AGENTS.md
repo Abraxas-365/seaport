@@ -544,6 +544,32 @@ net/http mux; only `/healthz` answers 405.
   registers `destinations`/`open` only when the agent's docks have one
   (like `skill`); `open` resolves the name among the agent's docks only
   (`dock_id` breaks ties).
+- Dock mirrors (migration 00053, `docks.mirror_dock/mirror_destination`,
+  `dock.Dock.Mirror`, `dock.Commands.SetMirror`, `PUT /docks/{id}/mirror`,
+  `seaport dock mirror`, the web's **Espejo** card; plan
+  `~/.rness/plans/puerto/dock-mirrors.md`): a dock that doesn't reply
+  (`!CanReply()`: webhook, datadog, or the switch off) may name a
+  destination of *another* dock of the organization that replies; the pair
+  is checked by `docksvc.SetMirror` (`Business` for a dock that replies,
+  the dock itself or a target that can't reply; `NotFound` for a missing
+  destination) and by the table (CHECKs, composite FK to `dock_destinations`
+  `ON DELETE SET NULL (mirror_dock, mirror_destination)`, so removing the
+  destination clears the mirror; `docks_mirror_trigger_only`: no mirror on a
+  dock whose replies are on unless its channel is webhook/datadog, which
+  closes the race of turning replies on meanwhile). Turning replies on with a mirror is
+  refused (`docksvc.Update`, `Business`; the CHECK as `Validation`). `shipsvc.Receive` opens it
+  (`shipsvc/mirror.go`), right after `Arrive` and before the message is
+  stored: only when customs doesn't hold the message (`HoldNone`), it isn't
+  `Own` and its sender isn't Seaport's own (`ship.FromSeaport`: schedule,
+  approval, browser; not every `system:` sender, since Datadog's alerts are
+  `system:datadog`), and the conversation is a thread of one that has not
+  stored this external id. The check and the opening run under a session
+  lock per conversation (`ship.MirrorLocker`, `shippg.MirrorLocker`,
+  `7_401_017`, via `pglock`; the thread is read after taking it), bounded by
+  `ship.MirrorWithin`. `ship.Open{Agent: nil, ThreadOf}` posts the text as
+  Seaport itself (files add a "(N file(s) attached…)" line). A failure is
+  logged and the message is stored anyway; allowing a held chat later
+  opens nothing. `Ship.Mirrored` (never stored nor on the wire) reports it.
 - Agents (`agent`, migration 00013): an organization's library
   (`agents`, soft delete, unique live name = its `@mention` handle, at
   most `agent.MaxAgents`, counted under `agentpg.createLock` `7_401_008`)
@@ -1460,10 +1486,9 @@ net/http mux; only `/healthz` answers 405.
   (`Link` creates the `datadog_docks` row and its secret; `Unlink` deletes
   it; `Relink` makes a new secret). `datadog_docks` holds the secret sealed
   (info `seaport datadog v1`, purpose `datadog\x00<dock>\x00secret`;
-  counted by `bootstrap.SecretKey`) and the mirror (`mirror_dock`,
-  `mirror_destination`: a destination of a dock that replies, checked by
-  `Handler.save` through `dock.Queries`, stored by `Store.SaveMirror`; FK to `dock_destinations` ON
-  DELETE SET NULL, so removing the destination removes the mirror). The
+  counted by `bootstrap.SecretKey`). Its mirror is the generic dock mirror
+  (below; migration 00053 moved it off `datadog_docks`; `PUT /docks/{id}/datadog`
+  calls `dock.Commands.SetMirror`). The
   channel never replies; no outbound (`Send`/`Open` are `Business`). Not
   exclusive, stateless, off without a secret key. Public `POST
   /datadog/webhook/{dock}` (default 1 MiB tier, `MaxBody`) takes the
@@ -1476,15 +1501,8 @@ net/http mux; only `/healthz` answers 405.
   `scope:<scope>`, `tag:<k>:<v>` (first `MaxTags`), sender
   `system:datadog`, external id `event-<id>` (else monitor + scope +
   transition + UTC minute), text = bold transition, title, status, scope,
-  priority, tags, message, link (https only). Mirror
-  (`Handler.mirror`, before `Receive`): `Conversations.Arrive` makes the
-  alert's conversation first; if it isn't held and its thread has one door
-  (`Thread`), `Opener.Open` (= `ship.Commands.Open`, `Agent` nil: Seaport
-  as itself) posts the alert text at the mirror with `ThreadOf` = that
-  conversation, so the crew wakes to both doors; failures are logged, the
-  alert still arrives (`mirrored` false). Recoveries and re-notifies land
-  on the alert's door (same chat id); Seaport posts nothing more to the
-  mirror. `dockmodule.BindMirror(ships.Service, convs.Service)` binds late.
+  priority, tags, message, link (https only). The webhook answers
+  `mirrored` from `Ship.Mirrored` (this alert opened the dock's mirror).
 - Email docks (`dockemail`, migration 00032): a dock is one mailbox read
   over IMAP and answered over SMTP, linked by `PUT /api/v1/docks/{id}/email`
   (`seaport dock email`, the web's "Correo" card). The handler checks the

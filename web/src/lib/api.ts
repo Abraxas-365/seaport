@@ -14,7 +14,7 @@ import type {
   WebhookInfo,
   WebhookTemplate,
   DatadogInfo,
-  DatadogMirror,
+  DockMirror,
   CrewStatus,
   CrewToken,
   Destination,
@@ -188,6 +188,7 @@ export const api = {
   createDock: (channel: Channel, name: string) =>
     request<Dock>("POST", `${v1}/docks`, { channel, name }),
   renameDock: (id: string, name: string) => request<Dock>("PATCH", `${v1}/docks/${id}`, { name }),
+  setDockMirror: (id: string, mirror: DockMirror | null) => request<Dock>("PUT", `${v1}/docks/${id}/mirror`, { mirror }),
   setDockReplies: (id: string, replies: boolean) => request<Dock>("PATCH", `${v1}/docks/${id}`, { replies }),
   setDockTools: (id: string, tools: Partial<DockTools>) => request<Dock>("PATCH", `${v1}/docks/${id}`, { tools }),
   relinkDock: (id: string) => request<Dock>("POST", `${v1}/docks/${id}/relink`),
@@ -210,8 +211,6 @@ export const api = {
   whatsapp: (id: string) => request<WhatsAppSettings>("GET", `${v1}/docks/${id}/whatsapp`),
   saveWhatsApp: (id: string, body: Partial<WhatsAppSettings>) =>
     request<WhatsAppSettings>("PUT", `${v1}/docks/${id}/whatsapp`, body),
-  saveDatadog: (id: string, body: { mirror: DatadogMirror | null }) =>
-    request<DatadogInfo>("PUT", `${v1}/docks/${id}/datadog`, body),
   rotateDatadogSecret: (id: string) => request<DatadogInfo>("POST", `${v1}/docks/${id}/datadog/secret`),
   slack: (id: string) => request<SlackInfo>("GET", `${v1}/docks/${id}/slack`),
   slackCreate: (id: string, body: { config_token: string; name?: string }) =>

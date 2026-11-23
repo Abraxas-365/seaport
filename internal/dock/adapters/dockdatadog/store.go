@@ -16,20 +16,10 @@ import (
 // SealInfo derives the key of Datadog webhook secrets (migration 00035).
 const SealInfo = "seaport datadog v1"
 
-// Mirror names the destination (phase 2) where each new alert thread is
-// opened: a dock that replies and one of its destinations.
-type Mirror struct {
-	Dock        identity.DockID `json:"dock_id"`
-	Destination string          `json:"destination"`
-}
-
-func (m Mirror) IsZero() bool { return m.Dock.IsZero() && m.Destination == "" }
-
-// Endpoint is a dock's Datadog webhook: its mirror and, opened, its secret.
+// Endpoint is a dock's Datadog webhook: its creation time and, opened, its secret.
 type Endpoint struct {
 	Dock         identity.DockID
 	Organization identity.OrganizationID
-	Mirror       *Mirror
 	CreatedAt    time.Time
 
 	secret string
@@ -49,12 +39,10 @@ type row struct {
 	Dock         identity.DockID         `db:"dock_id"`
 	Organization identity.OrganizationID `db:"organization_id"`
 	Secret       []byte                  `db:"secret"`
-	MirrorDock   *identity.DockID        `db:"mirror_dock"`
-	MirrorDest   *string                 `db:"mirror_destination"`
 	CreatedAt    time.Time               `db:"created_at"`
 }
 
-const columns = `dock_id, organization_id, secret, mirror_dock, mirror_destination, created_at`
+const columns = `dock_id, organization_id, secret, created_at`
 
 var messages = pgerr.Messages{NotFound: "this dock has no Datadog webhook (link it first)"}
 
@@ -98,25 +86,6 @@ func (s *Store) RotateSecret(ctx context.Context, org identity.OrganizationID, d
 	return secret, nil
 }
 
-// SaveMirror stores the dock's mirror (nil: none). The destination must
-// exist (foreign key): a missing one is NotFound.
-func (s *Store) SaveMirror(ctx context.Context, org identity.OrganizationID, dock identity.DockID, m *Mirror) error {
-	var mdock *identity.DockID
-	var mdest *string
-	if m != nil {
-		mdock, mdest = &m.Dock, &m.Destination
-	}
-	res, err := s.db.ExecContext(ctx, `UPDATE datadog_docks SET mirror_dock = $3, mirror_destination = $4, updated_at = now()
-		WHERE dock_id = $1 AND organization_id = $2`, dock, org, mdock, mdest)
-	if err != nil {
-		return pgerr.MapWith(err, "save datadog mirror", pgerr.Messages{ForeignKey: "that destination does not exist"})
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return errx.NotFound(messages.NotFound)
-	}
-	return nil
-}
-
 // Endpoint reads and opens the dock's webhook (system: the public route
 // names only the dock).
 func (s *Store) Endpoint(ctx context.Context, dock identity.DockID) (Endpoint, error) {
@@ -129,9 +98,6 @@ func (s *Store) Endpoint(ctx context.Context, dock identity.DockID) (Endpoint, e
 		return Endpoint{}, errx.Internal("datadog secret can't be opened (SEAPORT_SECRET_KEY changed?)")
 	}
 	out := Endpoint{Dock: r.Dock, Organization: r.Organization, CreatedAt: r.CreatedAt, secret: string(secret)}
-	if r.MirrorDock != nil && r.MirrorDest != nil {
-		out.Mirror = &Mirror{Dock: *r.MirrorDock, Destination: *r.MirrorDest}
-	}
 	return out, nil
 }
 

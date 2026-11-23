@@ -83,6 +83,10 @@ Show the URL and the stored template with `seaport dock webhook <dock-id>`.
 
 Every webhook conversation is a group where the message is always addressed, so agents wake without a mention. The sender is `sender_id` and also carries the handle `webhook:<first part of the dock id>`, so a customs rule can allow or deny the dock as a whole. The conversation is read-only: the prompt says so and sends the agent to a linked door.
 
+## Show it where people talk
+
+A webhook dock can't take the agent's answer, so give it a [mirror](mirrors.md): Seaport posts each new conversation at a Slack channel (or another destination) and the agent and people talk there. For CloudWatch alarms see [CloudWatch](cloudwatch.md).
+
 ## Close it
 
 `seaport dock unlink <dock-id>` (or **Cerrar el webhook**) deletes the secret and the template: the URL answers `404`. History stays. `seaport dock relink <dock-id>` opens it again with a new secret to generate.

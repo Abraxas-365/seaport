@@ -36,7 +36,7 @@ const (
 	// ChannelDatadog is a Datadog monitor webhook: alerts wake the crew,
 	// one conversation per monitor and scope, and recoveries land in it.
 	// It only triggers; the alert is mirrored to a destination of another
-	// dock (the dock's mirror) where people and the agent talk.
+	// dock (the dock's Mirror) where people and the agent talk.
 	ChannelDatadog Channel = "datadog"
 )
 
@@ -114,6 +114,10 @@ type Dock struct {
 	Tools     Tools     `db:"tools" json:"tools"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+	// Mirror is where Seaport opens a conversation for every new thread
+	// that arrives here (nil: nowhere). Only a dock that doesn't reply can
+	// have one; see Mirror.
+	Mirror *Mirror `db:"-" json:"mirror,omitempty"`
 	// QRCode is the current pairing code while linking (never stored).
 	QRCode string `db:"-" json:"qr_code,omitempty"`
 }
@@ -121,6 +125,38 @@ type Dock struct {
 // CanReply: the crew may answer on this dock, both the channel's way and
 // the owner's switch allowing it. What Send and the reply tools check.
 func (d Dock) CanReply() bool { return d.Channel.Replies() && d.Replies }
+
+// Mirror is the output of a dock that only triggers: a destination of
+// another dock (one that replies). When a message starts a new thread on
+// the dock, Seaport posts it at the destination (a new Slack thread, say)
+// and links both conversations, so the agent's answer goes there and
+// people answer there too. A dock that replies answers in place and has no
+// mirror; turning its replies on is refused while it has one.
+type Mirror struct {
+	Dock        identity.DockID `json:"dock_id"`
+	Destination string          `json:"destination"`
+}
+
+func (m Mirror) IsZero() bool { return m.Dock.IsZero() && m.Destination == "" }
+
+// SetMirror is the input of Commands.SetMirror: the mirror to keep (nil:
+// none).
+type SetMirror struct {
+	Mirror *Mirror
+}
+
+func (m SetMirror) Validate() error {
+	if m.Mirror == nil {
+		return nil
+	}
+	if m.Mirror.Dock.IsZero() {
+		return errx.InvalidField("mirror.dock_id", "mirror.dock_id is required")
+	}
+	if err := ValidDestinationName(m.Mirror.Destination); err != nil {
+		return errx.InvalidField("mirror.destination", "mirror.destination must be a destination name of that dock")
+	}
+	return nil
+}
 
 type Create struct {
 	Channel Channel

@@ -300,7 +300,6 @@ func Build(ctx context.Context, cfg config.Server, opts Options) (*App, error) {
 		return nil, err
 	}
 	docks.BindReceiver(ships.Service)
-	docks.BindMirror(ships.Service, convs.Service)
 	docks.BindTeams(agents.Service)
 	convs.Service.Bind(ships.Service)
 	agents.Service.Bind(ships.Service.Takeovers(), ships.Service)

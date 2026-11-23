@@ -360,6 +360,20 @@ func TestCLIWebhookAndDatadog(t *testing.T) {
 	if msg := p.fails("dock", "datadog", dd, "-mirror", "a:b", "-no-mirror"); !strings.Contains(msg, "exclude each other") {
 		t.Errorf("both mirror flags: %q", msg)
 	}
+	// The generic mirror of a dock that doesn't reply.
+	mustContain(t, "mirror none", p.ok("dock", "mirror", hook), "has no mirror")
+	mustContain(t, "mirror set", p.ok("dock", "mirror", hook, api+":alerts-room"), "mirrors new threads to", api+":alerts-room")
+	mustContain(t, "mirror shown", p.ok("dock", "mirror", hook), api+":alerts-room")
+	mustContain(t, "mirror off", p.ok("dock", "mirror", hook, "off"), "has no mirror")
+	if msg := p.fails("dock", "mirror", api, api+":alerts-room"); !strings.Contains(msg, "doesn't reply") {
+		t.Errorf("mirror on a dock that replies: %q", msg)
+	}
+	if msg := p.fails("dock", "mirror", hook, "nodestination"); !strings.Contains(msg, "usage: seaport dock mirror") {
+		t.Errorf("bad mirror: %q", msg)
+	}
+	if msg := p.fails("dock", "mirror"); !strings.Contains(msg, "usage: seaport dock mirror") {
+		t.Errorf("mirror usage: %q", msg)
+	}
 	if msg := p.fails("dock", "email", api); !strings.Contains(msg, "-address is required") {
 		t.Errorf("email without address: %q", msg)
 	}

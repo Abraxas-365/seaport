@@ -58,7 +58,7 @@ The conversation is read-only: the prompt says so and sends the agent to a door 
 
 ## Mirror the alerts
 
-The mirror is where a new alert is shown to people. Pick a dock whose replies are on and one of its [destinations](destinations.md): **Espejo** on the dock's page, or
+The mirror is the generic [dock mirror](mirrors.md): where a new alert is shown to people. Pick a dock whose replies are on and one of its [destinations](destinations.md): **Espejo** on the dock's page, or `seaport dock mirror <dock-id> <chat-dock-id>:oncall`, or
 
 ```sh
 seaport dock destination <chat-dock-id> oncall -target C0123456789 -title "the on-call channel"

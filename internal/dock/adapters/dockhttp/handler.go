@@ -27,6 +27,7 @@ func (h *Handler) Register(r httpx.Router) {
 	r.Patch("/api/v1/docks/:id", httpx.RequireFunc(permission.DocksWrite, h.update))
 	r.Post("/api/v1/docks/:id/unlink", httpx.RequireFunc(permission.DocksWrite, h.unlink))
 	r.Delete("/api/v1/docks/:id", httpx.RequireFunc(permission.DocksWrite, h.delete))
+	r.Put("/api/v1/docks/:id/mirror", httpx.RequireFunc(permission.DocksWrite, h.mirror))
 	h.registerDestinations(r)
 }
 
@@ -53,6 +54,33 @@ func (h *Handler) update(c fiber.Ctx) error {
 		return err
 	}
 	d, err := h.commands.Update(c.Context(), org, id, dock.Update{Name: req.Name, Replies: req.Replies, Tools: req.Tools})
+	if err != nil {
+		return err
+	}
+	return httpx.JSON(c, http.StatusOK, d)
+}
+
+type mirrorRequest struct {
+	// Mirror names the destination new threads are opened at; null or
+	// absent clears it.
+	Mirror *dock.Mirror `json:"mirror"`
+}
+
+// mirror sets or clears the mirror of a dock that doesn't reply.
+func (h *Handler) mirror(c fiber.Ctx) error {
+	org, err := httpx.Organization(c)
+	if err != nil {
+		return err
+	}
+	id, err := identity.ParseDockID(httpx.Param(c, "id"))
+	if err != nil {
+		return err
+	}
+	var req mirrorRequest
+	if err := httpx.DecodeJSON(c, &req); err != nil {
+		return err
+	}
+	d, err := h.commands.SetMirror(c.Context(), org, id, dock.SetMirror{Mirror: req.Mirror})
 	if err != nil {
 		return err
 	}

@@ -25,6 +25,8 @@ export const sidebar = [
       page('guides/api-docks'),
       page('guides/webhooks'),
       page('guides/datadog'),
+      page('guides/cloudwatch'),
+      page('guides/mirrors'),
       page('guides/customs'),
       page('guides/linked-conversations'),
       page('guides/schedules'),

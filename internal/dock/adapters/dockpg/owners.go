@@ -69,9 +69,8 @@ func (o *Owners) Renew(ctx context.Context, process string, docks []identity.Doc
 }
 
 func (o *Owners) Claim(ctx context.Context, process string, ttl time.Duration, channels []dock.Channel, statuses []dock.Status, limit int) ([]dock.Dock, error) {
-	out := []dock.Dock{}
 	if len(channels) == 0 || len(statuses) == 0 || limit <= 0 {
-		return out, nil
+		return []dock.Dock{}, nil
 	}
 	chs, sts := make([]string, len(channels)), make([]string, len(statuses))
 	for i, c := range channels {
@@ -81,7 +80,8 @@ func (o *Owners) Claim(ctx context.Context, process string, ttl time.Duration, c
 		sts[i] = string(s)
 	}
 	// Concurrent claims of one dock: the upsert's WHERE lets one win.
-	err := o.db.SelectContext(ctx, &out, `WITH free AS (
+	var rows []row
+	err := o.db.SelectContext(ctx, &rows, `WITH free AS (
 			SELECT d.id, d.organization_id FROM docks d
 			LEFT JOIN dock_owners o ON o.dock_id = d.id
 			WHERE d.channel = ANY($3::text[]) AND d.status = ANY($4::text[])
@@ -96,7 +96,7 @@ func (o *Owners) Claim(ctx context.Context, process string, ttl time.Duration, c
 		)
 		SELECT `+columns+` FROM docks WHERE id IN (SELECT dock_id FROM taken) ORDER BY created_at, id`,
 		process, ttl.Seconds(), chs, sts, limit)
-	return out, pgerr.Map(err, "claim docks")
+	return docks(rows), pgerr.Map(err, "claim docks")
 }
 
 func (o *Owners) ReleaseAll(ctx context.Context, process string) error {
